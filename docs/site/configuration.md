@@ -65,17 +65,39 @@ ou par une entrée du `.env`. Le `.env` est lu dans le dossier de configuration 
 | `dedupe.recheckAfter` | `true` | Redemande une vérification au client après remplacement |
 | `dedupe.verify` | `auto` | Mode de preuve d'identité : `auto`, `full`, `sampled`, `hash` |
 
-### Stockage distant : fournisseur rclone
+### Stockage distant : `fsProviders`
 
-Pour lire les empreintes d'un stockage distant, Necromanciarr s'appuie sur un fournisseur de système de fichiers.
-rclone est le seul fournisseur disponible aujourd'hui ; sa section `rclone` règle la lecture des empreintes
-d'un stockage monté par rclone. D'autres fournisseurs sont prévus.
+Pour lire les empreintes d'un stockage distant, Necromanciarr s'appuie sur des fournisseurs de système de fichiers,
+déclarés dans la liste `fsProviders`. rclone est le seul type disponible aujourd'hui ; d'autres types sont prévus.
+L'ancienne section `rclone` n'existe plus : elle est refusée au chargement, avec un message qui renvoie vers `fsProviders`.
+
+```json
+"fsProviders": [
+  {
+    "type": "rclone",
+    "name": "mega",
+    "rc": "http://user:${RCLONE_RC_PASS}@rclone:5572",
+    "timeout": "60s",
+    "mounts": ["/volumes/mega=megas4:bucket/prefix"]
+  }
+]
+```
+
+Clés communes à tous les types :
+
+| Champ | Rôle |
+| --- | --- |
+| `type` | Obligatoire. Seule valeur connue : `rclone` (un type inconnu est refusé, avec la liste des types connus) |
+| `name` | Obligatoire, unique, `^[a-z0-9-]+$` |
+| `mounts` | Entrées `cheminLocal=cible` : chemin absolu, sans doublon exact entre fournisseurs ; l'imbrication est permise et le montage le plus long l'emporte |
+
+Clés du type `rclone` (une clé inconnue est refusée en la nommant) :
 
 | Champ | Rôle |
 | --- | --- |
 | `rc` | URL de l'API `--rc` du processus rclone qui porte le montage (identifiants masqués à l'affichage) |
 | `binary` | Chemin d'un binaire rclone, secours pour les installations natives |
 | `timeout` | Durée Go strictement positive |
-| `mounts` | Entrées `cheminLocal=remote:sousChemin` |
 
+Pour le type `rclone`, la cible d'un montage s'écrit `remote:sousChemin`.
 Sans `rc` ni `binary`, aucune empreinte distante n'est demandée.
