@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -64,29 +65,57 @@ func TestFsProviders_rejectsUnknownKeyForType(t *testing.T) {
 }
 
 func TestFsProviders_rejectsDuplicateNameAndSharedMountPath(t *testing.T) {
-	cases := map[string]string{
-		"duplicate name":     `[{"type":"rclone","name":"a","mounts":["/x=r:"]},{"type":"rclone","name":"a","mounts":["/y=r:"]}]`,
-		"shared path":        `[{"type":"rclone","name":"a","mounts":["/x=r:"]},{"type":"rclone","name":"b","mounts":["/x=s:"]}]`,
-		"duplicate in one":   `[{"type":"rclone","name":"a","mounts":["/x=r:","/x=s:"]}]`,
-		"missing name":       `[{"type":"rclone"}]`,
-		"uppercase name":     `[{"type":"rclone","name":"Mega"}]`,
-		"two separators":     `[{"type":"rclone","name":"a","mounts":["/a=b=c:x"]}]`,
-		"relative local":     `[{"type":"rclone","name":"a","mounts":["a/b=r:x"]}]`,
-		"parent segment":     `[{"type":"rclone","name":"a","mounts":["/a/../b=r:x"]}]`,
-		"remote no colon":    `[{"type":"rclone","name":"a","mounts":["/a=remote"]}]`,
-		"remote is option":   `[{"type":"rclone","name":"a","mounts":["/a=-x:y"]}]`,
-		"bad timeout":        `[{"type":"rclone","name":"a","timeout":"soon"}]`,
-		"rc not http":        `[{"type":"rclone","name":"a","rc":"ftp://u:` + rcPasswordForTest + `@h:1"}]`,
-		"rc without host":    `[{"type":"rclone","name":"a","rc":"http://u:` + rcPasswordForTest + `@"}]`,
-		"rc fragment":        `[{"type":"rclone","name":"a","rc":"http://u:` + rcPasswordForTest + `@h:1#x"}]`,
-		"undefined variable": `[{"type":"rclone","name":"a","rc":"http://u:${NOPE}@h:1"}]`,
+	cases := []struct{ caseName, providers, expectedSubstring string }{
+		{"duplicate name", `[{"type":"rclone","name":"dup","mounts":["/x=r:"]},{"type":"rclone","name":"dup","mounts":["/y=r:"]}]`, `duplicate name "dup"`},
+		{"shared path", `[{"type":"rclone","name":"a","mounts":["/x=r:"]},{"type":"rclone","name":"b","mounts":["/x=s:"]}]`, `local path "/x" is mounted by both "a" and "b"`},
+		{"duplicate in one", `[{"type":"rclone","name":"a","mounts":["/x=r:","/x=s:"]}]`, `local path "/x" is mounted by both "a" and "a"`},
+		{"missing name", `[{"type":"rclone"}]`, `name "" is required`},
+		{"uppercase name", `[{"type":"rclone","name":"Mega"}]`, `name "Mega"`},
+		{"two separators", `[{"type":"rclone","name":"a","mounts":["/a=b=c:x"]}]`, `exactly one "="`},
+		{"relative local", `[{"type":"rclone","name":"a","mounts":["a/b=r:x"]}]`, `local path "a/b" must be absolute`},
+		{"parent segment", `[{"type":"rclone","name":"a","mounts":["/a/../b=r:x"]}]`, `local path "/a/../b" must be absolute`},
+		{"remote no colon", `[{"type":"rclone","name":"a","mounts":["/a=remote"]}]`, `remote "remote" must contain`},
+		{"remote is option", `[{"type":"rclone","name":"a","mounts":["/a=-x:y"]}]`, `remote "-x:y" must contain`},
+		{"bad timeout", `[{"type":"rclone","name":"a","timeout":"soon"}]`, `timeout: "soon"`},
+		{"rc not http", `[{"type":"rclone","name":"a","rc":"ftp://u:` + rcPasswordForTest + `@h:1"}]`, "rc must be an http(s) url"},
+		{"rc without host", `[{"type":"rclone","name":"a","rc":"http://u:` + rcPasswordForTest + `@"}]`, "rc must be an http(s) url"},
+		{"rc fragment", `[{"type":"rclone","name":"a","rc":"http://u:` + rcPasswordForTest + `@h:1#x"}]`, "rc must be an http(s) url"},
+		{"undefined variable", `[{"type":"rclone","name":"a","rc":"http://u:${NOPE}@h:1"}]`, "undefined variable NOPE"},
 	}
-	for caseName, providers := range cases {
-		_, err := loadFromJSON(t, `{"fsProviders": `+providers+`}`, nil)
+	for _, testCase := range cases {
+		_, err := loadFromJSON(t, `{"fsProviders": `+testCase.providers+`}`, nil)
 
-		if err == nil || !strings.Contains(err.Error(), "fsProviders") || strings.Contains(err.Error(), rcPasswordForTest) {
-			t.Fatalf("%s: got %v", caseName, err)
+		if err == nil || !strings.Contains(err.Error(), "fsProviders") || !strings.Contains(err.Error(), testCase.expectedSubstring) ||
+			strings.Contains(err.Error(), rcPasswordForTest) {
+			t.Fatalf("%s: gotValue %v, expected substring %q", testCase.caseName, err, testCase.expectedSubstring)
 		}
+	}
+}
+
+func TestFsProviders_duplicateJSONKeysKeepTheLastValue(t *testing.T) {
+	// Limite d'encoding/json, documentée ici : aucune détection de clé dupliquée.
+	loadedConfig, err := loadFromJSON(t, `{"fsProviders": [{"type": "rclone", "name": "first", "name": "second"}]}`, nil)
+
+	if err != nil || loadedConfig.FSProviders[0].Name != "second" {
+		t.Fatalf("gotValue %+v %v, expectedValue name second", loadedConfig.FSProviders, err)
+	}
+}
+
+func TestFSProvider_redactsRcCredentialsWhenPrintedAlone(t *testing.T) {
+	provider := FSProvider{Type: "rclone", Name: "mega", RC: "http://rcuser:" + rcPasswordForTest + "@rclone:5572"}
+	renderings := []string{
+		provider.String(), fmt.Sprintf("%v", provider), fmt.Sprintf("%+v", provider), fmt.Sprintf("%#v", provider),
+		fmt.Sprintf("%v", slog.Any("p", provider)), fmt.Sprintf("%v", &provider),
+	}
+
+	for _, rendered := range renderings {
+		if strings.Contains(rendered, rcPasswordForTest) || strings.Contains(rendered, "rcuser") || !strings.Contains(rendered, "rclone:5572") {
+			t.Fatalf("bad rendering: %s", rendered)
+		}
+	}
+	marshaled, err := json.Marshal(provider)
+	if err != nil || strings.Contains(string(marshaled), rcPasswordForTest) {
+		t.Fatalf("marshal: %s %v", marshaled, err)
 	}
 }
 

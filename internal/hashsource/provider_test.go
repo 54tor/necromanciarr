@@ -65,7 +65,7 @@ func TestNewFromConfig_buildsRcloneProvidersAndRejectsUnknownTypes(t *testing.T)
 func TestRegistry_describeMountsNamesTheProviderOfEachMount(t *testing.T) {
 	providers := []config.FSProvider{
 		{Type: "fake", Name: "ignored", Mounts: []config.FSMount{{LocalPath: "/home/u/x", Target: "a:"}}},
-		{Type: "rclone", Name: "mega", Mounts: []config.FSMount{{LocalPath: "/home/u/mega", Target: "r:x"}}},
+		{Type: "rclone", Name: "mega", Binary: "/nonexistent/rclone-for-test", Mounts: []config.FSMount{{LocalPath: "/home/u/mega", Target: "r:x"}}},
 	}
 	registry, err := newRegistry(providers, Deps{}, map[string]ProviderFactory{"fake": namedFactory, "rclone": newRcloneProvider})
 	if err != nil {

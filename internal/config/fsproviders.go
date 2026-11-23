@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"path/filepath"
 	"reflect"
@@ -46,6 +47,25 @@ type FSProvider struct {
 	Binary  string        `json:"binary,omitempty"`
 	Timeout time.Duration `json:"timeout,omitempty"`
 }
+
+type plainProvider FSProvider
+
+func (provider FSProvider) redacted() plainProvider {
+	provider.RC = redactRCURL(provider.RC)
+	return plainProvider(provider)
+}
+
+// String masque les identifiants de l'URL rc pour %v et %+v.
+func (provider FSProvider) String() string { return fmt.Sprintf("%+v", provider.redacted()) }
+
+// GoString masque les identifiants pour %#v.
+func (provider FSProvider) GoString() string { return provider.String() }
+
+// LogValue masque les identifiants dans les journaux slog.
+func (provider FSProvider) LogValue() slog.Value { return slog.StringValue(provider.String()) }
+
+// MarshalJSON masque les identifiants : toute sérialisation est destinée à l'affichage.
+func (provider FSProvider) MarshalJSON() ([]byte, error) { return json.Marshal(provider.redacted()) }
 
 // rcloneProviderFile est la forme brute d'une entrée de type rclone ; les montages sont « cheminLocal=remote:sousChemin ».
 type rcloneProviderFile struct {
