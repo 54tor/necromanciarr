@@ -75,9 +75,10 @@ mod:
 	$(GO_RUN) mod tidy -diff
 	$(GO_RUN) mod verify
 
+# Paquets du module listés explicitement : ./... descendrait dans docs/site/node_modules.
 # -test : le binaire ne câble pas encore les paquets ; les tests servent de racines.
 deadcode:
-	@out=$$($(DEADCODE_CMD) -test ./...) || exit 1; test -z "$$out" || { echo "$$out"; exit 1; }
+	@out=$$($(DEADCODE_CMD) -test ./cmd/... ./internal/...) || exit 1; test -z "$$out" || { echo "$$out"; exit 1; }
 
 shell:
 	$(DOCKER_TOOL) $(SHELLCHECK_IMAGE) $(SHELL_SCRIPTS)
