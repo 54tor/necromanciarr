@@ -157,8 +157,10 @@ func TestConfig_crossSeedDaemonFromExplicitUrlBeatsImportedHostPort(t *testing.T
 		expectedAPIKey  string
 	}{
 		{"imported host and port", "", "http://localhost:2468", "imported-key"},
-		{"explicit url", `, "crossSeed": "http://cross-seed.example.com:2468?apikey=${CROSS_SEED_API_KEY}"`,
-			"http://cross-seed.example.com:2468", "explicit-key"},
+		{
+			"explicit url", `, "crossSeed": "http://cross-seed.example.com:2468?apikey=${CROSS_SEED_API_KEY}"`,
+			"http://cross-seed.example.com:2468", "explicit-key",
+		},
 	}
 	for _, testCase := range daemonCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -298,7 +300,6 @@ func TestConfig_ambiguousImportedPasswordsNeverLeak(t *testing.T) {
 			crossSeedPath := writeCrossSeedJS(t, `module.exports = { torrentClients: [`+string(encodedClient)+`] };`)
 
 			loadedConfig, err := Load(nil, lookupFrom(nil), configWithCrossSeed(t, crossSeedPath, ""))
-
 			if err != nil {
 				assertNoSecret(t, err.Error())
 				return

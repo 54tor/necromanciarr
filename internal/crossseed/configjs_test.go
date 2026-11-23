@@ -391,8 +391,10 @@ func TestImported_redactionFailsClosedOnAmbiguousUserinfo(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			renderings := []string{string(directJSON), imported.String(), fmt.Sprintf("%#v", imported),
-				slog.AnyValue(imported).Resolve().String()}
+			renderings := []string{
+				string(directJSON), imported.String(), fmt.Sprintf("%#v", imported),
+				slog.AnyValue(imported).Resolve().String(),
+			}
 			for _, rendering := range renderings {
 				assertNoSecret(t, rendering)
 			}
