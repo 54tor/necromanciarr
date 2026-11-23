@@ -67,9 +67,9 @@ type CapabilityCache interface {
 	SaveMountCapabilities(ctx context.Context, capabilities store.MountCapabilities) error
 }
 
-// CachedCapabilities renvoie les capacités mémorisées du montage, sinon lance probe et mémorise son résultat. Un
+// CachedCapabilities (providerName : fournisseur qui porte le montage) renvoie les capacités mémorisées du montage, sinon lance probe et mémorise son résultat. Un
 // échec de la sonde n'est jamais mémorisé.
-func CachedCapabilities(ctx context.Context, cache CapabilityCache, mountPath string, probe func(context.Context) (Capabilities, error)) (Capabilities, error) {
+func CachedCapabilities(ctx context.Context, cache CapabilityCache, providerName, mountPath string, probe func(context.Context) (Capabilities, error)) (Capabilities, error) {
 	stored, found, err := cache.LoadMountCapabilities(ctx, mountPath)
 	if err != nil {
 		return Capabilities{}, err
@@ -81,7 +81,7 @@ func CachedCapabilities(ctx context.Context, cache CapabilityCache, mountPath st
 	if err != nil {
 		return Capabilities{}, err
 	}
-	err = cache.SaveMountCapabilities(ctx, toStored(mountPath, probed))
+	err = cache.SaveMountCapabilities(ctx, toStored(providerName, mountPath, probed))
 	return probed, err
 }
 
@@ -93,8 +93,8 @@ func fromStored(stored store.MountCapabilities) Capabilities {
 	return capabilities
 }
 
-func toStored(mountPath string, capabilities Capabilities) store.MountCapabilities {
-	stored := store.MountCapabilities{MountPath: mountPath, ModTime: capabilities.ModTime, Symlinks: capabilities.Symlinks, ProbedAt: time.Now().UTC()}
+func toStored(providerName, mountPath string, capabilities Capabilities) store.MountCapabilities {
+	stored := store.MountCapabilities{MountPath: mountPath, Provider: providerName, ModTime: capabilities.ModTime, Symlinks: capabilities.Symlinks, ProbedAt: time.Now().UTC()}
 	for _, algorithm := range capabilities.Hashes {
 		stored.Hashes = append(stored.Hashes, string(algorithm))
 	}

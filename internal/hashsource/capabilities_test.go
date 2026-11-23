@@ -99,12 +99,16 @@ func TestCachedCapabilities_probesOnceThenReadsTheStore(t *testing.T) {
 		return ProbeCapabilities(ctx, source, sample, writable)
 	}
 
-	first, err := CachedCapabilities(context.Background(), testStore, "/home/u/mnt/mega", probe)
+	first, err := CachedCapabilities(context.Background(), testStore, "mega", "/home/u/mnt/mega", probe)
 	callsAfterFirst := source.calls
-	second, secondErr := CachedCapabilities(context.Background(), testStore, "/home/u/mnt/mega", probe)
+	second, secondErr := CachedCapabilities(context.Background(), testStore, "mega", "/home/u/mnt/mega", probe)
 
 	if err != nil || secondErr != nil || !slices.Equal(first.Hashes, second.Hashes) || second.Hashes[0] != MD5 || !second.ModTime {
 		t.Fatalf("%+v %+v %v %v", first, second, err, secondErr)
+	}
+	stored, _, _ := testStore.LoadMountCapabilities(context.Background(), "/home/u/mnt/mega")
+	if stored.Provider != "mega" {
+		t.Fatalf("stored provider %q, expectedValue mega", stored.Provider)
 	}
 	if source.calls != callsAfterFirst {
 		t.Fatalf("second call probed again: %d then %d calls", callsAfterFirst, source.calls)
@@ -119,7 +123,7 @@ func TestCachedCapabilities_doesNotCacheAFailedProbe(t *testing.T) {
 	t.Cleanup(func() { _ = testStore.Close() })
 	failing := func(context.Context) (Capabilities, error) { return Capabilities{}, ErrRcloneFailed }
 
-	if _, err := CachedCapabilities(context.Background(), testStore, "/home/u/mnt/mega", failing); !errors.Is(err, ErrRcloneFailed) {
+	if _, err := CachedCapabilities(context.Background(), testStore, "mega", "/home/u/mnt/mega", failing); !errors.Is(err, ErrRcloneFailed) {
 		t.Fatalf("got %v", err)
 	}
 	if _, found, _ := testStore.LoadMountCapabilities(context.Background(), "/home/u/mnt/mega"); found {

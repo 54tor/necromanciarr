@@ -14,7 +14,7 @@ const maxSampleSearchEntries = 2000
 
 // Conseils affichés par DescribeMount.
 const (
-	adviceStartRC     = "démarrer le processus rclone du montage avec --rc --rc-addr :5572 --rc-user <utilisateur> --rc-pass <motdepasse>, puis renseigner rclone.rc ; ne jamais exposer rc hors d'un réseau privé"
+	adviceStartRC     = "démarrer le processus rclone du montage avec --rc --rc-addr :5572 --rc-user <utilisateur> --rc-pass <motdepasse>, puis renseigner le champ rc du fournisseur rclone dans fsProviders ; ne jamais exposer rc hors d'un réseau privé"
 	adviceNoHash      = "le backend de ce montage ne fournit aucune empreinte (cas du backend mega classique) ; la comparaison relira les fichiers"
 	adviceNoModTime   = "le montage n'expose pas de date de modification : la méthode taille et date est sautée"
 	adviceVFSLinks    = "les symlinks échouent sur ce montage : relancer rclone avec --vfs-links"

@@ -113,3 +113,39 @@ func TestStore_upgradesOldLinksAndFingerprintsTables(t *testing.T) {
 		_ = reopened.Close()
 	}
 }
+
+func TestMountCapabilities_upgradeAddsProviderColumn(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "old.db")
+	oldDatabase, err := sql.Open("sqlite", dataSourceName(databasePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = oldDatabase.Exec(`CREATE TABLE mount_capabilities (id INTEGER PRIMARY KEY, mount_path TEXT NOT NULL UNIQUE,
+		hashes TEXT NOT NULL, modtime INTEGER NOT NULL, symlinks INTEGER NOT NULL, probed_at INTEGER NOT NULL);
+		INSERT INTO mount_capabilities (mount_path, hashes, modtime, symlinks, probed_at) VALUES ('/home/u/mnt/old', 'MD5', 1, 0, 1)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := oldDatabase.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for openCount := 0; openCount < 2; openCount++ {
+		upgraded, err := Open(databasePath)
+		if err != nil {
+			t.Fatalf("open #%d: %v", openCount, err)
+		}
+		oldRow, found, loadErr := upgraded.LoadMountCapabilities(context.Background(), "/home/u/mnt/old")
+		if loadErr != nil || !found || oldRow.Provider != "" || len(oldRow.Hashes) != 1 {
+			t.Fatalf("old row after upgrade: %+v found %v err %v", oldRow, found, loadErr)
+		}
+		saveErr := upgraded.SaveMountCapabilities(context.Background(), MountCapabilities{MountPath: "/home/u/mnt/new", Provider: "mega", ProbedAt: time.Unix(1, 0)})
+		newRow, _, _ := upgraded.LoadMountCapabilities(context.Background(), "/home/u/mnt/new")
+		if saveErr != nil || newRow.Provider != "mega" {
+			t.Fatalf("new row: %+v err %v", newRow, saveErr)
+		}
+		if err := upgraded.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

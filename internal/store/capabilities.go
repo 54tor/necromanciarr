@@ -13,9 +13,11 @@ import (
 const hashSeparator = ","
 
 // MountCapabilities est le résultat mis en cache de la sonde d'un montage : empreintes que son stockage fournit, date
-// de modification et liens symboliques. Hashes porte les noms d'algorithme (« MD5 »), sans dépendre du paquet hashsource.
+// de modification et liens symboliques. Provider est le nom du fournisseur de système de fichiers qui porte le montage
+// (vide pour une ligne écrite avant l'introduction des fournisseurs). Hashes porte les noms d'algorithme (« MD5 »), sans dépendre du paquet hashsource.
 type MountCapabilities struct {
 	MountPath string
+	Provider  string
 	Hashes    []string
 	ModTime   bool
 	Symlinks  bool
@@ -25,10 +27,10 @@ type MountCapabilities struct {
 // SaveMountCapabilities enregistre le résultat de la sonde, en remplaçant celui déjà connu pour le même montage.
 func (openedStore *Store) SaveMountCapabilities(ctx context.Context, capabilities MountCapabilities) error {
 	_, err := openedStore.database.ExecContext(ctx, `
-INSERT INTO mount_capabilities (mount_path, hashes, modtime, symlinks, probed_at) VALUES (?, ?, ?, ?, ?)
-ON CONFLICT(mount_path) DO UPDATE SET hashes = excluded.hashes, modtime = excluded.modtime,
+INSERT INTO mount_capabilities (mount_path, provider, hashes, modtime, symlinks, probed_at) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(mount_path) DO UPDATE SET provider = excluded.provider, hashes = excluded.hashes, modtime = excluded.modtime,
 	symlinks = excluded.symlinks, probed_at = excluded.probed_at`,
-		capabilities.MountPath, strings.Join(capabilities.Hashes, hashSeparator), capabilities.ModTime,
+		capabilities.MountPath, capabilities.Provider, strings.Join(capabilities.Hashes, hashSeparator), capabilities.ModTime,
 		capabilities.Symlinks, capabilities.ProbedAt.UnixNano())
 	if err != nil {
 		return fmt.Errorf("save mount capabilities: %w", err)
@@ -42,8 +44,8 @@ func (openedStore *Store) LoadMountCapabilities(ctx context.Context, mountPath s
 	var hashes string
 	var probedAtNanoseconds int64
 	err = openedStore.database.QueryRowContext(ctx,
-		`SELECT hashes, modtime, symlinks, probed_at FROM mount_capabilities WHERE mount_path = ?`, mountPath).
-		Scan(&hashes, &capabilities.ModTime, &capabilities.Symlinks, &probedAtNanoseconds)
+		`SELECT provider, hashes, modtime, symlinks, probed_at FROM mount_capabilities WHERE mount_path = ?`, mountPath).
+		Scan(&capabilities.Provider, &hashes, &capabilities.ModTime, &capabilities.Symlinks, &probedAtNanoseconds)
 	if errors.Is(err, sql.ErrNoRows) {
 		return MountCapabilities{}, false, nil
 	}
