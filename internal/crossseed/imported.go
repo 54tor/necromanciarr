@@ -8,14 +8,17 @@ import (
 	"log/slog"
 	"maps"
 	"math"
-	"net/url"
 	"slices"
 	"strings"
 )
 
 const (
-	redactedMark = "***"
-	maxPort      = 65535
+	redactedMark         = "***"
+	maxPort              = 65535
+	schemeSeparator      = "://"
+	authorityTerminators = "/?#"
+	// hostCharacters : nom, IPv4, IPv6 entre crochets (zone %25 comprise) et port.
+	hostCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_:[]%"
 )
 
 // linkTypes sont les valeurs de linkType de cross-seed ; elles portent le même nom que les sortes de liens du linker.
@@ -151,18 +154,34 @@ func redactServices(rawServices []string) []string {
 	return redactedServices
 }
 
-// redactService garde « type:readonly: » devant l'URL ; une chaîne illisible est masquée en entier.
+// redactService garde « type:readonly:schéma:// » et l'hôte, sans jamais passer par url.Parse : un mot de passe non
+// encodé contenant « / », « ? » ou « # » y deviendrait un morceau d'hôte. Au moindre doute, l'hôte est masqué.
 func redactService(rawService string) string {
-	schemeEnd := strings.Index(rawService, "://")
+	schemeEnd := strings.Index(rawService, schemeSeparator)
 	if schemeEnd < 0 {
 		return redactedMark
 	}
-	urlStart := strings.LastIndex(rawService[:schemeEnd], ":") + 1
-	parsedURL, err := url.Parse(rawService[urlStart:])
-	if err != nil || parsedURL.Host == "" {
-		return rawService[:urlStart] + redactedMark
+	prefix := rawService[:schemeEnd+len(schemeSeparator)]
+	return prefix + hostOf(rawService[len(prefix):])
+}
+
+// hostOf rend l'hôte d'une autorité suivie de chemin, requête ou fragment. Avec un « @ », l'hôte suit le dernier ;
+// si ce qui le précède contient « / », « ? » ou « # », on ne sait plus où finit l'userinfo : tout est masqué.
+func hostOf(afterScheme string) string {
+	candidate := afterScheme
+	if atIndex := strings.LastIndex(afterScheme, "@"); atIndex >= 0 {
+		if strings.ContainsAny(afterScheme[:atIndex], authorityTerminators) {
+			return redactedMark
+		}
+		candidate = afterScheme[atIndex+1:]
 	}
-	return rawService[:urlStart] + parsedURL.Scheme + "://" + parsedURL.Host
+	if terminatorIndex := strings.IndexAny(candidate, authorityTerminators); terminatorIndex >= 0 {
+		candidate = candidate[:terminatorIndex]
+	}
+	if candidate == "" || strings.Trim(candidate, hostCharacters) != "" {
+		return redactedMark
+	}
+	return candidate
 }
 
 type plainImported Imported

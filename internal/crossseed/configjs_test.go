@@ -366,6 +366,43 @@ func TestImported_redactsCredentialsEverywhere(t *testing.T) {
 	}
 }
 
+func TestImported_redactionFailsClosedOnAmbiguousUserinfo(t *testing.T) {
+	cases := []struct {
+		raw          string
+		expectedHost string
+	}{
+		{"qbittorrent:http://alice:secret-pa/ss@example.com:8080", redactedMark},
+		{"qbittorrent:http://alice:secret-pa?ss@example.com:8080", redactedMark},
+		{"qbittorrent:http://alice:secret-pa#ss@example.com:8080", redactedMark},
+		{"qbittorrent:http://alice:secret-p@ss@example.com:8080", "example.com:8080"},
+		{"qbittorrent:readonly:http://alice:secret-p:ss@example.com:8080", "example.com:8080"},
+		{"qbittorrent:http://alice:secret-p%2Fss@example.com:8080", "example.com:8080"},
+		{"qbittorrent:http://alice:secret-pass@[2001:db8::1]:8080", "[2001:db8::1]:8080"},
+		{"qbittorrent:http://example.com:7476/proxy/secret-proxy-key", "example.com:7476"},
+		{"qbittorrent:http://example.com:7476/proxy/secret-ke@y", redactedMark},
+		{"http://example.com:7878/?apikey=secret-radarr", "example.com:7878"},
+		{"http://secret-only-userinfo@", redactedMark},
+		{"secret-no-scheme", ""},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.raw, func(t *testing.T) {
+			imported := Imported{TorrentClients: []string{testCase.raw}, Radarr: []string{testCase.raw}}
+			directJSON, err := json.Marshal(imported)
+			if err != nil {
+				t.Fatal(err)
+			}
+			renderings := []string{string(directJSON), imported.String(), fmt.Sprintf("%#v", imported),
+				slog.AnyValue(imported).Resolve().String()}
+			for _, rendering := range renderings {
+				assertNoSecret(t, rendering)
+			}
+			if gotValue := redactService(testCase.raw); testCase.expectedHost != "" && !strings.HasSuffix(gotValue, "://"+testCase.expectedHost) {
+				t.Fatalf("gotValue %q, expectedValue host %q", gotValue, testCase.expectedHost)
+			}
+		})
+	}
+}
+
 func assertNoSecret(t *testing.T, rendered string) {
 	t.Helper()
 	if strings.Contains(rendered, "secret-") {
