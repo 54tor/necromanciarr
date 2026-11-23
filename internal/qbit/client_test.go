@@ -11,8 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anacrolix/torrent/bencode"
+	"github.com/anacrolix/torrent/metainfo"
+
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/qbit"
+	"necromanciarr/internal/repair"
+	"necromanciarr/internal/torrentcheck"
 )
 
 const (
@@ -687,5 +692,51 @@ func TestRecheckPath_skipsTorrentRemovedBetweenListAndFiles(t *testing.T) {
 		if strings.HasSuffix(gotAction, hashPack) {
 			t.Fatalf("the vanished torrent must be skipped: %v", fake.snapshotActions())
 		}
+	}
+}
+
+// buildTorrent fabrique un .torrent v1 à deux fichiers sous le dossier racine Movie.
+func buildTorrent(t *testing.T) []byte {
+	t.Helper()
+	info := metainfo.Info{
+		Name: "Movie", PieceLength: 16384, Pieces: make([]byte, 20),
+		Files: []metainfo.FileInfo{{Length: 40, Path: []string{"movie.mkv"}}, {Length: 2, Path: []string{"movie.nfo"}}},
+	}
+	infoBytes, err := bencode.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal info: %v", err)
+	}
+	raw, err := bencode.Marshal(metainfo.MetaInfo{InfoBytes: infoBytes})
+	if err != nil {
+		t.Fatalf("marshal metainfo: %v", err)
+	}
+	return raw
+}
+
+func TestTorrentForPath_returnsParsedTorrentAndFileIndex(t *testing.T) {
+	raw := buildTorrent(t)
+	parsed, err := torrentcheck.Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	fake := newFakeQbit(webAPIVersion4)
+	torrent := movieTorrent(1)
+	torrent.Files = []fakeFile{{Name: "Movie/movie.mkv", Size: 40}, {Name: "Movie/movie.nfo", Size: 2}}
+	torrent.Export = raw
+	fake.torrents[parsed.InfoHash] = torrent
+	server := fake.start(t)
+	client := newTestClient(t, server.URL, "", "")
+	var source repair.TorrentSource = client
+
+	gotRef, found, err := source.TorrentForPath(context.Background(), "/home/u/torrents/Movie/movie.nfo")
+	if err != nil || !found {
+		t.Fatalf("TorrentForPath: found=%t err=%v", found, err)
+	}
+	if expectedValue := 1; gotRef.FileIndex != expectedValue || gotRef.Torrent.InfoHash != parsed.InfoHash {
+		t.Fatalf("expected file %d of %s, got %d of %s", expectedValue, parsed.InfoHash, gotRef.FileIndex, gotRef.Torrent.InfoHash)
+	}
+	_, found, err = source.TorrentForPath(context.Background(), "/home/u/torrents/Other/other.mkv")
+	if err != nil || found {
+		t.Fatalf("expected not found without error, got found=%t err=%v", found, err)
 	}
 }
