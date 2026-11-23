@@ -34,6 +34,7 @@ func sampleLink() Link {
 		State:         LinkOK,
 		CreatedAt:     moment,
 		VerifiedAt:    moment,
+		ModTime:       moment.Add(-time.Hour),
 	}
 }
 
@@ -200,5 +201,53 @@ func TestFingerprintCache_hitsOnlyWhenSizeAndModTimeMatch(t *testing.T) {
 		if err != nil || found {
 			t.Fatalf("expected a miss for %+v, got found %v err %v", staleCase, found, err)
 		}
+	}
+}
+
+func TestRecordLink_keepsModTimeAndZeroWhenUnknown(t *testing.T) {
+	ctx := context.Background()
+	testStore := openTestStore(t)
+	unknown := sampleLink()
+	unknown.LinkPath, unknown.ModTime = "/home/u/torrents/unknown.mkv", time.Time{}
+	for _, link := range []Link{sampleLink(), unknown} {
+		if err := testStore.RecordLink(ctx, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	gotLinks, err := testStore.ListLinks(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotLinks) != 2 || !gotLinks[1].ModTime.Equal(sampleLink().ModTime) || !gotLinks[0].ModTime.IsZero() {
+		t.Fatalf("unexpected mod times %+v", gotLinks)
+	}
+}
+
+func TestOpen_addsMtimeColumnToAnOlderLinksTable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	oldDatabase, err := sql.Open("sqlite", dataSourceName(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = oldDatabase.Exec(`CREATE TABLE links (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, link_path TEXT NOT NULL UNIQUE,
+	target_path TEXT NOT NULL, relative INTEGER NOT NULL, target_dev INTEGER, target_ino INTEGER, inode_reliable INTEGER NOT NULL,
+	size INTEGER NOT NULL, fingerprint TEXT NOT NULL, state TEXT NOT NULL, created_at INTEGER NOT NULL, verified_at INTEGER NOT NULL);
+	INSERT INTO links (kind, link_path, target_path, relative, inode_reliable, size, fingerprint, state, created_at, verified_at)
+	VALUES ('symlink', '/home/u/a.mkv', '/home/u/b.mkv', 0, 0, 5, 'f', 'ok', 1, 1)`)
+	if err != nil || oldDatabase.Close() != nil {
+		t.Fatal(err)
+	}
+
+	for range 2 {
+		reopened, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotLinks, err := reopened.ListLinks(context.Background(), "")
+		if err != nil || len(gotLinks) != 1 || gotLinks[0].Size != 5 || !gotLinks[0].ModTime.IsZero() {
+			t.Fatalf("old row lost or unreadable: %v %+v", err, gotLinks)
+		}
+		_ = reopened.Close()
 	}
 }

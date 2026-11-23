@@ -41,6 +41,8 @@ type Link struct {
 	State         LinkState
 	CreatedAt     time.Time
 	VerifiedAt    time.Time
+	// ModTime est la date de modification de la cible à la création du lien ; zéro si inconnue.
+	ModTime time.Time
 }
 
 func checkLinkState(state LinkState) error {
@@ -60,17 +62,22 @@ func (openedStore *Store) RecordLink(ctx context.Context, link Link) error {
 	device, inode := nullableIdentity(link)
 	_, err := openedStore.database.ExecContext(ctx, `
 INSERT INTO links (kind, link_path, target_path, relative, target_dev, target_ino, inode_reliable, size, fingerprint,
-	state, created_at, verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	state, created_at, verified_at, mtime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(link_path) DO UPDATE SET kind = excluded.kind, target_path = excluded.target_path,
 	relative = excluded.relative, target_dev = excluded.target_dev, target_ino = excluded.target_ino,
 	inode_reliable = excluded.inode_reliable, size = excluded.size, fingerprint = excluded.fingerprint,
-	state = excluded.state, created_at = excluded.created_at, verified_at = excluded.verified_at`,
+	state = excluded.state, created_at = excluded.created_at, verified_at = excluded.verified_at, mtime = excluded.mtime`,
 		link.Kind, link.LinkPath, link.TargetPath, link.Relative, device, inode, link.InodeReliable, link.Size,
-		link.Fingerprint, string(link.State), link.CreatedAt.UnixNano(), link.VerifiedAt.UnixNano())
+		link.Fingerprint, string(link.State), link.CreatedAt.UnixNano(), link.VerifiedAt.UnixNano(), nullableModTime(link.ModTime))
 	if err != nil {
 		return fmt.Errorf("record link: %w", err)
 	}
 	return nil
+}
+
+// nullableModTime stocke NULL pour une date inconnue (zéro) plutôt qu'une date de l'an 1.
+func nullableModTime(modTime time.Time) sql.NullInt64 {
+	return sql.NullInt64{Int64: modTime.UnixNano(), Valid: !modTime.IsZero()}
 }
 
 // nullableIdentity : SQLite ne stocke que des entiers signés ; le motif binaire de l'uint64 est conservé tel quel.
@@ -87,7 +94,7 @@ func nullableIdentity(link Link) (sql.NullInt64, sql.NullInt64) {
 func (openedStore *Store) ListLinks(ctx context.Context, state LinkState) ([]Link, error) {
 	rows, err := openedStore.database.QueryContext(ctx, `
 SELECT id, kind, link_path, target_path, relative, target_dev, target_ino, inode_reliable, size, fingerprint, state,
-	created_at, verified_at FROM links WHERE ? = '' OR state = ? ORDER BY link_path`, string(state), string(state))
+	created_at, verified_at, mtime FROM links WHERE ? = '' OR state = ? ORDER BY link_path`, string(state), string(state))
 	if err != nil {
 		return nil, fmt.Errorf("list links: %w", err)
 	}
@@ -105,11 +112,11 @@ SELECT id, kind, link_path, target_path, relative, target_dev, target_ino, inode
 
 func scanLink(rows *sql.Rows) (Link, error) {
 	var link Link
-	var device, inode sql.NullInt64
+	var device, inode, modTimeNanoseconds sql.NullInt64
 	var state string
 	var createdAtNanoseconds, verifiedAtNanoseconds int64
 	err := rows.Scan(&link.ID, &link.Kind, &link.LinkPath, &link.TargetPath, &link.Relative, &device, &inode,
-		&link.InodeReliable, &link.Size, &link.Fingerprint, &state, &createdAtNanoseconds, &verifiedAtNanoseconds)
+		&link.InodeReliable, &link.Size, &link.Fingerprint, &state, &createdAtNanoseconds, &verifiedAtNanoseconds, &modTimeNanoseconds)
 	if err != nil {
 		return Link{}, fmt.Errorf("scan link: %w", err)
 	}
@@ -118,6 +125,9 @@ func scanLink(rows *sql.Rows) (Link, error) {
 	link.State = LinkState(state)
 	link.CreatedAt = time.Unix(0, createdAtNanoseconds).UTC()
 	link.VerifiedAt = time.Unix(0, verifiedAtNanoseconds).UTC()
+	if modTimeNanoseconds.Valid {
+		link.ModTime = time.Unix(0, modTimeNanoseconds.Int64).UTC()
+	}
 	return link, nil
 }
 
@@ -164,7 +174,7 @@ func (openedStore *Store) RecordFingerprint(ctx context.Context, entry CachedFin
 	_, err := openedStore.database.ExecContext(ctx, `
 INSERT INTO fingerprints (path, size, mtime, head_tail_hash, verified_at) VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime = excluded.mtime,
-	head_tail_hash = excluded.head_tail_hash, verified_at = excluded.verified_at`,
+	head_tail_hash = excluded.head_tail_hash, verified_at = excluded.verified_at, mtime = excluded.mtime`,
 		entry.Path, entry.Size, entry.ModTime.UnixNano(), entry.HeadTailHash, entry.VerifiedAt.UnixNano())
 	if err != nil {
 		return fmt.Errorf("record fingerprint: %w", err)

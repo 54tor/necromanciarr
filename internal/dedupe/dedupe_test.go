@@ -605,7 +605,7 @@ func TestApply_recordsLinkWithInodeSizeAndFingerprint(t *testing.T) {
 	if gotValue.Kind != "symlink" || gotValue.LinkPath != layout.torrentPath || gotValue.TargetPath != layout.libraryPath ||
 		!gotValue.Relative || gotValue.Size != int64(len(layout.content)) || gotValue.State != store.LinkOK ||
 		gotValue.Fingerprint != hex.EncodeToString(headTailSum[:]) || gotValue.InodeReliable != identityKnown ||
-		gotValue.TargetDevice != expectedDevice || gotValue.TargetInode != expectedInode {
+		!gotValue.ModTime.Equal(replacement.LibraryModTime) || gotValue.TargetDevice != expectedDevice || gotValue.TargetInode != expectedInode {
 		t.Fatalf("unexpected recorded link %+v", gotValue)
 	}
 	if !slices.Equal(rechecker.paths, []string{layout.torrentPath}) {

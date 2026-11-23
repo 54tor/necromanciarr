@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS links (
 	fingerprint TEXT NOT NULL,
 	state TEXT NOT NULL,
 	created_at INTEGER NOT NULL,
-	verified_at INTEGER NOT NULL
+	verified_at INTEGER NOT NULL,
+	mtime INTEGER
 );
 CREATE TABLE IF NOT EXISTS fingerprints (
 	id INTEGER PRIMARY KEY,
@@ -107,6 +108,9 @@ func Open(path string) (*Store, error) {
 	if _, err := database.Exec(schema); err != nil {
 		return nil, errors.Join(fmt.Errorf("create schema: %w", err), database.Close())
 	}
+	if err := addLinksMtimeColumn(database); err != nil {
+		return nil, errors.Join(fmt.Errorf("upgrade schema: %w", err), database.Close())
+	}
 	return &Store{database: database}, nil
 }
 
@@ -148,4 +152,29 @@ func (openedStore *Store) ListMediaFiles(ctx context.Context) ([]MediaFile, erro
 		mediaFiles = append(mediaFiles, file)
 	}
 	return mediaFiles, rows.Err()
+}
+
+// addLinksMtimeColumn ajoute links.mtime aux bases créées avant cette colonne ; sans effet si elle existe déjà.
+func addLinksMtimeColumn(database *sql.DB) error {
+	rows, err := database.Query(`SELECT name FROM pragma_table_info('links')`)
+	if err != nil {
+		return err
+	}
+	hasColumn := false
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		hasColumn = hasColumn || name == "mtime"
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = database.Exec(`ALTER TABLE links ADD COLUMN mtime INTEGER`)
+	return err
 }

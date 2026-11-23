@@ -300,6 +300,7 @@ func linkRecord(replacement Replacement, relative bool) store.Link {
 		State:         store.LinkOK,
 		CreatedAt:     now,
 		VerifiedAt:    now,
+		ModTime:       replacement.LibraryModTime,
 	}
 	if replacement.InodeReliable {
 		link.TargetDevice, link.TargetInode = replacement.LibraryDevice, replacement.LibraryInode
