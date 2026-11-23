@@ -1,3 +1,4 @@
+// Package library parcourt une bibliothèque locale et en inventorie les fichiers média.
 package library
 
 import (
@@ -32,6 +33,7 @@ func Scan(ctx context.Context, root string, mediaStore *store.Store) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		// Les liens symboliques ne sont pas suivis : évite les boucles et la sortie de la bibliothèque.
 		if entry.Type()&fs.ModeSymlink != 0 {
 			return nil
 		}
@@ -45,6 +47,7 @@ func Scan(ctx context.Context, root string, mediaStore *store.Store) error {
 	})
 }
 
+// skipForeignDevice ignore les répertoires d'un autre système de fichiers (montage imbriqué), hors de la bibliothèque.
 func skipForeignDevice(entry fs.DirEntry, rootDevice uint64, rootDeviceKnown bool) error {
 	if !rootDeviceKnown {
 		return nil
@@ -72,6 +75,7 @@ func recordFile(ctx context.Context, mediaStore *store.Store, entryPath string, 
 	})
 }
 
+// rebasePath remet le préfixe root d'origine, pour que les chemins stockés ne dépendent pas de la cible du lien.
 func rebasePath(entryPath, resolvedRoot, root string) string {
 	relativePath, err := filepath.Rel(resolvedRoot, entryPath)
 	if err != nil {

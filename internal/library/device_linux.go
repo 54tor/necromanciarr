@@ -7,6 +7,7 @@ import (
 	"syscall"
 )
 
+// deviceOf renvoie l'identifiant du périphérique du fichier ; false si le système ne le fournit pas.
 func deviceOf(info fs.FileInfo) (uint64, bool) {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
