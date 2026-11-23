@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"math"
 	"slices"
 	"sync"
 	"testing"
@@ -481,5 +482,105 @@ func TestNfoVariants_dropsDuplicatesKeepingFirstLabel(t *testing.T) {
 	gotValue := variantLabels(NfoVariants(raw))
 	if !slices.Equal(gotValue, expectedValue) {
 		t.Fatalf("expected %v, got %v", expectedValue, gotValue)
+	}
+}
+
+type vanishingSource struct {
+	inner         Source
+	vanishingFile int
+	callsPerFile  map[int]int
+}
+
+func (source *vanishingSource) ReaderAt(fileIndex int) (io.ReaderAt, bool) {
+	source.callsPerFile[fileIndex]++
+	if fileIndex == source.vanishingFile && source.callsPerFile[fileIndex] > 1 {
+		return nil, false
+	}
+	return source.inner.ReaderAt(fileIndex)
+}
+
+func TestCoverage_fileVanishingDuringScanIsMissingWithoutPanic(t *testing.T) {
+	parsed := parseStandardTorrent(t)
+	source := &vanishingSource{inner: sourceFromFiles(standardFiles()), vanishingFile: indexMovie, callsPerFile: map[int]int{}}
+	expectedValue := []int{1, 2}
+
+	report, err := Coverage(parsed, source)
+	if err != nil {
+		t.Fatalf("coverage: %v", err)
+	}
+	gotValue := report.MissingPieces
+	if !slices.Equal(gotValue, expectedValue) || report.MediaComplete {
+		t.Fatalf("expected missing %v and incomplete media, got %+v", expectedValue, report)
+	}
+}
+
+func TestCoverage_callsReaderAtOncePerOverlappingFilePerPiece(t *testing.T) {
+	parsed := parseStandardTorrent(t)
+	source := &vanishingSource{inner: sourceFromFiles(standardFiles()), vanishingFile: -1, callsPerFile: map[int]int{}}
+	expectedValue := map[int]int{indexMovie: 3, indexNfo: 1, indexCover: 1, indexBonus: 2}
+
+	_, err := Coverage(parsed, source)
+	if err != nil {
+		t.Fatalf("coverage: %v", err)
+	}
+	gotValue := source.callsPerFile
+	if len(gotValue) != len(expectedValue) {
+		t.Fatalf("expected calls %v, got %v", expectedValue, gotValue)
+	}
+	for fileIndex, expectedCalls := range expectedValue {
+		if gotValue[fileIndex] != expectedCalls {
+			t.Fatalf("expected calls %v, got %v", expectedValue, gotValue)
+		}
+	}
+}
+
+func multiFileInfo(lengths []int64, pieceCount int) metainfo.Info {
+	info := metainfo.Info{Name: "Pack", PieceLength: testPieceLength, Pieces: make([]byte, pieceCount*pieceHashSize)}
+	for fileIndex, length := range lengths {
+		info.Files = append(info.Files, metainfo.FileInfo{Path: []string{string(rune('a' + fileIndex))}, Length: length})
+	}
+	return info
+}
+
+func TestParse_rejectsNegativeFileLength(t *testing.T) {
+	raw, _ := encodeTorrent(t, multiFileInfo([]int64{20, -4}, 1))
+
+	_, err := Parse(raw)
+	if !errors.Is(err, ErrInvalidTorrent) {
+		t.Fatalf("expected ErrInvalidTorrent, got %v", err)
+	}
+}
+
+func TestParse_rejectsFileLengthsOverflowingInt64(t *testing.T) {
+	raw, _ := encodeTorrent(t, multiFileInfo([]int64{math.MaxInt64, 1}, 1))
+
+	_, err := Parse(raw)
+	if !errors.Is(err, ErrInvalidTorrent) {
+		t.Fatalf("expected ErrInvalidTorrent, got %v", err)
+	}
+}
+
+func TestParse_rejectsHugeLengthWithTooFewPieces(t *testing.T) {
+	raw, _ := encodeTorrent(t, multiFileInfo([]int64{math.MaxInt64}, 1))
+
+	_, err := Parse(raw)
+	if !errors.Is(err, ErrInvalidTorrent) {
+		t.Fatalf("expected ErrInvalidTorrent, got %v", err)
+	}
+}
+
+func TestParse_acceptsMaximalPieceLengthWithoutOverflow(t *testing.T) {
+	info := multiFileInfo([]int64{math.MaxInt64}, 1)
+	info.PieceLength = math.MaxInt64
+	raw, _ := encodeTorrent(t, info)
+
+	parsed, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	expectedValue := int64(math.MaxInt64)
+	_, gotValue := parsed.pieceBounds(0)
+	if gotValue != expectedValue {
+		t.Fatalf("expected piece end %d, got %d", expectedValue, gotValue)
 	}
 }

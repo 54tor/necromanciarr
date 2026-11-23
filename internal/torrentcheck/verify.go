@@ -21,6 +21,7 @@ var mediaExtensions = map[string]struct{}{
 	".mpeg": {}, ".mov": {}, ".flac": {}, ".mp3": {}, ".m4a": {}, ".aac": {}, ".ogg": {}, ".opus": {},
 }
 
+// Source.ReaderAt must be cheap and idempotent (cached handles): it is called once per overlapping file per piece.
 type Source interface {
 	ReaderAt(fileIndex int) (io.ReaderAt, bool)
 }
@@ -63,75 +64,132 @@ func (report Report) VerifiedSet() map[int]struct{} {
 	return verified
 }
 
+type pieceSegment struct {
+	reader     io.ReaderAt
+	fileOffset int64
+	start      int64
+	end        int64
+}
+
+type scanState struct {
+	verified          map[int]struct{}
+	blockedByAbsence  map[int]struct{}
+	absentFileIndexes map[int]struct{}
+}
+
+func newScanState() *scanState {
+	return &scanState{
+		verified:          map[int]struct{}{},
+		blockedByAbsence:  map[int]struct{}{},
+		absentFileIndexes: map[int]struct{}{},
+	}
+}
+
 func (verifier Verifier) VerifyPieces(ctx context.Context, torrent *Torrent, source Source, pieceIndexes []int) ([]int, error) {
+	return verifier.scan(ctx, torrent, source, pieceIndexes, newScanState())
+}
+
+func (verifier Verifier) Coverage(ctx context.Context, torrent *Torrent, source Source, alreadyVerified map[int]struct{}) (Report, error) {
+	state := newScanState()
+	var pending []int
+	for pieceIndex := range torrent.Pieces {
+		if _, done := alreadyVerified[pieceIndex]; done {
+			state.verified[pieceIndex] = struct{}{}
+			continue
+		}
+		pending = append(pending, pieceIndex)
+	}
+	_, err := verifier.scan(ctx, torrent, source, pending, state)
+	return buildReport(torrent, state), err
+}
+
+func (verifier Verifier) scan(ctx context.Context, torrent *Torrent, source Source, pieceIndexes []int, state *scanState) ([]int, error) {
 	buffer := make([]byte, readChunkSize)
 	var verified []int
 	for _, pieceIndex := range pieceIndexes {
 		if pieceIndex < 0 || pieceIndex >= len(torrent.Pieces) {
 			return verified, fmt.Errorf("%w: %d", ErrPieceIndexOutOfRange, pieceIndex)
 		}
-		matches, err := verifier.pieceMatches(ctx, torrent, source, pieceIndex, buffer)
+		segments, absentFileIndexes := pieceSegments(torrent, source, pieceIndex)
+		if len(absentFileIndexes) > 0 {
+			state.recordAbsence(pieceIndex, absentFileIndexes)
+			continue
+		}
+		matches, err := verifier.hashMatches(ctx, torrent, pieceIndex, segments, buffer)
 		if err != nil {
 			return verified, err
 		}
 		if matches {
+			state.verified[pieceIndex] = struct{}{}
 			verified = append(verified, pieceIndex)
 		}
 	}
 	return verified, nil
 }
 
-func (verifier Verifier) Coverage(ctx context.Context, torrent *Torrent, source Source, alreadyVerified map[int]struct{}) (Report, error) {
-	verified := make(map[int]struct{}, len(torrent.Pieces))
-	var pending []int
-	for pieceIndex := range torrent.Pieces {
-		if _, done := alreadyVerified[pieceIndex]; done {
-			verified[pieceIndex] = struct{}{}
-			continue
-		}
-		pending = append(pending, pieceIndex)
+func (state *scanState) recordAbsence(pieceIndex int, absentFileIndexes []int) {
+	state.blockedByAbsence[pieceIndex] = struct{}{}
+	for _, fileIndex := range absentFileIndexes {
+		state.absentFileIndexes[fileIndex] = struct{}{}
 	}
-	newlyVerified, err := verifier.VerifyPieces(ctx, torrent, source, pending)
-	for _, pieceIndex := range newlyVerified {
-		verified[pieceIndex] = struct{}{}
-	}
-	return buildReport(torrent, source, verified), err
 }
 
-func buildReport(torrent *Torrent, source Source, verified map[int]struct{}) Report {
-	report := Report{TotalPieces: len(torrent.Pieces), VerifiedPieces: len(verified)}
+func pieceSegments(torrent *Torrent, source Source, pieceIndex int) (segments []pieceSegment, absentFileIndexes []int) {
+	start, end := torrent.pieceBounds(pieceIndex)
+	for fileIndex, file := range torrent.Files {
+		if !file.overlaps(start, end) {
+			continue
+		}
+		reader, present := source.ReaderAt(fileIndex)
+		if !present || reader == nil {
+			absentFileIndexes = append(absentFileIndexes, fileIndex)
+			continue
+		}
+		segments = append(segments, pieceSegment{
+			reader:     reader,
+			fileOffset: file.Offset,
+			start:      max(start, file.Offset),
+			end:        min(end, file.Offset+file.Size),
+		})
+	}
+	return segments, absentFileIndexes
+}
+
+func buildReport(torrent *Torrent, state *scanState) Report {
+	report := Report{TotalPieces: len(torrent.Pieces), VerifiedPieces: len(state.verified)}
 	for pieceIndex := range torrent.Pieces {
-		if _, isVerified := verified[pieceIndex]; !isVerified {
+		if _, isVerified := state.verified[pieceIndex]; !isVerified {
 			report.MissingPieces = append(report.MissingPieces, pieceIndex)
 		}
 	}
-	report.MediaComplete = mediaComplete(torrent, source, verified)
+	report.MediaComplete = mediaComplete(torrent, state)
 	return report
 }
 
-func mediaComplete(torrent *Torrent, source Source, verified map[int]struct{}) bool {
+func mediaComplete(torrent *Torrent, state *scanState) bool {
 	hasMediaBytes := false
 	for fileIndex, file := range torrent.Files {
 		if !isMediaFile(file) || file.Size == 0 {
 			continue
 		}
 		hasMediaBytes = true
-		if !isPresent(source, fileIndex) {
+		if _, isAbsent := state.absentFileIndexes[fileIndex]; isAbsent {
 			return false
 		}
-		if !mediaFilePiecesAcceptable(torrent, source, file, verified) {
+		if !mediaFilePiecesAcceptable(torrent, file, state) {
 			return false
 		}
 	}
 	return hasMediaBytes
 }
 
-func mediaFilePiecesAcceptable(torrent *Torrent, source Source, file File, verified map[int]struct{}) bool {
+func mediaFilePiecesAcceptable(torrent *Torrent, file File, state *scanState) bool {
 	firstPiece := int(file.Offset / torrent.PieceLength)
 	lastPiece := int((file.Offset + file.Size - 1) / torrent.PieceLength)
 	for pieceIndex := firstPiece; pieceIndex <= lastPiece; pieceIndex++ {
-		_, isVerified := verified[pieceIndex]
-		if !isVerified && !touchesAbsentFile(torrent, source, pieceIndex) {
+		_, isVerified := state.verified[pieceIndex]
+		_, isBlockedByAbsence := state.blockedByAbsence[pieceIndex]
+		if !isVerified && !isBlockedByAbsence {
 			return false
 		}
 	}
@@ -143,41 +201,17 @@ func isMediaFile(file File) bool {
 	return isMedia
 }
 
-func isPresent(source Source, fileIndex int) bool {
-	_, present := source.ReaderAt(fileIndex)
-	return present
-}
-
-func touchesAbsentFile(torrent *Torrent, source Source, pieceIndex int) bool {
-	start, end := torrent.pieceBounds(pieceIndex)
-	for fileIndex, file := range torrent.Files {
-		if file.overlaps(start, end) && !isPresent(source, fileIndex) {
-			return true
-		}
-	}
-	return false
-}
-
-func (verifier Verifier) pieceMatches(ctx context.Context, torrent *Torrent, source Source, pieceIndex int, buffer []byte) (bool, error) {
-	if touchesAbsentFile(torrent, source, pieceIndex) {
-		return false, nil
-	}
+func (verifier Verifier) hashMatches(ctx context.Context, torrent *Torrent, pieceIndex int, segments []pieceSegment, buffer []byte) (bool, error) {
 	start, end := torrent.pieceBounds(pieceIndex)
 	hasher := sha1.New()
 	position := start
-	for fileIndex, file := range torrent.Files {
-		if !file.overlaps(start, end) {
-			continue
-		}
-		segmentStart := max(start, file.Offset)
-		segmentEnd := min(end, file.Offset+file.Size)
-		writeZeros(hasher, segmentStart-position, buffer)
-		reader, _ := source.ReaderAt(fileIndex)
-		complete, err := verifier.hashSegment(ctx, hasher, reader, segmentStart-file.Offset, segmentEnd-segmentStart, buffer)
+	for _, segment := range segments {
+		writeZeros(hasher, segment.start-position, buffer)
+		complete, err := verifier.hashSegment(ctx, hasher, segment.reader, segment.start-segment.fileOffset, segment.end-segment.start, buffer)
 		if err != nil || !complete {
 			return false, err
 		}
-		position = segmentEnd
+		position = segment.end
 	}
 	writeZeros(hasher, end-position, buffer)
 	return bytes.Equal(hasher.Sum(nil), torrent.Pieces[pieceIndex][:]), nil

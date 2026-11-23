@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -82,6 +83,9 @@ func v1Files(info *metainfo.Info) (files []File, totalLength int64, err error) {
 		if err := checkFileEntry(bestPath, fileInfo.Length); err != nil {
 			return nil, 0, err
 		}
+		if fileInfo.Length > math.MaxInt64-totalLength {
+			return nil, 0, fmt.Errorf("%w: total length overflows int64", ErrInvalidTorrent)
+		}
 		if !isPaddingFile(fileInfo.Attr, bestPath) {
 			files = append(files, File{Path: strings.Join(bestPath, torrentPathSeparator), Size: fileInfo.Length, Offset: totalLength})
 		}
@@ -120,7 +124,10 @@ func isPaddingFile(attributes string, pathParts []string) bool {
 }
 
 func checkPieceCount(pieceCount int, totalLength, pieceLength int64) error {
-	expectedPieceCount := (totalLength + pieceLength - 1) / pieceLength
+	expectedPieceCount := totalLength / pieceLength
+	if totalLength%pieceLength != 0 {
+		expectedPieceCount++
+	}
 	if int64(pieceCount) != expectedPieceCount {
 		return fmt.Errorf("%w: %d pieces for %d bytes of %d-byte pieces", ErrInvalidTorrent, pieceCount, totalLength, pieceLength)
 	}
@@ -137,11 +144,11 @@ func splitPieceHashes(concatenated []byte) [][20]byte {
 
 func (torrent *Torrent) pieceBounds(pieceIndex int) (start, end int64) {
 	start = int64(pieceIndex) * torrent.PieceLength
-	end = start + torrent.PieceLength
-	if pieceIndex == len(torrent.Pieces)-1 {
-		end = min(end, torrent.dataEnd())
+	isLastPiece := pieceIndex == len(torrent.Pieces)-1
+	if !isLastPiece {
+		return start, start + torrent.PieceLength
 	}
-	return start, end
+	return start, start + max(0, min(torrent.PieceLength, torrent.dataEnd()-start))
 }
 
 func (torrent *Torrent) dataEnd() int64 {
