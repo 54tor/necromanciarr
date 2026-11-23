@@ -52,7 +52,7 @@ type Config struct {
 	Sonarr             []ArrService    `json:"sonarr"`
 	TorrentClients     []TorrentClient `json:"torrentClients"`
 	Dedupe             Dedupe          `json:"dedupe"`
-	Rclone             Rclone          `json:"rclone"`
+	FSProviders        []FSProvider    `json:"fsProviders"`
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`
@@ -60,17 +60,19 @@ type Config struct {
 
 // fileConfig est le contenu brut de config.json, avant interpolation et analyse des chaînes de service.
 type fileConfig struct {
-	Listen             string     `json:"listen"`
-	DBPath             string     `json:"dbPath"`
-	ReadBytesPerSecond int64      `json:"readBytesPerSecond"`
-	LibraryAPI         string     `json:"libraryApi"`
-	LibraryRoots       []string   `json:"libraryRoots"`
-	PathMappings       []PathRule `json:"pathMappings"`
-	Radarr             []string   `json:"radarr"`
-	Sonarr             []string   `json:"sonarr"`
-	TorrentClients     []string   `json:"torrentClients"`
-	Dedupe             fileDedupe `json:"dedupe"`
-	Rclone             fileRclone `json:"rclone"`
+	Listen             string            `json:"listen"`
+	DBPath             string            `json:"dbPath"`
+	ReadBytesPerSecond int64             `json:"readBytesPerSecond"`
+	LibraryAPI         string            `json:"libraryApi"`
+	LibraryRoots       []string          `json:"libraryRoots"`
+	PathMappings       []PathRule        `json:"pathMappings"`
+	Radarr             []string          `json:"radarr"`
+	Sonarr             []string          `json:"sonarr"`
+	TorrentClients     []string          `json:"torrentClients"`
+	Dedupe             fileDedupe        `json:"dedupe"`
+	FSProviders        []json.RawMessage `json:"fsProviders"`
+	// LegacyRclone n'existe que pour refuser l'ancienne section avec un message utile.
+	LegacyRclone json.RawMessage `json:"rclone"`
 }
 
 // Dedupe règle le remplacement, côté torrent, des copies d'un fichier de la bibliothèque par des liens. TorrentRoots
@@ -136,7 +138,7 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir
 	if err != nil {
 		return Config{}, err
 	}
-	loadedConfig, err := buildConfig(rawFile)
+	loadedConfig, err := buildConfig(rawFile, lookup)
 	if err != nil {
 		return Config{}, err
 	}
@@ -213,7 +215,10 @@ func readConfigFile(path string, lookup func(string) (string, bool)) (fileConfig
 	return rawFile, nil
 }
 
-func buildConfig(rawFile fileConfig) (Config, error) {
+func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config, error) {
+	if len(rawFile.LegacyRclone) > 0 {
+		return Config{}, errors.New(`"rclone" was renamed to "fsProviders" (type "rclone", with a "name")`)
+	}
 	loadedConfig := Config{
 		ListenAddr:         rawFile.Listen,
 		DBPath:             rawFile.DBPath,
@@ -226,7 +231,7 @@ func buildConfig(rawFile fileConfig) (Config, error) {
 	if loadedConfig.Dedupe, err = parseDedupe(rawFile.Dedupe); err != nil {
 		return Config{}, err
 	}
-	if loadedConfig.Rclone, err = parseRclone(rawFile.Rclone); err != nil {
+	if loadedConfig.FSProviders, err = parseFSProviders(rawFile.FSProviders, lookup); err != nil {
 		return Config{}, err
 	}
 	if loadedConfig.Radarr, err = parseArrServices("radarr", rawFile.Radarr); err != nil {
@@ -387,7 +392,10 @@ type plainConfig Config
 func (loadedConfig Config) redacted() plainConfig {
 	redactedCopy := loadedConfig
 	redactedCopy.LibraryAPI = redactURL(loadedConfig.LibraryAPI)
-	redactedCopy.Rclone.RC = redactRCURL(loadedConfig.Rclone.RC)
+	redactedCopy.FSProviders = slices.Clone(loadedConfig.FSProviders)
+	for providerIndex := range redactedCopy.FSProviders {
+		redactedCopy.FSProviders[providerIndex].RC = redactRCURL(redactedCopy.FSProviders[providerIndex].RC)
+	}
 	if redactedCopy.AuthToken != "" {
 		redactedCopy.AuthToken = redactedSecret
 	}

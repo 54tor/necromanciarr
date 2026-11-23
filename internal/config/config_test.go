@@ -270,7 +270,7 @@ func TestEnsureAPIKey_rejectsEmptyKeyFile(t *testing.T) {
 	}
 }
 
-func TestLoad_acceptsConfigExampleJson(t *testing.T) {
+func TestConfigExample_loadsFsProviders(t *testing.T) {
 	configDir := t.TempDir()
 	exampleContent, err := os.ReadFile(filepath.Join("..", "..", "config.example.json"))
 	if err != nil {
@@ -281,8 +281,11 @@ func TestLoad_acceptsConfigExampleJson(t *testing.T) {
 
 	loadedConfig := mustLoad(t, nil, environment, configDir)
 
-	if len(loadedConfig.Radarr) == 0 || len(loadedConfig.Sonarr) == 0 || len(loadedConfig.TorrentClients) == 0 || len(loadedConfig.Rclone.Mounts) == 0 {
+	if len(loadedConfig.Radarr) == 0 || len(loadedConfig.Sonarr) == 0 || len(loadedConfig.TorrentClients) == 0 || len(loadedConfig.FSProviders) == 0 {
 		t.Fatalf("example config incomplete: %v", loadedConfig)
+	}
+	if provider := loadedConfig.FSProviders[0]; provider.Type != "rclone" || provider.Name != "mega" || len(provider.Mounts) != 1 {
+		t.Fatalf("unexpected example provider %+v", provider)
 	}
 }
 
