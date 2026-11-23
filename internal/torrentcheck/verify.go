@@ -14,8 +14,10 @@ import (
 
 const readChunkSize = 64 << 10
 
+// ErrPieceIndexOutOfRange signale un index de pièce hors du torrent.
 var ErrPieceIndexOutOfRange = errors.New("torrentcheck: piece index out of range")
 
+// mediaExtensions liste les extensions traitées comme média, en minuscules.
 var mediaExtensions = map[string]struct{}{
 	".mkv": {}, ".mp4": {}, ".avi": {}, ".m4v": {}, ".ts": {}, ".m2ts": {}, ".wmv": {}, ".mpg": {},
 	".mpeg": {}, ".mov": {}, ".flac": {}, ".mp3": {}, ".m4a": {}, ".aac": {}, ".ogg": {}, ".opus": {},
@@ -31,10 +33,13 @@ type Limiter interface {
 	WaitN(ctx context.Context, n int) error
 }
 
+// Verifier vérifie les pièces ; Limiter nil signifie lecture sans plafond de débit.
 type Verifier struct {
 	Limiter Limiter
 }
 
+// Report résume la couverture : MissingPieces liste les pièces non vérifiées ; MediaComplete est vrai si tous les octets média
+// sont vérifiés ou ne manquent qu'à cause d'un fichier absent.
 type Report struct {
 	VerifiedPieces int
 	TotalPieces    int
@@ -42,14 +47,17 @@ type Report struct {
 	MediaComplete  bool
 }
 
+// VerifyPieces vérifie les pièces demandées sans plafond de débit et renvoie celles dont le SHA1 correspond.
 func VerifyPieces(torrent *Torrent, source Source, pieceIndexes []int) (verified []int, err error) {
 	return Verifier{}.VerifyPieces(context.Background(), torrent, source, pieceIndexes)
 }
 
+// Coverage vérifie toutes les pièces sans plafond de débit et renvoie le rapport.
 func Coverage(torrent *Torrent, source Source) (Report, error) {
 	return Verifier{}.Coverage(context.Background(), torrent, source, nil)
 }
 
+// VerifiedSet renvoie l'ensemble des index de pièces vérifiées.
 func (report Report) VerifiedSet() map[int]struct{} {
 	missing := make(map[int]struct{}, len(report.MissingPieces))
 	for _, pieceIndex := range report.MissingPieces {
@@ -85,10 +93,14 @@ func newScanState() *scanState {
 	}
 }
 
+// VerifyPieces vérifie les pièces demandées et renvoie celles dont le SHA1 correspond ; s'arrête sur ctx annulé,
+// une erreur de lecture ou un index hors limites, en renvoyant les pièces déjà vérifiées.
 func (verifier Verifier) VerifyPieces(ctx context.Context, torrent *Torrent, source Source, pieceIndexes []int) ([]int, error) {
 	return verifier.scan(ctx, torrent, source, pieceIndexes, newScanState())
 }
 
+// Coverage vérifie les pièces absentes de alreadyVerified (reprise sans relire), puis renvoie le rapport ;
+// le rapport reflète le travail fait même si l'erreur est non nulle.
 func (verifier Verifier) Coverage(ctx context.Context, torrent *Torrent, source Source, alreadyVerified map[int]struct{}) (Report, error) {
 	state := newScanState()
 	var pending []int
@@ -110,6 +122,8 @@ func (verifier Verifier) scan(ctx context.Context, torrent *Torrent, source Sour
 		if pieceIndex < 0 || pieceIndex >= len(torrent.Pieces) {
 			return verified, fmt.Errorf("%w: %d", ErrPieceIndexOutOfRange, pieceIndex)
 		}
+		// Une pièce chevauchant un fichier absent n'est jamais hachée : le hash ne pourrait pas correspondre
+		// et la lecture serait gaspillée.
 		segments, absentFileIndexes := pieceSegments(torrent, source, pieceIndex)
 		if len(absentFileIndexes) > 0 {
 			state.recordAbsence(pieceIndex, absentFileIndexes)
@@ -166,6 +180,8 @@ func buildReport(torrent *Torrent, state *scanState) Report {
 	return report
 }
 
+// mediaComplete tolère qu'une pièce d'un média présent soit bloquée par un fichier absent voisin (ex. .nfo) ;
+// un média absent, lui, rend le résultat faux.
 func mediaComplete(torrent *Torrent, state *scanState) bool {
 	hasMediaBytes := false
 	for fileIndex, file := range torrent.Files {
@@ -200,6 +216,7 @@ func isMediaFile(file File) bool {
 	return IsMediaPath(file.Path)
 }
 
+// IsMediaPath indique si l'extension du chemin est celle d'un fichier média.
 func IsMediaPath(filePath string) bool {
 	_, isMedia := mediaExtensions[strings.ToLower(path.Ext(filePath))]
 	return isMedia
@@ -210,6 +227,7 @@ func (verifier Verifier) hashMatches(ctx context.Context, torrent *Torrent, piec
 	hasher := sha1.New() // #nosec G401 -- SHA-1 imposé par BitTorrent v1
 	position := start
 	for _, segment := range segments {
+		// Les octets hors fichiers (remplissage) sont hachés comme des zéros, comme le fait le format BEP 47.
 		writeZeros(hasher, segment.start-position, buffer)
 		complete, err := verifier.hashSegment(ctx, hasher, segment.reader, segment.start-segment.fileOffset, segment.end-segment.start, buffer)
 		if err != nil || !complete {

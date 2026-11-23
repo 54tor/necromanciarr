@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	// pieceHashSize est la taille en octets d'un hash SHA1 de pièce ; paddingAttribute et legacyPaddingPrefix repèrent les fichiers de remplissage.
 	pieceHashSize          = 20
 	paddingAttribute       = "p"
 	legacyPaddingPrefix    = "_____padding_file_"
@@ -18,11 +19,13 @@ const (
 	bep52MetaVersionV2Only = 2
 )
 
+// ErrV2Only et ErrInvalidTorrent sont les erreurs de Parse ; ErrInvalidTorrent porte le détail en erreur enrobée.
 var (
 	ErrV2Only         = errors.New("torrentcheck: v2-only torrent is not supported")
 	ErrInvalidTorrent = errors.New("torrentcheck: invalid torrent")
 )
 
+// Torrent est un torrent v1 validé : Files exclut les fichiers de remplissage, Offset est la position dans le flux de pièces.
 type Torrent struct {
 	InfoHash    string
 	Root        string
@@ -31,12 +34,14 @@ type Torrent struct {
 	Files       []File
 }
 
+// File est un fichier du torrent ; Path utilise « / » et ne contient aucun segment dangereux.
 type File struct {
 	Path   string
 	Size   int64
 	Offset int64
 }
 
+// Parse décode et valide un .torrent v1 ; les v2 seuls sont refusés (ErrV2Only), toute incohérence donne ErrInvalidTorrent.
 func Parse(raw []byte) (*Torrent, error) {
 	metaInfo, err := metainfo.Load(bytes.NewReader(raw))
 	if err != nil {
@@ -109,12 +114,14 @@ func checkFileEntry(pathParts []string, length int64) error {
 	return nil
 }
 
+// isSafePathPart refuse les segments qui sortiraient du répertoire de destination (traversée de chemin).
 func isSafePathPart(pathPart string) bool {
 	isTraversal := pathPart == "" || pathPart == "." || pathPart == ".."
 	hasSeparatorOrNul := strings.ContainsAny(pathPart, "/\\\x00")
 	return !isTraversal && !hasSeparatorOrNul
 }
 
+// isPaddingFile reconnaît le remplissage BEP 47 et l'ancien nommage _____padding_file_.
 func isPaddingFile(attributes string, pathParts []string) bool {
 	if strings.Contains(attributes, paddingAttribute) {
 		return true
