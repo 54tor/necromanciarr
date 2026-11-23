@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"strings"
@@ -116,4 +117,42 @@ func isLoopbackAddress(listenAddr string) bool {
 	}
 	parsedIP := net.ParseIP(host)
 	return parsedIP != nil && parsedIP.IsLoopback()
+}
+
+const redactedSecret = "[redacted]"
+
+// redacted renvoie une copie dont les secrets renseignés sont masqués.
+func (loadedConfig Config) redacted() Config {
+	redactedCopy := loadedConfig
+	if redactedCopy.AuthToken != "" {
+		redactedCopy.AuthToken = redactedSecret
+	}
+	if redactedCopy.LibraryProviderToken != "" {
+		redactedCopy.LibraryProviderToken = redactedSecret
+	}
+	if redactedCopy.QbitPassword != "" {
+		redactedCopy.QbitPassword = redactedSecret
+	}
+	redactedCopy.ArrAPIKeys = nil
+	for range loadedConfig.ArrAPIKeys {
+		redactedCopy.ArrAPIKeys = append(redactedCopy.ArrAPIKeys, redactedSecret)
+	}
+	return redactedCopy
+}
+
+type plainConfig Config
+
+// String masque les secrets pour que %v et %+v ne les affichent jamais.
+func (loadedConfig Config) String() string {
+	return fmt.Sprintf("%+v", plainConfig(loadedConfig.redacted()))
+}
+
+// GoString masque les secrets pour %#v.
+func (loadedConfig Config) GoString() string {
+	return loadedConfig.String()
+}
+
+// LogValue masque les secrets dans les journaux slog.
+func (loadedConfig Config) LogValue() slog.Value {
+	return slog.StringValue(loadedConfig.String())
 }

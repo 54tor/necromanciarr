@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -93,5 +95,23 @@ func TestLoad_rejectsArrKeysCountMismatch(t *testing.T) {
 
 	if _, err := Load(writeConfig(t, yamlContent)); err == nil {
 		t.Fatal("expected an error when keys and instances differ in count")
+	}
+}
+
+func TestConfig_formattingNeverPrintsSecrets(t *testing.T) {
+	secretConfig := Config{
+		AuthToken:            "secret-auth",
+		LibraryProviderToken: "secret-provider",
+		ArrAPIKeys:           []string{"secret-key-one", "secret-key-two"},
+		QbitPassword:         "secret-password",
+	}
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
+		gotValue := fmt.Sprintf(verb, secretConfig)
+		if strings.Contains(gotValue, "secret-") {
+			t.Errorf("verb %s leaked a secret: %s", verb, gotValue)
+		}
+		if !strings.Contains(gotValue, "[redacted]") {
+			t.Errorf("verb %s: expectedValue redaction marker, gotValue %s", verb, gotValue)
+		}
 	}
 }
