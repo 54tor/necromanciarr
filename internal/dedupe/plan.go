@@ -1,0 +1,394 @@
+// Package dedupe remplace, côté torrent, les copies d'un fichier de la bibliothèque par des liens vers ce fichier.
+// Le fichier de la bibliothèque n'est jamais ouvert en écriture, déplacé, tronqué ni supprimé.
+package dedupe
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"necromanciarr/internal/linker"
+	"necromanciarr/internal/store"
+)
+
+// Verification choisit la preuve d'identité du contenu.
+type Verification string
+
+// VerifyFull compare tout le contenu octet par octet (défaut). VerifySampled ne compare que début, fin et 8 blocs de
+// 1 Mio : bien moins de lecture sur un montage réseau, mais une différence hors de ces blocs passe inaperçue.
+const (
+	VerifyFull    Verification = "full"
+	VerifySampled Verification = "sampled"
+)
+
+// Avertissements portés par un Replacement dont un des fichiers est sur un volume FUSE, réseau ou inconnu.
+const (
+	warningUnreliableInode = "inode non fiable"
+	warningFullNetworkRead = "lecture complète d'un montage réseau"
+	warningSampledVerify   = "vérification par échantillons, plus faible que la comparaison complète"
+)
+
+// toolEntryMarker repère les entrées temporaires de necromanciarr (sonde, lien en cours) : jamais candidates.
+const toolEntryMarker = ".necromanciarr-"
+
+// ErrUnknownVerification signale une valeur d'Options.Verify inconnue.
+var ErrUnknownVerification = errors.New("dedupe: unknown verification mode")
+
+// FingerprintCache conserve l'empreinte début et fin des fichiers de la bibliothèque ; implémenté par store.Store.
+type FingerprintCache interface {
+	LookupFingerprint(ctx context.Context, path string, size int64, modTime time.Time) (string, bool, error)
+	RecordFingerprint(ctx context.Context, entry store.CachedFingerprint) error
+}
+
+// Options règle Plan et Apply. TorrentRoots ne sert qu'à Apply, qui refuse tout chemin hors de ces racines ; Plan
+// reçoit les siennes en argument. Limiter, Fingerprints et Rechecker nil désactivent plafond, cache et recontrôle.
+type Options struct {
+	Kinds            []linker.Kind
+	RelativeSymlinks bool
+	MinFileAge       time.Duration
+	RecheckAfter     bool
+	DryRun           bool
+	Verify           Verification
+	TorrentRoots     []string
+	Limiter          Limiter
+	Fingerprints     FingerprintCache
+	Recorder         LinkRecorder
+	Rechecker        Rechecker
+
+	probe          func(directory string) (linker.Capabilities, error)
+	filesystemKind func(path string) (linker.FilesystemKind, error)
+	createLink     func(kind linker.Kind, source, destination, root string) error
+}
+
+// Replacement propose de remplacer TorrentPath par un lien de sorte Kind vers LibraryPath. Kind vaut 0 quand aucun
+// remplacement n'est possible : Reason en donne la cause, ou Ambiguous liste les fichiers de la bibliothèque
+// identiques entre lesquels aucun choix n'est fait. BytesToRead compte les octets lus pour prouver l'identité (hors
+// empreintes déjà en cache). Les dates, l'inode et l'empreinte servent à Apply pour refuser un fichier changé.
+type Replacement struct {
+	TorrentPath    string
+	LibraryPath    string
+	Size           int64
+	Kind           linker.Kind
+	SavedBytes     int64
+	Ambiguous      []string
+	Reason         error
+	Warnings       []string
+	BytesToRead    int64
+	Fingerprint    string
+	TorrentModTime time.Time
+	LibraryModTime time.Time
+	LibraryDevice  uint64
+	LibraryInode   uint64
+	InodeReliable  bool
+}
+
+type libraryFile struct {
+	path string
+	info fs.FileInfo
+}
+
+type planRun struct {
+	ctx                 context.Context
+	options             Options
+	youngerThan         time.Time
+	ranges              func(size int64) []byteRange
+	capabilities        map[string]probeOutcome
+	volumes             map[string]linker.FilesystemKind
+	libraryFingerprints map[string]string
+}
+
+type probeOutcome struct {
+	capabilities linker.Capabilities
+	err          error
+}
+
+// Plan cherche, sous torrentRoots, les fichiers identiques à un fichier de library (taille, empreinte début et fin,
+// puis comparaison du contenu) et propose leur remplacement par un lien. Liens symboliques, fichiers déjà liés au même
+// inode et fichiers modifiés depuis moins de MinFileAge (en cours d'écriture) sont ignorés. Rien n'est modifié, hors
+// les entrées d'essai de la sonde de liens, créées puis supprimées dans les dossiers torrent.
+func Plan(ctx context.Context, torrentRoots []string, library []store.MediaFile, options Options) ([]Replacement, error) {
+	run, err := newPlanRun(ctx, options)
+	if err != nil {
+		return nil, err
+	}
+	resolvedRoots, err := resolveRoots(torrentRoots)
+	if err != nil {
+		return nil, err
+	}
+	librarySizes := indexLibrary(library)
+	var replacements []Replacement
+	for _, root := range resolvedRoots {
+		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			replacement, found, err := run.consider(path, entry, librarySizes)
+			if found {
+				replacements = append(replacements, replacement)
+			}
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return replacements, nil
+}
+
+func newPlanRun(ctx context.Context, options Options) (*planRun, error) {
+	switch options.Verify {
+	case "":
+		options.Verify = VerifyFull
+	case VerifyFull, VerifySampled:
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnknownVerification, options.Verify)
+	}
+	if options.probe == nil {
+		options.probe = linker.Probe
+	}
+	if options.filesystemKind == nil {
+		options.filesystemKind = linker.FilesystemKindOf
+	}
+	verification := options.Verify
+	return &planRun{
+		ctx:                 ctx,
+		options:             options,
+		youngerThan:         time.Now().Add(-options.MinFileAge),
+		ranges:              func(size int64) []byteRange { return comparisonRanges(size, verification) },
+		capabilities:        map[string]probeOutcome{},
+		volumes:             map[string]linker.FilesystemKind{},
+		libraryFingerprints: map[string]string{},
+	}, nil
+}
+
+// resolveRoots : une racine elle-même symbolique est légitime ; WalkDir ne suivrait pas un lien passé en racine.
+func resolveRoots(roots []string) ([]string, error) {
+	resolvedRoots := make([]string, 0, len(roots))
+	for _, root := range roots {
+		if root == "" {
+			return nil, errors.New("dedupe: empty torrent root")
+		}
+		absoluteRoot, err := filepath.Abs(root)
+		if err != nil {
+			return nil, err
+		}
+		resolvedRoot, err := filepath.EvalSymlinks(absoluteRoot)
+		if err != nil {
+			return nil, fmt.Errorf("dedupe: torrent root %s: %w", root, err)
+		}
+		resolvedRoots = append(resolvedRoots, resolvedRoot)
+	}
+	return resolvedRoots, nil
+}
+
+// indexLibrary ne garde que les fichiers réguliers encore présents : la cible d'un lien doit être un vrai fichier.
+func indexLibrary(library []store.MediaFile) map[int64][]libraryFile {
+	librarySizes := map[int64][]libraryFile{}
+	for _, mediaFile := range library {
+		info, err := os.Lstat(mediaFile.Path)
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		librarySizes[info.Size()] = append(librarySizes[info.Size()], libraryFile{path: mediaFile.Path, info: info})
+	}
+	return librarySizes
+}
+
+func (run *planRun) consider(path string, entry fs.DirEntry, librarySizes map[int64][]libraryFile) (Replacement, bool, error) {
+	if !entry.Type().IsRegular() || strings.Contains(entry.Name(), toolEntryMarker) {
+		return Replacement{}, false, nil
+	}
+	info, err := entry.Info()
+	if errors.Is(err, fs.ErrNotExist) {
+		return Replacement{}, false, nil
+	}
+	if err != nil {
+		return Replacement{}, false, err
+	}
+	candidates := librarySizes[info.Size()]
+	isEmpty := info.Size() == 0
+	isBeingWritten := info.ModTime().After(run.youngerThan)
+	if isEmpty || isBeingWritten || len(candidates) == 0 || alreadyLinked(info, candidates) {
+		return Replacement{}, false, nil
+	}
+	replacement := Replacement{TorrentPath: path, Size: info.Size(), TorrentModTime: info.ModTime()}
+	readMeter := &meter{ctx: run.ctx, limiter: run.options.Limiter}
+	identical, err := run.identicalFiles(readMeter, &replacement, candidates)
+	replacement.BytesToRead = readMeter.bytesRead
+	if err != nil || len(identical) == 0 {
+		return Replacement{}, false, err
+	}
+	run.describe(&replacement, info, identical)
+	return replacement, true, nil
+}
+
+func alreadyLinked(info fs.FileInfo, candidates []libraryFile) bool {
+	return slices.ContainsFunc(candidates, func(candidate libraryFile) bool { return os.SameFile(info, candidate.info) })
+}
+
+func (run *planRun) identicalFiles(readMeter *meter, replacement *Replacement, candidates []libraryFile) ([]libraryFile, error) {
+	torrentFingerprint, err := fingerprintFile(readMeter, replacement.TorrentPath, replacement.Size)
+	if err != nil {
+		return nil, err
+	}
+	replacement.Fingerprint = torrentFingerprint
+	var identical []libraryFile
+	for _, candidate := range candidates {
+		libraryFingerprint, err := run.libraryFingerprint(readMeter, candidate)
+		if err != nil {
+			return nil, err
+		}
+		if libraryFingerprint != torrentFingerprint {
+			continue
+		}
+		equal, err := sameBytes(readMeter, replacement.TorrentPath, candidate.path, run.ranges(replacement.Size))
+		if err != nil {
+			return nil, err
+		}
+		if equal {
+			identical = append(identical, candidate)
+		}
+	}
+	return identical, nil
+}
+
+// libraryFingerprint lit l'empreinte en mémoire, puis dans le cache en base (même taille, même date), sinon la
+// calcule et l'enregistre.
+func (run *planRun) libraryFingerprint(readMeter *meter, candidate libraryFile) (string, error) {
+	if fingerprint, found := run.libraryFingerprints[candidate.path]; found {
+		return fingerprint, nil
+	}
+	size, modTime := candidate.info.Size(), candidate.info.ModTime()
+	cache := run.options.Fingerprints
+	if cache != nil {
+		fingerprint, found, err := cache.LookupFingerprint(run.ctx, candidate.path, size, modTime)
+		if err != nil {
+			return "", err
+		}
+		if found {
+			run.libraryFingerprints[candidate.path] = fingerprint
+			return fingerprint, nil
+		}
+	}
+	fingerprint, err := fingerprintFile(readMeter, candidate.path, size)
+	if err != nil {
+		return "", err
+	}
+	run.libraryFingerprints[candidate.path] = fingerprint
+	if cache == nil {
+		return fingerprint, nil
+	}
+	entry := store.CachedFingerprint{Path: candidate.path, Size: size, ModTime: modTime, HeadTailHash: fingerprint, VerifiedAt: time.Now()}
+	return fingerprint, cache.RecordFingerprint(run.ctx, entry)
+}
+
+func (run *planRun) describe(replacement *Replacement, torrentInfo fs.FileInfo, identical []libraryFile) {
+	libraryPaths := make([]string, 0, len(identical))
+	for _, libraryEntry := range identical {
+		libraryPaths = append(libraryPaths, libraryEntry.path)
+	}
+	replacement.Warnings = run.warnings(replacement.TorrentPath, libraryPaths)
+	if len(identical) > 1 {
+		slices.Sort(libraryPaths)
+		replacement.Ambiguous = libraryPaths
+		return
+	}
+	chosen := identical[0]
+	replacement.LibraryPath = chosen.path
+	replacement.LibraryModTime = chosen.info.ModTime()
+	device, inode, identityKnown := fileIdentity(chosen.info)
+	replacement.LibraryDevice, replacement.LibraryInode = device, inode
+	replacement.InodeReliable = identityKnown && run.volumeOf(chosen.path) == linker.Local
+	replacement.Kind, replacement.Reason = run.chooseKind(filepath.Dir(replacement.TorrentPath), torrentInfo, chosen.info)
+	if replacement.Kind != 0 {
+		replacement.SavedBytes = replacement.Size
+	}
+}
+
+func (run *planRun) warnings(torrentPath string, libraryPaths []string) []string {
+	var warnings []string
+	libraryIsLocal := !slices.ContainsFunc(libraryPaths, func(path string) bool { return run.volumeOf(path) != linker.Local })
+	allLocal := libraryIsLocal && run.volumeOf(torrentPath) == linker.Local
+	if !libraryIsLocal {
+		warnings = append(warnings, warningUnreliableInode)
+	}
+	if !allLocal && run.options.Verify == VerifyFull {
+		warnings = append(warnings, warningFullNetworkRead)
+	}
+	if run.options.Verify == VerifySampled {
+		warnings = append(warnings, warningSampledVerify)
+	}
+	return warnings
+}
+
+// volumeOf classe le dossier du fichier, une fois par dossier ; une erreur compte comme volume inconnu.
+func (run *planRun) volumeOf(path string) linker.FilesystemKind {
+	directory := filepath.Dir(path)
+	if kind, found := run.volumes[directory]; found {
+		return kind
+	}
+	kind, err := run.options.filesystemKind(directory)
+	if err != nil {
+		kind = linker.Unknown
+	}
+	run.volumes[directory] = kind
+	return kind
+}
+
+// chooseKind retient la première sorte de Kinds que la sonde du dossier torrent confirme ; hardlink et reflink
+// exigent en plus le même périphérique que le fichier de la bibliothèque, sans écrire dans le dossier de celle-ci.
+func (run *planRun) chooseKind(torrentDir string, torrentInfo, libraryInfo fs.FileInfo) (linker.Kind, error) {
+	if len(run.options.Kinds) == 0 {
+		return 0, linker.ErrNoKind
+	}
+	probed, found := run.capabilities[torrentDir]
+	if !found {
+		probed.capabilities, probed.err = run.options.probe(torrentDir)
+		run.capabilities[torrentDir] = probed
+	}
+	if probed.err != nil {
+		return 0, probed.err
+	}
+	refusals := make([]error, 0, len(run.options.Kinds))
+	for _, kind := range run.options.Kinds {
+		if err := kindRefusal(probed.capabilities, kind); err != nil {
+			refusals = append(refusals, fmt.Errorf("%v: %w", kind, err))
+			continue
+		}
+		if kind != linker.Symlink && !sameDevice(torrentInfo, libraryInfo) {
+			refusals = append(refusals, fmt.Errorf("%v: %w", kind, linker.ErrCrossDevice))
+			continue
+		}
+		return kind, nil
+	}
+	return 0, errors.Join(refusals...)
+}
+
+func kindRefusal(capabilities linker.Capabilities, kind linker.Kind) error {
+	supported := map[linker.Kind]bool{
+		linker.Hardlink: capabilities.Hardlink, linker.Reflink: capabilities.Reflink, linker.Symlink: capabilities.Symlink,
+	}[kind]
+	if supported {
+		return nil
+	}
+	if reason := capabilities.Reasons[kind]; reason != nil {
+		return reason
+	}
+	return linker.ErrUnsupported
+}
+
+// sameDevice : sans identité connue (Windows), on laisse la création du lien trancher, elle échoue proprement.
+func sameDevice(first, second fs.FileInfo) bool {
+	firstDevice, _, firstKnown := fileIdentity(first)
+	secondDevice, _, secondKnown := fileIdentity(second)
+	return !firstKnown || !secondKnown || firstDevice == secondDevice
+}
