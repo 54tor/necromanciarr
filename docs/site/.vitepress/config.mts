@@ -9,7 +9,10 @@ export default defineConfig({
   base,
   appearance: 'dark',
   cleanUrls: true,
-  head: [['link', { rel: 'icon', type: 'image/png', href: `${base}logo-icone.png` }]],
+  head: [
+    ['link', { rel: 'icon', type: 'image/png', sizes: '64x64', href: `${base}favicon.png` }],
+    ['link', { rel: 'apple-touch-icon', href: `${base}apple-touch-icon.png` }],
+  ],
   themeConfig: {
     logo: '/logo-embleme.png',
     nav: [
