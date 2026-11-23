@@ -302,8 +302,57 @@ func TestAssign_isDeterministicAcrossShuffledInputOrder(t *testing.T) {
 		if err != nil {
 			t.Fatalf("run %d: Assign: %v", runIndex, err)
 		}
+		assertLocalFileUsedOnce(t, gotValue)
 		if !reflect.DeepEqual(gotValue, expectedValue) {
 			t.Fatalf("run %d: Assign = %+v, want %+v", runIndex, gotValue, expectedValue)
+		}
+	}
+}
+
+// assertLocalFileUsedOnce vérifie qu'un fichier local n'est jamais attribué deux fois, ni attribué et ambigu à la fois.
+func assertLocalFileUsedOnce(t *testing.T, assignment Assignment) {
+	t.Helper()
+	assignedTo := map[string]int{}
+	for torrentFileIndex, mediaFile := range assignment.ByTorrentFile {
+		if previousIndex, seen := assignedTo[mediaFile.Path]; seen {
+			t.Fatalf("%s assigned to torrent files %d and %d", mediaFile.Path, previousIndex, torrentFileIndex)
+		}
+		assignedTo[mediaFile.Path] = torrentFileIndex
+	}
+	for torrentFileIndex, candidates := range assignment.Ambiguous {
+		for _, candidate := range candidates {
+			if assignedIndex, isAssigned := assignedTo[candidate.Path]; isAssigned {
+				t.Fatalf("%s assigned to torrent file %d and ambiguous for %d", candidate.Path, assignedIndex, torrentFileIndex)
+			}
+		}
+	}
+}
+
+func TestAssign_refutedRivalIsNeverAssignedLater(t *testing.T) {
+	episode := deterministicBytes(1, 3*testPieceLength)
+	files := []testFile{
+		{path: "e01.mkv", content: episode},
+		{path: "e01.copy.mkv", content: episode},
+		{path: "e02.mkv", content: deterministicBytes(2, 3*testPieceLength)},
+	}
+	library := newFakeLibrary(map[string][]byte{pathA: episode})
+
+	gotValue, err := Assign(buildTorrent(t, files), library.mediaFiles(), library.open)
+	if err != nil {
+		t.Fatalf("Assign: %v", err)
+	}
+
+	assertLocalFileUsedOnce(t, gotValue)
+	if _, isAssigned := gotValue.ByTorrentFile[2]; isAssigned {
+		t.Fatalf("ByTorrentFile[2] = %v, want absent: the hash refuted it", gotValue.ByTorrentFile[2])
+	}
+	if _, isAmbiguous := gotValue.Ambiguous[2]; isAmbiguous {
+		t.Fatalf("Ambiguous[2] = %v, want absent: the hash refuted it", gotValue.Ambiguous[2])
+	}
+	expectedValue := []string{pathA}
+	for torrentFileIndex := range 2 {
+		if gotPaths := paths(gotValue.Ambiguous[torrentFileIndex]); !slices.Equal(gotPaths, expectedValue) {
+			t.Fatalf("Ambiguous[%d] = %v, want %v", torrentFileIndex, gotPaths, expectedValue)
 		}
 	}
 }

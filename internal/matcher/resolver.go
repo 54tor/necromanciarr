@@ -112,14 +112,14 @@ func (resolver *resolver) verifyNext() (bool, error) {
 func (resolver *resolver) narrow(torrentFileIndex int) (bool, error) {
 	candidates := resolver.alive[torrentFileIndex]
 	survivors, proven, err := resolver.eliminate(torrentFileIndex, candidates)
+	if len(survivors) == 0 {
+		delete(resolver.alive, torrentFileIndex)
+		return true, err
+	}
+	resolver.alive[torrentFileIndex] = survivors
 	if err != nil {
 		return false, err
 	}
-	if len(survivors) == 0 {
-		delete(resolver.alive, torrentFileIndex)
-		return true, nil
-	}
-	resolver.alive[torrentFileIndex] = survivors
 	if len(survivors) == 1 && proven {
 		return true, resolver.claimVerified(torrentFileIndex, survivors[0])
 	}
@@ -133,7 +133,7 @@ func (resolver *resolver) eliminate(torrentFileIndex int, candidates []store.Med
 	for _, piece := range resolver.trialPieces(torrentFileIndex) {
 		passers, verifyErr := resolver.passers(torrentFileIndex, piece.index, survivors)
 		if verifyErr != nil {
-			return candidates, false, verifyErr
+			return survivors, false, verifyErr
 		}
 		// Sur une pièce partagée, un échec général peut venir du voisin : seul un succès y fait foi.
 		isConclusive := len(passers) > 0 || piece.contained
@@ -193,10 +193,21 @@ func (resolver *resolver) refutes(torrentFileIndex int, localPath string) (bool,
 			return false, err
 		}
 		if !matches && piece.contained {
+			resolver.dropCandidate(torrentFileIndex, localPath)
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// dropCandidate retire un fichier local réfuté par le hash, pour qu'aucune passe ultérieure ne l'affecte de nouveau sans lecture.
+func (resolver *resolver) dropCandidate(torrentFileIndex int, localPath string) {
+	remaining := slices.DeleteFunc(slices.Clone(resolver.alive[torrentFileIndex]), func(candidate store.MediaFile) bool { return candidate.Path == localPath })
+	if len(remaining) == 0 {
+		delete(resolver.alive, torrentFileIndex)
+		return
+	}
+	resolver.alive[torrentFileIndex] = remaining
 }
 
 func (resolver *resolver) assign(torrentFileIndex int, file store.MediaFile) {

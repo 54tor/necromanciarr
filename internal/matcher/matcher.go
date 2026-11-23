@@ -24,7 +24,8 @@ type FileMatch struct {
 }
 
 // Assignment donne, par index de fichier du torrent, le fichier local prouvé (ByTorrentFile) ou les fichiers locaux
-// que le hash n'a pas pu départager (Ambiguous) ; un fichier du torrent sans candidat n'apparaît dans aucune des deux.
+// que le hash n'a pas pu départager (Ambiguous) ; un fichier du torrent sans candidat, ou dont tous les fichiers locaux
+// sont réfutés par le hash, n'apparaît dans aucune des deux. Ambiguous ne liste que les fichiers locaux non réfutés.
 type Assignment struct {
 	ByTorrentFile map[int]store.MediaFile
 	Ambiguous     map[int][]store.MediaFile
