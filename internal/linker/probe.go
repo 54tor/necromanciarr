@@ -10,19 +10,26 @@ import (
 )
 
 // Capabilities dit quelles sortes de liens le volume accepte réellement ; Reasons donne l'erreur typée de chaque refus.
-// SourceDir et DestDir sont les dossiers résolus réellement sondés.
+// RenameOverwrite dit qu'un renommage par-dessus un fichier existant y aboutit (RenameReason sinon) : la sonde ne voit
+// que l'état final, pas l'atomicité. SourceDir et DestDir sont les dossiers résolus réellement sondés.
 type Capabilities struct {
-	Hardlink  bool
-	Symlink   bool
-	Reflink   bool
-	Reasons   map[Kind]error
-	SourceDir string
-	DestDir   string
+	Hardlink        bool
+	Symlink         bool
+	Reflink         bool
+	RenameOverwrite bool
+	Reasons         map[Kind]error
+	RenameReason    error
+	SourceDir       string
+	DestDir         string
 }
+
+// ErrRenameOverwrite signale un volume où renommer un fichier par-dessus un autre échoue ou laisse un état incohérent.
+var ErrRenameOverwrite = errors.New("linker: rename over an existing file failed")
 
 const (
 	probePrefix        = ".necromanciarr-probe-"
 	probeFileMode      = 0o600
+	probeRenameContent = "necromanciarr-probe-rename"
 	errProbeWrongInode = "linker: probe link does not resolve to the probe file"
 )
 
@@ -51,7 +58,7 @@ func (linkApplier applier) probeBetween(sourceDir, destDir string) (capabilities
 	if err != nil {
 		return Capabilities{}, err
 	}
-	probePath, probeInfo, err := createProbeFile(resolvedSource)
+	probePath, probeInfo, err := createProbeFile(resolvedSource, "")
 	if err != nil {
 		return Capabilities{}, err
 	}
@@ -65,7 +72,43 @@ func (linkApplier applier) probeBetween(sourceDir, destDir string) (capabilities
 		}
 		capabilities.record(kind, reason)
 	}
-	return capabilities, nil
+	capabilities.RenameReason, err = linkApplier.probeRenameOverwrite(resolvedDest)
+	capabilities.RenameOverwrite = capabilities.RenameReason == nil
+	return capabilities, err
+}
+
+// probeRenameOverwrite renomme un fichier d'essai A par-dessus un fichier d'essai B, puis exige que B porte le contenu
+// de A et que A ait disparu ; la raison du refus et l'échec du nettoyage sont renvoyés séparément.
+func (linkApplier applier) probeRenameOverwrite(directory string) (reason, cleanupErr error) {
+	rename := linkApplier.rename
+	if rename == nil {
+		rename = os.Rename
+	}
+	movedPath, _, err := createProbeFile(directory, probeRenameContent)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { cleanupErr = errors.Join(cleanupErr, removeProbeEntry(movedPath)) }()
+	replacedPath, _, err := createProbeFile(directory, "")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { cleanupErr = errors.Join(cleanupErr, removeProbeEntry(replacedPath)) }()
+	if err := rename(movedPath, replacedPath); err != nil {
+		return fmt.Errorf("%w: %w", ErrRenameOverwrite, err), nil
+	}
+	return checkRenamed(movedPath, replacedPath), nil
+}
+
+func checkRenamed(movedPath, replacedPath string) error {
+	content, err := os.ReadFile(replacedPath) // #nosec G304 -- entrée d'essai créée par la sonde
+	if err != nil || string(content) != probeRenameContent {
+		return fmt.Errorf("%w: destination does not hold the renamed content", ErrRenameOverwrite)
+	}
+	if _, err := os.Lstat(movedPath); !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%w: source still present after rename", ErrRenameOverwrite)
+	}
+	return nil
 }
 
 func (capabilities *Capabilities) record(kind Kind, reason error) {
@@ -108,15 +151,16 @@ func probeEntryPath(directory string) string {
 }
 
 // createProbeFile crée en exclusif : un nom déjà pris, même par un lien pendant, fait échouer au lieu d'être suivi.
-func createProbeFile(directory string) (string, fs.FileInfo, error) {
+func createProbeFile(directory, content string) (string, fs.FileInfo, error) {
 	probePath := probeEntryPath(directory)
 	probeFile, err := os.OpenFile(probePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, probeFileMode) // #nosec G304 -- nom aléatoire sous le dossier sondé
 	if err != nil {
 		return "", nil, fmt.Errorf("linker: create probe file: %w", err)
 	}
+	_, writeErr := probeFile.WriteString(content)
 	info, statErr := probeFile.Stat()
-	if closeErr := probeFile.Close(); statErr != nil || closeErr != nil {
-		return "", nil, errors.Join(statErr, closeErr, removeProbeEntry(probePath))
+	if closeErr := probeFile.Close(); writeErr != nil || statErr != nil || closeErr != nil {
+		return "", nil, errors.Join(writeErr, statErr, closeErr, removeProbeEntry(probePath))
 	}
 	return probePath, info, nil
 }

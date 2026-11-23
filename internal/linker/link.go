@@ -60,6 +60,7 @@ type linkFunc func(source, destination string) error
 
 type applier struct {
 	linkers map[Kind]linkFunc
+	rename  func(oldPath, newPath string) error
 }
 
 // Apply crée les liens des ops en essayant les sortes dans l'ordre de preferred, sans jamais en utiliser une autre.

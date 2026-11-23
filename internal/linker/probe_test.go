@@ -258,3 +258,50 @@ func TestFilesystemKind_realCallOnTempDir(t *testing.T) {
 		t.Fatal("empty filesystem kind name")
 	}
 }
+
+func TestProbe_detectsRenameOverwriteBehaviour(t *testing.T) {
+	deleteDestinationFirst := func(oldPath, newPath string) error {
+		if err := os.Remove(newPath); err != nil {
+			return err
+		}
+		return os.Rename(oldPath, newPath)
+	}
+	deleteDestinationThenFail := func(_, newPath string) error {
+		if err := os.Remove(newPath); err != nil {
+			return err
+		}
+		return errors.New("transfer interrupted")
+	}
+	cases := []struct {
+		name          string
+		rename        func(oldPath, newPath string) error
+		expectedValue bool
+	}{
+		{"system rename", nil, true},
+		// La sonde ne voit que l'état final : un renommage non atomique mais complet passe ; Plan avertit selon le volume.
+		{"delete destination first", deleteDestinationFirst, true},
+		{"delete destination then fail", deleteDestinationThenFail, false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			directory := t.TempDir()
+			probingApplier := systemApplier()
+			probingApplier.rename = testCase.rename
+
+			capabilities, err := probingApplier.probeBetween(directory, directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if gotValue := capabilities.RenameOverwrite; gotValue != testCase.expectedValue {
+				t.Fatalf("gotValue %v, expectedValue %v (reason %v)", gotValue, testCase.expectedValue, capabilities.RenameReason)
+			}
+			if !testCase.expectedValue && !errors.Is(capabilities.RenameReason, ErrRenameOverwrite) {
+				t.Fatalf("expected ErrRenameOverwrite, got %v", capabilities.RenameReason)
+			}
+			if gotEntries := directoryEntries(t, directory); len(gotEntries) != 0 {
+				t.Fatalf("probe left %v behind", gotEntries)
+			}
+		})
+	}
+}
