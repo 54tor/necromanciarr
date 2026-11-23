@@ -15,10 +15,10 @@ const (
 	defaultDBPath             = "necromanciarr.db"
 	defaultReadBytesPerSecond = 20 * 1024 * 1024
 
-	envAuthToken        = "NECROMANCIARR_AUTH_TOKEN"
+	envAuthToken            = "NECROMANCIARR_AUTH_TOKEN"
 	envLibraryProviderToken = "LIBRARY_PROVIDER_TOKEN"
-	envArrAPIKeys       = "ARR_API_KEYS"
-	envQbitPassword     = "QBIT_PASSWORD"
+	envArrAPIKeys           = "ARR_API_KEYS"
+	envQbitPassword         = "QBIT_PASSWORD"
 )
 
 type PathRule struct {
@@ -36,16 +36,16 @@ type Config struct {
 	DBPath             string        `yaml:"db_path"`
 	ReadBytesPerSecond int64         `yaml:"read_bytes_per_second"`
 	PathRules          []PathRule    `yaml:"path_rules"`
-	LibraryProviderURL     string        `yaml:"library_provider_url"`
+	LibraryProviderURL string        `yaml:"library_provider_url"`
 	LibraryRoots       []string      `yaml:"library_roots"`
 	ArrInstances       []ArrInstance `yaml:"arr_instances"`
 	QbitURL            string        `yaml:"qbit_url"`
 	QbitUser           string        `yaml:"qbit_user"`
 
-	AuthToken        string   `yaml:"-" json:"-"`
+	AuthToken            string   `yaml:"-" json:"-"`
 	LibraryProviderToken string   `yaml:"-" json:"-"`
-	ArrAPIKeys       []string `yaml:"-" json:"-"`
-	QbitPassword     string   `yaml:"-" json:"-"`
+	ArrAPIKeys           []string `yaml:"-" json:"-"`
+	QbitPassword         string   `yaml:"-" json:"-"`
 }
 
 func Load(path string) (Config, error) {
