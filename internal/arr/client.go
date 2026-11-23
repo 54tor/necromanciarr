@@ -50,7 +50,7 @@ func New(kind, baseURL, apiKey string) *Client {
 	}
 }
 
-// Items renvoie les fichiers présents de l'instance ; les films sans fichier sont ignorés.
+// Items renvoie les fichiers présents de l'instance ; pour Radarr, les films sans fichier sont ignorés.
 func (client *Client) Items(ctx context.Context) ([]Item, error) {
 	switch client.kind {
 	case KindRadarr:

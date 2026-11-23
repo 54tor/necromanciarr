@@ -40,8 +40,8 @@ type Verifier struct {
 	Limiter Limiter
 }
 
-// Report résume la couverture : MissingPieces liste les pièces non vérifiées ; MediaComplete est vrai si tous les octets média
-// sont vérifiés ou ne manquent qu'à cause d'un fichier absent.
+// Report résume la couverture : MissingPieces liste les pièces non vérifiées ; MediaComplete est vrai si tous les fichiers média sont présents
+// et si chacune de leurs pièces est vérifiée ou ne bloque que sur un fichier non média absent.
 type Report struct {
 	VerifiedPieces int
 	TotalPieces    int

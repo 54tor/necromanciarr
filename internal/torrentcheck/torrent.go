@@ -11,11 +11,15 @@ import (
 )
 
 const (
-	// pieceHashSize est la taille en octets d'un hash SHA1 de pièce ; paddingAttribute et legacyPaddingPrefix repèrent les fichiers de remplissage.
-	pieceHashSize          = 20
-	paddingAttribute       = "p"
-	legacyPaddingPrefix    = "_____padding_file_"
-	torrentPathSeparator   = "/"
+	// pieceHashSize est la taille en octets d'un hash SHA1 de pièce.
+	pieceHashSize = 20
+	// paddingAttribute est l'attribut BEP 47 qui marque un fichier de remplissage.
+	paddingAttribute = "p"
+	// legacyPaddingPrefix est le préfixe de nom des anciens fichiers de remplissage.
+	legacyPaddingPrefix = "_____padding_file_"
+	// torrentPathSeparator sépare les segments d'un chemin dans File.Path.
+	torrentPathSeparator = "/"
+	// bep52MetaVersionV2Only est la valeur de meta version d'un torrent v2 seul.
 	bep52MetaVersionV2Only = 2
 )
 
