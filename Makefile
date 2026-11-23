@@ -23,10 +23,33 @@ DEADCODE_CMD ?= $(GO_RUN) tool deadcode
 PACKAGE_LIST_CMD ?= $(GO_RUN) list ./...
 QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode shell hadolint gitleaks actionlint
 
-.PHONY: build quality hooks docker-build docker-lint site $(QUALITY_TARGETS)
+.PHONY: build cross-build docker-buildx quality hooks docker-build docker-lint site $(QUALITY_TARGETS)
 
 build:
 	CGO_ENABLED=0 $(GO_RUN) build -p $(QUALITY_PARALLELISM) ./cmd/necromanciarr
+
+# Plateformes livrées ; un seul processus à la fois, go vet par plateforme.
+CROSS_PLATFORMS = linux/amd64 linux/arm64 linux/riscv64 windows/amd64 windows/arm64
+BUILDX_PLATFORMS = linux/amd64,linux/arm64,linux/riscv64
+
+cross-build:
+	@mkdir -p dist; \
+	for platform in $(CROSS_PLATFORMS); do \
+		goos=$${platform%/*}; goarch=$${platform#*/}; \
+		extension=""; test "$$goos" = windows && extension=".exe"; \
+		output=dist/necromanciarr-$$goos-$$goarch$$extension; \
+		echo "== $$platform"; \
+		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch $(GO_RUN) vet -p $(QUALITY_PARALLELISM) ./... || exit 1; \
+		CGO_ENABLED=0 GOOS=$$goos GOARCH=$$goarch $(GO_RUN) build -trimpath -p $(QUALITY_PARALLELISM) -o $$output ./cmd/necromanciarr || exit 1; \
+		file $$output; \
+		go version -m $$output | head -1; \
+	done
+
+# Sortie OCI locale, sans push : le builder docker par défaut ne sait pas charger du multi-plateforme
+# dans le moteur, d'où l'archive.
+docker-buildx:
+	@mkdir -p dist
+	nice -n 10 ionice -c3 docker buildx build --platform $(BUILDX_PLATFORMS) --output type=oci,dest=dist/necromanciarr-oci.tar .
 
 # Lance toute la pile sans s'arrêter au premier échec, puis liste les cibles en échec.
 quality:

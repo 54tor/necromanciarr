@@ -8,6 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
+	// Fuseaux horaires embarqués : l'image finale n'a pas de paquet tzdata.
+	_ "time/tzdata"
+
 	"necromanciarr/internal/config"
 )
 
