@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func TestUpsertMediaFile_isIdempotentAndUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer testStore.Close()
+	defer func() { _ = testStore.Close() }()
 	modTime := time.Unix(1700000000, 0).UTC()
 	file := MediaFile{Path: "/home/u/media/film.mkv", Size: 100, ModTime: modTime, TMDBID: 1}
 
@@ -58,5 +59,35 @@ func TestUpsertMediaFile_isIdempotentAndUpdates(t *testing.T) {
 	gotFile := gotFiles[0]
 	if gotFile.Size != 200 || gotFile.TVDBID != 7 || gotFile.TMDBID != 1 || !gotFile.ModTime.Equal(modTime) || gotFile.ID == 0 {
 		t.Fatalf("unexpected row: %+v", gotFile)
+	}
+}
+
+func TestDataSourceName_escapesSpecialCharactersAndKeepsDriveLetter(t *testing.T) {
+	testCases := map[string]string{
+		"/home/u/a?b#c.db": "file:/home/u/a%3Fb%23c.db?" + pragmaQuery,
+		"necromanciarr.db": "file:necromanciarr.db?" + pragmaQuery,
+		"C:/data/x.db":     "file:C:/data/x.db?" + pragmaQuery,
+	}
+	for inputPath, expectedValue := range testCases {
+		if gotValue := dataSourceName(inputPath); gotValue != expectedValue {
+			t.Errorf("dataSourceName(%q) = %q, want %q", inputPath, gotValue, expectedValue)
+		}
+	}
+}
+
+func TestOpen_acceptsQuestionMarkAndHashInPath(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "dir?x#y", "necromanciarr.db")
+	if err := os.MkdirAll(filepath.Dir(databasePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	openedStore, err := Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := openedStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(databasePath); err != nil {
+		t.Fatalf("database not created at the literal path: %v", err)
 	}
 }

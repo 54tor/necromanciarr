@@ -3,7 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"net/url"
+	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -53,15 +56,28 @@ type Store struct {
 	database *sql.DB
 }
 
+const pragmaQuery = "_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+
+// dataSourceName construit une URI SQLite : `?`, `#` et `%` du chemin sont échappés,
+// et la lettre de lecteur Windows reste dans le chemin (`file:C:/x/y.db`).
+func dataSourceName(path string) string {
+	sourceURL := url.URL{
+		Scheme:   "file",
+		OmitHost: true,
+		Path:     filepath.ToSlash(path),
+		RawQuery: pragmaQuery,
+	}
+	return sourceURL.String()
+}
+
+// Open ouvre (et crée au besoin) la base SQLite située à path.
 func Open(path string) (*Store, error) {
-	dataSourceName := "file:" + path + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
-	database, err := sql.Open("sqlite", dataSourceName)
+	database, err := sql.Open("sqlite", dataSourceName(path))
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
 	if _, err := database.Exec(schema); err != nil {
-		database.Close()
-		return nil, fmt.Errorf("create schema: %w", err)
+		return nil, errors.Join(fmt.Errorf("create schema: %w", err), database.Close())
 	}
 	return &Store{database: database}, nil
 }
@@ -88,7 +104,7 @@ func (openedStore *Store) ListMediaFiles(ctx context.Context) ([]MediaFile, erro
 	if err != nil {
 		return nil, fmt.Errorf("list media files: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var mediaFiles []MediaFile
 	for rows.Next() {
