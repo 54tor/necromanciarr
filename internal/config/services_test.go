@@ -28,6 +28,29 @@ func TestParseArrService_rejectsMissingKeyWithoutLeakingInput(t *testing.T) {
 	}
 }
 
+func TestParseArrService_movesUserinfoOutOfBaseUrl(t *testing.T) {
+	expectedValue := ArrService{Kind: "radarr", BaseURL: "http://example.com/radarr", User: "alice", Password: "proxy-pass", APIKey: "k"}
+
+	gotValue, err := ParseArrService("radarr", "http://alice:proxy-pass@example.com/radarr?apikey=k")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if gotValue != expectedValue {
+		t.Fatalf("gotValue %+v, expectedValue %+v", gotValue, expectedValue)
+	}
+}
+
+func TestParseArrService_rejectsFragmentAndExtraParameterNamingTheParameter(t *testing.T) {
+	if _, err := ParseArrService("radarr", "http://example.com?apikey=k#frag"); err == nil {
+		t.Fatal("expected a fragment error")
+	}
+	_, err := ParseArrService("radarr", "http://example.com?apikey=k&token=secret-value")
+	if err == nil || !strings.Contains(err.Error(), "token") || strings.Contains(err.Error(), "secret-value") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestParseTorrentClient_readsTypeReadonlyAndCredentials(t *testing.T) {
 	expectedValue := TorrentClient{Type: "qbittorrent", ReadOnly: true, BaseURL: "http://example.com:8080", User: "alice", Password: "p@ss"}
 

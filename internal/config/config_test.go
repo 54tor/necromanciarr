@@ -2,10 +2,13 @@ package config
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -156,18 +159,111 @@ func TestLoad_rejectsUnknownJsonKeyNamingIt(t *testing.T) {
 }
 
 func TestLoad_errorsNeverContainServiceSecrets(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"torrentClients": ["transmission:http://alice:secret-pass@example.com"],
-  "radarr": ["ftp://example.com?apikey=secret-key"]}`)
+	cases := map[string]string{
+		"torrent client type": `{"torrentClients": ["transmission:http://alice:secret-pass@example.com"]}`,
+		"torrent client url":  `{"torrentClients": ["qbittorrent:ftp://alice:secret-pass@example.com"]}`,
+		"radarr scheme":       `{"radarr": ["ftp://example.com?apikey=secret-key"]}`,
+		"radarr extra param":  `{"radarr": ["http://example.com?apikey=secret-key&token=secret-other"]}`,
+		"library api":         `{"libraryApi": "ftp://alice:secret-pass@example.com"}`,
+	}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			configDir := t.TempDir()
+			writeFile(t, configDir, configFileName, content)
 
-	_, err := Load(nil, lookupFrom(nil), configDir)
+			_, err := Load(nil, lookupFrom(nil), configDir)
 
-	if err == nil || strings.Contains(err.Error(), "secret-") {
+			if err == nil || strings.Contains(err.Error(), "secret-") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestLoad_rejectsTrailingDataAfterJsonObject(t *testing.T) {
+	for _, content := range []string{`{} garbage`, `{} {}`} {
+		configDir := t.TempDir()
+		writeFile(t, configDir, configFileName, content)
+
+		if _, err := Load(nil, lookupFrom(nil), configDir); err == nil {
+			t.Fatalf("expected an error for %q", content)
+		}
+	}
+}
+
+func TestLoad_rejectsMissingExplicitConfigDirWithoutCreatingIt(t *testing.T) {
+	missingDir := filepath.Join(t.TempDir(), "typo")
+
+	_, flagErr := Load([]string{"--config-dir", missingDir}, lookupFrom(nil), t.TempDir())
+	_, envErr := Load(nil, lookupFrom(map[string]string{envConfigDir: missingDir}), t.TempDir())
+	_, keyErr := ResolveConfigDir([]string{"--config-dir", missingDir}, lookupFrom(nil), t.TempDir())
+
+	for _, err := range []error{flagErr, envErr, keyErr} {
+		if err == nil || !strings.Contains(err.Error(), missingDir) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	if _, err := os.Stat(missingDir); err == nil {
+		t.Fatal("explicit dir must not be created")
+	}
+}
+
+func TestLoad_missingConfigFileInExistingDirIsEmptyConfig(t *testing.T) {
+	mustLoad(t, []string{"--config-dir", t.TempDir()}, nil, t.TempDir())
+}
+
+func TestLoad_rejectsZeroReadRateFlag(t *testing.T) {
+	_, err := Load([]string{"--read-bytes-per-second", "0"}, lookupFrom(nil), t.TempDir())
+
+	if err == nil || !strings.Contains(err.Error(), "must be positive") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	writeFile(t, configDir, configFileName, `{"radarr": ["ftp://example.com?apikey=secret-key"]}`)
-	if _, err = Load(nil, lookupFrom(nil), configDir); err == nil || strings.Contains(err.Error(), "secret-") {
+}
+
+func TestLoad_extraPositionalArgumentIsUsageError(t *testing.T) {
+	_, err := Load([]string{"extra"}, lookupFrom(nil), t.TempDir())
+
+	if !errors.Is(err, ErrUsage) {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConfig_redactsUserinfoInRadarrAndLibraryApi(t *testing.T) {
+	configDir := t.TempDir()
+	writeFile(t, configDir, configFileName, `{
+  "libraryApi": "https://bob:secret-library@example.com/api?token=secret-token&page=2",
+  "radarr": ["http://alice:secret-proxy@example.com:7878/radarr?apikey=secret-radarr"]
+}`)
+	loadedConfig := mustLoad(t, nil, nil, configDir)
+
+	if loadedConfig.Radarr[0].BaseURL != "http://example.com:7878/radarr" || loadedConfig.Radarr[0].User != "alice" {
+		t.Fatalf("unexpected service %+v", loadedConfig.Radarr[0])
+	}
+	redactedJSON, err := loadedConfig.RedactedJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	directJSON, err := json.Marshal(loadedConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logBuffer bytes.Buffer
+	slog.New(slog.NewJSONHandler(&logBuffer, nil)).Info("config", "config", loadedConfig, "service", loadedConfig.Radarr[0])
+	renderings := []string{string(redactedJSON), string(directJSON), logBuffer.String(), loadedConfig.String(), loadedConfig.Radarr[0].String()}
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
+		renderings = append(renderings, fmt.Sprintf(verb, loadedConfig), fmt.Sprintf(verb, loadedConfig.Radarr[0]))
+	}
+	for _, rendering := range renderings {
+		assertNoSecret(t, rendering)
+	}
+}
+
+func TestEnsureAPIKey_rejectsEmptyKeyFile(t *testing.T) {
+	configDir := t.TempDir()
+	writeFile(t, configDir, apiKeyFileName, " \n\t\n")
+
+	if _, err := EnsureAPIKey(configDir); err == nil {
+		t.Fatal("expected an error for an empty key file")
 	}
 }
 
@@ -231,7 +327,7 @@ func TestEnsureAPIKey_isStableAcrossRunsAndPrivate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode gotValue %v, expectedValue 0600", info.Mode().Perm())
 	}
 	entries, _ := os.ReadDir(configDir)

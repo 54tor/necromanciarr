@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -34,8 +35,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-func loadConfig(args []string) (config.Config, error) {
-	return config.Load(args, os.LookupEnv, defaultConfigDir())
+// reportError affiche l'erreur ; une ligne de commande invalide affiche l'usage et donne le code 2.
+func reportError(stderr io.Writer, err error) int {
+	if errors.Is(err, config.ErrUsage) {
+		_, _ = fmt.Fprintln(stderr, usageText)
+		return usageExitCode
+	}
+	_, _ = fmt.Fprintln(stderr, "error:", err)
+	return failureExitCode
 }
 
 // defaultConfigDir vaut <dossier utilisateur>/necromanciarr ; vide si le système n'en fournit pas.
@@ -48,30 +55,26 @@ func defaultConfigDir() string {
 }
 
 func runAPIKey(args []string, stdout, stderr io.Writer) int {
-	loadedConfig, err := loadConfig(args)
+	configDir, err := config.ResolveConfigDir(args, os.LookupEnv, defaultConfigDir())
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "error:", err)
-		return failureExitCode
+		return reportError(stderr, err)
 	}
-	apiKey, err := config.EnsureAPIKey(loadedConfig.ConfigDir)
+	apiKey, err := config.EnsureAPIKey(configDir)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "error:", err)
-		return failureExitCode
+		return reportError(stderr, err)
 	}
 	_, _ = fmt.Fprintln(stdout, apiKey)
 	return 0
 }
 
 func runConfigCheck(args []string, stdout, stderr io.Writer) int {
-	loadedConfig, err := loadConfig(args)
+	loadedConfig, err := config.Load(args, os.LookupEnv, defaultConfigDir())
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "error:", err)
-		return failureExitCode
+		return reportError(stderr, err)
 	}
 	redactedJSON, err := loadedConfig.RedactedJSON()
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "error:", err)
-		return failureExitCode
+		return reportError(stderr, err)
 	}
 	_, _ = fmt.Fprintln(stdout, string(redactedJSON))
 	return 0

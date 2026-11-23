@@ -73,6 +73,19 @@ type commandLine struct {
 	set                                   map[string]bool
 }
 
+// ErrUsage signale une ligne de commande invalide (option inconnue, argument en trop, aide demandée).
+var ErrUsage = errors.New("usage")
+
+// ResolveConfigDir détermine le dossier de configuration sans charger le reste : --config-dir > CONFIG_DIR > défaut.
+// Un dossier choisi explicitement doit exister ; le défaut est créé plus tard, à la demande.
+func ResolveConfigDir(args []string, lookupEnv func(string) (string, bool), defaultConfigDir string) (string, error) {
+	options, err := parseCommandLine(args)
+	if err != nil {
+		return "", err
+	}
+	return resolveConfigDir(options, lookupEnv, defaultConfigDir)
+}
+
 // Load construit la configuration. Priorité : ligne de commande > environnement > config.json > défauts.
 // defaultConfigDir sert quand ni --config-dir ni CONFIG_DIR ne sont fournis. Les erreurs ne contiennent aucun secret.
 func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir string) (Config, error) {
@@ -80,9 +93,9 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir
 	if err != nil {
 		return Config{}, err
 	}
-	configDir := resolveConfigDir(options, lookupEnv, defaultConfigDir)
-	if configDir == "" {
-		return Config{}, errors.New("config dir unknown: set --config-dir or " + envConfigDir)
+	configDir, err := resolveConfigDir(options, lookupEnv, defaultConfigDir)
+	if err != nil {
+		return Config{}, err
 	}
 	lookup, err := loadDotEnvLookup(configDir, lookupEnv)
 	if err != nil {
@@ -115,23 +128,37 @@ func parseCommandLine(args []string) (commandLine, error) {
 	flagSet.StringVar(&options.dbPath, "db-path", "", "sqlite database path")
 	flagSet.Int64Var(&options.readBytesPerSecond, "read-bytes-per-second", 0, "read rate limit")
 	if err := flagSet.Parse(args); err != nil {
-		return commandLine{}, fmt.Errorf("parse flags: %w", err)
+		return commandLine{}, fmt.Errorf("%w: %w", ErrUsage, err)
+	}
+	if flagSet.NArg() > 0 {
+		return commandLine{}, fmt.Errorf("%w: unexpected argument", ErrUsage)
 	}
 	flagSet.Visit(func(visited *flag.Flag) { options.set[visited.Name] = true })
 	return options, nil
 }
 
-func resolveConfigDir(options commandLine, lookupEnv func(string) (string, bool), defaultConfigDir string) string {
+func resolveConfigDir(options commandLine, lookupEnv func(string) (string, bool), defaultConfigDir string) (string, error) {
+	explicitDir := ""
 	if options.set["config-dir"] {
-		return options.configDir
+		explicitDir = options.configDir
+	} else if environmentDir, found := lookupEnv(envConfigDir); found {
+		explicitDir = environmentDir
 	}
-	if environmentDir, found := lookupEnv(envConfigDir); found && environmentDir != "" {
-		return environmentDir
+	if explicitDir == "" {
+		if defaultConfigDir == "" {
+			return "", errors.New("config dir unknown: set --config-dir or " + envConfigDir)
+		}
+		return defaultConfigDir, nil
 	}
-	return defaultConfigDir
+	info, err := os.Stat(explicitDir)
+	if err != nil || !info.IsDir() {
+		return "", fmt.Errorf("config dir %q does not exist or is not a directory", explicitDir)
+	}
+	return explicitDir, nil
 }
 
 // readConfigFile lit config.json en mode strict ; un fichier absent donne une configuration vide.
+// Limite d'encoding/json : une clé dupliquée n'est pas détectée, la dernière l'emporte.
 func readConfigFile(path string, lookup func(string) (string, bool)) (fileConfig, error) {
 	var rawFile fileConfig
 	content, err := os.ReadFile(path) // #nosec G304 -- chemin dérivé du dossier de configuration de l'opérateur
@@ -145,6 +172,9 @@ func readConfigFile(path string, lookup func(string) (string, bool)) (fileConfig
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&rawFile); err != nil {
 		return fileConfig{}, fmt.Errorf("parse %s: %w", configFileName, err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return fileConfig{}, fmt.Errorf("parse %s: unexpected data after the JSON object", configFileName)
 	}
 	if err := interpolateValue(reflect.ValueOf(&rawFile).Elem(), "", lookup); err != nil {
 		return fileConfig{}, fmt.Errorf("%s: %w", configFileName, err)
@@ -225,8 +255,13 @@ func applyOverrides(target *Config, options commandLine, lookup func(string) (st
 
 // Un jeton est exigé hors boucle locale : sans lui, l'interface serait ouverte au réseau sans authentification.
 func validate(loadedConfig Config) error {
-	if loadedConfig.ReadBytesPerSecond < 0 {
+	if loadedConfig.ReadBytesPerSecond <= 0 {
 		return errors.New("readBytesPerSecond must be positive")
+	}
+	if loadedConfig.LibraryAPI != "" {
+		if _, err := parseHTTPURL(loadedConfig.LibraryAPI); err != nil {
+			return errors.New("libraryApi must be an http(s) url without fragment")
+		}
 	}
 	if loadedConfig.AuthToken == "" && !isLoopbackAddress(loadedConfig.ListenAddr) {
 		return fmt.Errorf("listen %q is not loopback: set %s", loadedConfig.ListenAddr, envAuthToken)
@@ -253,16 +288,27 @@ func (loadedConfig Config) RedactedJSON() ([]byte, error) {
 
 type plainConfig Config
 
-// String masque identifiants d'URL et jetons pour %v et %+v.
-func (loadedConfig Config) String() string {
+// redacted renvoie une copie sans secret : jetons, identifiants et valeurs sensibles des URLs masqués.
+func (loadedConfig Config) redacted() plainConfig {
 	redactedCopy := loadedConfig
+	redactedCopy.LibraryAPI = redactURL(loadedConfig.LibraryAPI)
 	if redactedCopy.AuthToken != "" {
 		redactedCopy.AuthToken = redactedSecret
 	}
 	if redactedCopy.LibraryProviderToken != "" {
 		redactedCopy.LibraryProviderToken = redactedSecret
 	}
-	return fmt.Sprintf("%+v", plainConfig(redactedCopy))
+	return plainConfig(redactedCopy)
+}
+
+// MarshalJSON masque les secrets : toute sérialisation est destinée à l'affichage.
+func (loadedConfig Config) MarshalJSON() ([]byte, error) {
+	return json.Marshal(loadedConfig.redacted())
+}
+
+// String masque identifiants d'URL et jetons pour %v et %+v.
+func (loadedConfig Config) String() string {
+	return fmt.Sprintf("%+v", loadedConfig.redacted())
 }
 
 // GoString masque les secrets pour %#v.

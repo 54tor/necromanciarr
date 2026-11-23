@@ -60,5 +60,9 @@ func readAPIKey(keyPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read api key: %w", err)
 	}
-	return strings.TrimSpace(string(content)), nil
+	key := strings.TrimSpace(string(content))
+	if key == "" {
+		return "", errors.New("api key file is empty: delete it to generate a new key")
+	}
+	return key, nil
 }
