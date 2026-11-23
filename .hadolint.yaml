@@ -1,0 +1,3 @@
+# DL3008 : les versions apt de trixie dérivent, l'épinglage casserait le build.
+ignored:
+  - DL3008
