@@ -7,5 +7,12 @@
   "pathMappings": [{ "from": "/home/u/media", "to": "/data/media" }],
   "radarr": ["http://example.com:7878?apikey=${RADARR_API_KEY}"],
   "sonarr": ["http://example.com:8989?apikey=${SONARR_API_KEY}"],
-  "torrentClients": ["qbittorrent:readonly:http://alice:${QBIT_PASSWORD}@example.com:8080"]
+  "torrentClients": ["qbittorrent:readonly:http://alice:${QBIT_PASSWORD}@example.com:8080"],
+  "dedupe": {
+    "torrentRoots": [],
+    "kinds": ["symlink"],
+    "relativeSymlinks": true,
+    "minFileAge": "10m",
+    "recheckAfter": true
+  }
 }

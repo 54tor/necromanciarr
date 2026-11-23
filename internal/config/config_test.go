@@ -8,9 +8,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeFile(t *testing.T, directory, name, content string) {
@@ -333,5 +336,72 @@ func TestEnsureAPIKey_isStableAcrossRunsAndPrivate(t *testing.T) {
 	entries, _ := os.ReadDir(configDir)
 	if len(entries) != 1 {
 		t.Fatalf("temporary files left behind: %v", entries)
+	}
+}
+
+func TestLoad_dedupeDefaultsWhenSectionAbsent(t *testing.T) {
+	loadedConfig := mustLoad(t, nil, nil, t.TempDir())
+
+	gotValue := loadedConfig.Dedupe
+	if len(gotValue.TorrentRoots) != 0 || !slices.Equal(gotValue.Kinds, []string{"symlink"}) ||
+		!gotValue.RelativeSymlinks || gotValue.MinFileAge != 10*time.Minute || !gotValue.RecheckAfter {
+		t.Fatalf("unexpected dedupe defaults %+v", gotValue)
+	}
+}
+
+func TestLoad_dedupeReadsEveryKey(t *testing.T) {
+	configDir := t.TempDir()
+	writeFile(t, configDir, configFileName, `{"dedupe": {"torrentRoots": ["${TORRENTS}"], "kinds": ["hardlink", "symlink"],
+		"relativeSymlinks": false, "minFileAge": "1h30m", "recheckAfter": false}}`)
+	environment := map[string]string{"TORRENTS": "/home/u/torrents"}
+
+	gotValue := mustLoad(t, nil, environment, configDir).Dedupe
+
+	expectedValue := Dedupe{
+		TorrentRoots: []string{"/home/u/torrents"}, Kinds: []string{"hardlink", "symlink"},
+		RelativeSymlinks: false, MinFileAge: 90 * time.Minute, RecheckAfter: false,
+	}
+	if !reflect.DeepEqual(gotValue, expectedValue) {
+		t.Fatalf("gotValue %+v, expectedValue %+v", gotValue, expectedValue)
+	}
+}
+
+func TestLoad_dedupeRejectsUnknownKindNamingTheKey(t *testing.T) {
+	configDir := t.TempDir()
+	writeFile(t, configDir, configFileName, `{"dedupe": {"kinds": ["symlink", "junction"]}}`)
+
+	_, err := Load(nil, lookupFrom(nil), configDir)
+
+	if err == nil || !strings.Contains(err.Error(), "dedupe.kinds[1]") {
+		t.Fatalf("expected an error naming dedupe.kinds[1], got %v", err)
+	}
+}
+
+func TestLoad_dedupeRejectsInvalidMinFileAge(t *testing.T) {
+	for _, rawAge := range []string{"soon", "-1m"} {
+		configDir := t.TempDir()
+		writeFile(t, configDir, configFileName, `{"dedupe": {"minFileAge": "`+rawAge+`"}}`)
+
+		_, err := Load(nil, lookupFrom(nil), configDir)
+
+		if err == nil || !strings.Contains(err.Error(), "dedupe.minFileAge") {
+			t.Fatalf("expected an error naming dedupe.minFileAge for %q, got %v", rawAge, err)
+		}
+	}
+}
+
+func TestExampleConfig_declaresDedupeSection(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "config.example.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rawFile fileConfig
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&rawFile); err != nil {
+		t.Fatal(err)
+	}
+	if len(rawFile.Dedupe.Kinds) == 0 || rawFile.Dedupe.MinFileAge == "" {
+		t.Fatalf("example dedupe section incomplete: %+v", rawFile.Dedupe)
 	}
 }

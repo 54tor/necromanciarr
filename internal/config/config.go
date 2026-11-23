@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"time"
 )
 
 const (
@@ -22,6 +24,7 @@ const (
 	defaultReadBytesPerSecond = 20 * 1024 * 1024
 	configFileName            = "config.json"
 	redactedSecret            = "[redacted]"
+	defaultDedupeMinFileAge   = 10 * time.Minute
 
 	envConfigDir            = "CONFIG_DIR"
 	envLibraryAPI           = "LIBRARY_API"
@@ -48,6 +51,7 @@ type Config struct {
 	Radarr             []ArrService    `json:"radarr"`
 	Sonarr             []ArrService    `json:"sonarr"`
 	TorrentClients     []TorrentClient `json:"torrentClients"`
+	Dedupe             Dedupe          `json:"dedupe"`
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`
@@ -64,7 +68,29 @@ type fileConfig struct {
 	Radarr             []string   `json:"radarr"`
 	Sonarr             []string   `json:"sonarr"`
 	TorrentClients     []string   `json:"torrentClients"`
+	Dedupe             fileDedupe `json:"dedupe"`
 }
+
+// Dedupe règle le remplacement, côté torrent, des copies d'un fichier de la bibliothèque par des liens. TorrentRoots
+// vide laisse la fonction inactive ; Kinds donne l'ordre de préférence parmi symlink, hardlink et reflink.
+type Dedupe struct {
+	TorrentRoots     []string      `json:"torrentRoots"`
+	Kinds            []string      `json:"kinds"`
+	RelativeSymlinks bool          `json:"relativeSymlinks"`
+	MinFileAge       time.Duration `json:"minFileAge"`
+	RecheckAfter     bool          `json:"recheckAfter"`
+}
+
+// fileDedupe : les booléens sont des pointeurs pour distinguer une clé absente (défaut true) d'un false explicite.
+type fileDedupe struct {
+	TorrentRoots     []string `json:"torrentRoots"`
+	Kinds            []string `json:"kinds"`
+	RelativeSymlinks *bool    `json:"relativeSymlinks"`
+	MinFileAge       string   `json:"minFileAge"`
+	RecheckAfter     *bool    `json:"recheckAfter"`
+}
+
+var dedupeLinkKinds = []string{"symlink", "hardlink", "reflink"}
 
 // commandLine regroupe les options reconnues ; set indique celles réellement passées.
 type commandLine struct {
@@ -192,6 +218,9 @@ func buildConfig(rawFile fileConfig) (Config, error) {
 		PathRules:          rawFile.PathMappings,
 	}
 	var err error
+	if loadedConfig.Dedupe, err = parseDedupe(rawFile.Dedupe); err != nil {
+		return Config{}, err
+	}
 	if loadedConfig.Radarr, err = parseArrServices("radarr", rawFile.Radarr); err != nil {
 		return Config{}, err
 	}
@@ -206,6 +235,32 @@ func buildConfig(rawFile fileConfig) (Config, error) {
 		loadedConfig.TorrentClients = append(loadedConfig.TorrentClients, client)
 	}
 	return loadedConfig, nil
+}
+
+func parseDedupe(rawDedupe fileDedupe) (Dedupe, error) {
+	parsed := Dedupe{
+		TorrentRoots:     rawDedupe.TorrentRoots,
+		Kinds:            rawDedupe.Kinds,
+		RelativeSymlinks: rawDedupe.RelativeSymlinks == nil || *rawDedupe.RelativeSymlinks,
+		MinFileAge:       defaultDedupeMinFileAge,
+		RecheckAfter:     rawDedupe.RecheckAfter == nil || *rawDedupe.RecheckAfter,
+	}
+	if len(parsed.Kinds) == 0 {
+		parsed.Kinds = []string{"symlink"}
+	}
+	for kindIndex, kind := range parsed.Kinds {
+		if !slices.Contains(dedupeLinkKinds, kind) {
+			return Dedupe{}, fmt.Errorf("dedupe.kinds[%d]: unknown link kind %q (allowed: %v)", kindIndex, kind, dedupeLinkKinds)
+		}
+	}
+	if rawDedupe.MinFileAge != "" {
+		minFileAge, err := time.ParseDuration(rawDedupe.MinFileAge)
+		if err != nil || minFileAge < 0 {
+			return Dedupe{}, fmt.Errorf("dedupe.minFileAge: %q is not a non-negative Go duration", rawDedupe.MinFileAge)
+		}
+		parsed.MinFileAge = minFileAge
+	}
+	return parsed, nil
 }
 
 func parseArrServices(kind string, rawServices []string) ([]ArrService, error) {
