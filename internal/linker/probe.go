@@ -10,7 +10,7 @@ import (
 )
 
 // Capabilities dit quelles sortes de liens le volume accepte réellement ; Reasons donne l'erreur typée de chaque refus.
-// RenameOverwrite dit qu'un renommage par-dessus un fichier existant y aboutit (RenameReason sinon) : la sonde ne voit
+// RenameOverwrite dit qu'un renommage par-dessus un autre fichier y aboutit (RenameReason sinon) : la sonde ne voit
 // que l'état final, pas l'atomicité. SourceDir et DestDir sont les dossiers résolus réellement sondés.
 type Capabilities struct {
 	Hardlink        bool
