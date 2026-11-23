@@ -23,7 +23,7 @@ DEADCODE_CMD ?= $(GO_RUN) tool deadcode
 PACKAGE_LIST_CMD ?= $(GO_RUN) list ./...
 QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode shell hadolint gitleaks actionlint
 
-.PHONY: build quality hooks docker-build docker-lint $(QUALITY_TARGETS)
+.PHONY: build quality hooks docker-build docker-lint site $(QUALITY_TARGETS)
 
 build:
 	CGO_ENABLED=0 $(GO_RUN) build -p $(QUALITY_PARALLELISM) ./cmd/necromanciarr
@@ -91,6 +91,11 @@ gitleaks:
 
 actionlint:
 	$(DOCKER_TOOL) $(ACTIONLINT_IMAGE) -color
+
+# Site de documentation (VitePress) : Node reste confiné à docs/site.
+site:
+	cd docs/site && nice -n 10 ionice -c3 npm ci && nice -n 10 ionice -c3 npm run build
+	cd docs/site && npm audit --audit-level=high
 
 docker-build:
 	nice -n 10 ionice -c3 docker build -t $(IMAGE) .
