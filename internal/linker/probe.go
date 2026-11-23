@@ -26,8 +26,8 @@ const (
 	errProbeWrongInode = "linker: probe link does not resolve to the probe file"
 )
 
-// Probe sonde directory en y créant puis supprimant des entrées « .necromanciarr-probe-<aléatoire> » ; aucun fichier
-// existant n'est touché. Un montage rclone ou FUSE refuse souvent symlink et hardlink : seule une vraie création le dit.
+// Probe sonde directory en y créant puis supprimant des entrées « .necromanciarr-probe-<aléatoire> » ; aucun autre
+// fichier n'est touché. Un montage rclone ou FUSE refuse souvent symlink et hardlink : seule une vraie création le dit.
 func Probe(directory string) (Capabilities, error) {
 	return ProbeBetween(directory, directory)
 }

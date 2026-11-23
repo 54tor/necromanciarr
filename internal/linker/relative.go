@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-// ErrNoRelativePath signale qu'aucun chemin relatif ne relie le lien à sa cible, par exemple entre deux lecteurs
+// ErrNoRelativePath signale qu'aucun chemin relatif ne relie le lien à sa cible, comme entre deux volumes
 // Windows.
 var ErrNoRelativePath = errors.New("linker: no relative path between link and target")
 

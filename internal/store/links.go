@@ -121,7 +121,7 @@ func scanLink(rows *sql.Rows) (Link, error) {
 	return link, nil
 }
 
-// UpdateLinkTarget change la cible enregistrée du lien linkPath, par exemple après un renommage dans la bibliothèque.
+// UpdateLinkTarget change la cible enregistrée du lien linkPath, après un renommage dans la bibliothèque.
 func (openedStore *Store) UpdateLinkTarget(ctx context.Context, linkPath, targetPath string) error {
 	return openedStore.updateLink(ctx, `UPDATE links SET target_path = ? WHERE link_path = ?`, targetPath, linkPath)
 }
