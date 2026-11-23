@@ -43,6 +43,29 @@ CREATE TABLE IF NOT EXISTS proposals (
 	candidate_id INTEGER NOT NULL REFERENCES candidates(id),
 	kind TEXT NOT NULL,
 	decision TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS links (
+	id INTEGER PRIMARY KEY,
+	kind TEXT NOT NULL,
+	link_path TEXT NOT NULL UNIQUE,
+	target_path TEXT NOT NULL,
+	relative INTEGER NOT NULL,
+	target_dev INTEGER,
+	target_ino INTEGER,
+	inode_reliable INTEGER NOT NULL,
+	size INTEGER NOT NULL,
+	fingerprint TEXT NOT NULL,
+	state TEXT NOT NULL,
+	created_at INTEGER NOT NULL,
+	verified_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fingerprints (
+	id INTEGER PRIMARY KEY,
+	path TEXT NOT NULL UNIQUE,
+	size INTEGER NOT NULL,
+	mtime INTEGER NOT NULL,
+	head_tail_hash TEXT NOT NULL,
+	verified_at INTEGER NOT NULL
 );`
 
 // MediaFile est un fichier média de la bibliothèque, identifié par son chemin ; TMDBID et TVDBID valent 0 si inconnus.
