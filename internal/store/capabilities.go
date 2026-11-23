@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// hashSeparator sépare les algorithmes dans la colonne mount_capabilities.hashes.
+// hashSeparator sépare les noms de hachage dans la colonne mount_capabilities.hashes.
 const hashSeparator = ","
 
 // MountCapabilities est le résultat mis en cache de la sonde d'un montage : empreintes que son stockage fournit, date

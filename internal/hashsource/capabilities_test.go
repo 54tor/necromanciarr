@@ -47,7 +47,6 @@ func TestCapabilities_detectedByProbeNotByBackendName(t *testing.T) {
 	sample := sampleFile(t, time.Unix(1700000000, 0))
 
 	gotValue, err := ProbeCapabilities(context.Background(), source, sample, t.TempDir())
-
 	if err != nil {
 		t.Fatal(err)
 	}

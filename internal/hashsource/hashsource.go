@@ -11,7 +11,7 @@ import (
 // Algorithm nomme une fonction de hachage, en majuscules comme dans `rclone hashsum`.
 type Algorithm string
 
-// Algorithmes pris en charge ; la liste est fermée, rien d'autre n'est passé à rclone.
+// Hachages pris en charge ; la liste est fermée, rien d'autre n'est passé à rclone.
 const (
 	MD5    Algorithm = "MD5"
 	SHA1   Algorithm = "SHA1"
@@ -24,7 +24,7 @@ var AllAlgorithms = []Algorithm{MD5, SHA1, SHA256}
 // Origin dit d'où vient une empreinte : fournie par le stockage sans lecture, ou calculée en lisant le fichier.
 type Origin string
 
-// Origines possibles d'un Result.
+// Valeurs possibles de Result.Origin.
 const (
 	Backend     Origin = "backend"
 	ReadLocally Origin = "local"
