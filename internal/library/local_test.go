@@ -15,7 +15,7 @@ func openTestStore(t *testing.T) *store.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { testStore.Close() })
+	t.Cleanup(func() { _ = testStore.Close() })
 	return testStore
 }
 
@@ -101,5 +101,28 @@ func TestScan_stopsOnCancelledContext(t *testing.T) {
 
 	if err := Scan(cancelledContext, root, openTestStore(t)); err == nil {
 		t.Fatal("expectedValue a context error")
+	}
+}
+
+func TestScan_followsSymlinkedRootAndKeepsRootPrefix(t *testing.T) {
+	realRoot := t.TempDir()
+	writeFile(t, filepath.Join(realRoot, "Film.mkv"), "12345")
+	linkRoot := filepath.Join(t.TempDir(), "library")
+	if err := os.Symlink(realRoot, linkRoot); err != nil {
+		t.Fatal(err)
+	}
+	testStore := openTestStore(t)
+
+	if err := Scan(context.Background(), linkRoot, testStore); err != nil {
+		t.Fatal(err)
+	}
+
+	gotFiles, err := testStore.ListMediaFiles(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedPath := filepath.Join(linkRoot, "Film.mkv")
+	if len(gotFiles) != 1 || gotFiles[0].Path != expectedPath {
+		t.Fatalf("expectedValue one file at %s, gotValue %+v", expectedPath, gotFiles)
 	}
 }

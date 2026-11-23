@@ -11,14 +11,21 @@ import (
 	"necromanciarr/internal/torrentcheck"
 )
 
+// Scan parcourt root et enregistre chaque fichier média dans mediaStore.
+// Si root est un lien symbolique, la cible est parcourue (WalkDir ne suit pas
+// le lien de départ) et les chemins enregistrés restent préfixés par root.
 func Scan(ctx context.Context, root string, mediaStore *store.Store) error {
-	rootInfo, err := os.Stat(root)
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return fmt.Errorf("scan %s: %w", root, err)
+	}
+	rootInfo, err := os.Stat(resolvedRoot)
 	if err != nil {
 		return fmt.Errorf("scan %s: %w", root, err)
 	}
 	rootDevice, rootDeviceKnown := deviceOf(rootInfo)
 
-	return filepath.WalkDir(root, func(entryPath string, entry fs.DirEntry, walkErr error) error {
+	return filepath.WalkDir(resolvedRoot, func(entryPath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -34,7 +41,7 @@ func Scan(ctx context.Context, root string, mediaStore *store.Store) error {
 		if !torrentcheck.IsMediaPath(entryPath) {
 			return nil
 		}
-		return recordFile(ctx, mediaStore, entryPath, entry)
+		return recordFile(ctx, mediaStore, rebasePath(entryPath, resolvedRoot, root), entry)
 	})
 }
 
@@ -63,4 +70,12 @@ func recordFile(ctx context.Context, mediaStore *store.Store, entryPath string, 
 		Size:    info.Size(),
 		ModTime: info.ModTime(),
 	})
+}
+
+func rebasePath(entryPath, resolvedRoot, root string) string {
+	relativePath, err := filepath.Rel(resolvedRoot, entryPath)
+	if err != nil {
+		return entryPath
+	}
+	return filepath.Join(root, relativePath)
 }
