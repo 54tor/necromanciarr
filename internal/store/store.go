@@ -1,3 +1,4 @@
+// Package store persiste l'état du pipeline dans une base SQLite sans CGO.
 package store
 
 import (
@@ -12,6 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// schema est rejouable : chaque table est créée seulement si elle manque, donc Open est idempotent.
 const schema = `
 CREATE TABLE IF NOT EXISTS media_files (
 	id INTEGER PRIMARY KEY,
@@ -43,6 +45,7 @@ CREATE TABLE IF NOT EXISTS proposals (
 	decision TEXT NOT NULL
 );`
 
+// MediaFile est un fichier média de la bibliothèque, identifié par son chemin ; TMDBID et TVDBID valent 0 si inconnus.
 type MediaFile struct {
 	ID      int64
 	Path    string
@@ -52,10 +55,12 @@ type MediaFile struct {
 	TVDBID  int
 }
 
+// Store donne accès à la base SQLite ; sûr pour un usage concurrent via database/sql.
 type Store struct {
 	database *sql.DB
 }
 
+// pragmaQuery attend 5 s sur un verrou au lieu d'échouer, et active les clés étrangères (désactivées par défaut dans SQLite).
 const pragmaQuery = "_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
 
 // dataSourceName construit une URI SQLite : `?`, `#` et `%` du chemin sont échappés,
@@ -82,10 +87,12 @@ func Open(path string) (*Store, error) {
 	return &Store{database: database}, nil
 }
 
+// Close ferme la base.
 func (openedStore *Store) Close() error {
 	return openedStore.database.Close()
 }
 
+// UpsertMediaFile insère le fichier, ou met à jour taille, date et identifiants si son chemin existe déjà.
 func (openedStore *Store) UpsertMediaFile(ctx context.Context, file MediaFile) error {
 	_, err := openedStore.database.ExecContext(ctx, `
 INSERT INTO media_files (path, size, mtime, tmdb_id, tvdb_id) VALUES (?, ?, ?, ?, ?)
@@ -98,6 +105,7 @@ ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime = excluded.mtime,
 	return nil
 }
 
+// ListMediaFiles renvoie tous les fichiers triés par chemin ; ModTime est en UTC.
 func (openedStore *Store) ListMediaFiles(ctx context.Context) ([]MediaFile, error) {
 	rows, err := openedStore.database.QueryContext(ctx,
 		`SELECT id, path, size, mtime, tmdb_id, tvdb_id FROM media_files ORDER BY path`)
