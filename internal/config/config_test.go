@@ -405,3 +405,35 @@ func TestExampleConfig_declaresDedupeSection(t *testing.T) {
 		t.Fatalf("example dedupe section incomplete: %+v", rawFile.Dedupe)
 	}
 }
+
+func TestConfig_rejectsDedupeRootsOverlappingLibraryRoots(t *testing.T) {
+	cases := []struct {
+		name            string
+		libraryRoot     string
+		torrentRoot     string
+		expectedOverlap bool
+	}{
+		{"equal", "/volumes/mega/1080p", "/volumes/mega/1080p/", true},
+		{"torrent root is an ancestor", "/volumes/mega/1080p", "/volumes/mega", true},
+		{"torrent root is a descendant", "/volumes/mega", "/volumes/mega/qBittorrent", true},
+		{"siblings", "/volumes/mega/1080p", "/volumes/mega/qBittorrent", false},
+		{"shared prefix is not a parent", "/data/tv", "/data/tvshows", false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			configDir := t.TempDir()
+			writeFile(t, configDir, configFileName, fmt.Sprintf(`{"libraryRoots": [%q], "dedupe": {"torrentRoots": [%q]}}`,
+				testCase.libraryRoot, testCase.torrentRoot))
+
+			_, err := Load(nil, lookupFrom(nil), configDir)
+
+			gotOverlap := err != nil
+			if gotOverlap != testCase.expectedOverlap {
+				t.Fatalf("overlap error %v, expected overlap %v", err, testCase.expectedOverlap)
+			}
+			if gotOverlap && !strings.Contains(err.Error(), "dedupe.torrentRoots[0]") {
+				t.Fatalf("error does not name the key: %v", err)
+			}
+		})
+	}
+}

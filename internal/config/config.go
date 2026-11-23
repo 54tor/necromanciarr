@@ -318,10 +318,38 @@ func validate(loadedConfig Config) error {
 			return errors.New("libraryApi must be an http(s) url without fragment")
 		}
 	}
+	if err := validateDedupeRoots(loadedConfig); err != nil {
+		return err
+	}
 	if loadedConfig.AuthToken == "" && !isLoopbackAddress(loadedConfig.ListenAddr) {
 		return fmt.Errorf("listen %q is not loopback: set %s", loadedConfig.ListenAddr, envAuthToken)
 	}
 	return nil
+}
+
+// validateDedupeRoots : une racine torrent qui contient la bibliothèque, ou y est contenue, ferait proposer des liens
+// remplaçant des fichiers de la bibliothèque elle-même.
+func validateDedupeRoots(loadedConfig Config) error {
+	for torrentIndex, torrentRoot := range loadedConfig.Dedupe.TorrentRoots {
+		for libraryIndex, libraryRoot := range loadedConfig.LibraryRoots {
+			if PathsOverlap(torrentRoot, libraryRoot) {
+				return fmt.Errorf("dedupe.torrentRoots[%d] %q overlaps libraryRoots[%d] %q", torrentIndex, torrentRoot,
+					libraryIndex, libraryRoot)
+			}
+		}
+	}
+	return nil
+}
+
+// PathsOverlap dit si deux chemins, une fois nettoyés, sont égaux ou si l'un contient l'autre, segment par segment
+// (« /data/tv » ne contient pas « /data/tvshows »). Comparaison lexicale, sensible à la casse.
+func PathsOverlap(firstPath, secondPath string) bool {
+	return contains(firstPath, secondPath) || contains(secondPath, firstPath)
+}
+
+func contains(parentPath, childPath string) bool {
+	relative, err := filepath.Rel(filepath.Clean(parentPath), filepath.Clean(childPath))
+	return err == nil && (relative == "." || filepath.IsLocal(relative))
 }
 
 func isLoopbackAddress(listenAddr string) bool {
