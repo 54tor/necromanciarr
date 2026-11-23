@@ -43,6 +43,9 @@ type Link struct {
 	VerifiedAt    time.Time
 	// ModTime est la date de modification de la cible à la création du lien ; zéro si inconnue.
 	ModTime time.Time
+	// HashAlgo et Hash sont l'empreinte de contenu de la cible fournie par le stockage distant ; vides si inconnue.
+	HashAlgo string
+	Hash     string
 }
 
 func checkLinkState(state LinkState) error {
@@ -62,13 +65,15 @@ func (openedStore *Store) RecordLink(ctx context.Context, link Link) error {
 	device, inode := nullableIdentity(link)
 	_, err := openedStore.database.ExecContext(ctx, `
 INSERT INTO links (kind, link_path, target_path, relative, target_dev, target_ino, inode_reliable, size, fingerprint,
-	state, created_at, verified_at, mtime) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	state, created_at, verified_at, mtime, hash_algo, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(link_path) DO UPDATE SET kind = excluded.kind, target_path = excluded.target_path,
 	relative = excluded.relative, target_dev = excluded.target_dev, target_ino = excluded.target_ino,
 	inode_reliable = excluded.inode_reliable, size = excluded.size, fingerprint = excluded.fingerprint,
-	state = excluded.state, created_at = excluded.created_at, verified_at = excluded.verified_at, mtime = excluded.mtime`,
+	state = excluded.state, created_at = excluded.created_at, verified_at = excluded.verified_at, mtime = excluded.mtime,
+	hash_algo = excluded.hash_algo, hash = excluded.hash`,
 		link.Kind, link.LinkPath, link.TargetPath, link.Relative, device, inode, link.InodeReliable, link.Size,
-		link.Fingerprint, string(link.State), link.CreatedAt.UnixNano(), link.VerifiedAt.UnixNano(), nullableModTime(link.ModTime))
+		link.Fingerprint, string(link.State), link.CreatedAt.UnixNano(), link.VerifiedAt.UnixNano(), nullableModTime(link.ModTime),
+		nullableText(link.HashAlgo), nullableText(link.Hash))
 	if err != nil {
 		return fmt.Errorf("record link: %w", err)
 	}
@@ -78,6 +83,11 @@ ON CONFLICT(link_path) DO UPDATE SET kind = excluded.kind, target_path = exclude
 // nullableModTime stocke NULL pour une date inconnue (zéro) plutôt qu'une date de l'an 1.
 func nullableModTime(modTime time.Time) sql.NullInt64 {
 	return sql.NullInt64{Int64: modTime.UnixNano(), Valid: !modTime.IsZero()}
+}
+
+// nullableText stocke NULL pour une chaîne vide.
+func nullableText(text string) sql.NullString {
+	return sql.NullString{String: text, Valid: text != ""}
 }
 
 // nullableIdentity : SQLite ne stocke que des entiers signés ; le motif binaire de l'uint64 est conservé tel quel.
@@ -94,7 +104,7 @@ func nullableIdentity(link Link) (sql.NullInt64, sql.NullInt64) {
 func (openedStore *Store) ListLinks(ctx context.Context, state LinkState) ([]Link, error) {
 	rows, err := openedStore.database.QueryContext(ctx, `
 SELECT id, kind, link_path, target_path, relative, target_dev, target_ino, inode_reliable, size, fingerprint, state,
-	created_at, verified_at, mtime FROM links WHERE ? = '' OR state = ? ORDER BY link_path`, string(state), string(state))
+	created_at, verified_at, mtime, hash_algo, hash FROM links WHERE ? = '' OR state = ? ORDER BY link_path`, string(state), string(state))
 	if err != nil {
 		return nil, fmt.Errorf("list links: %w", err)
 	}
@@ -113,15 +123,17 @@ SELECT id, kind, link_path, target_path, relative, target_dev, target_ino, inode
 func scanLink(rows *sql.Rows) (Link, error) {
 	var link Link
 	var device, inode, modTimeNanoseconds sql.NullInt64
+	var hashAlgo, hash sql.NullString
 	var state string
 	var createdAtNanoseconds, verifiedAtNanoseconds int64
 	err := rows.Scan(&link.ID, &link.Kind, &link.LinkPath, &link.TargetPath, &link.Relative, &device, &inode,
-		&link.InodeReliable, &link.Size, &link.Fingerprint, &state, &createdAtNanoseconds, &verifiedAtNanoseconds, &modTimeNanoseconds)
+		&link.InodeReliable, &link.Size, &link.Fingerprint, &state, &createdAtNanoseconds, &verifiedAtNanoseconds, &modTimeNanoseconds, &hashAlgo, &hash)
 	if err != nil {
 		return Link{}, fmt.Errorf("scan link: %w", err)
 	}
 	link.TargetDevice = uint64(device.Int64) // #nosec G115 -- motif binaire écrit par nullableIdentity
 	link.TargetInode = uint64(inode.Int64)   // #nosec G115 -- motif binaire écrit par nullableIdentity
+	link.HashAlgo, link.Hash = hashAlgo.String, hash.String
 	link.State = LinkState(state)
 	link.CreatedAt = time.Unix(0, createdAtNanoseconds).UTC()
 	link.VerifiedAt = time.Unix(0, verifiedAtNanoseconds).UTC()
@@ -167,15 +179,20 @@ type CachedFingerprint struct {
 	ModTime      time.Time
 	HeadTailHash string
 	VerifiedAt   time.Time
+	// HashAlgo et Hash : empreinte de contenu fournie par le stockage distant, vides si inconnue.
+	HashAlgo string
+	Hash     string
 }
 
 // RecordFingerprint enregistre l'empreinte, en remplaçant celle déjà connue pour le même chemin.
 func (openedStore *Store) RecordFingerprint(ctx context.Context, entry CachedFingerprint) error {
 	_, err := openedStore.database.ExecContext(ctx, `
-INSERT INTO fingerprints (path, size, mtime, head_tail_hash, verified_at) VALUES (?, ?, ?, ?, ?)
+INSERT INTO fingerprints (path, size, mtime, head_tail_hash, verified_at, hash_algo, hash) VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime = excluded.mtime,
-	head_tail_hash = excluded.head_tail_hash, verified_at = excluded.verified_at, mtime = excluded.mtime`,
-		entry.Path, entry.Size, entry.ModTime.UnixNano(), entry.HeadTailHash, entry.VerifiedAt.UnixNano())
+	head_tail_hash = excluded.head_tail_hash, verified_at = excluded.verified_at,
+	hash_algo = excluded.hash_algo, hash = excluded.hash`,
+		entry.Path, entry.Size, entry.ModTime.UnixNano(), entry.HeadTailHash, entry.VerifiedAt.UnixNano(),
+		nullableText(entry.HashAlgo), nullableText(entry.Hash))
 	if err != nil {
 		return fmt.Errorf("record fingerprint: %w", err)
 	}

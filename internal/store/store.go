@@ -58,7 +58,9 @@ CREATE TABLE IF NOT EXISTS links (
 	state TEXT NOT NULL,
 	created_at INTEGER NOT NULL,
 	verified_at INTEGER NOT NULL,
-	mtime INTEGER
+	mtime INTEGER,
+	hash_algo TEXT,
+	hash TEXT
 );
 CREATE TABLE IF NOT EXISTS fingerprints (
 	id INTEGER PRIMARY KEY,
@@ -66,7 +68,17 @@ CREATE TABLE IF NOT EXISTS fingerprints (
 	size INTEGER NOT NULL,
 	mtime INTEGER NOT NULL,
 	head_tail_hash TEXT NOT NULL,
-	verified_at INTEGER NOT NULL
+	verified_at INTEGER NOT NULL,
+	hash_algo TEXT,
+	hash TEXT
+);
+CREATE TABLE IF NOT EXISTS mount_capabilities (
+	id INTEGER PRIMARY KEY,
+	mount_path TEXT NOT NULL UNIQUE,
+	hashes TEXT NOT NULL,
+	modtime INTEGER NOT NULL,
+	symlinks INTEGER NOT NULL,
+	probed_at INTEGER NOT NULL
 );`
 
 // MediaFile est un fichier média de la bibliothèque, identifié par son chemin ; TMDBID et TVDBID valent 0 si inconnus.
@@ -108,7 +120,7 @@ func Open(path string) (*Store, error) {
 	if _, err := database.Exec(schema); err != nil {
 		return nil, errors.Join(fmt.Errorf("create schema: %w", err), database.Close())
 	}
-	if err := addLinksMtimeColumn(database); err != nil {
+	if err := upgradeColumns(database); err != nil {
 		return nil, errors.Join(fmt.Errorf("upgrade schema: %w", err), database.Close())
 	}
 	return &Store{database: database}, nil
@@ -154,9 +166,29 @@ func (openedStore *Store) ListMediaFiles(ctx context.Context) ([]MediaFile, erro
 	return mediaFiles, rows.Err()
 }
 
-// addLinksMtimeColumn ajoute links.mtime aux bases créées avant cette colonne ; sans effet si elle existe déjà.
-func addLinksMtimeColumn(database *sql.DB) error {
-	rows, err := database.Query(`SELECT name FROM pragma_table_info('links')`)
+// columnUpgrades liste les colonnes ajoutées après la première version du schéma ; les bases plus anciennes les
+// reçoivent à l'ouverture.
+var columnUpgrades = []struct{ table, column, definition string }{
+	{"links", "mtime", "INTEGER"},
+	{"links", "hash_algo", "TEXT"},
+	{"links", "hash", "TEXT"},
+	{"fingerprints", "hash_algo", "TEXT"},
+	{"fingerprints", "hash", "TEXT"},
+}
+
+func upgradeColumns(database *sql.DB) error {
+	for _, upgrade := range columnUpgrades {
+		if err := addColumnIfMissing(database, upgrade.table, upgrade.column, upgrade.definition); err != nil {
+			return fmt.Errorf("%s.%s: %w", upgrade.table, upgrade.column, err)
+		}
+	}
+	return nil
+}
+
+// addColumnIfMissing ajoute la colonne si pragma_table_info ne la voit pas ; sans effet sinon, donc rejouable.
+// Table, colonne et définition viennent de columnUpgrades, jamais d'une entrée externe.
+func addColumnIfMissing(database *sql.DB, table, column, definition string) error {
+	rows, err := database.Query(`SELECT name FROM pragma_table_info(?)`, table)
 	if err != nil {
 		return err
 	}
@@ -167,7 +199,7 @@ func addLinksMtimeColumn(database *sql.DB) error {
 			_ = rows.Close()
 			return err
 		}
-		hasColumn = hasColumn || name == "mtime"
+		hasColumn = hasColumn || name == column
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return err
@@ -175,6 +207,6 @@ func addLinksMtimeColumn(database *sql.DB) error {
 	if hasColumn {
 		return nil
 	}
-	_, err = database.Exec(`ALTER TABLE links ADD COLUMN mtime INTEGER`)
+	_, err = database.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition) // #nosec G202 -- constantes de columnUpgrades
 	return err
 }
