@@ -94,6 +94,7 @@ actionlint:
 
 # Site de documentation (VitePress) : Node reste confiné à docs/site.
 site:
+	docs/site/garde-identite.test.sh docs/site
 	cd docs/site && nice -n 10 ionice -c3 npm ci && nice -n 10 ionice -c3 npm run build
 	cd docs/site && npm audit --audit-level=high
 

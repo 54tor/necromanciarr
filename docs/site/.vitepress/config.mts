@@ -12,6 +12,23 @@ export default defineConfig({
   head: [['link', { rel: 'icon', type: 'image/png', href: `${base}logo-icone.png` }]],
   themeConfig: {
     logo: '/logo-embleme.png',
-    nav: [{ text: 'Accueil', link: '/' }],
+    nav: [
+      { text: 'Accueil', link: '/' },
+      { text: 'Installation', link: '/installation' },
+      { text: 'Configuration', link: '/configuration' },
+      { text: 'CLI', link: '/cli' },
+      { text: 'Webhook', link: '/webhook' },
+    ],
+    sidebar: [
+      {
+        text: 'Utilisation',
+        items: [
+          { text: 'Installation', link: '/installation' },
+          { text: 'Configuration', link: '/configuration' },
+          { text: 'Ligne de commande', link: '/cli' },
+          { text: 'Webhook', link: '/webhook' },
+        ],
+      },
+    ],
   },
 })
