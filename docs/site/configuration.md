@@ -22,7 +22,7 @@ ou par une entrée du `.env`. Le `.env` est lu dans le dossier de configuration 
 | Variable | Rôle |
 | --- | --- |
 | `NECROMANCIARR_AUTH_TOKEN` | Jeton de l'interface. Obligatoire si `listen` n'est pas une adresse de boucle locale |
-| `LIBRARY_PROVIDER_TOKEN` | Jeton Bearer envoyé au fournisseur de bibliothèque (contrat décrit dans la référence API, à venir sur ce site) |
+| `LIBRARY_PROVIDER_TOKEN` | Jeton Bearer envoyé au fournisseur de bibliothèque ([contrat](/api)) |
 | `LIBRARY_API` | URL de base du fournisseur, équivalent de `libraryApi` |
 
 ## Champs de `config.json`

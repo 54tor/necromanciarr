@@ -8,3 +8,4 @@ docs/site/node_modules/
 docs/site/.vitepress/dist/
 docs/site/.vitepress/cache/
 docs/site/public/openapi.yaml
+docs/site/public/scalar-standalone.js

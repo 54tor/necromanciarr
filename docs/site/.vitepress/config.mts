@@ -18,6 +18,7 @@ export default defineConfig({
       { text: 'Configuration', link: '/configuration' },
       { text: 'CLI', link: '/cli' },
       { text: 'Webhook', link: '/webhook' },
+      { text: 'API', link: '/api' },
     ],
     sidebar: [
       {
@@ -29,6 +30,7 @@ export default defineConfig({
           { text: 'Webhook', link: '/webhook' },
         ],
       },
+      { text: 'Référence', items: [{ text: 'API', link: '/api' }] },
     ],
   },
 })

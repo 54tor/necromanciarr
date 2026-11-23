@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "node scripts/copy-contract.mjs",
     "build": "vitepress build",
     "dev": "vitepress dev",
     "preview": "vitepress preview"
@@ -12,5 +13,8 @@
   },
   "overrides": {
     "vite": "6.4.6"
+  },
+  "dependencies": {
+    "@scalar/api-reference": "1.83.0"
   }
 }
