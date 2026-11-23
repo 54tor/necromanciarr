@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -130,7 +131,7 @@ func statusError(status int) error {
 		return fmt.Errorf("%w (HTTP %d)", ErrAccessDenied, status)
 	case status == http.StatusNotFound:
 		return ErrNotFound
-	case status >= 500:
+	case status >= 500 || status == http.StatusTooManyRequests || status == http.StatusRequestTimeout:
 		return fmt.Errorf("%w (HTTP %d)", ErrUnavailable, status)
 	case status >= 400:
 		return fmt.Errorf("%w (HTTP %d)", ErrBadResponse, status)
@@ -285,7 +286,13 @@ func (client *Client) Nfos(ctx context.Context, tracker, infoHash string) ([]Nfo
 
 func collectNfos(payload nfosPayload) []Nfo {
 	var nfos []Nfo
-	for slug, entries := range payload.Nfos {
+	slugs := make([]string, 0, len(payload.Nfos))
+	for slug := range payload.Nfos {
+		slugs = append(slugs, slug)
+	}
+	sort.Strings(slugs)
+	for _, slug := range slugs {
+		entries := payload.Nfos[slug]
 		for entryIndex, entry := range entries {
 			data, err := decodeBase64(entry.Nfo)
 			if err != nil || len(data) == 0 {

@@ -146,7 +146,7 @@ func TestNfos_cachesSuccessForOneHour(t *testing.T) {
 }
 
 func TestErrors_mapStatusToTypedErrors(t *testing.T) {
-	cases := map[int]error{401: ErrAccessDenied, 403: ErrAccessDenied, 404: ErrNotFound, 500: ErrUnavailable, 503: ErrUnavailable}
+	cases := map[int]error{408: ErrUnavailable, 429: ErrUnavailable, 401: ErrAccessDenied, 403: ErrAccessDenied, 404: ErrNotFound, 500: ErrUnavailable, 503: ErrUnavailable}
 	for status, expectedErr := range cases {
 		client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) { writer.WriteHeader(status) })
 		_, gotErr := client.Torrent(context.Background(), "trk", "aaaa")
@@ -243,6 +243,23 @@ func TestClient_neverLogsToken(t *testing.T) {
 	for _, output := range []string{logBuffer.String(), fmt.Sprint(searchErr), fmt.Sprint(nfoErr)} {
 		if strings.Contains(output, testToken) {
 			t.Fatalf("token leaked in %q", output)
+		}
+	}
+}
+
+func TestNfos_ordersSlugsDeterministically(t *testing.T) {
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
+		fmt.Fprintf(writer, `{"nfos":{"zeta":[{"nfo":%q}],"alpha":[{"nfo":%q}],"mid":[{"nfo":%q}]}}`,
+			encode("same"), encode("same"), encode("other"))
+	})
+	for attempt := 0; attempt < 20; attempt++ {
+		client.cache = newCache()
+		gotNfos, err := client.Nfos(context.Background(), "trk", "aaaa")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(gotNfos) != 2 || gotNfos[0].Label != "api:alpha" || gotNfos[1].Label != "api:mid" {
+			t.Fatalf("attempt %d: gotNfos = %+v", attempt, gotNfos)
 		}
 	}
 }
