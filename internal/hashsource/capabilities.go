@@ -44,18 +44,19 @@ func ProbeCapabilities(ctx context.Context, source HashSource, samplePath, writa
 			capabilities.Hashes = append(capabilities.Hashes, algorithm)
 		}
 	}
-	info, err := os.Stat(samplePath)
-	if err != nil {
+	if _, err := os.Stat(samplePath); err != nil {
 		return Capabilities{}, err
 	}
-	// Un montage sans date renvoie zéro ou l'époque Unix.
-	capabilities.ModTime = !info.ModTime().IsZero() && info.ModTime().Unix() != 0
 	if writableDir != "" {
 		probed, err := linker.Probe(writableDir)
 		if err != nil {
 			return Capabilities{}, err
 		}
 		capabilities.Symlinks = probed.Symlink
+		capabilities.ModTime, err = probeModTime(writableDir)
+		if err != nil {
+			return Capabilities{}, err
+		}
 	}
 	return capabilities, nil
 }
@@ -99,3 +100,32 @@ func toStored(mountPath string, capabilities Capabilities) store.MountCapabiliti
 	}
 	return stored
 }
+
+// probeModTime crée une entrée d'essai, lui fixe une date ancienne puis la relit : un stockage qui garde l'heure
+// d'envoi (backend mega classique) ne la restitue pas. Sans dossier inscriptible la date reste inconnue (false).
+func probeModTime(directory string) (bool, error) {
+	probeFile, err := os.CreateTemp(directory, ".necromanciarr-probe-mtime-")
+	if err != nil {
+		return false, err
+	}
+	probePath := probeFile.Name()
+	defer func() { _ = os.Remove(probePath) }()
+	if err := probeFile.Close(); err != nil {
+		return false, err
+	}
+	oldTime := time.Unix(probeModTimeSeconds, 0)
+	if err := setModTime(probePath, oldTime, oldTime); err != nil {
+		return false, nil //nolint:nilerr // un montage qui refuse Chtimes n'a pas de date réglable
+	}
+	info, err := os.Stat(probePath)
+	if err != nil {
+		return false, err
+	}
+	return info.ModTime().Unix() == probeModTimeSeconds, nil
+}
+
+// probeModTimeSeconds : 2001-09-09, loin de toute heure d'envoi plausible.
+const probeModTimeSeconds = 1000000000
+
+// setModTime est remplaçable dans les tests pour simuler un stockage qui garde l'heure d'envoi.
+var setModTime = os.Chtimes

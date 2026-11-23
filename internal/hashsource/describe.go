@@ -107,7 +107,10 @@ func adviceFor(probeErr error, capabilities Capabilities, symlinksProbed bool) [
 	if len(capabilities.Hashes) == 0 {
 		advice = append(advice, adviceNoHash, adviceStartRC)
 	}
-	if !capabilities.ModTime {
+	if !capabilities.ModTime && !symlinksProbed {
+		advice = append(advice, "date de modification inconnue : aucun dossier inscriptible fourni pour la sonder")
+	}
+	if !capabilities.ModTime && symlinksProbed {
 		advice = append(advice, adviceNoModTime)
 	}
 	if symlinksProbed && !capabilities.Symlinks {

@@ -3,6 +3,7 @@ package hashsource
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"necromanciarr/internal/store"
 )
@@ -35,5 +36,5 @@ func (confirmer *Confirmer) Confirm(ctx context.Context, link store.Link, candid
 	if !result.Available || result.Origin != Backend {
 		return false, false, nil
 	}
-	return result.Value == link.Hash, true, nil
+	return strings.EqualFold(result.Value, link.Hash), true, nil
 }

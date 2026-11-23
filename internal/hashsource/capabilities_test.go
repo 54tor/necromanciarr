@@ -55,13 +55,24 @@ func TestCapabilities_detectedByProbeNotByBackendName(t *testing.T) {
 	}
 }
 
-func TestCapabilities_noModTimeWhenFileIsDatedAtTheEpoch(t *testing.T) {
+func TestCapabilities_modTimeUnknownWithoutWritableDirectory(t *testing.T) {
 	source := &scriptedSource{available: map[Algorithm]string{MD5: md5Value}}
 
-	gotValue, err := ProbeCapabilities(context.Background(), source, sampleFile(t, time.Unix(0, 0)), "")
+	gotValue, err := ProbeCapabilities(context.Background(), source, sampleFile(t, time.Unix(1700000000, 0)), "")
 
 	if err != nil || gotValue.ModTime || gotValue.Symlinks {
 		t.Fatalf("got %+v %v", gotValue, err)
+	}
+}
+
+func TestProbeModTime_roundTripOnARealDirectoryAndNoLeftover(t *testing.T) {
+	directory := t.TempDir()
+
+	gotValue, err := probeModTime(directory)
+
+	entries, _ := os.ReadDir(directory)
+	if err != nil || !gotValue || len(entries) != 0 {
+		t.Fatalf("got %v %v, leftovers %d", gotValue, err, len(entries))
 	}
 }
 
@@ -83,7 +94,10 @@ func TestCachedCapabilities_probesOnceThenReadsTheStore(t *testing.T) {
 	t.Cleanup(func() { _ = testStore.Close() })
 	source := &scriptedSource{available: map[Algorithm]string{MD5: md5Value}}
 	sample := sampleFile(t, time.Unix(1700000000, 0))
-	probe := func(ctx context.Context) (Capabilities, error) { return ProbeCapabilities(ctx, source, sample, "") }
+	writable := t.TempDir()
+	probe := func(ctx context.Context) (Capabilities, error) {
+		return ProbeCapabilities(ctx, source, sample, writable)
+	}
 
 	first, err := CachedCapabilities(context.Background(), testStore, "/home/u/mnt/mega", probe)
 	callsAfterFirst := source.calls
@@ -200,5 +214,27 @@ func TestDescribeMount_reportsHashesFoundThroughRC(t *testing.T) {
 
 	if report.Mode != ModeRC || !report.Probed || !report.Capabilities.Supports(MD5) || report.Capabilities.Supports(SHA1) {
 		t.Fatalf("unexpected report %+v", report)
+	}
+}
+
+func TestConfirmer_comparesHashesCaseInsensitively(t *testing.T) {
+	source := sourceReturning(Result{Value: strings.ToUpper(md5Value), Origin: Backend, Available: true})
+
+	matches, known, err := NewConfirmer(source).Confirm(context.Background(), store.Link{HashAlgo: "MD5", Hash: md5Value}, "/home/u/x.mkv")
+
+	if err != nil || !matches || !known {
+		t.Fatalf("%v %v %v", matches, known, err)
+	}
+}
+
+func TestProbeModTime_falseWhenTheStorageKeepsUploadTime(t *testing.T) {
+	original := setModTime
+	t.Cleanup(func() { setModTime = original })
+	setModTime = func(string, time.Time, time.Time) error { return nil }
+
+	gotValue, err := probeModTime(t.TempDir())
+
+	if err != nil || gotValue {
+		t.Fatalf("got %v %v", gotValue, err)
 	}
 }

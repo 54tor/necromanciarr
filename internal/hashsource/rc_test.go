@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -290,3 +292,103 @@ func TestNewRcloneRC_neverPrintsCredentials(t *testing.T) {
 func fmtV(value any) string     { return fmt.Sprintf("%v", value) }
 func fmtPlus(value any) string  { return fmt.Sprintf("%+v", value) }
 func fmtSharp(value any) string { return fmt.Sprintf("%#v", value) }
+
+func TestRcloneRC_ignoresEnvironmentProxyAndKeepsCredentialsAway(t *testing.T) {
+	proxy := newRCServer(t, respondWith(`{"item":null}`))
+	target := newRCServer(t, respondWith(`{"item":null}`))
+	t.Setenv("HTTP_PROXY", proxy.URL)
+	t.Setenv("http_proxy", proxy.URL)
+	t.Setenv("NO_PROXY", "")
+	t.Setenv("no_proxy", "")
+	// 127.0.0.1 est exclu du proxy par Go : un nom de domaine force le passage par le proxy s'il était utilisé.
+	rcURL := strings.Replace(target.withCredentials(), "127.0.0.1", "localhost", 1)
+
+	if _, err := newRC(t, rcURL, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(proxy.calls) != 0 || len(target.calls) != 1 {
+		t.Fatalf("proxy saw %d calls, target %d", len(proxy.calls), len(target.calls))
+	}
+}
+
+func TestRcloneRC_fallsBackToListWhenStatIsUnsupported(t *testing.T) {
+	for name, statReply := range map[string]func(http.ResponseWriter){
+		"404": func(writer http.ResponseWriter) { writer.WriteHeader(http.StatusNotFound) },
+		"501": func(writer http.ResponseWriter) { writer.WriteHeader(http.StatusNotImplemented) },
+		"unknown command": func(writer http.ResponseWriter) {
+			writer.WriteHeader(http.StatusInternalServerError)
+			_, _ = io.WriteString(writer, `{"error":"Unknown command"}`)
+		},
+	} {
+		server := newRCServer(t, func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/operations/stat" {
+				statReply(writer)
+				return
+			}
+			_, _ = io.WriteString(writer, `{"list":[{"Name":"b.mkv","Hashes":{"md5":"`+strings.Repeat("1", 32)+`"}},{"Name":"a.mkv","IsDir":false,"Hashes":{"md5":"`+md5Value+`"}}]}`)
+		})
+
+		result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/mega/films/a.mkv", MD5)
+
+		if err != nil || !result.Available || result.Value != md5Value {
+			t.Fatalf("%s: %+v %v", name, result, err)
+		}
+		listCall := server.calls[len(server.calls)-1]
+		expectedBody := `{"fs":"megas4:bucket/prefix","opt":{"filesOnly":true,"hashTypes":["md5"],"noMimeType":true,"showHash":true},"remote":"films"}`
+		gotBody, _ := json.Marshal(listCall.body)
+		if listCall.path != "/operations/list" || string(gotBody) != expectedBody {
+			t.Fatalf("%s: unexpected list call %s %s", name, listCall.path, gotBody)
+		}
+	}
+}
+
+func TestRcloneRC_listFallbackIsStrict(t *testing.T) {
+	for name, listBody := range map[string]string{
+		"file absent": `{"list":[{"Name":"b.mkv"}]}`,
+		"no hash":     `{"list":[{"Name":"a.mkv","Hashes":{}}]}`,
+		"empty list":  `{"list":[]}`,
+	} {
+		server := newRCServer(t, func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/operations/stat" {
+				writer.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_, _ = io.WriteString(writer, listBody)
+		})
+		if result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5); err != nil || result.Available {
+			t.Fatalf("%s: %+v %v", name, result, err)
+		}
+	}
+	bad := newRCServer(t, func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/operations/stat" {
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = io.WriteString(writer, `{"list":[{"Name":"a.mkv","Hashes":{"md5":"zz"}}]}`)
+	})
+	if _, err := newRC(t, bad.URL, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5); !errors.Is(err, ErrRcloneFailed) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestRcloneRC_sizeMismatchWithLocalFileIsUnavailable(t *testing.T) {
+	mountDirectory := t.TempDir()
+	localPath := filepath.Join(mountDirectory, "a.mkv")
+	if err := os.WriteFile(localPath, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for size, expectedAvailable := range map[int]bool{5: true, 9: false} {
+		server := newRCServer(t, respondWith(fmt.Sprintf(`{"item":{"Name":"a.mkv","Size":%d,"Hashes":{"md5":"%s"}}}`, size, md5Value)))
+		source, err := NewRcloneRC(RcOptions{URL: server.URL, Mounts: []Mount{{LocalPath: mountDirectory, Remote: "r:x"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		result, err := source.Hash(context.Background(), localPath, MD5)
+
+		if err != nil || result.Available != expectedAvailable {
+			t.Fatalf("size %d: %+v %v", size, result, err)
+		}
+	}
+}

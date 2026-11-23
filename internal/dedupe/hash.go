@@ -86,7 +86,7 @@ func backendHash(ctx context.Context, backend hashsource.HashSource, path string
 	if errors.Is(err, hashsource.ErrNoMountForPath) || errors.Is(err, hashsource.ErrUnsafePath) {
 		return hashsource.Result{}, nil
 	}
-	if err != nil || result.Origin != hashsource.Backend {
+	if err != nil || result.Origin != hashsource.Backend || !result.Available || len(result.Value) != hexLength(algorithm) {
 		return hashsource.Result{}, err
 	}
 	return result, nil
@@ -180,4 +180,9 @@ func valueOf(ctx context.Context, local hashsource.HashSource, backendResult has
 	}
 	read, err := local.Hash(ctx, path, algorithm)
 	return read.Value, err
+}
+
+// hexLength : longueur hexadécimale attendue ; une valeur de longueur différente (ou vide) n'est pas une empreinte.
+func hexLength(algorithm hashsource.Algorithm) int {
+	return map[hashsource.Algorithm]int{hashsource.MD5: 32, hashsource.SHA1: 40, hashsource.SHA256: 64}[algorithm]
 }

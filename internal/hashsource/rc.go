@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"time"
@@ -19,13 +20,18 @@ const (
 	// maxRCResponseBytes borne la réponse de rc : un seul élément de listage.
 	maxRCResponseBytes = 256 << 10
 	rcMethodStat       = "operations/stat"
+	rcMethodList       = "operations/list"
 )
 
 // rcAllowedMethods est la liste fermée des méthodes rc appelées : lecture seule, jamais core/command, job/*, sync/*,
 // ni une opération qui écrit. Le nom de méthode n'est jamais lu d'une entrée.
-var rcAllowedMethods = map[string]bool{rcMethodStat: true}
+var rcAllowedMethods = map[string]bool{rcMethodStat: true, rcMethodList: true}
 
-var errRedirectRefused = errors.New("redirect refused")
+var (
+	errRedirectRefused = errors.New("redirect refused")
+	// errRCUnsupported : la version de rclone ne connaît pas la méthode ; déclenche le repli sur operations/list.
+	errRCUnsupported = errors.New("rc method unsupported")
+)
 
 // RcOptions règle l'adaptateur qui interroge l'API de contrôle à distance (--rc) du processus rclone qui porte le
 // montage. URL peut porter « utilisateur:motdepasse@ », retiré de l'URL puis envoyé en authentification Basic.
@@ -78,6 +84,11 @@ func refusingRedirects(provided *http.Client) *http.Client {
 	if provided != nil {
 		copied := *provided
 		client = &copied
+	} else if defaultTransport, isTransport := http.DefaultTransport.(*http.Transport); isTransport {
+		// Sans proxy d'environnement : HTTP_PROXY recevrait sinon les identifiants Basic.
+		transport := defaultTransport.Clone()
+		transport.Proxy = nil
+		client.Transport = transport
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errRedirectRefused }
 	return client
@@ -93,14 +104,25 @@ type rcStatOption struct {
 	ShowHash   bool     `json:"showHash"`
 	HashTypes  []string `json:"hashTypes"`
 	NoMimeType bool     `json:"noMimeType"`
+	FilesOnly  bool     `json:"filesOnly,omitempty"`
 }
 
 type rcStatResponse struct {
 	Item *struct {
 		Name   string            `json:"Name"`
+		Size   *int64            `json:"Size"`
 		IsDir  bool              `json:"IsDir"`
 		Hashes map[string]string `json:"Hashes"`
 	} `json:"item"`
+}
+
+type rcListResponse struct {
+	List []struct {
+		Name   string            `json:"Name"`
+		Size   *int64            `json:"Size"`
+		IsDir  bool              `json:"IsDir"`
+		Hashes map[string]string `json:"Hashes"`
+	} `json:"list"`
 }
 
 // Hash demande à rc le listage du seul fichier avec ses empreintes ; un fichier absent du remote ou sans cette
@@ -116,21 +138,55 @@ func (source *rcloneRC) Hash(ctx context.Context, filePath string, algorithm Alg
 	hashType := strings.ToLower(string(algorithm))
 	request := rcStatRequest{Fs: mount.Remote, Remote: relative, Opt: rcStatOption{ShowHash: true, HashTypes: []string{hashType}, NoMimeType: true}}
 	var response rcStatResponse
-	if err := source.call(ctx, rcMethodStat, request, &response); err != nil {
+	err = source.call(ctx, rcMethodStat, request, &response)
+	if errors.Is(err, errRCUnsupported) {
+		return source.hashByList(ctx, mount, relative, hashType, algorithm, filePath)
+	}
+	if err != nil {
 		return Result{}, err
 	}
-	return interpretStat(response, hashType, algorithm, path.Base(relative))
-}
-
-func interpretStat(response rcStatResponse, hashType string, algorithm Algorithm, fileName string) (Result, error) {
-	item := response.Item
-	if item == nil || item.IsDir {
+	if response.Item == nil {
 		return Result{}, nil
 	}
-	if item.Name != fileName {
+	item := *response.Item
+	return interpretItem(item.Name, item.Size, item.IsDir, item.Hashes, hashType, algorithm, path.Base(relative), filePath)
+}
+
+// hashByList est le repli des rclone sans operations/stat : listage du dossier parent, fichiers seulement.
+func (source *rcloneRC) hashByList(ctx context.Context, mount Mount, relative, hashType string, algorithm Algorithm, filePath string) (Result, error) {
+	parent := path.Dir(relative)
+	if parent == "." {
+		parent = ""
+	}
+	request := rcStatRequest{Fs: mount.Remote, Remote: parent, Opt: rcStatOption{ShowHash: true, HashTypes: []string{hashType}, NoMimeType: true, FilesOnly: true}}
+	var response rcListResponse
+	if err := source.call(ctx, rcMethodList, request, &response); err != nil {
+		if errors.Is(err, errRCUnsupported) {
+			return Result{}, fmt.Errorf("%w: no usable rc method", ErrRcloneFailed)
+		}
+		return Result{}, err
+	}
+	fileName := path.Base(relative)
+	for _, item := range response.List {
+		if item.Name == fileName {
+			return interpretItem(item.Name, item.Size, item.IsDir, item.Hashes, hashType, algorithm, fileName, filePath)
+		}
+	}
+	return Result{}, nil
+}
+
+// interpretItem applique les contrôles stricts ; une taille distante différente de la taille locale écarte l'empreinte.
+func interpretItem(name string, size *int64, isDir bool, hashes map[string]string, hashType string, algorithm Algorithm, fileName, filePath string) (Result, error) {
+	if isDir {
+		return Result{}, nil
+	}
+	if name != fileName {
 		return Result{}, fmt.Errorf("%w: unexpected item", ErrRcloneFailed)
 	}
-	value := strings.ToLower(item.Hashes[hashType])
+	if info, err := os.Stat(filePath); err == nil && size != nil && *size != info.Size() {
+		return Result{}, nil
+	}
+	value := strings.ToLower(hashes[hashType])
 	if value == "" {
 		return Result{}, nil
 	}
@@ -168,9 +224,21 @@ func (source *rcloneRC) call(ctx context.Context, method string, request, respon
 	}
 	defer func() { _ = httpResponse.Body.Close() }()
 	if httpResponse.StatusCode < 200 || httpResponse.StatusCode > 299 {
+		if isUnsupportedMethod(httpResponse) {
+			return errRCUnsupported
+		}
 		return fmt.Errorf("%w: http status %d", ErrRcloneFailed, httpResponse.StatusCode)
 	}
 	return decodeStrictly(httpResponse.Body, response)
+}
+
+// isUnsupportedMethod : 404 ou 501, ou message « unknown command » ; le corps est lu borné et jamais renvoyé.
+func isUnsupportedMethod(httpResponse *http.Response) bool {
+	if httpResponse.StatusCode == http.StatusNotFound || httpResponse.StatusCode == http.StatusNotImplemented {
+		return true
+	}
+	content, _ := io.ReadAll(io.LimitReader(httpResponse.Body, 4<<10))
+	return bytes.Contains(bytes.ToLower(content), []byte("unknown command"))
 }
 
 // decodeStrictly lit au plus maxRCResponseBytes et exige une seule valeur JSON.

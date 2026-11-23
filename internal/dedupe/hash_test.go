@@ -257,3 +257,22 @@ func TestDedupe_autoFullReadsOnceThenReusesFingerprintCache(t *testing.T) {
 		t.Fatalf("plan reads %v, expected [%d %d]", planReads, 2*fileSize, fileSize)
 	}
 }
+
+func TestDedupe_rejectsBackendValuesWithTheWrongLength(t *testing.T) {
+	layout := newOperatorLayout(t)
+	for _, value := range []string{"", "abc"} {
+		backend := &fixedBackend{value: value}
+
+		replacement := planOne(t, layout, hashOptions(layout.torrentRoot, VerifyAuto, backend))
+
+		if replacement.Method != MethodFull {
+			t.Fatalf("value %q accepted: method %q", value, replacement.Method)
+		}
+	}
+}
+
+type fixedBackend struct{ value string }
+
+func (backend *fixedBackend) Hash(context.Context, string, hashsource.Algorithm) (hashsource.Result, error) {
+	return hashsource.Result{Value: backend.value, Origin: hashsource.Backend, Available: true}, nil
+}
