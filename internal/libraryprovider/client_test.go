@@ -47,10 +47,10 @@ func TestSearch_followsCursorPagination(t *testing.T) {
 			t.Errorf("gotQuery = %q", gotQuery)
 		}
 		if request.URL.Query().Get("page") == "2" {
-			fmt.Fprint(writer, `{"member":[{"totalSize":20,"files":[{"path":"b.mkv","size":20}],"torrents":[{"name":"trk","infoHash":"bbbb"}]}],"view":{}}`)
+			_, _ = fmt.Fprint(writer, `{"member":[{"totalSize":20,"files":[{"path":"b.mkv","size":20}],"torrents":[{"name":"trk","infoHash":"bbbb"}]}],"view":{}}`)
 			return
 		}
-		fmt.Fprint(writer, `{"member":[{"totalSize":10,"files":[{"path":"a.mkv","size":10}],"torrents":[{"name":"trk","infoHash":"aaaa"}]}],"view":{"next":"/api/v1/releases?q=tmdb%3A12345&limit=100&page=2"}}`)
+		_, _ = fmt.Fprint(writer, `{"member":[{"totalSize":10,"files":[{"path":"a.mkv","size":10}],"torrents":[{"name":"trk","infoHash":"aaaa"}]}],"view":{"next":"/api/v1/releases?q=tmdb%3A12345&limit=100&page=2"}}`)
 	})
 	gotReleases, err := client.Search(context.Background(), Query{TMDBID: 12345})
 	if err != nil {
@@ -68,7 +68,7 @@ func TestSearch_stopsAtPageCap(t *testing.T) {
 	var requestCount atomic.Int32
 	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
 		requestCount.Add(1)
-		fmt.Fprint(writer, `{"member":[],"view":{"next":"/api/v1/releases?page=99"}}`)
+		_, _ = fmt.Fprint(writer, `{"member":[],"view":{"next":"/api/v1/releases?page=99"}}`)
 	})
 	if _, err := client.Search(context.Background(), Query{Text: "film", MaxPages: 3}); err != nil {
 		t.Fatal(err)
@@ -80,7 +80,7 @@ func TestSearch_stopsAtPageCap(t *testing.T) {
 
 func TestSearch_rejectsForeignPaginationHost(t *testing.T) {
 	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
-		fmt.Fprint(writer, `{"member":[],"view":{"next":"https://other.example.com/steal"}}`)
+		_, _ = fmt.Fprint(writer, `{"member":[],"view":{"next":"https://other.example.com/steal"}}`)
 	})
 	if _, err := client.Search(context.Background(), Query{Text: "film"}); !errors.Is(err, ErrBadResponse) {
 		t.Fatalf("gotErr = %v", err)
@@ -92,7 +92,7 @@ func TestNfos_decodesAndDeduplicates(t *testing.T) {
 		if request.URL.Path != "/api/v1/torrents/trk/aaaa/nfos" {
 			t.Errorf("path = %q", request.URL.Path)
 		}
-		fmt.Fprintf(writer, `{"nfos":{"trk":[{"nfo":%q,"partial":false},{"nfo":%q,"partial":true}]},"releaseNfo":%q}`,
+		_, _ = fmt.Fprintf(writer, `{"nfos":{"trk":[{"nfo":%q,"partial":false},{"nfo":%q,"partial":true}]},"releaseNfo":%q}`,
 			encode("first"), encode("second"), encode("first"))
 	})
 	gotNfos, err := client.Nfos(context.Background(), "trk", "aaaa")
@@ -121,7 +121,7 @@ func TestNfos_cachesNotFoundForTenMinutes(t *testing.T) {
 		t.Fatalf("requests = %d, expected 1", requestCount.Load())
 	}
 	currentTime = currentTime.Add(11 * time.Minute)
-	client.Nfos(context.Background(), "trk", "aaaa")
+	_, _ = client.Nfos(context.Background(), "trk", "aaaa")
 	if requestCount.Load() != 2 {
 		t.Fatalf("requests after TTL = %d, expected 2", requestCount.Load())
 	}
@@ -131,15 +131,15 @@ func TestNfos_cachesSuccessForOneHour(t *testing.T) {
 	var requestCount atomic.Int32
 	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
 		requestCount.Add(1)
-		fmt.Fprintf(writer, `{"releaseNfo":%q}`, encode("x"))
+		_, _ = fmt.Fprintf(writer, `{"releaseNfo":%q}`, encode("x"))
 	})
 	currentTime := time.Now()
 	client.cache.now = func() time.Time { return currentTime }
-	client.Nfos(context.Background(), "trk", "aaaa")
+	_, _ = client.Nfos(context.Background(), "trk", "aaaa")
 	currentTime = currentTime.Add(59 * time.Minute)
-	client.Nfos(context.Background(), "trk", "aaaa")
+	_, _ = client.Nfos(context.Background(), "trk", "aaaa")
 	currentTime = currentTime.Add(2 * time.Minute)
-	client.Nfos(context.Background(), "trk", "aaaa")
+	_, _ = client.Nfos(context.Background(), "trk", "aaaa")
 	if requestCount.Load() != 2 {
 		t.Fatalf("requests = %d, expected 2", requestCount.Load())
 	}
@@ -160,7 +160,7 @@ func TestErrors_mapStatusToTypedErrors(t *testing.T) {
 }
 
 func TestErrors_unreachableAndBadJSON(t *testing.T) {
-	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) { fmt.Fprint(writer, "not json") })
+	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) { _, _ = fmt.Fprint(writer, "not json") })
 	if _, err := client.Nfos(context.Background(), "trk", "aaaa"); !errors.Is(err, ErrBadResponse) {
 		t.Fatalf("gotErr = %v", err)
 	}
@@ -176,13 +176,13 @@ func TestTorrent_requestsNoAnnounceAndChecksBencode(t *testing.T) {
 		if request.URL.Path != "/api/v1/torrents/trk/aaaa/download" || request.URL.Query().Get("noAnnounce") != "1" {
 			t.Errorf("url = %s", request.URL)
 		}
-		fmt.Fprint(writer, "d4:infod4:name1:aee")
+		_, _ = fmt.Fprint(writer, "d4:infod4:name1:aee")
 	})
 	gotBytes, err := client.Torrent(context.Background(), "trk", "aaaa")
 	if err != nil || !bytes.HasPrefix(gotBytes, []byte("d")) {
 		t.Fatalf("gotBytes = %q, err = %v", gotBytes, err)
 	}
-	htmlClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) { fmt.Fprint(writer, "<html>") })
+	htmlClient := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) { _, _ = fmt.Fprint(writer, "<html>") })
 	if _, err := htmlClient.Torrent(context.Background(), "trk", "aaaa"); !errors.Is(err, ErrBadResponse) {
 		t.Fatalf("gotErr = %v", err)
 	}
@@ -200,13 +200,13 @@ func TestClient_limitsInFlightRequests(t *testing.T) {
 		}
 		time.Sleep(30 * time.Millisecond)
 		inFlight.Add(-1)
-		fmt.Fprint(writer, "d")
+		_, _ = fmt.Fprint(writer, "d")
 	})
 	client.MaxInFlight = 2
 	done := make(chan struct{})
 	for index := 0; index < 6; index++ {
 		go func() {
-			client.Torrent(context.Background(), "trk", "aaaa")
+			_, _ = client.Torrent(context.Background(), "trk", "aaaa")
 			done <- struct{}{}
 		}()
 	}
@@ -249,7 +249,7 @@ func TestClient_neverLogsToken(t *testing.T) {
 
 func TestNfos_ordersSlugsDeterministically(t *testing.T) {
 	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
-		fmt.Fprintf(writer, `{"nfos":{"zeta":[{"nfo":%q}],"alpha":[{"nfo":%q}],"mid":[{"nfo":%q}]}}`,
+		_, _ = fmt.Fprintf(writer, `{"nfos":{"zeta":[{"nfo":%q}],"alpha":[{"nfo":%q}],"mid":[{"nfo":%q}]}}`,
 			encode("same"), encode("same"), encode("other"))
 	})
 	for attempt := 0; attempt < 20; attempt++ {

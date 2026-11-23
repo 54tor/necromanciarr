@@ -40,11 +40,11 @@ type File struct {
 func Parse(raw []byte) (*Torrent, error) {
 	metaInfo, err := metainfo.Load(bytes.NewReader(raw))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidTorrent, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidTorrent, err)
 	}
 	info, err := metaInfo.UnmarshalInfo()
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidTorrent, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidTorrent, err)
 	}
 	if len(info.Pieces) == 0 && info.MetaVersion == bep52MetaVersionV2Only {
 		return nil, ErrV2Only

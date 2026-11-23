@@ -12,5 +12,5 @@ func deviceOf(info fs.FileInfo) (uint64, bool) {
 	if !ok {
 		return 0, false
 	}
-	return uint64(stat.Dev), true
+	return uint64(stat.Dev), true //nolint:unconvert // Dev est un uint32 sur mips
 }

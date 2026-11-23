@@ -29,13 +29,13 @@ func newArrServer(t *testing.T) *httptest.Server {
 		}
 		switch {
 		case request.URL.Path == "/api/v3/movie":
-			writer.Write([]byte(radarrPayload))
+			_, _ = writer.Write([]byte(radarrPayload))
 		case request.URL.Path == "/api/v3/series":
-			writer.Write([]byte(sonarrSeriesPayload))
+			_, _ = writer.Write([]byte(sonarrSeriesPayload))
 		case request.URL.Path == "/api/v3/episodefile" && request.URL.Query().Get("seriesId") == "7":
-			writer.Write([]byte(sonarrEpisodeFilesPayload))
+			_, _ = writer.Write([]byte(sonarrEpisodeFilesPayload))
 		case request.URL.Path == "/api/v3/episodefile":
-			writer.Write([]byte("[]"))
+			_, _ = writer.Write([]byte("[]"))
 		default:
 			http.NotFound(writer, request)
 		}

@@ -3,7 +3,7 @@ package torrentcheck
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 -- SHA-1 imposé par le format BitTorrent v1
 	"errors"
 	"fmt"
 	"hash"
@@ -207,7 +207,7 @@ func IsMediaPath(filePath string) bool {
 
 func (verifier Verifier) hashMatches(ctx context.Context, torrent *Torrent, pieceIndex int, segments []pieceSegment, buffer []byte) (bool, error) {
 	start, end := torrent.pieceBounds(pieceIndex)
-	hasher := sha1.New()
+	hasher := sha1.New() // #nosec G401 -- SHA-1 imposé par BitTorrent v1
 	position := start
 	for _, segment := range segments {
 		writeZeros(hasher, segment.start-position, buffer)

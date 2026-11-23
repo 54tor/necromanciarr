@@ -3,7 +3,7 @@ package libraryprovider
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 -- SHA-1 imposé par le format BitTorrent v1
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -94,7 +94,7 @@ func (client *Client) acquire(ctx context.Context) (func(), error) {
 	case client.semaphore <- struct{}{}:
 		return func() { <-client.semaphore }, nil
 	case <-ctx.Done():
-		return nil, fmt.Errorf("%w: %v", ErrUnavailable, ctx.Err())
+		return nil, fmt.Errorf("%w: %w", ErrUnavailable, ctx.Err())
 	}
 }
 
@@ -114,7 +114,7 @@ func (client *Client) get(ctx context.Context, target string, accept string, lim
 	if err != nil {
 		return nil, fmt.Errorf("%w: request failed", ErrUnavailable)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if statusErr := statusError(response.StatusCode); statusErr != nil {
 		return nil, statusErr
 	}
@@ -322,7 +322,7 @@ func deduplicate(nfos []Nfo) []Nfo {
 	seen := map[[sha1.Size]byte]bool{}
 	var unique []Nfo
 	for _, nfo := range nfos {
-		digest := sha1.Sum(nfo.Data)
+		digest := sha1.Sum(nfo.Data) // #nosec G401 -- empreinte de déduplication, pas de sécurité
 		if seen[digest] {
 			continue
 		}

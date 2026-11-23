@@ -118,7 +118,7 @@ func (client *Client) getJSON(ctx context.Context, endpoint string, query url.Va
 	if err != nil {
 		return fmt.Errorf("arr %s: request failed: %w", endpoint, errors.Unwrap(err))
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("arr %s: unexpected status %d", endpoint, response.StatusCode)
 	}
