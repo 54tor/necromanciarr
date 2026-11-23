@@ -52,6 +52,12 @@ func (readMeter *meter) readAt(file *os.File, buffer []byte, offset int64) error
 	return err
 }
 
+// WaitN permet à hashsource.NewLocal de charger le même limiteur et de compter les octets lus.
+func (readMeter *meter) WaitN(_ context.Context, byteCount int) error {
+	readMeter.bytesRead += int64(byteCount)
+	return readMeter.wait(byteCount)
+}
+
 func (readMeter *meter) wait(byteCount int) error {
 	if readMeter.limiter == nil {
 		return readMeter.ctx.Err()

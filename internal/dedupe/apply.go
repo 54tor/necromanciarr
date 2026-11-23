@@ -102,8 +102,10 @@ func Apply(ctx context.Context, replacements []Replacement, options Options) (Re
 func applyOne(ctx context.Context, replacement Replacement, options Options, roots []string) Outcome {
 	outcome := Outcome{Replacement: replacement, DryRun: options.DryRun}
 	root, libraryInfo, err := checkApplicable(replacement, options.Kinds, roots)
+	var proven proof
 	if err == nil {
-		outcome.BytesRead, err = proveIdentity(ctx, replacement, options)
+		proven, err = proveIdentity(ctx, replacement, options)
+		outcome.BytesRead, outcome.Replacement.Method = proven.bytesRead, proven.method
 	}
 	if err != nil {
 		outcome.Err = err
@@ -120,7 +122,7 @@ func applyOne(ctx context.Context, replacement Replacement, options Options, roo
 		return outcome
 	}
 	outcome.Done = true
-	if err := options.Recorder.RecordLink(ctx, linkRecord(replacement, relative)); err != nil {
+	if err := options.Recorder.RecordLink(ctx, linkRecord(replacement, relative, proven)); err != nil {
 		outcome.Err = fmt.Errorf("dedupe: link created but not recorded: %w", err)
 	}
 	if options.RecheckAfter && options.Rechecker != nil {
@@ -187,30 +189,50 @@ func checkUnchanged(replacement Replacement) (fs.FileInfo, error) {
 	return libraryInfo, nil
 }
 
-// proveIdentity relit les empreintes de Plan (un contenu réécrit à taille et date égales est refusé), puis compare
-// les deux fichiers selon Verify ; rien n'est créé avant qu'elle réussisse.
-func proveIdentity(ctx context.Context, replacement Replacement, options Options) (int64, error) {
+// proveIdentity relit les empreintes de Plan (un contenu réécrit à taille et date égales est refusé), puis prouve
+// l'identité selon la méthode : empreinte du stockage (jamais sans ce contrôle préalable), ou comparaison des deux
+// fichiers ; rien n'est créé avant qu'elle réussisse. proof.method est renseigné même en cas d'échec.
+func proveIdentity(ctx context.Context, replacement Replacement, options Options) (proof, error) {
+	method := methodFor(replacement, options)
 	readMeter := &meter{ctx: ctx, limiter: options.Limiter}
+	proven := proof{method: method}
+	finish := func(err error) (proof, error) {
+		proven.bytesRead = readMeter.bytesRead
+		return proven, err
+	}
+	if options.Verify == VerifyHash && method != MethodHash {
+		return finish(ErrHashUnavailable)
+	}
+	if err := checkFingerprints(readMeter, replacement); err != nil {
+		return finish(err)
+	}
+	if method == MethodHash {
+		hashProof, err := proveByHash(ctx, replacement, options, readMeter)
+		proven.algorithm, proven.hash = hashProof.algorithm, hashProof.hash
+		return finish(err)
+	}
+	equal, err := sameBytes(readMeter, replacement.TorrentPath, replacement.LibraryPath, comparisonRanges(replacement.Size, options.Verify))
+	if err == nil && !equal {
+		err = fmt.Errorf("%w: %s differs from %s", ErrNotIdentical, replacement.TorrentPath, replacement.LibraryPath)
+	}
+	return finish(err)
+}
+
+// checkFingerprints : l'égalité des empreintes début et fin de Plan ne remplace jamais ce contrôle, même si le
+// stockage donne une empreinte de contenu.
+func checkFingerprints(readMeter *meter, replacement Replacement) error {
 	torrentFingerprint, err := fingerprintFile(readMeter, replacement.TorrentPath, replacement.Size)
 	if err != nil {
-		return readMeter.bytesRead, err
+		return err
 	}
 	libraryFingerprint, err := fingerprintFile(readMeter, replacement.LibraryPath, replacement.Size)
 	if err != nil {
-		return readMeter.bytesRead, err
+		return err
 	}
 	if torrentFingerprint != replacement.Fingerprint || libraryFingerprint != replacement.LibraryFingerprint {
-		return readMeter.bytesRead, fmt.Errorf("%w: head or tail fingerprint differs", ErrChangedSincePlan)
+		return fmt.Errorf("%w: head or tail fingerprint differs", ErrChangedSincePlan)
 	}
-	ranges := comparisonRanges(replacement.Size, options.Verify)
-	equal, err := sameBytes(readMeter, replacement.TorrentPath, replacement.LibraryPath, ranges)
-	if err != nil {
-		return readMeter.bytesRead, err
-	}
-	if !equal {
-		return readMeter.bytesRead, fmt.Errorf("%w: %s differs from %s", ErrNotIdentical, replacement.TorrentPath, replacement.LibraryPath)
-	}
-	return readMeter.bytesRead, nil
+	return nil
 }
 
 func statUnchanged(path string, size int64, modTime time.Time) (fs.FileInfo, error) {
@@ -287,7 +309,7 @@ func removeTemporary(temporaryPath string) error {
 	return nil
 }
 
-func linkRecord(replacement Replacement, relative bool) store.Link {
+func linkRecord(replacement Replacement, relative bool, proven proof) store.Link {
 	now := time.Now().UTC()
 	link := store.Link{
 		Kind:          replacement.Kind.String(),
@@ -301,6 +323,8 @@ func linkRecord(replacement Replacement, relative bool) store.Link {
 		CreatedAt:     now,
 		VerifiedAt:    now,
 		ModTime:       replacement.LibraryModTime,
+		HashAlgo:      string(proven.algorithm),
+		Hash:          proven.hash,
 	}
 	if replacement.InodeReliable {
 		link.TargetDevice, link.TargetInode = replacement.LibraryDevice, replacement.LibraryInode

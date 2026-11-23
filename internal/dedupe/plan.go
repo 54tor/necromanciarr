@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
 )
@@ -26,6 +27,10 @@ type Verification string
 const (
 	VerifyFull    Verification = "full"
 	VerifySampled Verification = "sampled"
+	// VerifyAuto (défaut) compare par empreinte du stockage quand il en fournit, sinon relit en entier ; jamais par
+	// échantillons sans demande. VerifyHash exige l'empreinte : ErrHashUnavailable plutôt qu'une lecture.
+	VerifyAuto Verification = "auto"
+	VerifyHash Verification = "hash"
 )
 
 // Avertissements portés par un Replacement dont un des fichiers est sur un volume FUSE, réseau ou inconnu.
@@ -68,6 +73,10 @@ type Options struct {
 	Fingerprints     FingerprintCache
 	Recorder         LinkRecorder
 	Rechecker        Rechecker
+	// Backend donne les empreintes du stockage distant (hashsource.NewRclone) ; nil : aucune, donc lecture. Il est
+	// interrogé sur les chemins locaux des deux fichiers. HashAlgorithms vide : MD5 seul.
+	Backend        hashsource.HashSource
+	HashAlgorithms []hashsource.Algorithm
 
 	probe          func(directory string) (linker.Capabilities, error)
 	filesystemKind func(path string) (linker.FilesystemKind, error)
@@ -77,7 +86,9 @@ type Options struct {
 // Replacement propose de remplacer TorrentPath par un lien de sorte Kind vers LibraryPath : un candidat de même taille
 // et de même empreinte début et fin, dont Apply fera la preuve d'identité. Kind vaut 0 quand aucun remplacement n'est
 // possible : Reason en donne la cause, ou Ambiguous liste les fichiers de la bibliothèque entre lesquels aucun choix
-// n'est fait. BytesToRead estime, avant toute lecture, les octets que la preuve d'Apply lira (les deux fichiers).
+// n'est fait. BytesToRead estime, avant toute lecture, les octets que la preuve d'Apply lira : 0 si le stockage donne
+// les deux empreintes, la taille d'un fichier s'il faut en lire un seul, les deux fichiers sinon. Method est la preuve
+// prévue ; HashAlgorithm n'est renseigné que pour MethodHash.
 // Les dates, l'inode et les empreintes servent à Apply pour refuser un fichier changé.
 type Replacement struct {
 	TorrentPath        string
@@ -89,6 +100,8 @@ type Replacement struct {
 	Reason             error
 	Warnings           []string
 	BytesToRead        int64
+	Method             Method
+	HashAlgorithm      hashsource.Algorithm
 	Fingerprint        string
 	LibraryFingerprint string
 	TorrentModTime     time.Time
@@ -164,8 +177,8 @@ func Plan(ctx context.Context, torrentRoots []string, library []store.MediaFile,
 func normalizeVerification(verification Verification) (Verification, error) {
 	switch verification {
 	case "":
-		return VerifyFull, nil
-	case VerifyFull, VerifySampled:
+		return VerifyAuto, nil
+	case VerifyFull, VerifySampled, VerifyAuto, VerifyHash:
 		return verification, nil
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnknownVerification, verification)
@@ -281,9 +294,27 @@ func (run *planRun) consider(path string, entry fs.DirEntry, librarySizes map[in
 	if err != nil || len(matching) == 0 {
 		return Replacement{}, false, err
 	}
-	replacement.BytesToRead = proofBytes(replacement.Size, run.options.Verify)
+	hashRefusal := run.decideProof(&replacement, matching)
+	if errors.Is(hashRefusal, ErrHashUnavailable) {
+		run.describe(&replacement, info, matching)
+		replacement.Kind, replacement.SavedBytes, replacement.Reason = 0, 0, hashRefusal
+		return replacement, true, nil
+	}
+	if hashRefusal != nil {
+		return Replacement{}, false, hashRefusal
+	}
 	run.describe(&replacement, info, matching)
 	return replacement, true, nil
+}
+
+// decideProof choisit la preuve : par empreinte pour un candidat unique, sinon (ambigu) la lecture, que seul Apply
+// refusera de toute façon.
+func (run *planRun) decideProof(replacement *Replacement, matching []libraryFile) error {
+	if len(matching) != 1 {
+		run.useReadMethod(replacement)
+		return nil
+	}
+	return run.chooseMethod(replacement, matching[0].path)
 }
 
 func alreadyLinked(info fs.FileInfo, candidates []libraryFile) bool {
@@ -353,7 +384,7 @@ func (run *planRun) describe(replacement *Replacement, torrentInfo fs.FileInfo, 
 	for _, libraryEntry := range identical {
 		libraryPaths = append(libraryPaths, libraryEntry.path)
 	}
-	replacement.Warnings = run.warnings(replacement.TorrentPath, libraryPaths)
+	replacement.Warnings = run.warnings(replacement.TorrentPath, libraryPaths, replacement.Method)
 	if len(identical) > 1 {
 		slices.Sort(libraryPaths)
 		replacement.Ambiguous = libraryPaths
@@ -385,17 +416,17 @@ func (run *planRun) renameIsUncertain(torrentDir, torrentPath string) bool {
 	return isRemoteVolume || !run.capabilities[torrentDir].capabilities.RenameOverwrite
 }
 
-func (run *planRun) warnings(torrentPath string, libraryPaths []string) []string {
+func (run *planRun) warnings(torrentPath string, libraryPaths []string, method Method) []string {
 	var warnings []string
 	libraryIsLocal := !slices.ContainsFunc(libraryPaths, func(path string) bool { return run.volumeOf(path) != linker.Local })
 	allLocal := libraryIsLocal && run.volumeOf(torrentPath) == linker.Local
 	if !libraryIsLocal {
 		warnings = append(warnings, warningUnreliableInode)
 	}
-	if !allLocal && run.options.Verify == VerifyFull {
+	if !allLocal && method == MethodFull {
 		warnings = append(warnings, warningFullNetworkRead)
 	}
-	if run.options.Verify == VerifySampled {
+	if method == MethodSampled {
 		warnings = append(warnings, warningSampledVerify)
 	}
 	return warnings
