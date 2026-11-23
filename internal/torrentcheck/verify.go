@@ -197,7 +197,11 @@ func mediaFilePiecesAcceptable(torrent *Torrent, file File, state *scanState) bo
 }
 
 func isMediaFile(file File) bool {
-	_, isMedia := mediaExtensions[strings.ToLower(path.Ext(file.Path))]
+	return IsMediaPath(file.Path)
+}
+
+func IsMediaPath(filePath string) bool {
+	_, isMedia := mediaExtensions[strings.ToLower(path.Ext(filePath))]
 	return isMedia
 }
 
