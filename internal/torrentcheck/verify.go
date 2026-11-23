@@ -23,12 +23,14 @@ var mediaExtensions = map[string]struct{}{
 	".mpeg": {}, ".mov": {}, ".flac": {}, ".mp3": {}, ".m4a": {}, ".aac": {}, ".ogg": {}, ".opus": {},
 }
 
-// Source.ReaderAt must be cheap and idempotent (cached handles): it is called once per overlapping file per piece.
+// Source fournit les fichiers locaux du torrent par index ; false si le fichier est absent.
+// ReaderAt doit être peu coûteux et idempotent (handles en cache) : il est appelé une fois par fichier chevauchant, pour chaque pièce.
 type Source interface {
 	ReaderAt(fileIndex int) (io.ReaderAt, bool)
 }
 
-// Limiter matches golang.org/x/time/rate.Limiter; its burst must be at least readChunkSize (64 KiB).
+// Limiter plafonne le débit de lecture ; compatible avec golang.org/x/time/rate.Limiter.
+// Sa rafale doit valoir au moins readChunkSize (64 Kio), sinon WaitN échoue.
 type Limiter interface {
 	WaitN(ctx context.Context, n int) error
 }
