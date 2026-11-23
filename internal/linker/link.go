@@ -66,8 +66,38 @@ type applier struct {
 // Une destination déjà liée à la même source compte comme faite ; toute autre destination existante est refusée.
 // En cas d'échec, seuls les liens et dossiers créés par cet appel sont retirés, en ordre inverse.
 func Apply(ops []Op, preferred []Kind) (Result, error) {
-	systemApplier := applier{linkers: map[Kind]linkFunc{Hardlink: hardlink, Reflink: reflink, Symlink: symlink}}
-	return systemApplier.apply(ops, preferred)
+	return systemApplier().apply(ops, preferred)
+}
+
+// CreateLinkInRoot crée un seul lien de sorte kind à destination, sous root, avec le même confinement qu'Apply :
+// destination sous root, aucun composant symbolique sous root, jamais d'entrée existante remplacée. Pour un Symlink,
+// source est le texte de la cible (relatif accepté) ; les dossiers créés sont retirés en cas d'échec.
+func CreateLinkInRoot(kind Kind, source, destination, root string) error {
+	return systemApplier().createInRoot(kind, source, destination, root)
+}
+
+func (linkApplier applier) createInRoot(kind Kind, source, destination, root string) error {
+	linker, known := linkApplier.linkers[kind]
+	if !known {
+		return fmt.Errorf("%w: %v", ErrUnsupported, kind)
+	}
+	run := &transaction{resolvedRoots: map[string]string{}}
+	resolvedRoot, relative, err := run.confine(Op{Destination: destination, Root: root})
+	if err != nil {
+		return err
+	}
+	confinedDestination := filepath.Join(resolvedRoot, relative)
+	err = run.ensureConfinedDir(resolvedRoot, filepath.Dir(relative))
+	if err == nil {
+		err = checkParentInRoot(resolvedRoot, confinedDestination)
+	}
+	if err == nil {
+		err = linker(source, confinedDestination)
+	}
+	if err != nil {
+		return errors.Join(err, run.rollback())
+	}
+	return nil
 }
 
 func hardlink(source, destination string) error {
