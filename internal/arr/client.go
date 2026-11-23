@@ -1,3 +1,4 @@
+// Package arr interroge Radarr et Sonarr pour associer chaque fichier à son identifiant TMDB ou TVDB.
 package arr
 
 import (
@@ -12,21 +13,26 @@ import (
 )
 
 const (
+	// KindRadarr et KindSonarr sont les valeurs acceptées pour le type d'instance (insensible à la casse).
 	KindRadarr = "radarr"
 	KindSonarr = "sonarr"
 
+	// requestTimeout borne chaque appel HTTP pour qu'une instance muette ne bloque pas le pipeline.
 	requestTimeout = 30 * time.Second
 	apiKeyHeader   = "X-Api-Key"
 )
 
+// ErrUnknownKind signale un type d'instance qui n'est ni radarr ni sonarr.
 var ErrUnknownKind = errors.New("arr: unknown kind")
 
+// Item est un fichier connu d'une instance ; TMDBID (Radarr) ou TVDBID (Sonarr) vaut 0 s'il ne s'applique pas.
 type Item struct {
 	Path   string
 	TMDBID int
 	TVDBID int
 }
 
+// Client interroge une instance Radarr ou Sonarr en lecture seule.
 type Client struct {
 	kind       string
 	baseURL    string
@@ -34,6 +40,7 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// New crée un client ; kind est passé en minuscules et l'éventuel / final de baseURL est retiré.
 func New(kind, baseURL, apiKey string) *Client {
 	return &Client{
 		kind:       strings.ToLower(kind),
@@ -43,6 +50,7 @@ func New(kind, baseURL, apiKey string) *Client {
 	}
 }
 
+// Items renvoie les fichiers présents de l'instance ; les films sans fichier sont ignorés.
 func (client *Client) Items(ctx context.Context) ([]Item, error) {
 	switch client.kind {
 	case KindRadarr:
@@ -103,6 +111,7 @@ func (client *Client) sonarrItems(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
+// getJSON retire l'erreur réseau enveloppée (errors.Unwrap) car url.Error embarque l'URL complète de la requête.
 func (client *Client) getJSON(ctx context.Context, endpoint string, query url.Values, target any) error {
 	requestURL := client.baseURL + endpoint
 	if query != nil {
