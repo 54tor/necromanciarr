@@ -63,7 +63,7 @@ func Load(path string) (Config, error) {
 }
 
 func readYAML(path string, target *Config) error {
-	fileContent, err := os.ReadFile(path)
+	fileContent, err := os.ReadFile(path) // #nosec G304 -- chemin de configuration fourni par l'opérateur
 	if err != nil {
 		return fmt.Errorf("read config: %w", err)
 	}

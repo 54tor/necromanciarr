@@ -13,7 +13,14 @@ SHFMT_IMAGE = mvdan/shfmt:v3.12.0
 GITLEAKS_IMAGE = zricethezav/gitleaks:v8.30.0
 ACTIONLINT_IMAGE = rhysd/actionlint:1.7.8
 
-SHELL_SCRIPTS = .githooks/pre-push
+# Tous les scripts shell suivis, hooks compris.
+SHELL_SCRIPTS = $(shell git ls-files '*.sh' '.githooks/*')
+
+# Commandes surchargeables (make fmt GOFUMPT_CMD=false) pour prouver que l'échec d'un outil fait échouer la cible.
+GOFUMPT_CMD ?= $(GO_RUN) tool gofumpt
+GOIMPORTS_CMD ?= $(GO_RUN) tool goimports
+DEADCODE_CMD ?= $(GO_RUN) tool deadcode
+PACKAGE_LIST_CMD ?= $(GO_RUN) list ./...
 QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode shell hadolint gitleaks actionlint
 
 .PHONY: build quality hooks docker-build docker-lint $(QUALITY_TARGETS)
@@ -32,10 +39,10 @@ quality:
 	echo "quality OK"
 
 fmt:
-	@out=$$($(GO_RUN) tool gofumpt -l .); test -z "$$out" || { echo "$$out"; exit 1; }
+	@out=$$($(GOFUMPT_CMD) -l .) || exit 1; test -z "$$out" || { echo "$$out"; exit 1; }
 
 imports:
-	@out=$$($(GO_RUN) tool goimports -l .); test -z "$$out" || { echo "$$out"; exit 1; }
+	@out=$$($(GOIMPORTS_CMD) -l .) || exit 1; test -z "$$out" || { echo "$$out"; exit 1; }
 
 vet:
 	$(GO_RUN) vet -p $(QUALITY_PARALLELISM) ./...
@@ -48,8 +55,10 @@ lint:
 
 # Un paquet à la fois : -race multiplie la RAM et le CPU.
 test:
-	@status=0; \
-	for package in $$($(GO_RUN) list ./...); do \
+	@packages=$$($(PACKAGE_LIST_CMD)) || exit 1; \
+	test -n "$$packages" || { echo "aucun paquet à tester"; exit 1; }; \
+	status=0; \
+	for package in $$packages; do \
 		$(GO_RUN) test -race -cover -p $(QUALITY_PARALLELISM) $$package || status=1; \
 	done; \
 	exit $$status
@@ -57,10 +66,10 @@ test:
 vuln:
 	$(GO_RUN) tool govulncheck ./...
 
-# G101 : faux positifs sur les noms de variables d'environnement ; G304 : chemin de configuration fourni par l'opérateur.
-# SHA-1 (G401/G505) est imposé par BitTorrent : annoté au cas par cas dans le code.
+# G101 : faux positifs sur les noms de variables d'environnement (exclusion globale).
+# G304 et SHA-1 (G401/G505) sont annotés au cas par cas dans le code.
 sec:
-	$(GO_RUN) tool gosec -quiet -exclude=G101,G304 ./...
+	$(GO_RUN) tool gosec -quiet -exclude=G101 ./...
 
 mod:
 	$(GO_RUN) mod tidy -diff
@@ -68,7 +77,7 @@ mod:
 
 # -test : le binaire ne câble pas encore les paquets ; les tests servent de racines.
 deadcode:
-	@out=$$($(GO_RUN) tool deadcode -test ./...); test -z "$$out" || { echo "$$out"; exit 1; }
+	@out=$$($(DEADCODE_CMD) -test ./...) || exit 1; test -z "$$out" || { echo "$$out"; exit 1; }
 
 shell:
 	$(DOCKER_TOOL) $(SHELLCHECK_IMAGE) $(SHELL_SCRIPTS)
