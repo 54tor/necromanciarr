@@ -1,3 +1,4 @@
+// Package config charge la configuration YAML et les secrets issus de l'environnement.
 package config
 
 import (
@@ -22,16 +23,20 @@ const (
 	envQbitPassword         = "QBIT_PASSWORD"
 )
 
+// PathRule traduit un préfixe de chemin entre deux vues du même stockage (hôte, conteneur, client torrent).
 type PathRule struct {
 	From string `yaml:"from"`
 	To   string `yaml:"to"`
 }
 
+// ArrInstance décrit une instance Radarr ou Sonarr ; sa clé d'API vient de ARR_API_KEYS, au même rang.
 type ArrInstance struct {
 	Kind string `yaml:"kind"`
 	URL  string `yaml:"url"`
 }
 
+// Config est la configuration complète. Les secrets ne viennent que de l'environnement
+// et sont exclus de YAML et de JSON.
 type Config struct {
 	ListenAddr         string        `yaml:"listen_addr"`
 	DBPath             string        `yaml:"db_path"`
@@ -49,6 +54,8 @@ type Config struct {
 	QbitPassword         string   `yaml:"-" json:"-"`
 }
 
+// Load lit le YAML à path, applique les défauts, lit les secrets de l'environnement puis valide ;
+// l'erreur renvoyée ne contient aucun secret.
 func Load(path string) (Config, error) {
 	var loadedConfig Config
 	if err := readYAML(path, &loadedConfig); err != nil {
@@ -85,6 +92,7 @@ func applyDefaults(target *Config) {
 	}
 }
 
+// Les secrets ne passent jamais par le fichier YAML, qui peut être versionné ou partagé.
 func readSecretsFromEnvironment(target *Config) {
 	target.AuthToken = os.Getenv(envAuthToken)
 	target.LibraryProviderToken = os.Getenv(envLibraryProviderToken)
@@ -94,6 +102,7 @@ func readSecretsFromEnvironment(target *Config) {
 	}
 }
 
+// Un jeton est exigé hors boucle locale : sans lui, l'interface serait ouverte au réseau sans authentification.
 func validate(loadedConfig Config) error {
 	if loadedConfig.ReadBytesPerSecond < 0 {
 		return errors.New("read_bytes_per_second must be positive")
