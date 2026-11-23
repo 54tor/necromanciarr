@@ -52,6 +52,7 @@ type Config struct {
 	Sonarr             []ArrService    `json:"sonarr"`
 	TorrentClients     []TorrentClient `json:"torrentClients"`
 	Dedupe             Dedupe          `json:"dedupe"`
+	Rclone             Rclone          `json:"rclone"`
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`
@@ -69,6 +70,7 @@ type fileConfig struct {
 	Sonarr             []string   `json:"sonarr"`
 	TorrentClients     []string   `json:"torrentClients"`
 	Dedupe             fileDedupe `json:"dedupe"`
+	Rclone             fileRclone `json:"rclone"`
 }
 
 // Dedupe règle le remplacement, côté torrent, des copies d'un fichier de la bibliothèque par des liens. TorrentRoots
@@ -79,6 +81,8 @@ type Dedupe struct {
 	RelativeSymlinks bool          `json:"relativeSymlinks"`
 	MinFileAge       time.Duration `json:"minFileAge"`
 	RecheckAfter     bool          `json:"recheckAfter"`
+	// Verify : auto (défaut, empreinte du stockage si possible, sinon lecture complète), full, sampled ou hash.
+	Verify string `json:"verify"`
 }
 
 // fileDedupe : les booléens sont des pointeurs pour distinguer une clé absente (défaut true) d'un false explicite.
@@ -88,6 +92,7 @@ type fileDedupe struct {
 	RelativeSymlinks *bool    `json:"relativeSymlinks"`
 	MinFileAge       string   `json:"minFileAge"`
 	RecheckAfter     *bool    `json:"recheckAfter"`
+	Verify           string   `json:"verify"`
 }
 
 var dedupeLinkKinds = []string{"symlink", "hardlink", "reflink"}
@@ -221,6 +226,9 @@ func buildConfig(rawFile fileConfig) (Config, error) {
 	if loadedConfig.Dedupe, err = parseDedupe(rawFile.Dedupe); err != nil {
 		return Config{}, err
 	}
+	if loadedConfig.Rclone, err = parseRclone(rawFile.Rclone); err != nil {
+		return Config{}, err
+	}
 	if loadedConfig.Radarr, err = parseArrServices("radarr", rawFile.Radarr); err != nil {
 		return Config{}, err
 	}
@@ -244,6 +252,10 @@ func parseDedupe(rawDedupe fileDedupe) (Dedupe, error) {
 		RelativeSymlinks: rawDedupe.RelativeSymlinks == nil || *rawDedupe.RelativeSymlinks,
 		MinFileAge:       defaultDedupeMinFileAge,
 		RecheckAfter:     rawDedupe.RecheckAfter == nil || *rawDedupe.RecheckAfter,
+	}
+	var verifyErr error
+	if parsed.Verify, verifyErr = parseDedupeVerify(rawDedupe.Verify); verifyErr != nil {
+		return Dedupe{}, verifyErr
 	}
 	if len(parsed.Kinds) == 0 {
 		parsed.Kinds = []string{"symlink"}
@@ -375,6 +387,7 @@ type plainConfig Config
 func (loadedConfig Config) redacted() plainConfig {
 	redactedCopy := loadedConfig
 	redactedCopy.LibraryAPI = redactURL(loadedConfig.LibraryAPI)
+	redactedCopy.Rclone.RC = redactRCURL(loadedConfig.Rclone.RC)
 	if redactedCopy.AuthToken != "" {
 		redactedCopy.AuthToken = redactedSecret
 	}

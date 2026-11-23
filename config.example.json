@@ -13,6 +13,13 @@
     "kinds": ["symlink"],
     "relativeSymlinks": true,
     "minFileAge": "10m",
-    "recheckAfter": true
+    "recheckAfter": true,
+    "verify": "auto"
+  },
+  "rclone": {
+    "rc": "http://rclone:${RCLONE_RC_PASS}@rclone:5572",
+    "binary": "",
+    "timeout": "60s",
+    "mounts": ["/volumes/mega=megas4:bucket/prefix"]
   }
 }

@@ -277,11 +277,11 @@ func TestLoad_acceptsConfigExampleJson(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, configDir, configFileName, string(exampleContent))
-	environment := map[string]string{"RADARR_API_KEY": "r", "SONARR_API_KEY": "s", "QBIT_PASSWORD": "q"}
+	environment := map[string]string{"RADARR_API_KEY": "r", "SONARR_API_KEY": "s", "QBIT_PASSWORD": "q", "RCLONE_RC_PASS": "p"}
 
 	loadedConfig := mustLoad(t, nil, environment, configDir)
 
-	if len(loadedConfig.Radarr) == 0 || len(loadedConfig.Sonarr) == 0 || len(loadedConfig.TorrentClients) == 0 {
+	if len(loadedConfig.Radarr) == 0 || len(loadedConfig.Sonarr) == 0 || len(loadedConfig.TorrentClients) == 0 || len(loadedConfig.Rclone.Mounts) == 0 {
 		t.Fatalf("example config incomplete: %v", loadedConfig)
 	}
 }
@@ -359,7 +359,7 @@ func TestLoad_dedupeReadsEveryKey(t *testing.T) {
 
 	expectedValue := Dedupe{
 		TorrentRoots: []string{"/home/u/torrents"}, Kinds: []string{"hardlink", "symlink"},
-		RelativeSymlinks: false, MinFileAge: 90 * time.Minute, RecheckAfter: false,
+		RelativeSymlinks: false, MinFileAge: 90 * time.Minute, RecheckAfter: false, Verify: "auto",
 	}
 	if !reflect.DeepEqual(gotValue, expectedValue) {
 		t.Fatalf("gotValue %+v, expectedValue %+v", gotValue, expectedValue)
