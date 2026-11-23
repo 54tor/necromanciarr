@@ -1,0 +1,4 @@
+#!/bin/sh
+# Bloque le push si la pile qualité échoue.
+set -eu
+exec make quality
