@@ -51,11 +51,12 @@ func (source *local) Hash(ctx context.Context, path string, algorithm Algorithm)
 	defer func() { _ = file.Close() }()
 	buffer := make([]byte, readChunkSize)
 	for {
-		if err := source.wait(ctx, len(buffer)); err != nil {
-			return Result{}, err
-		}
 		readCount, readErr := file.Read(buffer)
 		hasher.Write(buffer[:readCount])
+		// Le plafond est chargé après la lecture, pour le nombre exact d'octets : le dernier appel (fin de fichier) ne coûte rien.
+		if err := source.wait(ctx, readCount); err != nil {
+			return Result{}, err
+		}
 		if readErr == io.EOF {
 			break
 		}
@@ -67,7 +68,7 @@ func (source *local) Hash(ctx context.Context, path string, algorithm Algorithm)
 }
 
 func (source *local) wait(ctx context.Context, byteCount int) error {
-	if source.limiter == nil {
+	if source.limiter == nil || byteCount == 0 {
 		return ctx.Err()
 	}
 	return source.limiter.WaitN(ctx, byteCount)

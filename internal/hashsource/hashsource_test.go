@@ -296,7 +296,7 @@ func TestLocal_hashesStreamedAndRateLimited(t *testing.T) {
 		if err != nil || !result.Available || result.Origin != ReadLocally || result.Value != expectedValue {
 			t.Fatalf("%s: %+v %v", algorithm, result, err)
 		}
-		if limiter.totalBytes < int64(len(content)) || limiter.totalBytes > int64(len(content))+2*readChunkSize {
+		if limiter.totalBytes != int64(len(content)) {
 			t.Fatalf("%s: limiter charged %d for %d bytes", algorithm, limiter.totalBytes, len(content))
 		}
 	}
