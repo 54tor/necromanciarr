@@ -369,7 +369,7 @@ func TestPlan_warnsOnNonLocalVolumes(t *testing.T) {
 
 	replacement := planOne(t, layout, options)
 
-	for _, expectedWarning := range []string{warningUnreliableInode, warningFullNetworkRead} {
+	for _, expectedWarning := range []string{warningUnreliableInode, warningFullNetworkRead, warningRenameNotAtomic} {
 		if !slices.Contains(replacement.Warnings, expectedWarning) {
 			t.Fatalf("missing warning %q in %v", expectedWarning, replacement.Warnings)
 		}
@@ -603,5 +603,122 @@ func TestPlan_ignoresTemporaryEntriesOfThisTool(t *testing.T) {
 	}
 	if _, err := os.Lstat(leftover); errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("leftover removed")
+	}
+}
+
+func TestPlan_warnsWhenRenameOverwriteIsNotConfirmed(t *testing.T) {
+	layout := newOperatorLayout(t)
+	options := baseOptions(layout.torrentRoot)
+	for _, renameOverwrite := range []bool{false, true} {
+		options.probe = fakeProbe(linker.Capabilities{Symlink: true, RenameOverwrite: renameOverwrite})
+
+		replacement := planOne(t, layout, options)
+
+		expectedValue := !renameOverwrite
+		if gotValue := slices.Contains(replacement.Warnings, warningRenameNotAtomic); gotValue != expectedValue {
+			t.Fatalf("renameOverwrite %v: warning present %v, expected %v", renameOverwrite, gotValue, expectedValue)
+		}
+	}
+}
+
+// interruptedLayout simule un Apply interrompu : un lien temporaire vers le fichier de la bibliothèque à côté du
+// fichier torrent, que celui-ci soit encore là ou non.
+func newInterruptedLayout(t *testing.T, torrentPresent bool) (operatorLayout, string) {
+	t.Helper()
+	layout := newOperatorLayout(t)
+	temporaryPath := temporaryPathFor(layout.torrentPath, int64(len(layout.content)))
+	if err := os.Symlink(layout.libraryPath, temporaryPath); err != nil {
+		t.Fatal(err)
+	}
+	if !torrentPresent {
+		if err := os.Remove(layout.torrentPath); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return layout, temporaryPath
+}
+
+func recoverOne(t *testing.T, torrentRoot string) RecoverAction {
+	t.Helper()
+	result, err := Recover(context.Background(), []string{torrentRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Actions) != 1 {
+		t.Fatalf("got %d actions, want 1: %+v", len(result.Actions), result.Actions)
+	}
+	return result.Actions[0]
+}
+
+func TestRecover_removesTemporaryWhenTorrentFileIsPresent(t *testing.T) {
+	layout, temporaryPath := newInterruptedLayout(t, true)
+
+	action := recoverOne(t, layout.torrentRoot)
+
+	if action.Completed || !errors.Is(action.Reason, ErrTorrentFilePresent) || action.TemporaryPath != temporaryPath {
+		t.Fatalf("unexpected action %+v", action)
+	}
+	assertRegularWith(t, layout.torrentPath, layout.content)
+	assertNoTemporaryEntry(t, layout.torrentRoot)
+}
+
+func TestRecover_completesRenameWhenTorrentFileIsAbsent(t *testing.T) {
+	layout, _ := newInterruptedLayout(t, false)
+
+	action := recoverOne(t, layout.torrentRoot)
+
+	if !action.Completed || action.Err != nil || action.TorrentPath != layout.torrentPath {
+		t.Fatalf("unexpected action %+v", action)
+	}
+	gotValue, err := os.Readlink(layout.torrentPath)
+	if err != nil || gotValue != layout.libraryPath {
+		t.Fatalf("torrent path links to %q (%v), want %q", gotValue, err, layout.libraryPath)
+	}
+	assertNoTemporaryEntry(t, layout.torrentRoot)
+}
+
+func TestRecover_removesTemporaryWithDanglingTarget(t *testing.T) {
+	layout := newOperatorLayout(t)
+	if err := os.Remove(layout.torrentPath); err != nil {
+		t.Fatal(err)
+	}
+	temporaryPath := temporaryPathFor(layout.torrentPath, int64(len(layout.content)))
+	if err := os.Symlink(filepath.Join(t.TempDir(), "gone.mkv"), temporaryPath); err != nil {
+		t.Fatal(err)
+	}
+
+	action := recoverOne(t, layout.torrentRoot)
+
+	if action.Completed || !errors.Is(action.Reason, ErrNotIdentical) || action.Err != nil {
+		t.Fatalf("unexpected action %+v", action)
+	}
+	if _, err := os.Lstat(layout.torrentPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("torrent path created from a dangling link: %v", err)
+	}
+	assertNoTemporaryEntry(t, layout.torrentRoot)
+}
+
+func TestRecover_doesNotFollowSymlinkedDirectories(t *testing.T) {
+	layout := newOperatorLayout(t)
+	outside := t.TempDir()
+	outsideTorrent := filepath.Join(outside, "other.mkv")
+	outsideTemporary := temporaryPathFor(outsideTorrent, int64(len(layout.content)))
+	if err := os.Symlink(layout.libraryPath, outsideTemporary); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(layout.torrentRoot, "linked")); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Recover(context.Background(), []string{layout.torrentRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Actions) != 0 {
+		t.Fatalf("expected no action, got %+v", result.Actions)
+	}
+	if _, err := os.Lstat(outsideTemporary); err != nil {
+		t.Fatalf("entry behind a symlinked directory was touched: %v", err)
 	}
 }

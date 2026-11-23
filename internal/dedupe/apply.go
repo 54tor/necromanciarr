@@ -8,14 +8,19 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
 )
 
-// temporaryMarker : le lien est d'abord créé sous ce nom à côté du fichier torrent, puis renommé par-dessus.
-const temporaryMarker = ".necromanciarr-tmp-"
+// temporaryMarker : le lien est d'abord créé sous « <fichier>.necromanciarr-tmp-<taille>-<aléatoire> » à côté du
+// fichier torrent, puis renommé par-dessus ; la taille attendue dans le nom permet à Recover de reprendre sans base.
+const (
+	temporaryMarker    = ".necromanciarr-tmp-"
+	temporarySeparator = "-"
+)
 
 // Erreurs typées d'Apply.
 var (
@@ -188,7 +193,7 @@ func linkTarget(replacement Replacement, relativeSymlinks bool) (string, bool, e
 }
 
 func replaceWithLink(replacement Replacement, options Options, root, target string, libraryInfo fs.FileInfo) error {
-	temporaryPath := replacement.TorrentPath + temporaryMarker + rand.Text()
+	temporaryPath := temporaryPathFor(replacement.TorrentPath, replacement.Size)
 	if err := options.createLink(replacement.Kind, target, temporaryPath, root); err != nil {
 		return err
 	}
@@ -204,6 +209,10 @@ func replaceWithLink(replacement Replacement, options Options, root, target stri
 		return errors.Join(err, removeTemporary(temporaryPath))
 	}
 	return nil
+}
+
+func temporaryPathFor(torrentPath string, size int64) string {
+	return torrentPath + temporaryMarker + strconv.FormatInt(size, 10) + temporarySeparator + rand.Text()
 }
 
 // checkTemporaryLink : un symlink ou un hardlink doit mener au fichier même de la bibliothèque, un reflink à un

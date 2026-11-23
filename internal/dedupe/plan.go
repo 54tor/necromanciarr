@@ -32,6 +32,7 @@ const (
 	warningUnreliableInode = "inode non fiable"
 	warningFullNetworkRead = "lecture complète d'un montage réseau"
 	warningSampledVerify   = "vérification par échantillons, plus faible que la comparaison complète"
+	warningRenameNotAtomic = "renommage non atomique sur ce volume"
 )
 
 // toolEntryMarker repère les entrées temporaires de necromanciarr (sonde, lien en cours) : jamais candidates.
@@ -308,10 +309,23 @@ func (run *planRun) describe(replacement *Replacement, torrentInfo fs.FileInfo, 
 	device, inode, identityKnown := fileIdentity(chosen.info)
 	replacement.LibraryDevice, replacement.LibraryInode = device, inode
 	replacement.InodeReliable = identityKnown && run.volumeOf(chosen.path) == linker.Local
-	replacement.Kind, replacement.Reason = run.chooseKind(filepath.Dir(replacement.TorrentPath), torrentInfo, chosen.info)
-	if replacement.Kind != 0 {
-		replacement.SavedBytes = replacement.Size
+	torrentDir := filepath.Dir(replacement.TorrentPath)
+	replacement.Kind, replacement.Reason = run.chooseKind(torrentDir, torrentInfo, chosen.info)
+	if replacement.Kind == 0 {
+		return
 	}
+	replacement.SavedBytes = replacement.Size
+	if run.renameIsUncertain(torrentDir, replacement.TorrentPath) {
+		replacement.Warnings = append(replacement.Warnings, warningRenameNotAtomic)
+	}
+}
+
+// renameIsUncertain : un VFS FUSE ou réseau peut renommer par copie puis suppression, ou suppression puis renommage ;
+// une coupure laisse alors un fichier temporaire que Recover reprend.
+func (run *planRun) renameIsUncertain(torrentDir, torrentPath string) bool {
+	volume := run.volumeOf(torrentPath)
+	isRemoteVolume := volume == linker.Fuse || volume == linker.Network
+	return isRemoteVolume || !run.capabilities[torrentDir].capabilities.RenameOverwrite
 }
 
 func (run *planRun) warnings(torrentPath string, libraryPaths []string) []string {
