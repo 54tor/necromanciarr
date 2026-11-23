@@ -1,83 +1,193 @@
-// Package config charge la configuration YAML et les secrets issus de l'environnement.
+// Package config charge la configuration : fichier JSON, .env, variables d'environnement et options de ligne de commande.
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"os"
-	"strings"
-
-	"gopkg.in/yaml.v3"
+	"path/filepath"
+	"reflect"
 )
 
 const (
 	defaultListenAddr         = "127.0.0.1:8787"
 	defaultDBPath             = "necromanciarr.db"
 	defaultReadBytesPerSecond = 20 * 1024 * 1024
+	configFileName            = "config.json"
+	redactedSecret            = "[redacted]"
 
+	envConfigDir            = "CONFIG_DIR"
+	envLibraryAPI           = "LIBRARY_API"
 	envAuthToken            = "NECROMANCIARR_AUTH_TOKEN"
 	envLibraryProviderToken = "LIBRARY_PROVIDER_TOKEN"
-	envArrAPIKeys           = "ARR_API_KEYS"
-	envQbitPassword         = "QBIT_PASSWORD"
 )
 
 // PathRule traduit un préfixe de chemin entre deux vues du même stockage (hôte, conteneur, client torrent).
 type PathRule struct {
-	From string `yaml:"from"`
-	To   string `yaml:"to"`
+	From string `json:"from"`
+	To   string `json:"to"`
 }
 
-// ArrInstance décrit une instance Radarr ou Sonarr ; sa clé d'API vient de ARR_API_KEYS, au même rang.
-type ArrInstance struct {
-	Kind string `yaml:"kind"`
-	URL  string `yaml:"url"`
-}
-
-// Config est la configuration complète. Les secrets ne viennent que de l'environnement
-// et sont exclus de YAML et de JSON.
+// Config est la configuration effective. Les jetons ne viennent que de l'environnement
+// et sont exclus de toute sérialisation.
 type Config struct {
-	ListenAddr         string        `yaml:"listen_addr"`
-	DBPath             string        `yaml:"db_path"`
-	ReadBytesPerSecond int64         `yaml:"read_bytes_per_second"`
-	PathRules          []PathRule    `yaml:"path_rules"`
-	LibraryProviderURL string        `yaml:"library_provider_url"`
-	LibraryRoots       []string      `yaml:"library_roots"`
-	ArrInstances       []ArrInstance `yaml:"arr_instances"`
-	QbitURL            string        `yaml:"qbit_url"`
-	QbitUser           string        `yaml:"qbit_user"`
+	ConfigDir          string          `json:"configDir"`
+	ListenAddr         string          `json:"listen"`
+	DBPath             string          `json:"dbPath"`
+	ReadBytesPerSecond int64           `json:"readBytesPerSecond"`
+	LibraryAPI         string          `json:"libraryApi"`
+	LibraryRoots       []string        `json:"libraryRoots"`
+	PathRules          []PathRule      `json:"pathMappings"`
+	Radarr             []ArrService    `json:"radarr"`
+	Sonarr             []ArrService    `json:"sonarr"`
+	TorrentClients     []TorrentClient `json:"torrentClients"`
 
-	AuthToken            string   `yaml:"-" json:"-"`
-	LibraryProviderToken string   `yaml:"-" json:"-"`
-	ArrAPIKeys           []string `yaml:"-" json:"-"`
-	QbitPassword         string   `yaml:"-" json:"-"`
+	AuthToken            string `json:"-"`
+	LibraryProviderToken string `json:"-"`
 }
 
-// Load lit le YAML à path, applique les défauts, lit les secrets de l'environnement puis valide ;
-// l'erreur renvoyée ne contient aucun secret.
-func Load(path string) (Config, error) {
-	var loadedConfig Config
-	if err := readYAML(path, &loadedConfig); err != nil {
+// fileConfig est le contenu brut de config.json, avant interpolation et analyse des chaînes de service.
+type fileConfig struct {
+	Listen             string     `json:"listen"`
+	DBPath             string     `json:"dbPath"`
+	ReadBytesPerSecond int64      `json:"readBytesPerSecond"`
+	LibraryAPI         string     `json:"libraryApi"`
+	LibraryRoots       []string   `json:"libraryRoots"`
+	PathMappings       []PathRule `json:"pathMappings"`
+	Radarr             []string   `json:"radarr"`
+	Sonarr             []string   `json:"sonarr"`
+	TorrentClients     []string   `json:"torrentClients"`
+}
+
+// commandLine regroupe les options reconnues ; set indique celles réellement passées.
+type commandLine struct {
+	listen, libraryAPI, configDir, dbPath string
+	readBytesPerSecond                    int64
+	set                                   map[string]bool
+}
+
+// Load construit la configuration. Priorité : ligne de commande > environnement > config.json > défauts.
+// defaultConfigDir sert quand ni --config-dir ni CONFIG_DIR ne sont fournis. Les erreurs ne contiennent aucun secret.
+func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir string) (Config, error) {
+	options, err := parseCommandLine(args)
+	if err != nil {
 		return Config{}, err
 	}
+	configDir := resolveConfigDir(options, lookupEnv, defaultConfigDir)
+	if configDir == "" {
+		return Config{}, errors.New("config dir unknown: set --config-dir or " + envConfigDir)
+	}
+	lookup, err := loadDotEnvLookup(configDir, lookupEnv)
+	if err != nil {
+		return Config{}, err
+	}
+	rawFile, err := readConfigFile(filepath.Join(configDir, configFileName), lookup)
+	if err != nil {
+		return Config{}, err
+	}
+	loadedConfig, err := buildConfig(rawFile)
+	if err != nil {
+		return Config{}, err
+	}
+	loadedConfig.ConfigDir = configDir
 	applyDefaults(&loadedConfig)
-	readSecretsFromEnvironment(&loadedConfig)
+	applyOverrides(&loadedConfig, options, lookup)
 	if err := validate(loadedConfig); err != nil {
 		return Config{}, err
 	}
 	return loadedConfig, nil
 }
 
-func readYAML(path string, target *Config) error {
-	fileContent, err := os.ReadFile(path) // #nosec G304 -- chemin de configuration fourni par l'opérateur
+func parseCommandLine(args []string) (commandLine, error) {
+	options := commandLine{set: map[string]bool{}}
+	flagSet := flag.NewFlagSet("necromanciarr", flag.ContinueOnError)
+	flagSet.SetOutput(io.Discard)
+	flagSet.StringVar(&options.listen, "listen", "", "listen address")
+	flagSet.StringVar(&options.libraryAPI, "library-api", "", "library provider base url")
+	flagSet.StringVar(&options.configDir, "config-dir", "", "configuration directory")
+	flagSet.StringVar(&options.dbPath, "db-path", "", "sqlite database path")
+	flagSet.Int64Var(&options.readBytesPerSecond, "read-bytes-per-second", 0, "read rate limit")
+	if err := flagSet.Parse(args); err != nil {
+		return commandLine{}, fmt.Errorf("parse flags: %w", err)
+	}
+	flagSet.Visit(func(visited *flag.Flag) { options.set[visited.Name] = true })
+	return options, nil
+}
+
+func resolveConfigDir(options commandLine, lookupEnv func(string) (string, bool), defaultConfigDir string) string {
+	if options.set["config-dir"] {
+		return options.configDir
+	}
+	if environmentDir, found := lookupEnv(envConfigDir); found && environmentDir != "" {
+		return environmentDir
+	}
+	return defaultConfigDir
+}
+
+// readConfigFile lit config.json en mode strict ; un fichier absent donne une configuration vide.
+func readConfigFile(path string, lookup func(string) (string, bool)) (fileConfig, error) {
+	var rawFile fileConfig
+	content, err := os.ReadFile(path) // #nosec G304 -- chemin dérivé du dossier de configuration de l'opérateur
+	if errors.Is(err, fs.ErrNotExist) {
+		return rawFile, nil
+	}
 	if err != nil {
-		return fmt.Errorf("read config: %w", err)
+		return fileConfig{}, fmt.Errorf("read %s: %w", configFileName, err)
 	}
-	if err := yaml.Unmarshal(fileContent, target); err != nil {
-		return fmt.Errorf("parse config: %w", err)
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&rawFile); err != nil {
+		return fileConfig{}, fmt.Errorf("parse %s: %w", configFileName, err)
 	}
-	return nil
+	if err := interpolateValue(reflect.ValueOf(&rawFile).Elem(), "", lookup); err != nil {
+		return fileConfig{}, fmt.Errorf("%s: %w", configFileName, err)
+	}
+	return rawFile, nil
+}
+
+func buildConfig(rawFile fileConfig) (Config, error) {
+	loadedConfig := Config{
+		ListenAddr:         rawFile.Listen,
+		DBPath:             rawFile.DBPath,
+		ReadBytesPerSecond: rawFile.ReadBytesPerSecond,
+		LibraryAPI:         rawFile.LibraryAPI,
+		LibraryRoots:       rawFile.LibraryRoots,
+		PathRules:          rawFile.PathMappings,
+	}
+	var err error
+	if loadedConfig.Radarr, err = parseArrServices("radarr", rawFile.Radarr); err != nil {
+		return Config{}, err
+	}
+	if loadedConfig.Sonarr, err = parseArrServices("sonarr", rawFile.Sonarr); err != nil {
+		return Config{}, err
+	}
+	for clientIndex, rawClient := range rawFile.TorrentClients {
+		client, err := ParseTorrentClient(rawClient)
+		if err != nil {
+			return Config{}, fmt.Errorf("torrentClients[%d]: %w", clientIndex, err)
+		}
+		loadedConfig.TorrentClients = append(loadedConfig.TorrentClients, client)
+	}
+	return loadedConfig, nil
+}
+
+func parseArrServices(kind string, rawServices []string) ([]ArrService, error) {
+	var services []ArrService
+	for serviceIndex, rawService := range rawServices {
+		service, err := ParseArrService(kind, rawService)
+		if err != nil {
+			return nil, fmt.Errorf("%s[%d]: %w", kind, serviceIndex, err)
+		}
+		services = append(services, service)
+	}
+	return services, nil
 }
 
 func applyDefaults(target *Config) {
@@ -92,26 +202,34 @@ func applyDefaults(target *Config) {
 	}
 }
 
-// Les secrets ne passent jamais par le fichier YAML, qui peut être versionné ou partagé.
-func readSecretsFromEnvironment(target *Config) {
-	target.AuthToken = os.Getenv(envAuthToken)
-	target.LibraryProviderToken = os.Getenv(envLibraryProviderToken)
-	target.QbitPassword = os.Getenv(envQbitPassword)
-	if rawKeys := os.Getenv(envArrAPIKeys); rawKeys != "" {
-		target.ArrAPIKeys = strings.Split(rawKeys, ",")
+// applyOverrides applique l'environnement puis la ligne de commande par-dessus le fichier ; les jetons ne viennent que de l'environnement.
+func applyOverrides(target *Config, options commandLine, lookup func(string) (string, bool)) {
+	if value, found := lookup(envLibraryAPI); found && value != "" {
+		target.LibraryAPI = value
+	}
+	target.AuthToken, _ = lookup(envAuthToken)
+	target.LibraryProviderToken, _ = lookup(envLibraryProviderToken)
+	if options.set["listen"] {
+		target.ListenAddr = options.listen
+	}
+	if options.set["library-api"] {
+		target.LibraryAPI = options.libraryAPI
+	}
+	if options.set["db-path"] {
+		target.DBPath = options.dbPath
+	}
+	if options.set["read-bytes-per-second"] {
+		target.ReadBytesPerSecond = options.readBytesPerSecond
 	}
 }
 
 // Un jeton est exigé hors boucle locale : sans lui, l'interface serait ouverte au réseau sans authentification.
 func validate(loadedConfig Config) error {
 	if loadedConfig.ReadBytesPerSecond < 0 {
-		return errors.New("read_bytes_per_second must be positive")
-	}
-	if len(loadedConfig.ArrAPIKeys) != len(loadedConfig.ArrInstances) {
-		return fmt.Errorf("%s has %d keys for %d arr_instances", envArrAPIKeys, len(loadedConfig.ArrAPIKeys), len(loadedConfig.ArrInstances))
+		return errors.New("readBytesPerSecond must be positive")
 	}
 	if loadedConfig.AuthToken == "" && !isLoopbackAddress(loadedConfig.ListenAddr) {
-		return fmt.Errorf("listen_addr %q is not loopback: set %s", loadedConfig.ListenAddr, envAuthToken)
+		return fmt.Errorf("listen %q is not loopback: set %s", loadedConfig.ListenAddr, envAuthToken)
 	}
 	return nil
 }
@@ -128,10 +246,15 @@ func isLoopbackAddress(listenAddr string) bool {
 	return parsedIP != nil && parsedIP.IsLoopback()
 }
 
-const redactedSecret = "[redacted]"
+// RedactedJSON sérialise la configuration effective, identifiants masqués (jetons exclus), pour `config check`.
+func (loadedConfig Config) RedactedJSON() ([]byte, error) {
+	return json.MarshalIndent(loadedConfig, "", "  ")
+}
 
-// redacted renvoie une copie dont les secrets renseignés sont masqués.
-func (loadedConfig Config) redacted() Config {
+type plainConfig Config
+
+// String masque identifiants d'URL et jetons pour %v et %+v.
+func (loadedConfig Config) String() string {
 	redactedCopy := loadedConfig
 	if redactedCopy.AuthToken != "" {
 		redactedCopy.AuthToken = redactedSecret
@@ -139,21 +262,7 @@ func (loadedConfig Config) redacted() Config {
 	if redactedCopy.LibraryProviderToken != "" {
 		redactedCopy.LibraryProviderToken = redactedSecret
 	}
-	if redactedCopy.QbitPassword != "" {
-		redactedCopy.QbitPassword = redactedSecret
-	}
-	redactedCopy.ArrAPIKeys = nil
-	for range loadedConfig.ArrAPIKeys {
-		redactedCopy.ArrAPIKeys = append(redactedCopy.ArrAPIKeys, redactedSecret)
-	}
-	return redactedCopy
-}
-
-type plainConfig Config
-
-// String masque les secrets pour que %v et %+v ne les affichent jamais.
-func (loadedConfig Config) String() string {
-	return fmt.Sprintf("%+v", plainConfig(loadedConfig.redacted()))
+	return fmt.Sprintf("%+v", plainConfig(redactedCopy))
 }
 
 // GoString masque les secrets pour %#v.

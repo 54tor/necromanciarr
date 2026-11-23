@@ -1,0 +1,11 @@
+{
+  "listen": "127.0.0.1:8787",
+  "dbPath": "/home/u/necromanciarr/necromanciarr.db",
+  "readBytesPerSecond": 20971520,
+  "libraryApi": "https://library.example.com",
+  "libraryRoots": ["/home/u/media/movies", "/home/u/media/tv"],
+  "pathMappings": [{ "from": "/home/u/media", "to": "/data/media" }],
+  "radarr": ["http://example.com:7878?apikey=${RADARR_API_KEY}"],
+  "sonarr": ["http://example.com:8989?apikey=${SONARR_API_KEY}"],
+  "torrentClients": ["qbittorrent:readonly:http://alice:${QBIT_PASSWORD}@example.com:8080"]
+}
