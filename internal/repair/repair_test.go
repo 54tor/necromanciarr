@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha1" // #nosec G505 -- SHA1 imposé par le format .torrent
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -248,9 +249,10 @@ func TestScan_findsRenamedTargetBySizeAndModTimeOnNonLocalVolume(t *testing.T) {
 	oldTarget := filepath.Join(place.libraryDirectory, "old.mkv")
 	row := brokenRow(place.symlink(t, "movie.mkv", oldTarget), oldTarget, 4096)
 	row.Fingerprint = fingerprintOf(t, renamed.Path, 4096)
+	row.ModTime = agedModTime
 	limiter := &countingLimiter{}
 	cache := &fakeCache{entries: map[string]string{renamed.Path: row.Fingerprint}}
-	options := Options{AutoApply: true, Limiter: limiter, FingerprintCache: cache, RecordedModTimes: map[string]time.Time{oldTarget: agedModTime}}
+	options := Options{AutoApply: true, Limiter: limiter, FingerprintCache: cache}
 
 	repairs, _ := scanOne(t, options, row, []store.MediaFile{other, renamed})
 
@@ -560,5 +562,122 @@ func TestApply_removesOnlyItsTempOnFailure(t *testing.T) {
 	gotText, _ := os.Readlink(fixture.repair.LinkPath)
 	if gotText != fixture.repair.OldTarget {
 		t.Fatalf("old link modified: %q", gotText)
+	}
+}
+
+func TestScan_usesModTimeReadBackFromARealStore(t *testing.T) {
+	place := newLayout(t)
+	renamed := place.libraryFile(t, "renamed.mkv", patterned(4096, 1), agedModTime)
+	oldTarget := filepath.Join(place.libraryDirectory, "old.mkv")
+	row := brokenRow(place.symlink(t, "movie.mkv", oldTarget), oldTarget, 4096)
+	row.ModTime, row.CreatedAt, row.VerifiedAt = agedModTime, agedModTime, agedModTime
+	realStore, err := store.Open(filepath.Join(t.TempDir(), "repair.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = realStore.Close() })
+	if err := realStore.RecordLink(t.Context(), row); err != nil {
+		t.Fatal(err)
+	}
+
+	repairs, _, err := Scan(t.Context(), Options{Store: realStore}, nil, []store.MediaFile{renamed})
+
+	if err != nil || len(repairs) != 1 || repairs[0].Method != BySizeAndModTime {
+		t.Fatalf("expected BySizeAndModTime from the stored mtime: %v %+v", err, repairs)
+	}
+}
+
+func TestScan_recordedModTimesMapOverridesTheStoredOne(t *testing.T) {
+	place := newLayout(t)
+	renamed := place.libraryFile(t, "renamed.mkv", patterned(4096, 1), agedModTime)
+	oldTarget := filepath.Join(place.libraryDirectory, "old.mkv")
+	row := brokenRow(place.symlink(t, "movie.mkv", oldTarget), oldTarget, 4096)
+	row.ModTime = agedModTime.Add(time.Hour)
+	options := Options{RecordedModTimes: map[string]time.Time{oldTarget: agedModTime}}
+
+	repairs, _ := scanOne(t, options, row, []store.MediaFile{renamed})
+
+	if len(repairs) != 1 {
+		t.Fatalf("the override should win, got %+v", repairs)
+	}
+}
+
+func TestScan_reflinkRowStaysOkAndStoreIsNotMutated(t *testing.T) {
+	place := newLayout(t)
+	target := place.libraryFile(t, "movie.mkv", patterned(4096, 1), agedModTime)
+	linkPath := filepath.Join(place.linkDirectory, "movie.mkv")
+	writeFileAt(t, linkPath, patterned(4096, 1), agedModTime)
+	row := store.Link{Kind: "reflink", LinkPath: linkPath, TargetPath: target.Path, Size: 4096, State: store.LinkOK}
+	fake := newFakeStore()
+
+	repairs, report := scanOne(t, Options{Store: fake}, row, nil)
+
+	if len(repairs) != 0 || len(report.OK) != 1 || len(report.Diverged) != 0 || len(fake.states) != 0 {
+		t.Fatalf("reflink must be left alone: %+v %v", report, fake.states)
+	}
+}
+
+func TestScan_renamedHardlinkTargetIsNotDiverged(t *testing.T) {
+	place := newLayout(t)
+	target := filepath.Join(place.libraryDirectory, "gone.mkv")
+	linkPath := filepath.Join(place.linkDirectory, "movie.mkv")
+	writeFileAt(t, linkPath, patterned(4096, 1), agedModTime)
+	row := store.Link{Kind: "hardlink", LinkPath: linkPath, TargetPath: target, Size: 4096, State: store.LinkOK}
+	fake := newFakeStore()
+
+	_, report := scanOne(t, Options{Store: fake}, row, nil)
+
+	if len(report.Diverged) != 0 || len(report.RenamedTarget) != 1 || len(fake.states) != 0 {
+		t.Fatalf("a renamed target is not a divergence: %+v %v", report, fake.states)
+	}
+}
+
+func TestScan_transientStatErrorLeavesLinkUnknown(t *testing.T) {
+	place := newLayout(t)
+	candidate := place.libraryFile(t, "renamed.mkv", patterned(4096, 1), agedModTime)
+	oldTarget := filepath.Join(place.libraryDirectory, "old.mkv")
+	linkPath := place.symlink(t, "movie.mkv", oldTarget)
+	row := brokenRow(linkPath, oldTarget, 4096)
+	row.ModTime = agedModTime
+	fake := newFakeStore()
+	options := Options{Store: fake, stat: func(string) (fs.FileInfo, error) { return nil, errors.New("input/output error") }}
+
+	repairs, report := scanOne(t, options, row, []store.MediaFile{candidate})
+
+	if len(repairs) != 0 || len(report.Unreadable) != 1 || report.Unreadable[0].Err == "" || len(report.Lost) != 0 || len(fake.states) != 0 {
+		t.Fatalf("expected an unreadable link and no mutation: %+v %v", report, fake.states)
+	}
+}
+
+func TestScan_sharesOneReadBudgetAcrossMethodsOfALink(t *testing.T) {
+	place := newLayout(t)
+	var library []store.MediaFile
+	for index := range 4 {
+		library = append(library, place.libraryFile(t, string(rune('a'+index))+".mkv", patterned(4096, byte(index+1)), agedModTime.Add(time.Duration(index)*time.Minute)))
+	}
+	oldTarget := filepath.Join(place.libraryDirectory, "old.mkv")
+	row := brokenRow(place.symlink(t, "movie.mkv", oldTarget), oldTarget, 4096)
+	row.ModTime = library[0].ModTime
+	row.Fingerprint = fingerprintOf(t, library[3].Path, 4096)
+	limiter := &countingLimiter{}
+
+	scanOne(t, Options{MaxCandidatesToRead: 2, Limiter: limiter}, row, library)
+
+	if limiter.totalBytes > 2*4096 {
+		t.Fatalf("a link must cost at most two content reads, read %d bytes", limiter.totalBytes)
+	}
+}
+
+func TestApply_refusesWhenOldTargetReappeared(t *testing.T) {
+	for _, dryRun := range []bool{false, true} {
+		fixture := newApplyFixture(t, false)
+		fixture.options.DryRun = dryRun
+		writeFileAt(t, fixture.repair.OldTarget, patterned(4096, 9), agedModTime)
+
+		_, err := Apply(t.Context(), []Repair{fixture.repair}, fixture.options)
+
+		if !errors.Is(err, ErrChangedSinceScan) {
+			t.Fatalf("dryRun=%v: expected ErrChangedSinceScan, got %v", dryRun, err)
+		}
 	}
 }

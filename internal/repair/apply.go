@@ -154,6 +154,10 @@ func checkLinkUnchanged(repair Repair) error {
 	if err != nil || currentTarget != repair.OldTarget {
 		return fmt.Errorf("%w: %s now points elsewhere", ErrChangedSinceScan, repair.LinkPath)
 	}
+	// Un ancien chemin revenu (ou un état inconnu) ne justifie plus de remplacer le lien.
+	if _, err := os.Stat(repair.LinkPath); !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%w: %s is no longer broken", ErrChangedSinceScan, repair.LinkPath)
+	}
 	return nil
 }
 

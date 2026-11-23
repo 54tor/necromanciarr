@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,7 +29,10 @@ const (
 	ByTorrentPieces  RepairMethod = "torrent-pieces"
 )
 
-const defaultMaxCandidatesToRead = 5
+const (
+	defaultMaxCandidatesToRead = 5
+	hardlinkKind               = "hardlink"
+)
 
 // Repair propose de faire pointer LinkPath vers NewTarget au lieu de OldTarget (texte du lien tel que lu). Size est la
 // taille attendue du nouveau fichier. AutoApplicable n'est vrai que si Options.AutoApply est actif et que la méthode
@@ -68,9 +72,9 @@ type TorrentSource interface {
 }
 
 // Options règle Scan. HashConfirmer, TorrentSource, Store, Limiter et FingerprintCache nil désactivent la confirmation
-// distante, la méthode par pièces, la mise à jour des états, le plafond de débit et le cache. RecordedModTimes donne la
-// date de modification connue de chaque ancienne cible (clé : TargetPath), car la table links ne la conserve pas ;
-// sans entrée, la méthode taille et date est sautée. Si LibraryRoots n'est pas vide, seuls les fichiers de
+// distante, la méthode par pièces, la mise à jour des états, le plafond de débit et le cache. La date de l'ancienne
+// cible vient de store.Link.ModTime ; RecordedModTimes (clé : TargetPath) la remplace quand elle y figure. Sans date,
+// la méthode taille et date est sautée. Si LibraryRoots n'est pas vide, seuls les fichiers de
 // l'inventaire situés dessous sont retenus. MaxCandidatesToRead plafonne les lectures par lien (défaut 5).
 type Options struct {
 	LibraryRoots        []string
@@ -83,6 +87,9 @@ type Options struct {
 	AutoApply           bool
 	Store               LinkStore
 	RecordedModTimes    map[string]time.Time
+
+	lstat func(path string) (fs.FileInfo, error)
+	stat  func(path string) (fs.FileInfo, error)
 }
 
 // AmbiguousLink est un lien cassé pour lequel plusieurs fichiers conviennent : aucun n'est choisi.
@@ -98,6 +105,16 @@ type Report struct {
 	Ambiguous  []AmbiguousLink
 	Lost       []string
 	Diverged   []string
+	// RenamedTarget liste les hardlinks intacts dont la cible enregistrée a changé de nom : information seulement.
+	RenamedTarget []string
+	// Unreadable liste les liens dont un contrôle a échoué autrement que par « absent » : état inconnu, rien proposé.
+	Unreadable []UnreadableLink
+}
+
+// UnreadableLink est un lien laissé tel quel parce que le système de fichiers n'a pas répondu (EIO, ENOTCONN, ...).
+type UnreadableLink struct {
+	LinkPath string
+	Err      string
 }
 
 // Scan examine les liens enregistrés (tous ceux de Options.Store si links est nil) puis, si TorrentSource est fourni,
@@ -134,6 +151,10 @@ func (report *Report) sort() {
 	sort.Strings(report.Repairable)
 	sort.Strings(report.Lost)
 	sort.Strings(report.Diverged)
+	sort.Strings(report.RenamedTarget)
+	sort.Slice(report.Unreadable, func(first, second int) bool {
+		return report.Unreadable[first].LinkPath < report.Unreadable[second].LinkPath
+	})
 	sort.Slice(report.Ambiguous, func(first, second int) bool {
 		return report.Ambiguous[first].LinkPath < report.Ambiguous[second].LinkPath
 	})
@@ -154,6 +175,12 @@ func newScanRun(ctx context.Context, options Options, library []store.MediaFile)
 	roots, err := absolutePaths(options.LibraryRoots)
 	if err != nil {
 		return nil, err
+	}
+	if options.lstat == nil {
+		options.lstat = os.Lstat
+	}
+	if options.stat == nil {
+		options.stat = os.Stat
 	}
 	run := &scanRun{ctx: ctx, options: options, bySize: map[int64][]store.MediaFile{}}
 	for _, file := range library {
@@ -200,25 +227,32 @@ func (run *scanRun) setState(link store.Link, state store.LinkState) error {
 	return err
 }
 
-// examine classe un lien enregistré ; seul un lien symbolique dont la cible a disparu est cherché dans la bibliothèque.
+// examine classe un lien enregistré ; seul un lien symbolique dont la cible est absente (fs.ErrNotExist) est cherché
+// dans la bibliothèque, toute autre erreur laisse le lien inconnu.
 func (run *scanRun) examine(link store.Link) error {
 	if err := run.ctx.Err(); err != nil {
 		return err
 	}
-	linkInfo, err := os.Lstat(link.LinkPath)
-	if errors.Is(err, os.ErrNotExist) {
+	linkInfo, err := run.options.lstat(link.LinkPath)
+	if errors.Is(err, fs.ErrNotExist) {
 		run.report.Lost = append(run.report.Lost, link.LinkPath)
 		return run.setState(link, store.LinkLost)
 	}
 	if err != nil {
-		return err
+		run.markUnreadable(link.LinkPath, err)
+		return nil
 	}
-	if linkInfo.Mode()&os.ModeSymlink == 0 {
+	if linkInfo.Mode()&fs.ModeSymlink == 0 {
 		return run.examineNonSymlink(link, linkInfo)
 	}
-	if _, err := os.Stat(link.LinkPath); err == nil {
+	_, err = run.options.stat(link.LinkPath)
+	if err == nil {
 		run.report.OK = append(run.report.OK, link.LinkPath)
 		return run.setState(link, store.LinkOK)
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		run.markUnreadable(link.LinkPath, err)
+		return nil
 	}
 	oldTarget, err := os.Readlink(link.LinkPath)
 	if err != nil {
@@ -227,10 +261,26 @@ func (run *scanRun) examine(link store.Link) error {
 	return run.repairBroken(link, oldTarget)
 }
 
-// examineNonSymlink : un hardlink ou une copie ne casse pas ; il diverge s'il ne partage plus l'inode du fichier.
-func (run *scanRun) examineNonSymlink(link store.Link, linkInfo os.FileInfo) error {
-	targetInfo, err := os.Stat(link.TargetPath)
-	if err == nil && os.SameFile(linkInfo, targetInfo) {
+func (run *scanRun) markUnreadable(linkPath string, err error) {
+	run.report.Unreadable = append(run.report.Unreadable, UnreadableLink{LinkPath: linkPath, Err: err.Error()})
+}
+
+// examineNonSymlink : seul un hardlink peut diverger (inode plus partagé avec la cible) ; une cible simplement
+// renommée ne le fait pas diverger, et les autres sortes de liens sont laissées telles quelles sans toucher à la base.
+func (run *scanRun) examineNonSymlink(link store.Link, linkInfo fs.FileInfo) error {
+	if link.Kind != hardlinkKind {
+		run.report.OK = append(run.report.OK, link.LinkPath)
+		return nil
+	}
+	targetInfo, err := run.options.stat(link.TargetPath)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		run.report.RenamedTarget = append(run.report.RenamedTarget, link.LinkPath)
+		return nil
+	case err != nil:
+		run.markUnreadable(link.LinkPath, err)
+		return nil
+	case os.SameFile(linkInfo, targetInfo):
 		run.report.OK = append(run.report.OK, link.LinkPath)
 		return run.setState(link, store.LinkOK)
 	}

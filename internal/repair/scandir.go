@@ -1,6 +1,7 @@
 package repair
 
 import (
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -30,10 +31,14 @@ func (run *scanRun) scanDirectories(recorded map[string]struct{}) error {
 			if _, known := recorded[path]; known || entry.Type()&fs.ModeSymlink == 0 {
 				return nil
 			}
-			if _, err := os.Stat(path); err == nil {
-				return nil
+			if _, err := run.options.stat(path); err != nil {
+				if !errors.Is(err, fs.ErrNotExist) {
+					run.markUnreadable(path, err)
+					return nil
+				}
+				return run.repairThroughTorrent(path)
 			}
-			return run.repairThroughTorrent(path)
+			return nil
 		})
 		if err != nil {
 			return err

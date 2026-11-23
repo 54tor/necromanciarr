@@ -29,6 +29,7 @@ func paths(files []store.MediaFile) []string {
 
 // locate essaie les méthodes dans l'ordre : inode (si fiable), taille et date, puis empreinte.
 func (run *scanRun) locate(link store.Link) (located, error) {
+	budget := &readBudget{remaining: run.options.MaxCandidatesToRead}
 	sized := run.bySize[link.Size]
 	if link.InodeReliable {
 		byInode := run.sameInode(link, sized)
@@ -38,7 +39,7 @@ func (run *scanRun) locate(link store.Link) (located, error) {
 	}
 	sameModTime := run.sameModTime(link, sized)
 	if len(sameModTime) == 1 {
-		outcome, refuted, err := run.confirmSingle(link, sameModTime[0])
+		outcome, refuted, err := run.confirmSingle(link, sameModTime[0], budget)
 		if err != nil || !refuted {
 			return outcome, err
 		}
@@ -48,7 +49,7 @@ func (run *scanRun) locate(link store.Link) (located, error) {
 	if !run.canConfirm(link) {
 		return located{method: BySizeAndModTime, matches: paths(sameModTime)}, nil
 	}
-	return run.byFingerprint(link, sized)
+	return run.byFingerprint(link, sized, budget)
 }
 
 func without(files []store.MediaFile, excludedPath string) []store.MediaFile {
@@ -77,7 +78,10 @@ func (run *scanRun) sameInode(link store.Link, sized []store.MediaFile) []store.
 }
 
 func (run *scanRun) sameModTime(link store.Link, sized []store.MediaFile) []store.MediaFile {
-	recorded := run.options.RecordedModTimes[link.TargetPath]
+	recorded := link.ModTime
+	if override, found := run.options.RecordedModTimes[link.TargetPath]; found {
+		recorded = override
+	}
 	if recorded.IsZero() {
 		return nil
 	}
@@ -96,12 +100,11 @@ func (run *scanRun) canConfirm(link store.Link) bool {
 
 // confirmSingle confirme le candidat unique de taille et date ; sans moyen de confirmer, il est proposé tel quel, sans
 // application automatique. refuted dit que le contenu diffère : le candidat est écarté.
-func (run *scanRun) confirmSingle(link store.Link, candidate store.MediaFile) (outcome located, refuted bool, err error) {
+func (run *scanRun) confirmSingle(link store.Link, candidate store.MediaFile, budget *readBudget) (outcome located, refuted bool, err error) {
 	outcome = located{method: BySizeAndModTime, matches: []string{candidate.Path}, unique: true}
 	if !run.canConfirm(link) {
 		return outcome, false, nil
 	}
-	budget := &readBudget{remaining: run.options.MaxCandidatesToRead}
 	matches, skipped, err := run.confirm(link, candidate, budget)
 	if err != nil || skipped {
 		return located{}, false, err
@@ -112,18 +115,18 @@ func (run *scanRun) confirmSingle(link store.Link, candidate store.MediaFile) (o
 
 // byFingerprint confirme les fichiers de même taille, au plus MaxCandidatesToRead lectures ; une recherche tronquée
 // ne prouve pas l'unicité et ne propose donc jamais de réparation.
-func (run *scanRun) byFingerprint(link store.Link, sized []store.MediaFile) (located, error) {
-	confirmed, truncated, err := run.confirmAll(link, sized)
+func (run *scanRun) byFingerprint(link store.Link, sized []store.MediaFile, budget *readBudget) (located, error) {
+	confirmed, truncated, err := run.confirmAll(link, sized, budget)
 	if err != nil {
 		return located{}, err
 	}
 	return located{method: ByFingerprint, matches: paths(confirmed), unique: len(confirmed) == 1 && !truncated, autoSafe: true}, nil
 }
 
+// readBudget est partagé par toutes les méthodes d'un même lien : MaxCandidatesToRead lectures au total.
 type readBudget struct{ remaining int }
 
-func (run *scanRun) confirmAll(link store.Link, candidates []store.MediaFile) (confirmed []store.MediaFile, truncated bool, err error) {
-	budget := &readBudget{remaining: run.options.MaxCandidatesToRead}
+func (run *scanRun) confirmAll(link store.Link, candidates []store.MediaFile, budget *readBudget) (confirmed []store.MediaFile, truncated bool, err error) {
 	for _, candidate := range candidates {
 		matches, skipped, err := run.confirm(link, candidate, budget)
 		if err != nil {
