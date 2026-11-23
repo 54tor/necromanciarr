@@ -10,7 +10,9 @@ ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 RUN go build -o /out/necromanciarr ./cmd/necromanciarr
 
 # Image d'exécution minimale ; la base SQLite par défaut vit dans /data (clé db_path).
-FROM debian:trixie-slim
+# Tag daté épinglé : pour rafraîchir, choisir un tag trixie-AAAAMMJJ-slim récent sur Docker Hub,
+# vérifier qu'il existe (docker manifest inspect debian:<tag>) puis le remplacer ici.
+FROM debian:trixie-20261027-slim
 RUN apt-get update \
     && apt-get install --no-install-recommends -y ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/* \
