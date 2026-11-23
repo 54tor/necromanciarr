@@ -17,10 +17,12 @@ var ErrUnsafePath = errors.New("linker: torrent path escapes the link root")
 
 const torrentPathSeparator = "/"
 
-// Op est un lien à créer : Destination pointera sur Source, dont la taille sur disque doit valoir Size.
+// Op est un lien à créer : Destination pointera sur Source, dont la taille sur disque doit valoir Size ; Root est
+// la racine des liens hors de laquelle Apply refuse d'écrire.
 type Op struct {
 	Source      string
 	Destination string
+	Root        string
 	Size        int64
 }
 
@@ -42,6 +44,7 @@ func Plan(torrent *torrentcheck.Torrent, assignment matcher.Assignment, destRoot
 		ops = append(ops, Op{
 			Source:      assignment.ByTorrentFile[fileIndex].Path,
 			Destination: destination,
+			Root:        destRoot,
 			Size:        torrentFile.Size,
 		})
 	}

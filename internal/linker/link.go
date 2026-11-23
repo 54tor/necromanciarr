@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 // Kind est une sorte de lien ; la valeur zéro n'en désigne aucune.
@@ -43,6 +44,8 @@ var (
 	ErrSizeMismatch      = errors.New("linker: source size differs from torrent file size")
 	ErrInvalidSource     = errors.New("linker: source is not an existing regular file")
 	ErrNoKind            = errors.New("linker: no link kind requested")
+	// ErrDestinationEscapesRoot signale une destination hors de Op.Root, directement ou par un dossier symbolique.
+	ErrDestinationEscapesRoot = errors.New("linker: destination escapes the link root")
 )
 
 // dirMode : les dossiers de liens doivent rester lisibles par le client torrent, qui tourne souvent sous un autre compte.
@@ -79,7 +82,7 @@ func (linkApplier applier) apply(ops []Op, preferred []Kind) (Result, error) {
 	if len(preferred) == 0 {
 		return Result{}, ErrNoKind
 	}
-	run := &transaction{}
+	run := &transaction{resolvedRoots: map[string]string{}}
 	result := Result{Used: make([]Kind, 0, len(ops))}
 	for _, operation := range ops {
 		usedKind, err := linkApplier.applyOne(run, operation, preferred)
@@ -96,14 +99,23 @@ func (linkApplier applier) applyOne(run *transaction, operation Op, preferred []
 	if err != nil {
 		return 0, err
 	}
-	existingKind, alreadyLinked, err := existingLink(operation.Destination, source, sourceInfo, preferred)
+	resolvedRoot, relative, err := run.confine(operation)
+	if err != nil {
+		return 0, err
+	}
+	destination := filepath.Join(resolvedRoot, relative)
+	if err := run.ensureConfinedDir(resolvedRoot, filepath.Dir(relative)); err != nil {
+		return 0, err
+	}
+	existingKind, alreadyLinked, err := existingLink(destination, source, sourceInfo, preferred)
 	if err != nil || alreadyLinked {
 		return existingKind, err
 	}
-	if err := run.ensureDir(filepath.Dir(operation.Destination)); err != nil {
+	// Re-vérifié juste avant le lien : un dossier remplacé par un symlink depuis la création serait suivi par os.Link.
+	if err := checkParentInRoot(resolvedRoot, destination); err != nil {
 		return 0, err
 	}
-	return linkApplier.link(run, source, operation.Destination, preferred)
+	return linkApplier.link(run, source, destination, preferred)
 }
 
 func (linkApplier applier) link(run *transaction, source, destination string, preferred []Kind) (Kind, error) {
@@ -179,50 +191,104 @@ func existingLink(destination, source string, sourceInfo fs.FileInfo, preferred 
 	return 0, false, fmt.Errorf("%w: %s", ErrDestinationExists, destination)
 }
 
-// transaction mémorise, dans l'ordre de création, les liens et dossiers créés par un appel d'Apply.
+// transaction mémorise, dans l'ordre de création, les liens et dossiers créés par un appel d'Apply, et les racines
+// déjà résolues.
 type transaction struct {
-	created []string
+	created       []string
+	resolvedRoots map[string]string
 }
 
-func (run *transaction) ensureDir(directory string) error {
-	missing, err := missingAncestors(directory)
+// confine renvoie la racine résolue (une racine elle-même symbolique est légitime) et le chemin relatif de la
+// destination sous cette racine.
+func (run *transaction) confine(operation Op) (string, string, error) {
+	resolvedRoot, err := run.resolveRoot(operation.Root)
 	if err != nil {
-		return err
+		return "", "", err
 	}
-	for index := len(missing) - 1; index >= 0; index-- {
-		err := os.Mkdir(missing[index], dirMode) // #nosec G301 -- le client torrent doit pouvoir lire l'arborescence
-		if errors.Is(err, fs.ErrExist) {
-			continue
-		}
-		if err != nil {
+	absoluteRoot, rootErr := filepath.Abs(operation.Root)
+	absoluteDestination, destinationErr := filepath.Abs(operation.Destination)
+	if rootErr != nil || destinationErr != nil {
+		return "", "", fmt.Errorf("%w: %s", ErrDestinationEscapesRoot, operation.Destination)
+	}
+	relative, err := filepath.Rel(absoluteRoot, absoluteDestination)
+	if err != nil || relative == "." || !filepath.IsLocal(relative) {
+		return "", "", fmt.Errorf("%w: %s", ErrDestinationEscapesRoot, operation.Destination)
+	}
+	return resolvedRoot, relative, nil
+}
+
+func (run *transaction) resolveRoot(root string) (string, error) {
+	if resolvedRoot, found := run.resolvedRoots[root]; found {
+		return resolvedRoot, nil
+	}
+	if root == "" {
+		return "", fmt.Errorf("%w: empty root", ErrDestinationEscapesRoot)
+	}
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(absoluteRoot)
+	if err != nil {
+		return "", fmt.Errorf("linker: link root %s: %w", root, err)
+	}
+	run.resolvedRoots[root] = resolvedRoot
+	return resolvedRoot, nil
+}
+
+// ensureConfinedDir crée les dossiers manquants sous la racine en refusant tout composant symbolique, qui pourrait
+// mener hors de la racine.
+func (run *transaction) ensureConfinedDir(resolvedRoot, relativeDir string) error {
+	if relativeDir == "." {
+		return nil
+	}
+	current := resolvedRoot
+	for _, segment := range strings.Split(relativeDir, string(filepath.Separator)) {
+		current = filepath.Join(current, segment)
+		if err := run.ensureConfinedSegment(current); err != nil {
 			return err
 		}
-		run.created = append(run.created, missing[index])
 	}
 	return nil
 }
 
-func missingAncestors(directory string) ([]string, error) {
-	var missing []string
-	current := directory
-	for {
-		info, err := os.Stat(current)
-		if err == nil {
-			if !info.IsDir() {
-				return nil, fmt.Errorf("linker: %s is not a directory", current)
-			}
-			return missing, nil
+func (run *transaction) ensureConfinedSegment(directory string) error {
+	info, err := os.Lstat(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		mkdirErr := os.Mkdir(directory, dirMode) // #nosec G301 -- le client torrent doit pouvoir lire l'arborescence
+		if mkdirErr == nil {
+			run.created = append(run.created, directory)
+			return nil
 		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+		if !errors.Is(mkdirErr, fs.ErrExist) {
+			return mkdirErr
 		}
-		missing = append(missing, current)
-		parent := filepath.Dir(current)
-		if parent == current {
-			return missing, nil
-		}
-		current = parent
+		info, err = os.Lstat(directory)
 	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return fmt.Errorf("%w: %s is a symlink", ErrDestinationEscapesRoot, directory)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("linker: %s is not a directory", directory)
+	}
+	return nil
+}
+
+// checkParentInRoot ne ferme pas la course entre ce contrôle et la création du lien ; os.Root ne peut pas servir ici
+// car la source du lien est hors de la racine.
+func checkParentInRoot(resolvedRoot, destination string) error {
+	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(destination))
+	if err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(resolvedRoot, resolvedParent)
+	if err != nil || !filepath.IsLocal(relative) {
+		return fmt.Errorf("%w: %s", ErrDestinationEscapesRoot, destination)
+	}
+	return nil
 }
 
 // rollback retire en ordre inverse ce que l'appel a créé ; os.Remove ne supprime qu'un nom de lien ou un dossier

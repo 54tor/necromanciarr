@@ -68,11 +68,13 @@ func TestPlan_reproducesRootFolderAndRelativePaths(t *testing.T) {
 		{
 			Source:      "/home/u/library/Show/S01E01.mkv",
 			Destination: filepath.Join(destRoot, "Show.S01", "Season 1", "e01.mkv"),
+			Root:        destRoot,
 			Size:        10,
 		},
 		{
 			Source:      "/home/u/library/Show/extras/making.mkv",
 			Destination: filepath.Join(destRoot, "Show.S01", "Extras", "making-of", "part.mkv"),
+			Root:        destRoot,
 			Size:        5,
 		},
 	}
@@ -135,7 +137,8 @@ func TestApply_hardlinkSameDevice(t *testing.T) {
 	content := []byte("episode-one")
 	writeFile(t, source, content)
 	destination := filepath.Join(workDir, "links", "Pack", "Season 1", "e01.mkv")
-	result, err := Apply([]Op{{Source: source, Destination: destination, Size: int64(len(content))}}, []Kind{Hardlink})
+	operation := Op{Source: source, Destination: destination, Root: workDir, Size: int64(len(content))}
+	result, err := Apply([]Op{operation}, []Kind{Hardlink})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +162,7 @@ func TestApply_symlinkUsesAbsoluteTarget(t *testing.T) {
 	source := filepath.Join(workDir, "library", "a.mkv")
 	writeFile(t, source, []byte("abc"))
 	destination := filepath.Join(workDir, "links", "a.mkv")
-	result, err := Apply([]Op{{Source: source, Destination: destination, Size: 3}}, []Kind{Symlink})
+	result, err := Apply([]Op{{Source: source, Destination: destination, Root: workDir, Size: 3}}, []Kind{Symlink})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +204,7 @@ func singleOp(t *testing.T) Op {
 	workDir := t.TempDir()
 	source := filepath.Join(workDir, "library", "a.mkv")
 	writeFile(t, source, []byte("abcd"))
-	return Op{Source: source, Destination: filepath.Join(workDir, "links", "Pack", "a.mkv"), Size: 4}
+	return Op{Source: source, Destination: filepath.Join(workDir, "links", "Pack", "a.mkv"), Root: workDir, Size: 4}
 }
 
 func TestApply_fallsBackAndReportsKindUsed(t *testing.T) {
@@ -268,8 +271,8 @@ func TestApply_rollsBackOnPartialFailure(t *testing.T) {
 	firstDestination := filepath.Join(existingDir, "Pack", "Season 1", "a.mkv")
 	secondDestination := filepath.Join(existingDir, "Pack", "Season 2", "b.mkv")
 	ops := []Op{
-		{Source: firstSource, Destination: firstDestination, Size: int64(len(firstContent))},
-		{Source: secondSource, Destination: secondDestination, Size: 11},
+		{Source: firstSource, Destination: firstDestination, Root: existingDir, Size: int64(len(firstContent))},
+		{Source: secondSource, Destination: secondDestination, Root: existingDir, Size: 11},
 	}
 	_, err := Apply(ops, []Kind{Hardlink})
 	if !errors.Is(err, ErrSizeMismatch) {
@@ -302,7 +305,7 @@ func TestApply_refusesDirectoryOrDanglingSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, badSource := range []string{workDir, danglingSource} {
-		operation := Op{Source: badSource, Destination: filepath.Join(workDir, "links", "x.mkv"), Size: 0}
+		operation := Op{Source: badSource, Destination: filepath.Join(workDir, "links", "x.mkv"), Root: workDir, Size: 0}
 		_, err := Apply([]Op{operation}, []Kind{Hardlink, Symlink})
 		if !errors.Is(err, ErrInvalidSource) {
 			t.Fatalf("%s: error = %v, want ErrInvalidSource", badSource, err)
@@ -474,4 +477,122 @@ func TestChooseLinkDir_realFilesystem(t *testing.T) {
 	if err != nil || gotValue != firstDir {
 		t.Fatalf("ChooseLinkDir = %q, %v, want %q", gotValue, err, firstDir)
 	}
+}
+
+type confinementFixture struct {
+	operation Op
+	outside   string
+	content   []byte
+}
+
+func newConfinementFixture(t *testing.T) confinementFixture {
+	t.Helper()
+	workDir := t.TempDir()
+	source := filepath.Join(workDir, "library", "a.mkv")
+	content := []byte("library-content")
+	writeFile(t, source, content)
+	destRoot := filepath.Join(workDir, "links")
+	outside := filepath.Join(workDir, "outside")
+	for _, directory := range []string{destRoot, outside} {
+		if err := os.Mkdir(directory, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	operation := Op{
+		Source:      source,
+		Destination: filepath.Join(destRoot, "Pack", "Season 1", "a.mkv"),
+		Root:        destRoot,
+		Size:        int64(len(content)),
+	}
+	return confinementFixture{operation: operation, outside: outside, content: content}
+}
+
+func (fixture confinementFixture) assertNothingOutside(t *testing.T) {
+	t.Helper()
+	entries, err := os.ReadDir(fixture.outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("created %d entries outside the link root", len(entries))
+	}
+	if !bytes.Equal(readFile(t, fixture.operation.Source), fixture.content) {
+		t.Fatal("library file changed")
+	}
+}
+
+func TestApply_refusesSymlinkedDirectoryLeavingRoot(t *testing.T) {
+	fixture := newConfinementFixture(t)
+	if err := os.Symlink(fixture.outside, filepath.Join(fixture.operation.Root, "Pack")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Apply([]Op{fixture.operation}, []Kind{Hardlink, Symlink})
+	if !errors.Is(err, ErrDestinationEscapesRoot) {
+		t.Fatalf("error = %v, want ErrDestinationEscapesRoot", err)
+	}
+	fixture.assertNothingOutside(t)
+	entries, _ := os.ReadDir(fixture.operation.Root)
+	expectedEntries := 1
+	if len(entries) != expectedEntries {
+		t.Fatalf("link root holds %d entries, want only the planted symlink", len(entries))
+	}
+}
+
+func TestApply_refusesSymlinkSwappedInAfterPlanning(t *testing.T) {
+	fixture := newConfinementFixture(t)
+	torrent := &torrentcheck.Torrent{Root: "Pack", Files: []torrentcheck.File{{Path: "Season 1/a.mkv", Size: fixture.operation.Size}}}
+	assignment := matcher.Assignment{ByTorrentFile: map[int]store.MediaFile{0: {Path: fixture.operation.Source}}}
+	ops, err := Plan(torrent, assignment, fixture.operation.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(fixture.outside, filepath.Join(fixture.operation.Root, "Pack")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(ops, []Kind{Hardlink}); !errors.Is(err, ErrDestinationEscapesRoot) {
+		t.Fatalf("error = %v, want ErrDestinationEscapesRoot", err)
+	}
+	fixture.assertNothingOutside(t)
+}
+
+func TestCheckParentInRoot_refusesSwappedParent(t *testing.T) {
+	fixture := newConfinementFixture(t)
+	resolvedRoot, err := filepath.EvalSymlinks(fixture.operation.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(resolvedRoot, "Pack")
+	if err := os.Symlink(fixture.outside, parent); err != nil {
+		t.Fatal(err)
+	}
+	err = checkParentInRoot(resolvedRoot, filepath.Join(parent, "a.mkv"))
+	if !errors.Is(err, ErrDestinationEscapesRoot) {
+		t.Fatalf("error = %v, want ErrDestinationEscapesRoot", err)
+	}
+}
+
+func TestApply_acceptsSymlinkedRoot(t *testing.T) {
+	fixture := newConfinementFixture(t)
+	symlinkedRoot := filepath.Join(filepath.Dir(fixture.operation.Root), "links-alias")
+	if err := os.Symlink(fixture.operation.Root, symlinkedRoot); err != nil {
+		t.Fatal(err)
+	}
+	operation := fixture.operation
+	operation.Root = symlinkedRoot
+	operation.Destination = filepath.Join(symlinkedRoot, "Pack", "Season 1", "a.mkv")
+	if _, err := Apply([]Op{operation}, []Kind{Hardlink}); err != nil {
+		t.Fatal(err)
+	}
+	assertExists(t, fixture.operation.Destination, true)
+	fixture.assertNothingOutside(t)
+}
+
+func TestApply_refusesDestinationOutsideOpRoot(t *testing.T) {
+	fixture := newConfinementFixture(t)
+	operation := fixture.operation
+	operation.Destination = filepath.Join(fixture.outside, "a.mkv")
+	if _, err := Apply([]Op{operation}, []Kind{Hardlink}); !errors.Is(err, ErrDestinationEscapesRoot) {
+		t.Fatalf("error = %v, want ErrDestinationEscapesRoot", err)
+	}
+	fixture.assertNothingOutside(t)
 }
