@@ -1,0 +1,159 @@
+openapi: 3.1.0
+info:
+  title: Contrat fournisseur de bibliothèque Necromanciarr
+  version: 1.0.0
+  description: |
+    Contrat que tout service distant implémente pour être utilisé comme fournisseur
+    par Necromanciarr. Le service expose ces routes sous l'URL de base configurée
+    dans `LIBRARY_API` (par exemple `https://hote.example.com/api/necromanciarr`).
+    Toutes les routes ci-dessous sont relatives à cette base.
+
+    Authentification : en-tête `Authorization: Bearer <jeton>` sur chaque requête.
+    Le jeton est fourni à Necromanciarr par la variable d'environnement `LIBRARY_PROVIDER_TOKEN`.
+servers:
+  - url: https://hote.example.com/api/necromanciarr
+security:
+  - bearer: []
+paths:
+  /v1/releases:
+    get:
+      summary: Recherche de releases
+      description: |
+        Les filtres se combinent par ET. Le filtre `size` retourne les releases dont
+        au moins un fichier a exactement l'une des tailles données (en octets) :
+        c'est le dégrossissage par taille côté serveur.
+      parameters:
+        - { name: tmdb, in: query, schema: { type: integer } }
+        - { name: imdb, in: query, schema: { type: string, pattern: '^tt[0-9]+$' } }
+        - { name: tvdb, in: query, schema: { type: integer } }
+        - { name: q, in: query, description: Recherche plein texte sur le titre ou le nom de release., schema: { type: string } }
+        - { name: size, in: query, description: Taille exacte d'un fichier en octets. Répétable, 50 valeurs au plus., schema: { type: array, maxItems: 50, items: { type: integer, format: int64, minimum: 0 } }, style: form, explode: true }
+        - { name: tracker, in: query, description: Filtre facultatif, ignoré par un fournisseur sans notion de tracker., schema: { type: string } }
+        - { name: cursor, in: query, description: Curseur opaque renvoyé par `next`., schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200':
+          description: Page de résultats.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReleasePage' }
+        '400': { $ref: '#/components/responses/Probleme' }
+        '401': { $ref: '#/components/responses/Probleme' }
+        '403': { $ref: '#/components/responses/Probleme' }
+        '429': { $ref: '#/components/responses/Probleme' }
+  /v1/releases/{infohash}:
+    get:
+      summary: Détail d'une release
+      parameters:
+        - { $ref: '#/components/parameters/Infohash' }
+        - { $ref: '#/components/parameters/TrackerFacultatif' }
+      responses:
+        '200':
+          description: La release avec la liste complète de ses fichiers.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Release' }
+        '404': { $ref: '#/components/responses/Probleme' }
+  /v1/releases/{infohash}/torrent:
+    get:
+      summary: Fichier .torrent de la release
+      description: Le .torrent est fidèle à l'original (même infohash) mais sans annonce ni passkey.
+      parameters:
+        - { $ref: '#/components/parameters/Infohash' }
+        - { $ref: '#/components/parameters/TrackerFacultatif' }
+      responses:
+        '200':
+          description: Contenu bencodé du .torrent.
+          content:
+            application/x-bittorrent:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/Probleme' }
+  /v1/releases/{infohash}/nfos:
+    get:
+      summary: Candidats .nfo de la release
+      description: Tous les .nfo connus pour la release, le canonique en premier, dédoublonnés par contenu.
+      parameters:
+        - { $ref: '#/components/parameters/Infohash' }
+        - { $ref: '#/components/parameters/TrackerFacultatif' }
+      responses:
+        '200':
+          description: Liste des candidats.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NfoList' }
+        '404': { $ref: '#/components/responses/Probleme' }
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  parameters:
+    TrackerFacultatif:
+      name: tracker
+      in: query
+      required: false
+      description: |
+        Filtre facultatif. Un fournisseur qui n'a pas la notion de tracker l'ignore.
+        Utile seulement pour départager un même infohash publié par plusieurs trackers.
+      schema: { type: string }
+    Infohash:
+      name: infohash
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[0-9a-fA-F]{40}$' }
+  responses:
+    Probleme:
+      description: |
+        Erreur au format RFC 9457. 401 : jeton absent ou invalide. 403 : accès refusé.
+        404 : ressource inconnue. 429 : quota dépassé, l'en-tête `Retry-After` indique le délai en secondes.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Probleme' }
+  schemas:
+    ReleasePage:
+      type: object
+      required: [items, next]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Release' } }
+        next: { type: [string, 'null'], description: Curseur de la page suivante, null en fin de liste. }
+    Release:
+      type: object
+      required: [infohash, totalSize, files]
+      properties:
+        tracker: { type: string, description: Tracker d'origine, absent si le fournisseur n'en a pas la notion. }
+        infohash: { type: string, pattern: '^[0-9a-f]{40}$' }
+        name: { type: string, description: Nom de la release. }
+        totalSize: { type: integer, format: int64 }
+        tmdb: { type: integer }
+        imdb: { type: string }
+        tvdb: { type: integer }
+        files:
+          type: array
+          description: Fichiers du torrent, chemin relatif à la racine du torrent.
+          items: { $ref: '#/components/schemas/ReleaseFile' }
+    ReleaseFile:
+      type: object
+      required: [path, size]
+      properties:
+        path: { type: string, description: Chemin avec `/` comme séparateur. }
+        size: { type: integer, format: int64, minimum: 0 }
+    NfoList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/Nfo' } }
+    Nfo:
+      type: object
+      required: [label, data]
+      properties:
+        label: { type: string, description: Origine du .nfo, par exemple un identifiant de source. }
+        partial: { type: boolean, default: false, description: Vrai si le contenu est tronqué ou incomplet. }
+        data: { type: string, contentEncoding: base64, description: Octets exacts du .nfo, encodés en base64. }
+    Probleme:
+      type: object
+      required: [title, status]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
