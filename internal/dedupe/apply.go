@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -29,6 +30,8 @@ var (
 	ErrOutsideTorrentRoots = errors.New("dedupe: torrent path outside the torrent roots")
 	ErrAmbiguous           = errors.New("dedupe: several identical library files, none chosen")
 	ErrNoRecorder          = errors.New("dedupe: no link recorder")
+	// ErrKindNotAllowed signale une proposition (enregistrée ou modifiée) dont la sorte de lien n'est pas dans Kinds.
+	ErrKindNotAllowed = errors.New("dedupe: link kind not allowed by the options")
 )
 
 // LinkRecorder enregistre chaque lien créé ; implémenté par store.Store.
@@ -42,10 +45,12 @@ type Rechecker interface {
 }
 
 // Outcome est le sort d'un Replacement : LinkTarget est la cible écrite (ou qui le serait en DryRun), Done dit que le
-// lien remplace désormais le fichier torrent. Un échec du recontrôle est dans RecheckErr et ne rend pas Apply fautif.
+// lien remplace désormais le fichier torrent, BytesRead compte les octets lus par la preuve d'identité. Un échec du
+// recontrôle est dans RecheckErr et ne rend pas Apply fautif.
 type Outcome struct {
 	Replacement Replacement
 	LinkTarget  string
+	BytesRead   int64
 	Done        bool
 	DryRun      bool
 	Err         error
@@ -57,10 +62,12 @@ type Result struct {
 	Outcomes []Outcome
 }
 
-// Apply remplace chaque fichier torrent par un lien vers le fichier de la bibliothèque, après avoir vérifié que ni
-// l'un ni l'autre n'a changé depuis Plan. Le lien est créé sous un nom temporaire, contrôlé, puis renommé
-// atomiquement par-dessus le fichier torrent ; en cas d'échec seul ce nom temporaire est retiré. DryRun fait toutes
-// les vérifications sans rien créer. L'erreur renvoyée réunit les échecs des Outcomes.
+// Apply remplace chaque fichier torrent par un lien vers le fichier de la bibliothèque. Avant toute création : sorte
+// autorisée par Kinds, racine sans recouvrement de la bibliothèque, taille et date inchangées, empreintes début et fin
+// identiques à celles de Plan, puis preuve d'identité selon Verify (octet par octet, débit plafonné, annulable).
+// Le lien est créé sous un nom temporaire, contrôlé, puis renommé par-dessus le fichier torrent ; en cas d'échec seul
+// ce nom temporaire est retiré. DryRun fait toutes ces vérifications sans rien créer. L'erreur renvoyée réunit les
+// échecs des Outcomes.
 func Apply(ctx context.Context, replacements []Replacement, options Options) (Result, error) {
 	if options.Recorder == nil && !options.DryRun {
 		return Result{}, ErrNoRecorder
@@ -68,6 +75,11 @@ func Apply(ctx context.Context, replacements []Replacement, options Options) (Re
 	if options.createLink == nil {
 		options.createLink = linker.CreateLinkInRoot
 	}
+	verification, err := normalizeVerification(options.Verify)
+	if err != nil {
+		return Result{}, err
+	}
+	options.Verify = verification
 	roots, err := resolveRoots(options.TorrentRoots)
 	if err != nil {
 		return Result{}, err
@@ -89,7 +101,10 @@ func Apply(ctx context.Context, replacements []Replacement, options Options) (Re
 
 func applyOne(ctx context.Context, replacement Replacement, options Options, roots []string) Outcome {
 	outcome := Outcome{Replacement: replacement, DryRun: options.DryRun}
-	root, libraryInfo, err := checkApplicable(replacement, roots)
+	root, libraryInfo, err := checkApplicable(replacement, options.Kinds, roots)
+	if err == nil {
+		outcome.BytesRead, err = proveIdentity(ctx, replacement, options)
+	}
 	if err != nil {
 		outcome.Err = err
 		return outcome
@@ -114,15 +129,21 @@ func applyOne(ctx context.Context, replacement Replacement, options Options, roo
 	return outcome
 }
 
-func checkApplicable(replacement Replacement, roots []string) (string, fs.FileInfo, error) {
+func checkApplicable(replacement Replacement, allowedKinds []linker.Kind, roots []string) (string, fs.FileInfo, error) {
 	if len(replacement.Ambiguous) > 0 {
 		return "", nil, fmt.Errorf("%w: %v", ErrAmbiguous, replacement.Ambiguous)
 	}
 	if replacement.Kind == 0 {
 		return "", nil, errors.Join(linker.ErrNoKind, replacement.Reason)
 	}
+	if !slices.Contains(allowedKinds, replacement.Kind) {
+		return "", nil, fmt.Errorf("%w: %v", ErrKindNotAllowed, replacement.Kind)
+	}
 	root, err := rootContaining(roots, replacement.TorrentPath)
 	if err != nil {
+		return "", nil, err
+	}
+	if err := checkNoOverlap([]string{root}, []string{replacement.LibraryPath}); err != nil {
 		return "", nil, err
 	}
 	libraryInfo, err := checkUnchanged(replacement)
@@ -164,6 +185,32 @@ func checkUnchanged(replacement Replacement) (fs.FileInfo, error) {
 		}
 	}
 	return libraryInfo, nil
+}
+
+// proveIdentity relit les empreintes de Plan (un contenu réécrit à taille et date égales est refusé), puis compare
+// les deux fichiers selon Verify ; rien n'est créé avant qu'elle réussisse.
+func proveIdentity(ctx context.Context, replacement Replacement, options Options) (int64, error) {
+	readMeter := &meter{ctx: ctx, limiter: options.Limiter}
+	torrentFingerprint, err := fingerprintFile(readMeter, replacement.TorrentPath, replacement.Size)
+	if err != nil {
+		return readMeter.bytesRead, err
+	}
+	libraryFingerprint, err := fingerprintFile(readMeter, replacement.LibraryPath, replacement.Size)
+	if err != nil {
+		return readMeter.bytesRead, err
+	}
+	if torrentFingerprint != replacement.Fingerprint || libraryFingerprint != replacement.LibraryFingerprint {
+		return readMeter.bytesRead, fmt.Errorf("%w: head or tail fingerprint differs", ErrChangedSincePlan)
+	}
+	ranges := comparisonRanges(replacement.Size, options.Verify)
+	equal, err := sameBytes(readMeter, replacement.TorrentPath, replacement.LibraryPath, ranges)
+	if err != nil {
+		return readMeter.bytesRead, err
+	}
+	if !equal {
+		return readMeter.bytesRead, fmt.Errorf("%w: %s differs from %s", ErrNotIdentical, replacement.TorrentPath, replacement.LibraryPath)
+	}
+	return readMeter.bytesRead, nil
 }
 
 func statUnchanged(path string, size int64, modTime time.Time) (fs.FileInfo, error) {

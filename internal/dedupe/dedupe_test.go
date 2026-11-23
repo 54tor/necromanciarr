@@ -193,35 +193,75 @@ func torrentPaths(replacements []Replacement) []string {
 	return paths
 }
 
-func TestPlan_requiresIdenticalContentNotJustSize(t *testing.T) {
+// sameSizePair écrit une copie identique et une copie de même taille, même date, mêmes début et fin, mais au milieu
+// différent : seule la preuve complète d'Apply peut les distinguer.
+func sameSizePair(t *testing.T) (torrentRoot, libraryPath string, middleDiffers []byte) {
+	t.Helper()
 	workDir := t.TempDir()
-	torrentRoot := filepath.Join(workDir, "torrents")
-	libraryPath := filepath.Join(workDir, "library", "film.mkv")
+	torrentRoot = filepath.Join(workDir, "torrents")
+	libraryPath = filepath.Join(workDir, "library", "film.mkv")
 	content := patterned(3*mebibyte, 1)
 	writeAged(t, libraryPath, content)
 	guardLibraryFile(t, libraryPath)
-	middleDiffers := slices.Clone(content)
+	middleDiffers = slices.Clone(content)
 	middleDiffers[len(content)/2] ^= 0xff
 	headDiffers := slices.Clone(content)
 	headDiffers[0] ^= 0xff
 	writeAged(t, filepath.Join(torrentRoot, "middle.mkv"), middleDiffers)
 	writeAged(t, filepath.Join(torrentRoot, "head.mkv"), headDiffers)
 	writeAged(t, filepath.Join(torrentRoot, "same.mkv"), content)
-	library := []store.MediaFile{{Path: libraryPath}}
+	return torrentRoot, libraryPath, middleDiffers
+}
 
-	for _, verification := range []Verification{VerifyFull, VerifySampled} {
-		options := baseOptions(torrentRoot)
-		options.Verify = verification
-		replacements, err := Plan(context.Background(), []string{torrentRoot}, library, options)
-		if err != nil {
-			t.Fatal(err)
-		}
-		expectedValue := []string{"same.mkv"}
-		if gotValue := torrentPaths(replacements); !slices.Equal(gotValue, expectedValue) {
-			t.Fatalf("%s: gotValue %v, expectedValue %v", verification, gotValue, expectedValue)
+func TestApply_requiresIdenticalContentNotJustSize(t *testing.T) {
+	torrentRoot, libraryPath, middleDiffers := sameSizePair(t)
+	options := baseOptions(torrentRoot)
+
+	replacements, err := Plan(context.Background(), []string{torrentRoot}, []store.MediaFile{{Path: libraryPath}}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedCandidates := []string{"middle.mkv", "same.mkv"}
+	if gotValue := torrentPaths(replacements); !slices.Equal(gotValue, expectedCandidates) {
+		t.Fatalf("plan candidates %v, expected %v (head differs, so excluded by the fingerprint)", gotValue, expectedCandidates)
+	}
+
+	result, err := Apply(context.Background(), replacements, options)
+
+	if !errors.Is(err, ErrNotIdentical) {
+		t.Fatalf("expected ErrNotIdentical, got %v", err)
+	}
+	for _, outcome := range result.Outcomes {
+		isSame := filepath.Base(outcome.Replacement.TorrentPath) == "same.mkv"
+		if outcome.Done != isSame {
+			t.Fatalf("%s: done %v, err %v", outcome.Replacement.TorrentPath, outcome.Done, outcome.Err)
 		}
 	}
 	assertRegularWith(t, filepath.Join(torrentRoot, "middle.mkv"), middleDiffers)
+	assertNoTemporaryEntry(t, torrentRoot)
+}
+
+func TestApply_rejectsSameSizeSameMtimeDifferentContent(t *testing.T) {
+	torrentRoot, libraryPath, middleDiffers := sameSizePair(t)
+	options := baseOptions(torrentRoot)
+	replacements, err := Plan(context.Background(), []string{torrentRoot}, []store.MediaFile{{Path: libraryPath}}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	middleIndex := slices.IndexFunc(replacements, func(replacement Replacement) bool {
+		return filepath.Base(replacement.TorrentPath) == "middle.mkv"
+	})
+
+	for _, verification := range []Verification{VerifyFull, VerifySampled} {
+		options.Verify = verification
+		_, err := Apply(context.Background(), replacements[middleIndex:middleIndex+1], options)
+
+		if !errors.Is(err, ErrNotIdentical) {
+			t.Fatalf("%s: expected ErrNotIdentical, got %v", verification, err)
+		}
+	}
+	assertRegularWith(t, filepath.Join(torrentRoot, "middle.mkv"), middleDiffers)
+	assertNoTemporaryEntry(t, torrentRoot)
 }
 
 func TestPlan_skipsFilesAlreadyLinkedOrTooYoungOrOutsideRoots(t *testing.T) {
@@ -306,30 +346,70 @@ func TestPlan_picksFirstKindThatProbeConfirms(t *testing.T) {
 	}
 }
 
-func TestPlan_sampledVerifyReadsFewerBytesThanFull(t *testing.T) {
+func largeIdenticalPair(t *testing.T, size int) (torrentRoot string, library []store.MediaFile) {
+	t.Helper()
 	workDir := t.TempDir()
-	torrentRoot := filepath.Join(workDir, "torrents")
+	torrentRoot = filepath.Join(workDir, "torrents")
 	libraryPath := filepath.Join(workDir, "library", "film.mkv")
-	content := patterned(12*mebibyte, 3)
+	content := patterned(size, 3)
 	writeAged(t, libraryPath, content)
 	writeAged(t, filepath.Join(torrentRoot, "copy.mkv"), content)
-	bytesRead := map[Verification]int64{}
+	guardLibraryFile(t, libraryPath)
+	return torrentRoot, []store.MediaFile{{Path: libraryPath}}
+}
 
-	for _, verification := range []Verification{VerifyFull, VerifySampled} {
+func TestPlan_doesNotReadWholeFilesAndEstimatesBytes(t *testing.T) {
+	fileSize := int64(12 * mebibyte)
+	torrentRoot, library := largeIdenticalPair(t, int(fileSize))
+	expectedEstimates := map[Verification]int64{
+		VerifyFull:    2 * fileSize,
+		VerifySampled: 2 * (2*headTailSize + sampleBlockCount*sampleBlockSize),
+	}
+	for verification, expectedValue := range expectedEstimates {
 		limiter := &countingLimiter{}
 		options := baseOptions(torrentRoot)
 		options.Verify = verification
 		options.Limiter = limiter
-		replacements, err := Plan(context.Background(), []string{torrentRoot}, []store.MediaFile{{Path: libraryPath}}, options)
+
+		replacements, err := Plan(context.Background(), []string{torrentRoot}, library, options)
 		if err != nil || len(replacements) != 1 {
 			t.Fatalf("%s: %d replacements, err %v", verification, len(replacements), err)
 		}
-		if replacements[0].BytesToRead != limiter.totalBytes {
-			t.Fatalf("%s: BytesToRead %d, limiter charged %d", verification, replacements[0].BytesToRead, limiter.totalBytes)
+
+		if gotValue := replacements[0].BytesToRead; gotValue != expectedValue {
+			t.Fatalf("%s: BytesToRead %d, expectedValue %d", verification, gotValue, expectedValue)
+		}
+		maximumPlanRead := int64(2 * 2 * headTailSize)
+		if limiter.totalBytes > maximumPlanRead {
+			t.Fatalf("%s: plan read %d bytes, at most %d expected (head and tail only)", verification, limiter.totalBytes, maximumPlanRead)
+		}
+	}
+}
+
+func TestApply_sampledVerifyReadsFewerBytesThanFull(t *testing.T) {
+	torrentRoot, library := largeIdenticalPair(t, 12*mebibyte)
+	bytesRead := map[Verification]int64{}
+	for _, verification := range []Verification{VerifyFull, VerifySampled} {
+		options := baseOptions(torrentRoot)
+		options.Verify = verification
+		options.DryRun = true
+		replacements, err := Plan(context.Background(), []string{torrentRoot}, library, options)
+		if err != nil || len(replacements) != 1 {
+			t.Fatalf("%s: %d replacements, err %v", verification, len(replacements), err)
+		}
+		limiter := &countingLimiter{}
+		options.Limiter = limiter
+
+		result, err := Apply(context.Background(), replacements, options)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if gotValue := result.Outcomes[0].BytesRead; gotValue != limiter.totalBytes {
+			t.Fatalf("%s: BytesRead %d, limiter charged %d", verification, gotValue, limiter.totalBytes)
 		}
 		bytesRead[verification] = limiter.totalBytes
 	}
-
 	if bytesRead[VerifySampled] >= bytesRead[VerifyFull] {
 		t.Fatalf("sampled read %d bytes, full %d", bytesRead[VerifySampled], bytesRead[VerifyFull])
 	}
@@ -345,18 +425,25 @@ func TestPlan_reportsBytesToReadAndUsesFingerprintCache(t *testing.T) {
 	options := baseOptions(layout.torrentRoot)
 	options.Fingerprints = cacheStore
 	fileSize := int64(len(layout.content))
+	planReads := make([]int64, 0, 2)
+	replacements := make([]Replacement, 0, 2)
 
-	first := planOne(t, layout, options)
-	second := planOne(t, layout, options)
-
-	// Petit fichier : empreinte = lecture complète ; comparaison = lecture des deux fichiers.
-	expectedFirst := fileSize + fileSize + 2*fileSize
-	expectedSecond := expectedFirst - fileSize
-	if first.BytesToRead != expectedFirst || second.BytesToRead != expectedSecond {
-		t.Fatalf("BytesToRead %d then %d, expected %d then %d", first.BytesToRead, second.BytesToRead, expectedFirst, expectedSecond)
+	for range 2 {
+		limiter := &countingLimiter{}
+		options.Limiter = limiter
+		replacements = append(replacements, planOne(t, layout, options))
+		planReads = append(planReads, limiter.totalBytes)
 	}
-	if first.Fingerprint == "" || first.Fingerprint != second.Fingerprint {
-		t.Fatalf("fingerprints %q and %q", first.Fingerprint, second.Fingerprint)
+
+	// Petit fichier : l'empreinte lit tout le fichier ; au second Plan celle de la bibliothèque vient du cache.
+	expectedReads := []int64{2 * fileSize, fileSize}
+	if !slices.Equal(planReads, expectedReads) {
+		t.Fatalf("plan reads %v, expected %v", planReads, expectedReads)
+	}
+	for _, replacement := range replacements {
+		if replacement.BytesToRead != 2*fileSize || replacement.Fingerprint == "" || replacement.LibraryFingerprint != replacement.Fingerprint {
+			t.Fatalf("unexpected estimate or fingerprints %+v", replacement)
+		}
 	}
 }
 
@@ -541,13 +628,14 @@ func TestApply_reportsRecheckErrorWithoutFailing(t *testing.T) {
 	}
 }
 
-func TestApply_dryRunChangesNothing(t *testing.T) {
+func TestApply_dryRunRunsTheProofWithoutCreatingAnything(t *testing.T) {
 	layout := newOperatorLayout(t)
 	options := baseOptions(layout.torrentRoot)
 	recorder := &fakeRecorder{}
 	options.Recorder = recorder
 	options.DryRun = true
 	replacement := planOne(t, layout, options)
+	fileSize := int64(len(layout.content))
 
 	result, err := Apply(context.Background(), []Replacement{replacement}, options)
 	if err != nil {
@@ -555,14 +643,23 @@ func TestApply_dryRunChangesNothing(t *testing.T) {
 	}
 
 	outcome := result.Outcomes[0]
-	if !outcome.DryRun || outcome.Done || outcome.LinkTarget == "" || outcome.Replacement.BytesToRead == 0 {
-		t.Fatalf("unexpected dry-run outcome %+v", outcome)
+	expectedBytesRead := 2*fileSize + 2*fileSize
+	if !outcome.DryRun || outcome.Done || outcome.LinkTarget == "" || outcome.BytesRead != expectedBytesRead {
+		t.Fatalf("unexpected dry-run outcome %+v, expected %d bytes read", outcome, expectedBytesRead)
 	}
 	assertRegularWith(t, layout.torrentPath, layout.content)
 	assertNoTemporaryEntry(t, layout.torrentRoot)
 	if len(recorder.links) != 0 {
 		t.Fatal("dry run recorded a link")
 	}
+
+	differentContent := slices.Clone(layout.content)
+	differentContent[len(differentContent)/2] ^= 0xff
+	writeAged(t, layout.torrentPath, differentContent)
+	if _, err := Apply(context.Background(), []Replacement{replacement}, options); !errors.Is(err, ErrChangedSincePlan) {
+		t.Fatalf("dry run must refuse content changed under the same size and mtime, got %v", err)
+	}
+	assertRegularWith(t, layout.torrentPath, differentContent)
 }
 
 func TestApply_refusesTorrentPathOutsideTorrentRoots(t *testing.T) {
@@ -721,4 +818,56 @@ func TestRecover_doesNotFollowSymlinkedDirectories(t *testing.T) {
 	if _, err := os.Lstat(outsideTemporary); err != nil {
 		t.Fatalf("entry behind a symlinked directory was touched: %v", err)
 	}
+}
+
+func TestPlan_refusesTorrentRootThatContainsLibraryFiles(t *testing.T) {
+	layout := newOperatorLayout(t)
+	volume := filepath.Dir(layout.torrentRoot)
+	libraryDir := filepath.Dir(layout.libraryPath)
+	overlappingRoots := map[string]string{
+		"ancestor of the library": volume,
+		"equal to a library dir":  libraryDir,
+		"inside a library dir":    filepath.Join(libraryDir, "extras"),
+	}
+	if err := os.MkdirAll(overlappingRoots["inside a library dir"], 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for name, root := range overlappingRoots {
+		t.Run(name, func(t *testing.T) {
+			_, err := Plan(context.Background(), []string{root}, layout.library(), baseOptions(root))
+
+			if !errors.Is(err, ErrTorrentRootOverlapsLibrary) {
+				t.Fatalf("expected ErrTorrentRootOverlapsLibrary, got %v", err)
+			}
+		})
+	}
+}
+
+func TestApply_refusesTorrentRootThatContainsTheLibraryFile(t *testing.T) {
+	layout := newOperatorLayout(t)
+	options := baseOptions(layout.torrentRoot)
+	replacement := planOne(t, layout, options)
+	options.TorrentRoots = []string{filepath.Dir(layout.torrentRoot)}
+
+	_, err := Apply(context.Background(), []Replacement{replacement}, options)
+
+	if !errors.Is(err, ErrTorrentRootOverlapsLibrary) {
+		t.Fatalf("expected ErrTorrentRootOverlapsLibrary, got %v", err)
+	}
+	assertRegularWith(t, layout.torrentPath, layout.content)
+}
+
+func TestApply_rejectsKindNotAllowedByOptions(t *testing.T) {
+	layout := newOperatorLayout(t)
+	options := baseOptions(layout.torrentRoot)
+	replacement := planOne(t, layout, options)
+	replacement.Kind = linker.Hardlink
+
+	_, err := Apply(context.Background(), []Replacement{replacement}, options)
+
+	if !errors.Is(err, ErrKindNotAllowed) {
+		t.Fatalf("expected ErrKindNotAllowed, got %v", err)
+	}
+	assertRegularWith(t, layout.torrentPath, layout.content)
+	assertNoTemporaryEntry(t, layout.torrentRoot)
 }
