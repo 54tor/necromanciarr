@@ -293,22 +293,34 @@ func fmtV(value any) string     { return fmt.Sprintf("%v", value) }
 func fmtPlus(value any) string  { return fmt.Sprintf("%+v", value) }
 func fmtSharp(value any) string { return fmt.Sprintf("%#v", value) }
 
-func TestRcloneRC_ignoresEnvironmentProxyAndKeepsCredentialsAway(t *testing.T) {
-	proxy := newRCServer(t, respondWith(`{"item":null}`))
-	target := newRCServer(t, respondWith(`{"item":null}`))
-	t.Setenv("HTTP_PROXY", proxy.URL)
-	t.Setenv("http_proxy", proxy.URL)
-	t.Setenv("NO_PROXY", "")
-	t.Setenv("no_proxy", "")
-	// 127.0.0.1 est exclu du proxy par Go : un nom de domaine force le passage par le proxy s'il était utilisé.
-	rcURL := strings.Replace(target.withCredentials(), "127.0.0.1", "localhost", 1)
+func TestRcloneRC_defaultClientDisablesProxyAndRefusesRedirects(t *testing.T) {
+	source := newRC(t, "http://rcuser:"+rcPassword+"@rclone:5572", 0).(*rcloneRC)
 
-	if _, err := newRC(t, rcURL, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5); err != nil {
+	transport, isTransport := source.client.Transport.(*http.Transport)
+
+	if !isTransport || transport.Proxy != nil {
+		t.Fatalf("expected an *http.Transport without proxy, got %T", source.client.Transport)
+	}
+	if err := source.client.CheckRedirect(nil, nil); !errors.Is(err, errRedirectRefused) {
+		t.Fatalf("redirects must be refused, got %v", err)
+	}
+}
+
+func TestRcloneRC_injectedClientTransportIsLeftUntouched(t *testing.T) {
+	injectedTransport := &http.Transport{Proxy: http.ProxyFromEnvironment}
+	provided := &http.Client{Transport: injectedTransport}
+
+	source, err := NewRcloneRC(RcOptions{URL: "http://rclone:5572", Mounts: rcMounts, HTTPClient: provided})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(proxy.calls) != 0 || len(target.calls) != 1 {
-		t.Fatalf("proxy saw %d calls, target %d", len(proxy.calls), len(target.calls))
+	used := source.(*rcloneRC).client
+	if used.Transport != http.RoundTripper(injectedTransport) || injectedTransport.Proxy == nil || provided.CheckRedirect != nil {
+		t.Fatal("the injected client must keep its transport and must not be modified")
+	}
+	if err := used.CheckRedirect(nil, nil); !errors.Is(err, errRedirectRefused) {
+		t.Fatalf("redirects must still be refused, got %v", err)
 	}
 }
 
