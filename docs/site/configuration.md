@@ -65,9 +65,11 @@ ou par une entrée du `.env`. Le `.env` est lu dans le dossier de configuration 
 | `dedupe.recheckAfter` | `true` | Redemande une vérification au client après remplacement |
 | `dedupe.verify` | `auto` | Mode de preuve d'identité : `auto`, `full`, `sampled`, `hash` |
 
-### rclone
+### Stockage distant : fournisseur rclone
 
-La section `rclone` règle la lecture des empreintes d'un stockage distant monté par rclone.
+Pour lire les empreintes d'un stockage distant, Necromanciarr s'appuie sur un fournisseur de système de fichiers.
+rclone est le seul fournisseur disponible aujourd'hui ; sa section `rclone` règle la lecture des empreintes
+d'un stockage monté par rclone. D'autres fournisseurs sont prévus.
 
 | Champ | Rôle |
 | --- | --- |
