@@ -25,6 +25,7 @@ const (
 	configFileName            = "config.json"
 	redactedSecret            = "[redacted]"
 	defaultDedupeMinFileAge   = 10 * time.Minute
+	defaultLinkType           = "hardlink"
 
 	envConfigDir            = "CONFIG_DIR"
 	envLibraryAPI           = "LIBRARY_API"
@@ -53,6 +54,14 @@ type Config struct {
 	TorrentClients     []TorrentClient `json:"torrentClients"`
 	Dedupe             Dedupe          `json:"dedupe"`
 	FSProviders        []FSProvider    `json:"fsProviders"`
+	// LinkDirs, LinkType, SkipRecheck et LinkCategory reprennent les réglages de liens de cross-seed.
+	LinkDirs        []string         `json:"linkDirs"`
+	LinkType        string           `json:"linkType"`
+	SkipRecheck     bool             `json:"skipRecheck"`
+	LinkCategory    string           `json:"linkCategory"`
+	CrossSeed       *CrossSeedDaemon `json:"crossSeed,omitempty"`
+	CrossSeedImport CrossSeedImport  `json:"crossSeedImport"`
+	Sources         Sources          `json:"sources"`
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`
@@ -71,6 +80,12 @@ type fileConfig struct {
 	TorrentClients     []string          `json:"torrentClients"`
 	Dedupe             fileDedupe        `json:"dedupe"`
 	FSProviders        []json.RawMessage `json:"fsProviders"`
+	LinkDirs           []string          `json:"linkDirs"`
+	LinkType           string            `json:"linkType"`
+	SkipRecheck        *bool             `json:"skipRecheck"`
+	LinkCategory       string            `json:"linkCategory"`
+	CrossSeedConfig    string            `json:"crossSeedConfig"`
+	CrossSeed          string            `json:"crossSeed"`
 	// LegacyRclone n'existe que pour refuser l'ancienne section avec un message utile.
 	LegacyRclone json.RawMessage `json:"rclone"`
 }
@@ -102,6 +117,7 @@ var dedupeLinkKinds = []string{"symlink", "hardlink", "reflink"}
 // commandLine regroupe les options reconnues ; set indique celles réellement passées.
 type commandLine struct {
 	listen, libraryAPI, configDir, dbPath string
+	crossSeedConfig                       string
 	readBytesPerSecond                    int64
 	set                                   map[string]bool
 }
@@ -119,7 +135,8 @@ func ResolveConfigDir(args []string, lookupEnv func(string) (string, bool), defa
 	return resolveConfigDir(options, lookupEnv, defaultConfigDir)
 }
 
-// Load construit la configuration. Priorité : ligne de commande > environnement > config.json > défauts.
+// Load construit la configuration. Priorité : ligne de commande > environnement > config.json > config.js de
+// cross-seed (si crossSeedConfig est donné) > défauts.
 // defaultConfigDir sert quand ni --config-dir ni CONFIG_DIR ne sont fournis. Les erreurs ne contiennent aucun secret.
 func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir string) (Config, error) {
 	options, err := parseCommandLine(args)
@@ -138,11 +155,16 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir
 	if err != nil {
 		return Config{}, err
 	}
-	loadedConfig, err := buildConfig(rawFile, lookup)
+	layer, err := layerCrossSeed(options, rawFile, lookup)
+	if err != nil {
+		return Config{}, err
+	}
+	loadedConfig, err := buildConfig(layer.rawFile, lookup)
 	if err != nil {
 		return Config{}, err
 	}
 	loadedConfig.ConfigDir = configDir
+	loadedConfig.CrossSeed, loadedConfig.CrossSeedImport, loadedConfig.Sources = layer.daemon, layer.status, layer.sources
 	applyDefaults(&loadedConfig)
 	applyOverrides(&loadedConfig, options, lookup)
 	if err := validate(loadedConfig); err != nil {
@@ -159,6 +181,7 @@ func parseCommandLine(args []string) (commandLine, error) {
 	flagSet.StringVar(&options.libraryAPI, "library-api", "", "library provider base url")
 	flagSet.StringVar(&options.configDir, "config-dir", "", "configuration directory")
 	flagSet.StringVar(&options.dbPath, "db-path", "", "sqlite database path")
+	flagSet.StringVar(&options.crossSeedConfig, "cross-seed-config", "", "cross-seed config.js path")
 	flagSet.Int64Var(&options.readBytesPerSecond, "read-bytes-per-second", 0, "read rate limit")
 	if err := flagSet.Parse(args); err != nil {
 		return commandLine{}, fmt.Errorf("%w: %w", ErrUsage, err)
@@ -226,6 +249,10 @@ func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config
 		LibraryAPI:         rawFile.LibraryAPI,
 		LibraryRoots:       rawFile.LibraryRoots,
 		PathRules:          rawFile.PathMappings,
+		LinkDirs:           rawFile.LinkDirs,
+		LinkType:           rawFile.LinkType,
+		SkipRecheck:        rawFile.SkipRecheck == nil || *rawFile.SkipRecheck,
+		LinkCategory:       rawFile.LinkCategory,
 	}
 	var err error
 	if loadedConfig.Dedupe, err = parseDedupe(rawFile.Dedupe); err != nil {
@@ -240,14 +267,22 @@ func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config
 	if loadedConfig.Sonarr, err = parseArrServices("sonarr", rawFile.Sonarr); err != nil {
 		return Config{}, err
 	}
-	for clientIndex, rawClient := range rawFile.TorrentClients {
-		client, err := ParseTorrentClient(rawClient)
-		if err != nil {
-			return Config{}, fmt.Errorf("torrentClients[%d]: %w", clientIndex, err)
-		}
-		loadedConfig.TorrentClients = append(loadedConfig.TorrentClients, client)
+	if loadedConfig.TorrentClients, err = parseTorrentClients(rawFile.TorrentClients); err != nil {
+		return Config{}, err
 	}
 	return loadedConfig, nil
+}
+
+func parseTorrentClients(rawClients []string) ([]TorrentClient, error) {
+	var clients []TorrentClient
+	for clientIndex, rawClient := range rawClients {
+		client, err := ParseTorrentClient(rawClient)
+		if err != nil {
+			return nil, fmt.Errorf("torrentClients[%d]: %w", clientIndex, err)
+		}
+		clients = append(clients, client)
+	}
+	return clients, nil
 }
 
 func parseDedupe(rawDedupe fileDedupe) (Dedupe, error) {
@@ -302,6 +337,9 @@ func applyDefaults(target *Config) {
 	if target.ReadBytesPerSecond == 0 {
 		target.ReadBytesPerSecond = defaultReadBytesPerSecond
 	}
+	if target.LinkType == "" {
+		target.LinkType = defaultLinkType
+	}
 }
 
 // applyOverrides applique l'environnement puis la ligne de commande par-dessus le fichier ; les jetons ne viennent que de l'environnement.
@@ -334,6 +372,9 @@ func validate(loadedConfig Config) error {
 		if _, err := parseHTTPURL(loadedConfig.LibraryAPI); err != nil {
 			return errors.New("libraryApi must be an http(s) url without fragment")
 		}
+	}
+	if !slices.Contains(dedupeLinkKinds, loadedConfig.LinkType) {
+		return fmt.Errorf("linkType: unknown link kind (allowed: %v)", dedupeLinkKinds)
 	}
 	if err := validateDedupeRoots(loadedConfig); err != nil {
 		return err

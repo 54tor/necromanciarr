@@ -14,6 +14,7 @@ const (
 	apiKeyQueryParam    = "apikey"
 	typeQbittorrent     = "qbittorrent"
 	readOnlyModifier    = "readonly:"
+	proxyPathMarker     = "/proxy/"
 	errInvalidURLFormat = "%s: invalid url (expected http(s)://host[:port])"
 )
 
@@ -100,11 +101,17 @@ func parseHTTPURL(raw string) (*url.URL, error) {
 	if strings.Contains(raw, "#") {
 		return nil, errors.New("fragment not allowed")
 	}
+	// Un « @ » après l'hôte trahit un mot de passe non encodé contenant « / » ou « ? » : url.Parse en aurait fait
+	// un morceau d'hôte ou de chemin, affiché ensuite en clair.
+	if strings.Contains(parsedURL.Path+parsedURL.RawQuery, "@") {
+		return nil, errors.New("unescaped userinfo")
+	}
 	return parsedURL, nil
 }
 
 // redacted renvoie une copie dont la clé d'API est masquée.
 func (service ArrService) redacted() ArrService {
+	service.BaseURL = redactProxyKey(service.BaseURL)
 	if service.APIKey != "" {
 		service.APIKey = redactedMark
 	}
@@ -116,6 +123,7 @@ func (service ArrService) redacted() ArrService {
 
 // redacted renvoie une copie dont le mot de passe est masqué.
 func (client TorrentClient) redacted() TorrentClient {
+	client.BaseURL = redactProxyKey(client.BaseURL)
 	if client.Password != "" {
 		client.Password = redactedMark
 	}
@@ -171,6 +179,20 @@ func (client TorrentClient) LogValue() slog.Value { return slog.StringValue(clie
 // MarshalJSON masque le mot de passe : toute sérialisation est destinée à l'affichage.
 func (client TorrentClient) MarshalJSON() ([]byte, error) {
 	return json.Marshal(jsonTorrentClient(client.redacted()))
+}
+
+// redactProxyKey masque le segment qui suit /proxy/ : le proxy de qui authentifie par cette clé dans le chemin.
+func redactProxyKey(baseURL string) string {
+	beforeMarker, afterMarker, found := strings.Cut(baseURL, proxyPathMarker)
+	if !found {
+		return baseURL
+	}
+	_, remainingPath, hasRemainingPath := strings.Cut(afterMarker, "/")
+	redactedURL := beforeMarker + proxyPathMarker + redactedMark
+	if hasRemainingPath {
+		redactedURL += "/" + remainingPath
+	}
+	return redactedURL
 }
 
 // redactURL masque le mot de passe d'userinfo et les valeurs de requête qui ressemblent à un secret ;
