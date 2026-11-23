@@ -9,7 +9,7 @@ COPY internal ./internal
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 RUN go build -o /out/necromanciarr ./cmd/necromanciarr
 
-# Image d'exécution minimale ; la base SQLite par défaut vit dans /data (clé db_path).
+# Image d'exécution minimale ; la base SQLite par défaut vit dans /data (clé dbPath).
 # Tag daté épinglé : pour rafraîchir, choisir un tag trixie-AAAAMMJJ-slim récent sur Docker Hub,
 # vérifier qu'il existe (docker manifest inspect debian:<tag>) puis le remplacer ici.
 FROM debian:trixie-20261027-slim
@@ -21,6 +21,8 @@ RUN apt-get update \
 COPY --from=builder /out/necromanciarr /usr/local/bin/necromanciarr
 # UID/GID 1000 par défaut, surchargeables par user: au lancement pour coller aux droits de la bibliothèque.
 USER 1000:1000
+# config.json, .env et api-key sont lus et écrits dans le volume.
+ENV CONFIG_DIR=/data
 WORKDIR /data
 VOLUME /data
 ENTRYPOINT ["/usr/local/bin/necromanciarr"]
