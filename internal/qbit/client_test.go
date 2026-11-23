@@ -72,7 +72,10 @@ func TestAdd_sendsSavePathAndTorrentMultipart(t *testing.T) {
 	if string(gotAdd.TorrentData) != string(expectedTorrent) {
 		t.Fatalf("torrent part: expected %q, got %q", expectedTorrent, gotAdd.TorrentData)
 	}
-	expectedFields := map[string]string{"savepath": "/home/u/torrents", "autoTMM": "false", "paused": "false", "skip_checking": "false"}
+	expectedFields := map[string]string{
+		"savepath": "/home/u/torrents", "autoTMM": "false", "contentLayout": "Original",
+		"paused": "true", "stopped": "true", "skip_checking": "false",
+	}
 	for fieldName, expectedValue := range expectedFields {
 		if gotValue := gotAdd.Fields[fieldName]; gotValue != expectedValue {
 			t.Errorf("field %s: expected %q, got %q", fieldName, expectedValue, gotValue)
@@ -83,16 +86,18 @@ func TestAdd_sendsSavePathAndTorrentMultipart(t *testing.T) {
 	}
 }
 
-func TestAdd_sendsCategoryTagsPausedAndSkipChecking(t *testing.T) {
+func TestAdd_sendsCategoryTagsStartAndSkipChecking(t *testing.T) {
 	fake := newFakeQbit(webAPIVersion4)
 	server := fake.start(t)
 	client := newTestClient(t, server.URL, "", "")
-	options := qbit.AddOptions{Category: "necromanciarr", Tags: []string{"revived", "review"}, Paused: true, SkipChecking: true}
+	options := qbit.AddOptions{Category: "necromanciarr", Tags: []string{"revived", "review"}, Start: true, SkipChecking: true}
 
 	if err := client.Add(context.Background(), []byte("d4:infoe"), "/home/u/torrents", options); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	expectedFields := map[string]string{"category": "necromanciarr", "tags": "revived,review", "paused": "true", "skip_checking": "true"}
+	expectedFields := map[string]string{
+		"category": "necromanciarr", "tags": "revived,review", "paused": "false", "stopped": "false", "skip_checking": "true",
+	}
 	for fieldName, expectedValue := range expectedFields {
 		if gotValue := fake.addsSnapshot()[0].Fields[fieldName]; gotValue != expectedValue {
 			t.Errorf("field %s: expected %q, got %q", fieldName, expectedValue, gotValue)
@@ -100,37 +105,60 @@ func TestAdd_sendsCategoryTagsPausedAndSkipChecking(t *testing.T) {
 	}
 }
 
-func TestAdd_usesStoppedFieldOnWebAPIv5(t *testing.T) {
-	fake := newFakeQbit(webAPIVersion5)
-	server := fake.start(t)
-	client := newTestClient(t, server.URL, "", "")
+func TestAdd_neverStartsTheTorrentByDefault(t *testing.T) {
+	for _, version := range []string{webAPIVersion4, webAPIVersion5, webAPIJSONAdd} {
+		t.Run(version, func(t *testing.T) {
+			fake := newFakeQbit(version)
+			server := fake.start(t)
+			client := newTestClient(t, server.URL, "", "")
 
-	if err := client.Add(context.Background(), []byte("d4:infoe"), "/home/u/torrents", qbit.AddOptions{Paused: true}); err != nil {
-		t.Fatalf("Add: %v", err)
-	}
-	gotFields := fake.addsSnapshot()[0].Fields
-	if gotFields["stopped"] != "true" {
-		t.Errorf("expected stopped=true on v5, got %q", gotFields["stopped"])
-	}
-	if _, hasPaused := gotFields["paused"]; hasPaused {
-		t.Error("paused must not be sent on v5")
+			if err := client.Add(context.Background(), []byte("d4:infoe"), "/home/u/torrents", qbit.AddOptions{}); err != nil {
+				t.Fatalf("Add: %v", err)
+			}
+			gotFields := fake.addsSnapshot()[0].Fields
+			for _, fieldName := range []string{"paused", "stopped"} {
+				if expectedValue := "true"; gotFields[fieldName] != expectedValue {
+					t.Errorf("field %s: expected %q, got %q", fieldName, expectedValue, gotFields[fieldName])
+				}
+			}
+		})
 	}
 }
 
-func TestAdd_reauthenticatesOnForbidden(t *testing.T) {
+func TestAdd_reportsRejectionAsBadResponse(t *testing.T) {
+	for _, version := range []string{webAPIVersion4, webAPIJSONAdd} {
+		t.Run(version, func(t *testing.T) {
+			fake := newFakeQbit(version)
+			fake.addRejected = true
+			server := fake.start(t)
+			client := newTestClient(t, server.URL, "", "")
+
+			err := client.Add(context.Background(), []byte("d4:infoe"), "/home/u/torrents", qbit.AddOptions{})
+			if !errors.Is(err, qbit.ErrBadResponse) {
+				t.Fatalf("expected ErrBadResponse, got %v", err)
+			}
+		})
+	}
+}
+
+func TestAdd_reauthenticatesOnceWhenSessionExpires(t *testing.T) {
 	fake := newFakeQbit(webAPIVersion4)
 	fake.requireAuth = true
 	server := fake.start(t)
 	client := newTestClient(t, server.URL, fakeUser, fakePassword)
+	if _, err := client.Torrents(context.Background()); err != nil {
+		t.Fatalf("Torrents: %v", err)
+	}
+	fake.update(func(locked *fakeQbit) { locked.sessionExpired = true })
 
 	if err := client.Add(context.Background(), []byte("d4:infoe"), "/home/u/torrents", qbit.AddOptions{}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if fake.loginCount() != 1 {
-		t.Fatalf("expected exactly one login, got %d", fake.loginCount())
+	if expectedValue, gotValue := 2, fake.loginCount(); gotValue != expectedValue {
+		t.Fatalf("expected %d logins, got %d", expectedValue, gotValue)
 	}
-	if len(fake.addsSnapshot()) != 1 {
-		t.Fatalf("expected the add to be retried once after login, got %d adds", len(fake.addsSnapshot()))
+	if expectedValue, gotValue := 1, len(fake.addsSnapshot()); gotValue != expectedValue {
+		t.Fatalf("expected %d add, got %d", expectedValue, gotValue)
 	}
 }
 
@@ -388,6 +416,22 @@ func TestRecheckPath_returnsTypedErrorAndStaysPausedWhenIncomplete(t *testing.T)
 	}
 }
 
+func TestRecheckPath_honoursCallerTimeoutAndStaysPaused(t *testing.T) {
+	fake := newFakeQbit(webAPIVersion4)
+	torrent := movieTorrent(1)
+	torrent.checkPollsTotal = 1 << 30
+	fake.torrents[hashMovie] = torrent
+	server := fake.start(t)
+	client := newTestClient(t, server.URL, "", "", qbit.WithRecheckTimeout(20*time.Millisecond))
+
+	if err := client.RecheckPath(context.Background(), moviePath); !errors.Is(err, qbit.ErrRecheckTimeout) {
+		t.Fatalf("expected ErrRecheckTimeout, got %v", err)
+	}
+	if gotState, _ := fake.torrentState(hashMovie); gotState != "pausedUP" {
+		t.Fatalf("expected pausedUP, got %s", gotState)
+	}
+}
+
 func TestRecheckPath_resumesCompleteTorrentCoveringPath(t *testing.T) {
 	fake := newFakeQbit(webAPIVersion5)
 	fake.torrents[hashMovie] = movieTorrent(1)
@@ -491,31 +535,157 @@ func TestErrorsAndString_neverContainSecrets(t *testing.T) {
 	const bodySecret = "body-secret-marker"
 	fake := newFakeQbit(webAPIVersion4)
 	fake.requireAuth = true
+	fake.prefix = proxyPrefix
 	server := fake.start(t)
-	client := newTestClient(t, server.URL, fakeUser, fakePassword)
+	client := newTestClient(t, server.URL+proxyPrefix, fakeUser, fakePassword)
 	if _, err := client.Torrents(context.Background()); err != nil {
 		t.Fatalf("Torrents: %v", err)
 	}
 	fake.update(func(locked *fakeQbit) {
 		locked.forcedStatus, locked.forcedBody = http.StatusInternalServerError, bodySecret+" "+fakePassword
 	})
-
-	_, gotErr := client.Torrents(context.Background())
-	if !errors.Is(gotErr, qbit.ErrBadResponse) {
-		t.Fatalf("expected ErrBadResponse, got %v", gotErr)
+	_, serverErr := client.Torrents(context.Background())
+	if !errors.Is(serverErr, qbit.ErrBadResponse) {
+		t.Fatalf("expected ErrBadResponse, got %v", serverErr)
 	}
-	rendered := []string{gotErr.Error(), client.String(), fmt.Sprintf("%v %+v %#v %s", client, client, client, client)}
+	fake.update(func(locked *fakeQbit) { locked.forcedStatus, locked.loginsRejected = 0, true })
+	_, loginErr := newTestClient(t, server.URL+proxyPrefix, fakeUser, fakePassword).Torrents(context.Background())
+	if !errors.Is(loginErr, qbit.ErrAuthFailed) {
+		t.Fatalf("expected ErrAuthFailed, got %v", loginErr)
+	}
+	unreachable := httptest.NewServer(http.NotFoundHandler())
+	unreachable.Close()
+	_, transportErr := newTestClient(t, unreachable.URL+proxyPrefix, fakeUser, fakePassword).Torrents(context.Background())
+	if !errors.Is(transportErr, qbit.ErrBadResponse) {
+		t.Fatalf("expected ErrBadResponse on a transport error, got %v", transportErr)
+	}
+	rendered := []string{
+		serverErr.Error(), loginErr.Error(), transportErr.Error(), client.String(),
+		fmt.Sprintf("%v %+v %#v %s", client, client, client, client),
+	}
 	for _, gotText := range rendered {
-		for _, secret := range []string{fakePassword, fakeSessionID, bodySecret} {
+		for _, secret := range []string{fakePassword, fakeSessionID, bodySecret, proxyPrefix, "fake-proxy-key"} {
 			if strings.Contains(gotText, secret) {
 				t.Errorf("secret %q leaked in %q", secret, gotText)
 			}
 		}
 	}
-	fake.update(func(locked *fakeQbit) { locked.forcedStatus, locked.loginsRejected = 0, true })
-	freshClient := newTestClient(t, server.URL, fakeUser, fakePassword)
-	_, loginErr := freshClient.Torrents(context.Background())
-	if loginErr == nil || strings.Contains(loginErr.Error(), fakePassword) || strings.Contains(loginErr.Error(), fakeUser+":") {
-		t.Fatalf("login error must exist and hide credentials, got %v", loginErr)
+}
+
+func TestRecheckAndGuard_pausesAgainWhenClientRestartsIncompleteTorrent(t *testing.T) {
+	fake := newFakeQbit(webAPIVersion4)
+	torrent := movieTorrent(0.5)
+	torrent.StateAfter = "downloading"
+	fake.torrents[hashMovie] = torrent
+	server := fake.start(t)
+	client := newTestClient(t, server.URL, "", "")
+
+	gotResult, err := client.RecheckAndGuard(context.Background(), hashMovie, testGuardTimeout)
+	if err != nil {
+		t.Fatalf("RecheckAndGuard: %v", err)
+	}
+	if gotResult.Complete || gotResult.Resumed {
+		t.Fatalf("expected an incomplete, not resumed result, got %+v", gotResult)
+	}
+	gotActions := fake.snapshotActions()
+	if expectedLast := "pause:" + hashMovie; gotActions[len(gotActions)-1] != expectedLast {
+		t.Fatalf("expected a final %s, got %v", expectedLast, gotActions)
+	}
+	if gotState, _ := fake.torrentState(hashMovie); gotState != "pausedDL" {
+		t.Fatalf("expected pausedDL, got %s", gotState)
+	}
+}
+
+func TestRecheckAndGuard_timesOutWhenCheckingNeverStarts(t *testing.T) {
+	fake := newFakeQbit(webAPIVersion5)
+	torrent := movieTorrent(1)
+	torrent.NoCheckingState = true
+	fake.torrents[hashMovie] = torrent
+	server := fake.start(t)
+	client := newTestClient(t, server.URL, "", "", qbit.WithCheckStartTimeout(20*time.Millisecond))
+
+	started := time.Now()
+	gotResult, err := client.RecheckAndGuard(context.Background(), hashMovie, time.Hour)
+	if !errors.Is(err, qbit.ErrRecheckTimeout) {
+		t.Fatalf("expected ErrRecheckTimeout, got %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > testGuardTimeout {
+		t.Fatalf("the start sub-deadline was not applied (%s)", elapsed)
+	}
+	if gotResult.Resumed {
+		t.Fatal("a torrent whose check never started must not be resumed")
+	}
+	if gotState, _ := fake.torrentState(hashMovie); gotState != "stoppedUP" {
+		t.Fatalf("expected stoppedUP, got %s", gotState)
+	}
+}
+
+// twinTorrents renvoie deux torrents (cross-seed) qui partagent le même fichier sur disque.
+func twinTorrents(fake *fakeQbit, secondProgressAfter float64) {
+	fake.torrents[hashMovie] = movieTorrent(1)
+	twin := movieTorrent(secondProgressAfter)
+	twin.Files = []fakeFile{{Name: "Movie/movie.mkv", Size: 40, Progress: 1}}
+	fake.torrents[hashPack] = twin
+}
+
+func TestRecheckPath_pausesEveryCoveringTorrentBeforeAnyRecheck(t *testing.T) {
+	fake := newFakeQbit(webAPIVersion4)
+	twinTorrents(fake, 0.5)
+	server := fake.start(t)
+	client := newTestClient(t, server.URL, "", "")
+
+	err := client.RecheckPath(context.Background(), moviePath)
+	if !errors.Is(err, qbit.ErrIncompleteAfterRecheck) || !strings.Contains(err.Error(), hashPack) {
+		t.Fatalf("expected ErrIncompleteAfterRecheck naming %s, got %v", hashPack, err)
+	}
+	gotActions := fake.snapshotActions()
+	expectedFirst := []string{"pause:" + hashMovie, "pause:" + hashPack}
+	if len(gotActions) < 2 || !slices.Equal(gotActions[:2], expectedFirst) {
+		t.Fatalf("expected %v first, got %v", expectedFirst, gotActions)
+	}
+	if gotState, _ := fake.torrentState(hashMovie); gotState != "uploading" {
+		t.Fatalf("the complete twin should be resumed, got %s", gotState)
+	}
+	if gotState, _ := fake.torrentState(hashPack); gotState != "pausedDL" {
+		t.Fatalf("the incomplete twin should stay paused, got %s", gotState)
+	}
+}
+
+func TestRecheckPath_leavesEveryTorrentPausedWhenARecheckFails(t *testing.T) {
+	fake := newFakeQbit(webAPIVersion4)
+	twinTorrents(fake, 1)
+	fake.torrents[hashPack].RecheckFails = true
+	server := fake.start(t)
+	client := newTestClient(t, server.URL, "", "")
+
+	if err := client.RecheckPath(context.Background(), moviePath); !errors.Is(err, qbit.ErrBadResponse) {
+		t.Fatalf("expected ErrBadResponse, got %v", err)
+	}
+	for _, hash := range []string{hashMovie, hashPack} {
+		if gotState, _ := fake.torrentState(hash); gotState != "pausedUP" {
+			t.Errorf("%s: expected pausedUP, got %s", hash, gotState)
+		}
+	}
+	for _, gotAction := range fake.snapshotActions() {
+		if strings.HasPrefix(gotAction, "resume:") {
+			t.Fatalf("nothing may be resumed after an error: %v", fake.snapshotActions())
+		}
+	}
+}
+
+func TestRecheckPath_skipsTorrentRemovedBetweenListAndFiles(t *testing.T) {
+	fake := newFakeQbit(webAPIVersion4)
+	twinTorrents(fake, 1)
+	fake.torrents[hashPack].FilesMissing = true
+	server := fake.start(t)
+	client := newTestClient(t, server.URL, "", "")
+
+	if err := client.RecheckPath(context.Background(), moviePath); err != nil {
+		t.Fatalf("RecheckPath: %v", err)
+	}
+	for _, gotAction := range fake.snapshotActions() {
+		if strings.HasSuffix(gotAction, hashPack) {
+			t.Fatalf("the vanished torrent must be skipped: %v", fake.snapshotActions())
+		}
 	}
 }

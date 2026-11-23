@@ -21,6 +21,7 @@ const (
 	webAPIVersion4 = "2.8.19"
 	webAPIVersion5 = "2.11.2"
 	webAPIOld      = "2.8.3"
+	webAPIJSONAdd  = "2.14.0"
 	hashMovie      = "0123456789abcdef0123456789abcdef01234567"
 	hashPack       = "89abcdef0123456789abcdef0123456789abcdef"
 	maxUploadBytes = 1 << 20
@@ -38,6 +39,11 @@ type fakeTorrent struct {
 	Size            int64
 	Files           []fakeFile
 	ProgressAfter   float64
+	StateAfter      string
+	NoCheckingState bool
+	FilesMissing    bool
+	RecheckFails    bool
+	Export          []byte
 	checkPollsLeft  int
 	checkPollsTotal int
 }
@@ -70,6 +76,8 @@ type fakeQbit struct {
 	forcedStatus   int
 	forcedBody     string
 	loginsRejected bool
+	sessionExpired bool
+	addRejected    bool
 }
 
 func newFakeQbit(version string) *fakeQbit {
@@ -99,7 +107,7 @@ func (fake *fakeQbit) serve(writer http.ResponseWriter, request *http.Request) {
 		fake.login(writer, request)
 		return
 	}
-	if fake.requireAuth && !hasSession(request) {
+	if fake.requireAuth && !fake.hasSession(request) {
 		writer.WriteHeader(http.StatusForbidden)
 		return
 	}
@@ -111,9 +119,9 @@ func (fake *fakeQbit) serve(writer http.ResponseWriter, request *http.Request) {
 	fake.route(writer, request, apiPath)
 }
 
-func hasSession(request *http.Request) bool {
+func (fake *fakeQbit) hasSession(request *http.Request) bool {
 	cookie, err := request.Cookie("SID")
-	return err == nil && cookie.Value == fakeSessionID
+	return err == nil && cookie.Value == fakeSessionID && !fake.sessionExpired
 }
 
 func (fake *fakeQbit) login(writer http.ResponseWriter, request *http.Request) {
@@ -127,6 +135,7 @@ func (fake *fakeQbit) login(writer http.ResponseWriter, request *http.Request) {
 		_, _ = io.WriteString(writer, "Fails.")
 		return
 	}
+	fake.sessionExpired = false
 	http.SetCookie(writer, &http.Cookie{Name: "SID", Value: fakeSessionID, Path: "/"})
 	_, _ = io.WriteString(writer, "Ok.")
 }
@@ -169,6 +178,24 @@ func (fake *fakeQbit) add(writer http.ResponseWriter, request *http.Request) {
 	}
 	fake.adds = append(fake.adds, recorded)
 	fake.actions = append(fake.actions, "add")
+	fake.answerAdd(writer)
+}
+
+// answerAdd répond en texte avant l'API 2.14, ensuite en JSON (success_count, failure_count).
+func (fake *fakeQbit) answerAdd(writer http.ResponseWriter) {
+	if fake.version == webAPIJSONAdd {
+		failures := 0
+		if fake.addRejected {
+			failures = 1
+		}
+		writeJSON(writer, map[string]any{"added_torrent_ids": []string{}, "success_count": 1 - failures, "failure_count": failures})
+		return
+	}
+	writer.Header().Set("Content-Type", "text/plain; charset=UTF-8")
+	if fake.addRejected {
+		_, _ = io.WriteString(writer, "Fails.")
+		return
+	}
 	_, _ = io.WriteString(writer, "Ok.")
 }
 
@@ -221,6 +248,9 @@ func (fake *fakeQbit) advanceCheck(torrent *fakeTorrent) {
 	}
 	torrent.Progress = torrent.ProgressAfter
 	torrent.State = fake.stoppedState(torrent.Progress)
+	if torrent.StateAfter != "" {
+		torrent.State = torrent.StateAfter
+	}
 }
 
 func (fake *fakeQbit) stoppedState(progress float64) string {
@@ -236,7 +266,7 @@ func (fake *fakeQbit) stoppedState(progress float64) string {
 
 func (fake *fakeQbit) files(writer http.ResponseWriter, request *http.Request) {
 	torrent, found := fake.torrents[request.URL.Query().Get("hash")]
-	if !found {
+	if !found || torrent.FilesMissing {
 		http.NotFound(writer, request)
 		return
 	}
@@ -245,8 +275,13 @@ func (fake *fakeQbit) files(writer http.ResponseWriter, request *http.Request) {
 
 func (fake *fakeQbit) export(writer http.ResponseWriter, request *http.Request) {
 	hash := request.URL.Query().Get("hash")
-	if _, found := fake.torrents[hash]; !found {
+	torrent, found := fake.torrents[hash]
+	if !found {
 		http.NotFound(writer, request)
+		return
+	}
+	if torrent.Export != nil {
+		_, _ = writer.Write(torrent.Export)
 		return
 	}
 	_, _ = io.WriteString(writer, "d4:infod4:name"+fmt.Sprint(len(hash))+":"+hash+"ee")
@@ -271,6 +306,13 @@ func (fake *fakeQbit) action(writer http.ResponseWriter, request *http.Request, 
 	}
 	switch verb {
 	case "recheck":
+		if torrent.RecheckFails {
+			writer.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if torrent.NoCheckingState {
+			return
+		}
 		torrent.State = "checkingUP"
 		torrent.checkPollsLeft = torrent.checkPollsTotal
 	case "pause", "stop":

@@ -1,39 +1,36 @@
-// Package qbit est le client de l'API Web v2 de qBittorrent (versions 4 et 5).
+// Package qbit s'appuie sur github.com/autobrr/go-qbittorrent : garde de recontrôle, mode lecture seule, validation
+// des hashes, erreurs typées sans URL ni secret, transport durci (sans proxy d'environnement, sans redirection vers
+// un autre hôte, corps plafonnés, aucune nouvelle tentative automatique).
 package qbit
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
+
+	qbittorrent "github.com/autobrr/go-qbittorrent"
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/dedupe"
 )
 
 const (
-	requestTimeout      = 30 * time.Second
+	requestTimeout        = 30 * time.Second
+	requestTimeoutSeconds = 30
+	// singleAttempt : une requête d'écriture rejouée (ajout, recontrôle, pause) est un risque ; seul le rejeu après
+	// un 403 (requête refusée, donc non appliquée) est fait, une fois, par Client.run.
+	singleAttempt       = 1
+	maxRedirects        = 10
 	defaultPollInterval = time.Second
-	// maxListBytes borne les listes et l'export d'un .torrent ; maxSmallBytes borne les autres réponses.
-	maxListBytes       = 8 << 20
-	maxSmallBytes      = 64 << 10
-	maxRedirects       = 10
-	clientTypeQbit     = "qbittorrent"
-	apiPathPrefix      = "/api/v2/"
-	loginSuccessBody   = "Ok."
-	formContentType    = "application/x-www-form-urlencoded"
-	endpointLogin      = "auth/login"
-	endpointAPIVersion = "app/webapiVersion"
+	clientTypeQbit      = "qbittorrent"
+	redactedPath        = "/***"
 )
 
-// Erreurs typées du client, à tester avec errors.Is.
+// Erreurs typées du client, à tester avec errors.Is ; leurs messages ne portent ni URL, ni corps, ni secret.
 var (
 	ErrAuthFailed = errors.New("qbit: authentication failed")
 	ErrNotFound   = errors.New("qbit: torrent not found")
@@ -41,7 +38,7 @@ var (
 	ErrUnsupported = errors.New("qbit: not supported by this qBittorrent version")
 	// ErrIncompleteAfterRecheck : le torrent n'est pas complet après recontrôle et reste en pause.
 	ErrIncompleteAfterRecheck = errors.New("qbit: torrent incomplete after recheck, left paused")
-	// ErrRecheckTimeout : le recontrôle n'a pas abouti dans le délai ; le torrent reste en pause.
+	// ErrRecheckTimeout : le recontrôle n'a pas commencé ou pas abouti dans le délai ; le torrent reste en pause.
 	ErrRecheckTimeout = errors.New("qbit: recheck not finished before the timeout, left paused")
 	ErrBadResponse    = errors.New("qbit: unexpected response")
 	// ErrReadOnly : client déclaré readonly dans la configuration, toute écriture est refusée.
@@ -50,22 +47,16 @@ var (
 	ErrInvalidHash = errors.New("qbit: invalid info hash")
 )
 
-var errRedirectRefused = fmt.Errorf("%w: redirect to another host refused", ErrBadResponse)
-
 var _ dedupe.Rechecker = (*Client)(nil)
 
-// Client parle à une instance qBittorrent ; il garde le cookie de session et la version d'API sondée une fois.
+// Client parle à une instance qBittorrent au travers de la bibliothèque go-qbittorrent.
 type Client struct {
-	baseURL      *url.URL
-	origin       string
-	user         string
-	password     string
-	readOnly     bool
-	pollInterval time.Duration
-	httpClient   *http.Client
-
-	versionMutex sync.Mutex
-	version      *apiVersion
+	library           *qbittorrent.Client
+	baseURL           *url.URL
+	readOnly          bool
+	pollInterval      time.Duration
+	checkStartTimeout time.Duration
+	recheckTimeout    time.Duration
 }
 
 // Option règle un Client à sa création.
@@ -79,6 +70,16 @@ func WithPollInterval(interval time.Duration) Option {
 	return func(client *Client) { client.pollInterval = interval }
 }
 
+// WithCheckStartTimeout règle le délai dans lequel un état checking doit apparaître après la demande de recontrôle.
+func WithCheckStartTimeout(timeout time.Duration) Option {
+	return func(client *Client) { client.checkStartTimeout = timeout }
+}
+
+// WithRecheckTimeout règle le délai global de recontrôle utilisé par RecheckPath.
+func WithRecheckTimeout(timeout time.Duration) Option {
+	return func(client *Client) { client.recheckTimeout = timeout }
+}
+
 // New crée un client ; baseURL peut porter un préfixe de chemin (proxy inverse, proxy de qui). Sans identifiants,
 // aucune connexion n'est tentée. Les identifiants ne voyagent que dans le corps du formulaire de connexion.
 func New(baseURL, user, password string, options ...Option) (*Client, error) {
@@ -86,21 +87,23 @@ func New(baseURL, user, password string, options ...Option) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, fmt.Errorf("qbit: cookie jar: %w", err)
-	}
 	client := &Client{
-		baseURL:      parsedURL,
-		origin:       parsedURL.Scheme + "://" + parsedURL.Host,
-		user:         user,
-		password:     password,
-		pollInterval: defaultPollInterval,
+		baseURL:           parsedURL,
+		pollInterval:      defaultPollInterval,
+		checkStartTimeout: defaultCheckStartTimeout,
+		recheckTimeout:    defaultRecheckTimeout,
 	}
-	client.httpClient = &http.Client{Timeout: requestTimeout, Jar: jar, Transport: newTransport(), CheckRedirect: client.checkRedirect}
 	for _, option := range options {
 		option(client)
 	}
+	library := qbittorrent.NewClient(qbittorrent.Config{
+		Host:          parsedURL.String(),
+		Username:      user,
+		Password:      password,
+		Timeout:       requestTimeoutSeconds,
+		RetryAttempts: singleAttempt,
+	})
+	client.library = library.WithHTTPClient(client.newHTTPClient())
 	return client, nil
 }
 
@@ -116,7 +119,7 @@ func NewFromConfig(torrentClient config.TorrentClient) (*Client, error) {
 	return New(torrentClient.BaseURL, torrentClient.User, torrentClient.Password, options...)
 }
 
-// parseBaseURL renvoie des erreurs à message fixe : l'URL brute peut contenir un mot de passe.
+// parseBaseURL renvoie des erreurs à message fixe : l'URL brute peut contenir un mot de passe ou une clé de proxy.
 func parseBaseURL(raw string) (*url.URL, error) {
 	parsedURL, err := url.Parse(raw)
 	if err != nil {
@@ -134,8 +137,18 @@ func parseBaseURL(raw string) (*url.URL, error) {
 	return parsedURL, nil
 }
 
-// newTransport n'utilise pas le proxy d'environnement : HTTP_PROXY recevrait sinon le formulaire de connexion.
-func newTransport() http.RoundTripper {
+// newHTTPClient remplace celui de la bibliothèque, qui suivrait HTTP_PROXY et toute redirection.
+func (client *Client) newHTTPClient() *http.Client {
+	transport := &guardTransport{
+		base:    newBaseTransport(),
+		referer: client.baseURL.String(),
+		origin:  client.baseURL.Scheme + "://" + client.baseURL.Host,
+	}
+	return &http.Client{Timeout: requestTimeout, Transport: transport, CheckRedirect: client.checkRedirect}
+}
+
+// newBaseTransport n'utilise pas le proxy d'environnement : il recevrait sinon le formulaire de connexion.
+func newBaseTransport() http.RoundTripper {
 	defaultTransport, isTransport := http.DefaultTransport.(*http.Transport)
 	if !isTransport {
 		return http.DefaultTransport
@@ -149,20 +162,23 @@ func newTransport() http.RoundTripper {
 func (client *Client) checkRedirect(request *http.Request, previous []*http.Request) error {
 	sameOrigin := request.URL.Scheme == client.baseURL.Scheme && request.URL.Host == client.baseURL.Host
 	if !sameOrigin || len(previous) >= maxRedirects {
-		return errRedirectRefused
+		probeFrom(request.Context()).redirectRefused = true
+		return errors.New("redirect refused")
 	}
 	return nil
 }
 
-// String décrit le client sans mot de passe ni cookie.
+// String décrit le client par schéma et hôte seulement : le chemin peut porter la clé du proxy de qui.
 func (client *Client) String() string {
-	return fmt.Sprintf("qbit.Client{baseURL: %s, user: %q, readOnly: %t}", client.baseURL, client.user, client.readOnly)
+	shownURL := client.baseURL.Scheme + "://" + client.baseURL.Host
+	if client.baseURL.Path != "" {
+		shownURL += redactedPath
+	}
+	return fmt.Sprintf("qbit.Client{baseURL: %s, readOnly: %t}", shownURL, client.readOnly)
 }
 
-// GoString décrit le client sans mot de passe ni cookie pour %#v.
+// GoString décrit le client sans secret pour %#v.
 func (client *Client) GoString() string { return client.String() }
-
-func (client *Client) hasCredentials() bool { return client.user != "" || client.password != "" }
 
 func (client *Client) refuseIfReadOnly() error {
 	if client.readOnly {
@@ -171,110 +187,42 @@ func (client *Client) refuseIfReadOnly() error {
 	return nil
 }
 
-// requestBody est rejouable : la requête est renvoyée telle quelle après une reconnexion.
-type requestBody struct {
-	contentType string
-	data        []byte
+// run exécute un appel de la bibliothèque ; après un 403 suivi d'une reconnexion réussie (faite par la
+// bibliothèque), l'appel est rejoué une fois : la requête refusée n'a rien modifié.
+func (client *Client) run(ctx context.Context, operation string, call func(ctx context.Context) error) (*callProbe, error) {
+	probe := &callProbe{}
+	err := call(withProbe(ctx, probe))
+	if err != nil && probe.forbidden && !probe.loginRejected {
+		probe = &callProbe{}
+		err = call(withProbe(ctx, probe))
+	}
+	return probe, translateError(ctx, operation, err, probe)
 }
 
-func formBody(values url.Values) *requestBody {
-	return &requestBody{contentType: formContentType, data: []byte(values.Encode())}
-}
-
-// call envoie la requête ; sur 403 avec identifiants, il se reconnecte une fois puis rejoue une fois.
-func (client *Client) call(ctx context.Context, method, endpoint string, query url.Values, body *requestBody, limit int64) ([]byte, error) {
-	status, payload, err := client.send(ctx, method, endpoint, query, body, limit)
-	if err != nil {
-		return nil, err
-	}
-	if status == http.StatusForbidden && client.hasCredentials() {
-		if err := client.login(ctx); err != nil {
-			return nil, err
-		}
-		status, payload, err = client.send(ctx, method, endpoint, query, body, limit)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if err := statusError(endpoint, status); err != nil {
-		return nil, err
-	}
-	return payload, nil
-}
-
-// statusError ne reprend jamais le corps de la réponse.
-func statusError(endpoint string, status int) error {
-	switch {
-	case status >= 200 && status < 300:
+// translateError ne reprend jamais le message de la bibliothèque, qui contient l'URL (et la clé du proxy).
+func translateError(ctx context.Context, operation string, err error, probe *callProbe) error {
+	if err == nil {
 		return nil
-	case status == http.StatusForbidden:
-		return fmt.Errorf("%w: %s returned HTTP 403", ErrAuthFailed, endpoint)
-	case status == http.StatusNotFound:
-		return fmt.Errorf("%w: %s returned HTTP 404", ErrNotFound, endpoint)
-	case status == http.StatusMethodNotAllowed:
-		return fmt.Errorf("%w: %s returned HTTP 405", ErrUnsupported, endpoint)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("qbit: %s: %w", operation, ctxErr)
+	}
+	switch {
+	case probe.loginRejected || errors.Is(err, qbittorrent.ErrBadCredentials) || errors.Is(err, qbittorrent.ErrIPBanned):
+		return fmt.Errorf("%w: %s: login rejected", ErrAuthFailed, operation)
+	case probe.forbidden:
+		return fmt.Errorf("%w: %s: HTTP 403", ErrAuthFailed, operation)
+	case probe.redirectRefused:
+		return fmt.Errorf("%w: %s: redirect to another host refused", ErrBadResponse, operation)
+	case probe.tooLarge:
+		return fmt.Errorf("%w: %s: response too large", ErrBadResponse, operation)
+	case errors.Is(err, qbittorrent.ErrTorrentNotFound) || probe.lastStatus == http.StatusNotFound:
+		return fmt.Errorf("%w: %s", ErrNotFound, operation)
+	case errors.Is(err, qbittorrent.ErrUnsupportedVersion) || probe.lastStatus == http.StatusMethodNotAllowed:
+		return fmt.Errorf("%w: %s", ErrUnsupported, operation)
+	case probe.lastStatus != 0:
+		return fmt.Errorf("%w: %s: HTTP %d", ErrBadResponse, operation, probe.lastStatus)
 	default:
-		return fmt.Errorf("%w: %s returned HTTP %d", ErrBadResponse, endpoint, status)
+		return fmt.Errorf("%w: %s: request failed", ErrBadResponse, operation)
 	}
-}
-
-func (client *Client) send(ctx context.Context, method, endpoint string, query url.Values, body *requestBody, limit int64) (int, []byte, error) {
-	request, err := client.newRequest(ctx, method, endpoint, query, body)
-	if err != nil {
-		return 0, nil, err
-	}
-	response, err := client.httpClient.Do(request)
-	if err != nil {
-		return 0, nil, fmt.Errorf("qbit: %s: %w", endpoint, err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
-	if err != nil {
-		return 0, nil, fmt.Errorf("%w: %s: reading body failed", ErrBadResponse, endpoint)
-	}
-	if int64(len(payload)) > limit {
-		return 0, nil, fmt.Errorf("%w: %s: response larger than %d bytes", ErrBadResponse, endpoint, limit)
-	}
-	return response.StatusCode, payload, nil
-}
-
-// newRequest place Referer et Origin sur l'URL de base : la protection CSRF de qBittorrent les compare à l'hôte.
-func (client *Client) newRequest(ctx context.Context, method, endpoint string, query url.Values, body *requestBody) (*http.Request, error) {
-	// endpoint est toujours une constante du paquet, jamais une entrée.
-	target := *client.baseURL
-	target.Path = client.baseURL.Path + apiPathPrefix + endpoint
-	target.RawQuery = query.Encode()
-	var reader io.Reader
-	if body != nil {
-		reader = bytes.NewReader(body.data)
-	}
-	request, err := http.NewRequestWithContext(ctx, method, target.String(), reader)
-	if err != nil {
-		return nil, fmt.Errorf("qbit: %s: building request failed", endpoint)
-	}
-	if body != nil {
-		request.Header.Set("Content-Type", body.contentType)
-	}
-	request.Header.Set("Referer", client.baseURL.String())
-	request.Header.Set("Origin", client.origin)
-	return request, nil
-}
-
-// login poste le formulaire ; qBittorrent répond 200 « Fails. » sur de mauvais identifiants et 403 sur une IP bannie.
-func (client *Client) login(ctx context.Context) error {
-	credentials := url.Values{"username": {client.user}, "password": {client.password}}
-	status, payload, err := client.send(ctx, http.MethodPost, endpointLogin, nil, formBody(credentials), maxSmallBytes)
-	if err != nil {
-		return err
-	}
-	if status == http.StatusForbidden {
-		return fmt.Errorf("%w: login refused (HTTP 403, IP possibly banned)", ErrAuthFailed)
-	}
-	if err := statusError(endpointLogin, status); err != nil {
-		return err
-	}
-	if strings.TrimSpace(string(payload)) != loginSuccessBody {
-		return fmt.Errorf("%w: credentials rejected", ErrAuthFailed)
-	}
-	return nil
 }

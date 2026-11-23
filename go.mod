@@ -3,7 +3,9 @@ module necromanciarr
 go 1.27
 
 require (
+	github.com/Masterminds/semver v1.5.0
 	github.com/anacrolix/torrent v1.63.0
+	github.com/autobrr/go-qbittorrent v1.19.0
 	golang.org/x/sys v0.50.0
 	modernc.org/sqlite v1.63.0
 )
@@ -45,6 +47,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.82.0 // indirect
 	github.com/ashanbrown/forbidigo/v2 v2.3.1 // indirect
 	github.com/ashanbrown/makezero/v2 v2.2.1 // indirect
+	github.com/avast/retry-go v3.0.0+incompatible // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bkielbasa/cyclop v1.2.3 // indirect
@@ -179,6 +182,7 @@ require (
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.12.2 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.35.0 // indirect

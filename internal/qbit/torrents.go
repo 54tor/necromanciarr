@@ -1,44 +1,34 @@
 package qbit
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"mime/multipart"
-	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/Masterminds/semver"
+	qbittorrent "github.com/autobrr/go-qbittorrent"
 )
 
 const (
-	addRejectedBody   = "Fails."
-	uploadFileName    = "upload.torrent"
-	infoHashV1Length  = 40
-	infoHashV2Length  = 64
-	tagSeparator      = ","
-	endpointAdd       = "torrents/add"
-	endpointInfo      = "torrents/info"
-	endpointFiles     = "torrents/files"
-	endpointExport    = "torrents/export"
-	endpointRecheck   = "torrents/recheck"
-	verbPauseV4       = "torrents/pause"
-	verbResumeV4      = "torrents/resume"
-	verbStopV5        = "torrents/stop"
-	verbStartV5       = "torrents/start"
-	fieldPausedV4     = "paused"
-	fieldStoppedV5    = "stopped"
-	fieldSkipChecking = "skip_checking"
+	infoHashV1Length = 40
+	infoHashV2Length = 64
+	tagSeparator     = ","
+	// contentLayoutOriginal garde l'arborescence du torrent, déjà présente sur le disque (jamais root_folder).
+	contentLayoutOriginal = "Original"
 )
 
-// AddOptions règle l'ajout d'un torrent : catégorie et tags servent aux filtres de qui et cross-seed, Paused à la
-// revue avant reprise, SkipChecking reprend skipRecheck de cross-seed.
+// exportMinimumVersion : torrents/export arrive avec l'API 2.8.11 (qBittorrent 4.5).
+var exportMinimumVersion = semver.MustParse("2.8.11")
+
+// AddOptions règle l'ajout d'un torrent : catégorie et tags servent aux filtres de qui et cross-seed,
+// SkipChecking reprend skipRecheck de cross-seed. Le torrent est ajouté arrêté : Start est un choix explicite de
+// l'appelant, à ne faire qu'après qu'un RecheckAndGuard a confirmé 100 %.
 type AddOptions struct {
 	Category     string
 	Tags         []string
-	Paused       bool
+	Start        bool
 	SkipChecking bool
 }
 
@@ -62,24 +52,6 @@ type TorrentFile struct {
 	Progress float64
 }
 
-type infoEntry struct {
-	Hash        string  `json:"hash"`
-	Name        string  `json:"name"`
-	SavePath    string  `json:"save_path"`
-	ContentPath string  `json:"content_path"`
-	Category    string  `json:"category"`
-	Tags        string  `json:"tags"`
-	State       string  `json:"state"`
-	Progress    float64 `json:"progress"`
-	Size        int64   `json:"size"`
-}
-
-type fileEntry struct {
-	Name     string  `json:"name"`
-	Size     int64   `json:"size"`
-	Progress float64 `json:"progress"`
-}
-
 // validateHash n'accepte qu'un info-hash v1 ou v2 en hexadécimal, rendu en minuscules.
 func validateHash(infoHash string) (string, error) {
 	normalized := strings.ToLower(infoHash)
@@ -90,105 +62,70 @@ func validateHash(infoHash string) (string, error) {
 	return normalized, nil
 }
 
-// Add envoie le .torrent en multipart ; root_folder n'est jamais envoyé : l'arborescence est déjà sur le disque et
-// le nom du dossier racine vient du torrent. autoTMM=false garde savePath tel quel.
+// Add envoie le .torrent ; paused et stopped (qBittorrent 4 et 5) portent la même valeur, si bien qu'un torrent
+// n'est jamais démarré par erreur de version. autoTMM=false garde savePath tel quel.
 func (client *Client) Add(ctx context.Context, torrent []byte, savePath string, options AddOptions) error {
 	if err := client.refuseIfReadOnly(); err != nil {
 		return err
 	}
-	stopStart, err := client.usesStopStart(ctx)
+	var response *qbittorrent.TorrentAddResponse
+	probe, err := client.run(ctx, "add torrent", func(callCtx context.Context) error {
+		var addErr error
+		response, addErr = client.library.AddTorrentFromMemoryCtx(callCtx, torrent, addFields(savePath, options))
+		return addErr
+	})
 	if err != nil {
 		return err
 	}
-	body, err := addBody(torrent, savePath, options, stopStart)
-	if err != nil {
-		return err
+	return checkAddResponse(response, probe)
+}
+
+func addFields(savePath string, options AddOptions) map[string]string {
+	stopped := strconv.FormatBool(!options.Start)
+	fields := map[string]string{
+		"savepath":      savePath,
+		"autoTMM":       "false",
+		"contentLayout": contentLayoutOriginal,
+		"paused":        stopped,
+		"stopped":       stopped,
+		"skip_checking": strconv.FormatBool(options.SkipChecking),
 	}
-	payload, err := client.call(ctx, http.MethodPost, endpointAdd, nil, body, maxSmallBytes)
-	if err != nil {
-		return err
+	if options.Category != "" {
+		fields["category"] = options.Category
 	}
-	if strings.TrimSpace(string(payload)) == addRejectedBody {
-		return fmt.Errorf("%w: torrent rejected by qBittorrent", ErrBadResponse)
+	if len(options.Tags) > 0 {
+		fields["tags"] = strings.Join(options.Tags, tagSeparator)
+	}
+	return fields
+}
+
+// checkAddResponse lit « Fails. » (réponse texte) ou success_count et failure_count (JSON, API 2.14 et plus).
+func checkAddResponse(response *qbittorrent.TorrentAddResponse, probe *callProbe) error {
+	if probe.addRejected {
+		return fmt.Errorf("%w: add torrent: rejected by qBittorrent", ErrBadResponse)
+	}
+	if response == nil || response.FailureCount > 0 || response.SuccessCount == 0 {
+		return fmt.Errorf("%w: add torrent: not added", ErrBadResponse)
 	}
 	return nil
 }
 
-func addBody(torrent []byte, savePath string, options AddOptions, stopStart bool) (*requestBody, error) {
-	var buffer bytes.Buffer
-	writer := multipart.NewWriter(&buffer)
-	part, err := writer.CreateFormFile("torrents", uploadFileName)
-	if err != nil {
-		return nil, fmt.Errorf("qbit: building add request: %w", err)
-	}
-	if _, err := part.Write(torrent); err != nil {
-		return nil, fmt.Errorf("qbit: building add request: %w", err)
-	}
-	pausedField := fieldPausedV4
-	if stopStart {
-		pausedField = fieldStoppedV5
-	}
-	fields := [][2]string{
-		{"savepath", savePath},
-		{"autoTMM", "false"},
-		{pausedField, strconv.FormatBool(options.Paused)},
-		{fieldSkipChecking, strconv.FormatBool(options.SkipChecking)},
-	}
-	if options.Category != "" {
-		fields = append(fields, [2]string{"category", options.Category})
-	}
-	if len(options.Tags) > 0 {
-		fields = append(fields, [2]string{"tags", strings.Join(options.Tags, tagSeparator)})
-	}
-	for _, field := range fields {
-		if err := writer.WriteField(field[0], field[1]); err != nil {
-			return nil, fmt.Errorf("qbit: building add request: %w", err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("qbit: building add request: %w", err)
-	}
-	return &requestBody{contentType: writer.FormDataContentType(), data: buffer.Bytes()}, nil
-}
-
 // Recheck demande le recontrôle des données d'un torrent ; voir RecheckAndGuard pour l'usage sûr.
 func (client *Client) Recheck(ctx context.Context, infoHash string) error {
-	return client.hashAction(ctx, endpointRecheck, infoHash)
+	return client.hashAction(ctx, "recheck", infoHash, client.library.RecheckCtx)
 }
 
-// Pause met un torrent en pause (stop sur qBittorrent 5).
+// Pause met un torrent en pause ; la bibliothèque choisit pause ou stop selon la version de l'API.
 func (client *Client) Pause(ctx context.Context, infoHash string) error {
-	stopStart, err := client.usesStopStartForWrite(ctx)
-	if err != nil {
-		return err
-	}
-	if stopStart {
-		return client.hashAction(ctx, verbStopV5, infoHash)
-	}
-	return client.hashAction(ctx, verbPauseV4, infoHash)
+	return client.hashAction(ctx, "pause", infoHash, client.library.PauseCtx)
 }
 
-// Resume reprend un torrent (start sur qBittorrent 5).
+// Resume reprend un torrent ; la bibliothèque choisit resume ou start selon la version de l'API.
 func (client *Client) Resume(ctx context.Context, infoHash string) error {
-	stopStart, err := client.usesStopStartForWrite(ctx)
-	if err != nil {
-		return err
-	}
-	if stopStart {
-		return client.hashAction(ctx, verbStartV5, infoHash)
-	}
-	return client.hashAction(ctx, verbResumeV4, infoHash)
+	return client.hashAction(ctx, "resume", infoHash, client.library.ResumeCtx)
 }
 
-// usesStopStartForWrite refuse avant de sonder la version : un client readonly n'émet aucune requête d'écriture.
-func (client *Client) usesStopStartForWrite(ctx context.Context) (bool, error) {
-	if err := client.refuseIfReadOnly(); err != nil {
-		return false, err
-	}
-	return client.usesStopStart(ctx)
-}
-
-func (client *Client) hashAction(ctx context.Context, endpoint, infoHash string) error {
+func (client *Client) hashAction(ctx context.Context, verb, infoHash string, action func(context.Context, []string) error) error {
 	if err := client.refuseIfReadOnly(); err != nil {
 		return err
 	}
@@ -196,13 +133,15 @@ func (client *Client) hashAction(ctx context.Context, endpoint, infoHash string)
 	if err != nil {
 		return err
 	}
-	_, err = client.call(ctx, http.MethodPost, endpoint, nil, formBody(url.Values{"hashes": {normalized}}), maxSmallBytes)
+	_, err = client.run(ctx, verb+" "+normalized, func(callCtx context.Context) error {
+		return action(callCtx, []string{normalized})
+	})
 	return err
 }
 
 // Torrents liste tous les torrents du client.
 func (client *Client) Torrents(ctx context.Context) ([]TorrentInfo, error) {
-	return client.listTorrents(ctx, nil)
+	return client.listTorrents(ctx, "list torrents", qbittorrent.TorrentFilterOptions{})
 }
 
 // Progress renvoie l'avancement (0 à 1) d'un torrent ; ErrNotFound s'il est inconnu.
@@ -219,7 +158,7 @@ func (client *Client) torrent(ctx context.Context, infoHash string) (TorrentInfo
 	if err != nil {
 		return TorrentInfo{}, err
 	}
-	torrents, err := client.listTorrents(ctx, url.Values{"hashes": {normalized}})
+	torrents, err := client.listTorrents(ctx, "torrent "+normalized, qbittorrent.TorrentFilterOptions{Hashes: []string{normalized}})
 	if err != nil {
 		return TorrentInfo{}, err
 	}
@@ -231,20 +170,22 @@ func (client *Client) torrent(ctx context.Context, infoHash string) (TorrentInfo
 	return TorrentInfo{}, fmt.Errorf("%w: %s", ErrNotFound, normalized)
 }
 
-func (client *Client) listTorrents(ctx context.Context, query url.Values) ([]TorrentInfo, error) {
-	payload, err := client.call(ctx, http.MethodGet, endpointInfo, query, nil, maxListBytes)
+func (client *Client) listTorrents(ctx context.Context, operation string, filter qbittorrent.TorrentFilterOptions) ([]TorrentInfo, error) {
+	var entries []qbittorrent.Torrent
+	_, err := client.run(ctx, operation, func(callCtx context.Context) error {
+		var listErr error
+		entries, listErr = client.library.GetTorrentsCtx(callCtx, filter)
+		return listErr
+	})
 	if err != nil {
 		return nil, err
-	}
-	var entries []infoEntry
-	if err := json.Unmarshal(payload, &entries); err != nil {
-		return nil, fmt.Errorf("%w: %s: invalid json", ErrBadResponse, endpointInfo)
 	}
 	torrents := make([]TorrentInfo, 0, len(entries))
 	for _, entry := range entries {
 		torrents = append(torrents, TorrentInfo{
 			Hash: entry.Hash, Name: entry.Name, SavePath: entry.SavePath, ContentPath: entry.ContentPath,
-			Category: entry.Category, Tags: splitTags(entry.Tags), State: entry.State, Progress: entry.Progress, Size: entry.Size,
+			Category: entry.Category, Tags: splitTags(entry.Tags), State: string(entry.State), Progress: entry.Progress,
+			Size: entry.Size,
 		})
 	}
 	return torrents, nil
@@ -267,17 +208,21 @@ func (client *Client) Files(ctx context.Context, infoHash string) ([]TorrentFile
 	if err != nil {
 		return nil, err
 	}
-	payload, err := client.call(ctx, http.MethodGet, endpointFiles, url.Values{"hash": {normalized}}, nil, maxListBytes)
+	var entries *qbittorrent.TorrentFiles
+	_, err = client.run(ctx, "files of "+normalized, func(callCtx context.Context) error {
+		var filesErr error
+		entries, filesErr = client.library.GetFilesInformationCtx(callCtx, normalized)
+		return filesErr
+	})
 	if err != nil {
 		return nil, err
 	}
-	var entries []fileEntry
-	if err := json.Unmarshal(payload, &entries); err != nil {
-		return nil, fmt.Errorf("%w: %s: invalid json", ErrBadResponse, endpointFiles)
+	if entries == nil {
+		return nil, nil
 	}
-	files := make([]TorrentFile, 0, len(entries))
-	for _, entry := range entries {
-		files = append(files, TorrentFile(entry))
+	files := make([]TorrentFile, 0, len(*entries))
+	for _, entry := range *entries {
+		files = append(files, TorrentFile{Name: entry.Name, Size: entry.Size, Progress: float64(entry.Progress)})
 	}
 	return files, nil
 }
@@ -289,12 +234,18 @@ func (client *Client) ExportTorrent(ctx context.Context, infoHash string) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	version, err := client.apiVersion(ctx)
+	_, err = client.run(ctx, "export capability", func(context.Context) error {
+		_, versionErr := client.library.RequiresMinVersion(exportMinimumVersion)
+		return versionErr
+	})
 	if err != nil {
 		return nil, err
 	}
-	if !version.atLeast(exportVersion) {
-		return nil, fmt.Errorf("%w: %s needs qBittorrent 4.5 or later", ErrUnsupported, endpointExport)
-	}
-	return client.call(ctx, http.MethodGet, endpointExport, url.Values{"hash": {normalized}}, nil, maxListBytes)
+	var raw []byte
+	_, err = client.run(ctx, "export "+normalized, func(callCtx context.Context) error {
+		var exportErr error
+		raw, exportErr = client.library.ExportTorrentCtx(callCtx, normalized)
+		return exportErr
+	})
+	return raw, err
 }
