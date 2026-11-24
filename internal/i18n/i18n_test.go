@@ -23,10 +23,13 @@ func TestParseLanguage_rejectsUnknownValue(t *testing.T) {
 			t.Fatalf("gotValue %v for %q, expectedValue ErrUnknownLanguage", err, rawValue)
 		}
 	}
-	for rawValue, expectedValue := range map[string]Language{"\tFR ": French, "en": English, "En\n": English} {
-		gotValue, err := ParseLanguage(rawValue)
-		if err != nil || gotValue != expectedValue {
-			t.Fatalf("gotValue %q (%v) for %q, expectedValue %q", gotValue, err, rawValue, expectedValue)
+	for _, testCase := range []struct {
+		rawValue      string
+		expectedValue Language
+	}{{"\tFR ", French}, {"en", English}, {"En\n", English}} {
+		gotValue, err := ParseLanguage(testCase.rawValue)
+		if err != nil || gotValue != testCase.expectedValue {
+			t.Fatalf("gotValue %q (%v) for %q, expectedValue %q", gotValue, err, testCase.rawValue, testCase.expectedValue)
 		}
 	}
 }
