@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, watch, type Component } from 'vue'
+import { computed, onMounted, ref, watch, type Component } from 'vue'
 import { authToken, loginRequired } from '@/api/client'
 import LoginDialog from '@/components/LoginDialog.vue'
 import { Toaster } from '@/components/ui/sonner'
@@ -23,16 +23,22 @@ const VIEWS: Record<string, Component> = {
 useHashRouter()
 const { needsOnboarding, loadAll } = useOnboarding()
 const currentView = computed(() => VIEWS[currentPath.value])
+// Changer la clé remonte la vue courante : après la saisie du jeton elle recharge ses propres données.
+const viewKey = ref(0)
+// « Étapes » reste accessible pendant la redirection : c'est là qu'on lance ce qui corrige un premier lancement.
+const REDIRECTED_PATHS = ['/propositions', '/deduplication', '/liens']
 
 // Tant qu'un contrôle échoue (ou au premier lancement), toute autre vue ramène à « Démarrage » sauf choix « passer ».
 watch([currentPath, needsOnboarding], () => {
-  if (needsOnboarding.value && currentPath.value !== '/demarrage') navigate('/demarrage')
+  if (needsOnboarding.value && REDIRECTED_PATHS.includes(currentPath.value)) navigate('/demarrage')
 })
 
 onMounted(loadAll)
 // Après la saisie du jeton, on recharge le diagnostic qui avait échoué en 401.
 watch(loginRequired, (required) => {
-  if (!required && authToken.value) void loadAll()
+  if (required || !authToken.value) return
+  viewKey.value += 1
+  void loadAll()
 })
 </script>
 
@@ -72,9 +78,9 @@ watch(loginRequired, (required) => {
       </nav>
     </header>
     <main class="grid flex-1 content-start gap-4">
-      <component :is="currentView" />
+      <component :is="currentView" :key="viewKey" />
     </main>
     <LoginDialog />
-    <Toaster position="bottom-right" />
+    <Toaster position="bottom-right" theme="dark" />
   </div>
 </template>

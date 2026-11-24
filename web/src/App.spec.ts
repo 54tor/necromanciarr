@@ -98,6 +98,37 @@ describe('App', () => {
     expect(authToken.value).toBe('')
   })
 
+  it('App_reloadsTheCurrentViewAfterTheTokenIsAccepted', async () => {
+    const calls = installFakeApi({
+      'GET /api/doctor': (call) =>
+        call.headers.Authorization ? okReport : failure(401, 'unauthorized'),
+      'GET /api/status': (call) =>
+        call.headers.Authorization ? busyStatus : failure(401, 'unauthorized'),
+      'GET /api/proposals': (call) =>
+        call.headers.Authorization ? [] : failure(401, 'unauthorized'),
+    })
+    window.location.hash = '#/propositions'
+    mount(App, { attachTo: document.body })
+    await flushPromises()
+    const before = calls.filter(
+      (call) => call.path === '/api/proposals' && call.headers.Authorization,
+    ).length
+
+    const input = document.body.querySelector<HTMLInputElement>('#auth-token')
+    if (input) {
+      input.value = 'ok-token'
+      input.dispatchEvent(new Event('input'))
+    }
+    document.body.querySelector<HTMLButtonElement>('[data-testid="login-submit"]')?.click()
+    await flushPromises()
+
+    const after = calls.filter(
+      (call) => call.path === '/api/proposals' && call.headers.Authorization,
+    ).length
+    expect(before).toBe(0)
+    expect(after).toBe(1)
+  })
+
   it('App_doesNotShowTheLoginDialogWhenTheServerAnswers', async () => {
     installFakeApi({
       'GET /api/doctor': okReport,

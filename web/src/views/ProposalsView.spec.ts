@@ -86,6 +86,11 @@ describe('ProposalsView', () => {
     await flushPromises()
     await button(wrapper, 7, 'proposals accept-group').trigger('click')
     await flushPromises()
+    expect(document.body.textContent).toContain('cross-seed natif')
+    document.body
+      .querySelector<HTMLButtonElement>('[data-testid="confirm-dialog-confirm"]')
+      ?.click()
+    await flushPromises()
 
     const gotRoutes = posts(calls).map((call) => `${call.path} ${JSON.stringify(call.body)}`)
     expect(gotRoutes).toEqual([
@@ -159,9 +164,21 @@ describe('ProposalsView', () => {
 
     const card = wrapper.find('[data-testid="proposal-6"]')
 
-    expect(card.find('[data-testid="stale"]').exists()).toBe(true)
+    expect(card.find('[data-testid="stale"]').text()).toBe('Obsolète')
+    expect(card.attributes('aria-disabled')).toBeUndefined()
+    expect(card.classes()).not.toContain('opacity-60')
     for (const actionButton of card.findAll('button'))
       expect(actionButton.attributes('disabled')).toBeDefined()
+  })
+
+  it('ProposalsView_offersGroupAcceptOnEveryPrimaryRow', async () => {
+    const { wrapper } = await mountView([
+      proposal({ id: 1, primary: true }),
+      proposal({ id: 2, primary: false }),
+    ])
+
+    expect(button(wrapper, 1, 'proposals accept-group').exists()).toBe(true)
+    expect(button(wrapper, 2, 'proposals accept-group').exists()).toBe(false)
   })
 
   it('ProposalsView_conflictCannotBeAcceptedDirectly', async () => {

@@ -1,4 +1,10 @@
-import type { Decision, DoctorStatus, ProposalKind, ProposalStep } from '@/api/types'
+import type {
+  CandidateState,
+  Decision,
+  DoctorStatus,
+  ProposalKind,
+  ProposalStep,
+} from '@/api/types'
 
 export const KIND_LABELS: Record<ProposalKind, string> = {
   full: 'Torrent complet',
@@ -70,4 +76,12 @@ export const REPAIR_STATUS_LABELS: Record<string, string> = {
 /** labelOf renvoie le libellé français d'une valeur connue, ou la valeur brute d'une valeur inconnue. */
 export function labelOf(labels: Readonly<Record<string, string>>, value: string): string {
   return labels[value] ?? value
+}
+
+export const CANDIDATE_LABELS: Record<CandidateState, string> = {
+  matched: 'Associés',
+  fetched: 'Téléchargés',
+  verified: 'Vérifiés',
+  failed: 'En échec',
+  stale: 'Obsolètes',
 }

@@ -4,7 +4,7 @@ export type ProposalKind =
   'full' | 'partial_annex' | 'partial_pack' | 'cross_seed' | 'conflict' | 'dedupe' | 'repair'
 export type Decision = 'pending' | 'accepted' | 'rejected' | 'applied' | 'failed' | 'superseded'
 export type ProposalStep = 'linked' | 'seeded' | 'seeded_paused_incomplete' | 'forced'
-type CandidateState = 'matched' | 'fetched' | 'verified' | 'failed' | 'stale'
+export type CandidateState = 'matched' | 'fetched' | 'verified' | 'failed' | 'stale'
 
 interface AmbiguousFile {
   torrent_path: string

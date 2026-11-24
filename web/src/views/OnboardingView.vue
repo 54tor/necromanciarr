@@ -4,6 +4,7 @@ import { onMounted } from 'vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { Button } from '@/components/ui/button'
 import { useOnboarding } from '@/composables/useOnboarding'
+import { CANDIDATE_LABELS, DECISION_LABELS, STEP_LABELS, labelOf } from '@/lib/labels'
 import { navigate } from '@/router'
 
 const { checks, status, worst, firstLaunch, pending, loadAll, rerunCheck, refreshStatus, skip } =
@@ -19,8 +20,9 @@ function skipOnboarding(): void {
 }
 
 const STATE_GROUPS = [
-  { key: 'candidates', label: 'Candidats' },
-  { key: 'proposals', label: 'Propositions' },
+  { key: 'candidates', label: 'Candidats', labels: CANDIDATE_LABELS },
+  { key: 'proposals', label: 'Propositions', labels: DECISION_LABELS },
+  { key: 'steps', label: 'Étapes d’application', labels: STEP_LABELS },
 ] as const
 </script>
 
@@ -110,7 +112,7 @@ const STATE_GROUPS = [
               :key="state"
               class="mr-3 whitespace-nowrap"
             >
-              {{ state }} : {{ count }}
+              {{ labelOf(group.labels, state) }} : {{ count }}
             </span>
           </dd>
         </div>

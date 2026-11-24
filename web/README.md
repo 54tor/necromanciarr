@@ -30,3 +30,7 @@ Navigation par hash (`#/demarrage`, `#/propositions`, `#/deduplication`, `#/lien
 Disposition : chaque ligne (proposition, remplacement, lien) est une carte empilée plutôt qu'une ligne de tableau, ce qui tient à 360 px sans défilement horizontal ni colonne figée ; les cartes se réorganisent en grille à partir de 640 px.
 
 `src/api/actions.ts` recopie la table des routes du serveur et déclare la vue qui porte le bouton de chaque action ; `src/ui-parity.spec.ts` échoue quand une action n'a pas de bouton (`data-action`). Les textes de `Démarrage` venant du diagnostic du serveur (titres et détails des contrôles) restent dans la langue du serveur.
+
+## Limites v1
+
+Les liens déjà enregistrés ne sont pas listés : la vue « Liens » n'affiche que les réparations proposées, tant que l'action de lecture `links` n'existe pas dans le registre (tâche de suite).

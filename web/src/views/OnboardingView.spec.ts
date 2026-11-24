@@ -110,13 +110,48 @@ describe('OnboardingView', () => {
       'GET /api/doctor': okReport,
       'GET /api/status': { candidates: {}, proposals: {}, steps: {}, cross_seed_mode: 'disabled' },
     })
-    window.location.hash = '#/etapes'
+    window.location.hash = '#/propositions'
 
     const wrapper = mount(App)
     await flushPromises()
 
     expect(window.location.hash).toBe('#/demarrage')
     expect(wrapper.text()).toContain('Première utilisation')
+  })
+
+  it('OnboardingView_neverRedirectsAwayFromStages', async () => {
+    installFakeApi({
+      'GET /api/doctor': doctorReport,
+      'GET /api/status': busyStatus,
+      'GET /api/jobs': [],
+    })
+    window.location.hash = '#/etapes'
+
+    mount(App)
+    await flushPromises()
+
+    expect(window.location.hash).toBe('#/etapes')
+  })
+
+  it('OnboardingView_translatesStateKeysAndKeepsUnknownOnes', async () => {
+    installFakeApi({
+      'GET /api/doctor': okReport,
+      'GET /api/status': {
+        candidates: { verified: 3, odd_state: 1 },
+        proposals: { pending: 2 },
+        steps: { seeded_paused_incomplete: 1 },
+        cross_seed_mode: 'disabled',
+      },
+    })
+    const wrapper = mount(OnboardingView)
+    await flushPromises()
+
+    const gotText = wrapper.text()
+
+    expect(gotText).toContain('Vérifiés : 3')
+    expect(gotText).toContain('En attente : 2')
+    expect(gotText).toContain('Ensemencée, en pause (incomplète) : 1')
+    expect(gotText).toContain('odd_state : 1')
   })
 
   it('OnboardingView_doesNotRedirectWhenEverythingIsFineAndUsed', async () => {

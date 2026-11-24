@@ -23,12 +23,16 @@ const filters = reactive({
 
 const FORCE_WARNING =
   'Le client va réécrire des octets dans des fichiers liés à la bibliothèque. Cette action n’est pas annulable.'
+const GROUP_DESCRIPTION =
+  'Accepte la proposition principale du groupe et, en mode cross-seed natif, les autres torrents vérifiés du même groupe.'
 const PARTIAL_PACK_WARNING =
   'Un pack partiel est incomplet : accepter ajoute un torrent dont des pièces manquent. Continuer ?'
 
 const forceTarget = ref<Proposal | undefined>(undefined)
 const partialTarget = ref<Proposal | undefined>(undefined)
 const chooseTarget = ref<Proposal | undefined>(undefined)
+const groupTarget = ref<Proposal | undefined>(undefined)
+const groupOpen = ref(false)
 const forceOpen = ref(false)
 const partialOpen = ref(false)
 
@@ -63,6 +67,11 @@ function accept(proposal: Proposal): void {
 function askForce(proposal: Proposal): void {
   forceTarget.value = proposal
   forceOpen.value = true
+}
+
+function askGroup(proposal: Proposal): void {
+  groupTarget.value = proposal
+  groupOpen.value = true
 }
 
 function choose(proposal: Proposal, candidateId: number): void {
@@ -143,11 +152,18 @@ onMounted(load)
         @reject="(target) => act(() => api.reject(target.id), 'Proposition rejetée.')"
         @choose="(target) => (chooseTarget = target)"
         @force="askForce"
-        @accept-group="(target) => act(() => api.acceptGroup(target.group_id), 'Groupe accepté.')"
+        @accept-group="askGroup"
       />
     </ul>
 
     <ChooseDialog :proposal="chooseTarget" @choose="choose" @close="chooseTarget = undefined" />
+    <ConfirmDialog
+      v-model:open="groupOpen"
+      title="Accepter le groupe ?"
+      :description="GROUP_DESCRIPTION"
+      confirm-label="Accepter le groupe"
+      @confirm="groupTarget && act(() => api.acceptGroup(groupTarget!.group_id), 'Groupe accepté.')"
+    />
     <ConfirmDialog
       v-model:open="forceOpen"
       title="Forcer l’ajout du partiel ?"

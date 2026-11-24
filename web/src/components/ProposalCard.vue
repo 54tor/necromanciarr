@@ -39,12 +39,7 @@ const fileSummary = computed(() => {
 </script>
 
 <template>
-  <li
-    class="grid gap-3 rounded-lg border bg-card p-4"
-    :class="{ 'opacity-60': !proposal.current }"
-    :data-testid="`proposal-${proposal.id}`"
-    :aria-disabled="!proposal.current"
-  >
+  <li class="grid gap-3 rounded-lg border bg-card p-4" :data-testid="`proposal-${proposal.id}`">
     <div class="flex flex-wrap items-start justify-between gap-2">
       <div class="min-w-0">
         <h3 class="break-words font-medium">{{ proposal.candidate_name }}</h3>
@@ -58,7 +53,7 @@ const fileSummary = computed(() => {
         <Badge variant="outline" data-testid="kind">{{ KIND_LABELS[proposal.kind] }}</Badge>
         <Badge variant="secondary">{{ DECISION_LABELS[proposal.decision] }}</Badge>
         <Badge v-if="proposal.step" variant="secondary">{{ STEP_LABELS[proposal.step] }}</Badge>
-        <Badge v-if="!proposal.current" variant="destructive" data-testid="stale">Périmée</Badge>
+        <Badge v-if="!proposal.current" variant="destructive" data-testid="stale">Obsolète</Badge>
       </div>
     </div>
 
@@ -113,7 +108,7 @@ const fileSummary = computed(() => {
         Choisir un candidat
       </Button>
       <Button
-        v-if="isConflict"
+        v-if="proposal.primary"
         size="sm"
         variant="secondary"
         data-action="proposals accept-group"
