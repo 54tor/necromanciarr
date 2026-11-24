@@ -320,3 +320,188 @@ func TestRun_unknownStageIsAnError(t *testing.T) {
 		t.Fatalf("gotValue %v, expectedValue ErrStageNotImplemented", err)
 	}
 }
+
+func lockLostDeps(stealing *lockStealingStore, provider Searcher) Deps {
+	return Deps{Store: stealing, Provider: provider, Now: func() time.Time { return fixedNow }, LockTTL: 30 * time.Millisecond}
+}
+
+func TestRun_stopsTheStageWhenTheLockIsStolen(t *testing.T) {
+	mediaStore := openTestStore(t)
+	addMediaFile(t, mediaStore, "/home/u/media/a.mkv", 100, 1)
+	addMediaFile(t, mediaStore, "/home/u/media/b.mkv", 200, 2)
+	provider := &blockingProvider{firstReleases: []libraryprovider.Release{release(hashA, "t1", 1, 100)}}
+	stealing := &lockStealingStore{Store: mediaStore}
+
+	_, err := Run(context.Background(), StageMatch, lockLostDeps(stealing, provider))
+
+	if !errors.Is(err, ErrLockLost) {
+		t.Fatalf("gotValue %v, expectedValue ErrLockLost", err)
+	}
+	if gotCount := len(candidatesByHash(t, mediaStore)); gotCount != 0 {
+		t.Fatalf("gotValue %d candidates written after losing the lock, expectedValue 0", gotCount)
+	}
+	if err := mediaStore.AcquireRunLock(context.Background(), "probe", "scan", fixedNow, fixedNow.Add(time.Minute)); !errors.Is(err, store.ErrRunLocked) {
+		t.Fatalf("gotValue %v, expectedValue the thief's lock left in place", err)
+	}
+}
+
+func TestRun_stopsTheStageAfterThreeRefreshFailures(t *testing.T) {
+	mediaStore := openTestStore(t)
+	addMediaFile(t, mediaStore, "/home/u/media/a.mkv", 100, 1)
+	addMediaFile(t, mediaStore, "/home/u/media/b.mkv", 200, 2)
+	stealing := &lockStealingStore{Store: mediaStore, refreshFailure: errFakeRefresh}
+
+	_, err := Run(context.Background(), StageMatch, lockLostDeps(stealing, &blockingProvider{}))
+
+	if !errors.Is(err, ErrLockLost) {
+		t.Fatalf("gotValue %v, expectedValue ErrLockLost", err)
+	}
+}
+
+func TestRun_tinyLockTTLDoesNotPanic(t *testing.T) {
+	deps := matchDeps(openTestStore(t), &fakeProvider{})
+	deps.LockTTL = time.Nanosecond
+	if _, err := Run(context.Background(), StageMatch, deps); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// packUnderTwoIDs prépare un pack trouvé par deux groupes : un fichier TMDB et un fichier TVDB.
+func packUnderTwoIDs(t *testing.T, mediaStore *store.Store) libraryprovider.Release {
+	t.Helper()
+	addMediaFile(t, mediaStore, "/home/u/media/film.mkv", 100, 1)
+	addEpisodeFile(t, mediaStore, "/home/u/media/episode.mkv", 200, 5)
+	pack := release(hashA, "t1", 1, 100, 200)
+	pack.TVDBID = 5
+	return pack
+}
+
+func assertCandidateFileCount(t *testing.T, mediaStore *store.Store, infohash string, expectedValue int) {
+	t.Helper()
+	files, err := mediaStore.ListCandidateFiles(context.Background(), candidatesByHash(t, mediaStore)[infohash].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotValue := 0
+	for _, file := range files {
+		if file.MediaFileID != 0 {
+			gotValue++
+		}
+	}
+	if gotValue != expectedValue {
+		t.Fatalf("gotValue %d associated files, expectedValue %d", gotValue, expectedValue)
+	}
+}
+
+func TestMatchStage_savesAReleaseFoundByTwoGroupsOnceAndKeepsItsVerification(t *testing.T) {
+	ctx := context.Background()
+	mediaStore := openTestStore(t)
+	pack := packUnderTwoIDs(t, mediaStore)
+	deps := matchDeps(mediaStore, &fakeProvider{honourSizes: true, releases: []libraryprovider.Release{pack}})
+	firstResult, err := Run(ctx, StageMatch, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstResult.CandidatesCreated != 1 || firstResult.CandidatesUpdated != 0 {
+		t.Fatalf("gotValue %+v, expectedValue one creation and no update", firstResult)
+	}
+	assertCandidateFileCount(t, mediaStore, hashA, 2)
+	candidateID := candidatesByHash(t, mediaStore)[hashA].ID
+	for _, state := range []store.CandidateState{store.CandidateFetched, store.CandidateVerified} {
+		if err := mediaStore.SetCandidateState(ctx, candidateID, state, fixedNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	verification := store.Verification{CandidateID: candidateID, TotalPieces: 1, VerifiedPieces: 1, State: store.VerificationComplete}
+	if err := mediaStore.SaveVerification(ctx, verification, fixedNow); err != nil {
+		t.Fatal(err)
+	}
+
+	secondResult, err := Run(ctx, StageMatch, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, verificationKept, err := mediaStore.LoadVerification(ctx, candidateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotState := candidatesByHash(t, mediaStore)[hashA].State
+	if secondResult.CandidatesUnchanged != 1 || secondResult.CandidatesUpdated != 0 || gotState != store.CandidateVerified || !verificationKept {
+		t.Fatalf("gotValue %+v state %s verification kept %v", secondResult, gotState, verificationKept)
+	}
+}
+
+func TestMatchStage_rerunAfterAStopCompletesWithoutResettingVerifiedCandidates(t *testing.T) {
+	ctx := context.Background()
+	mediaStore := openTestStore(t)
+	pack := packUnderTwoIDs(t, mediaStore)
+	rateLimited := &libraryprovider.RateLimitedError{RetryAfter: time.Second}
+	stopping := &fakeProvider{honourSizes: true, releases: []libraryprovider.Release{pack}, failOnCall: 2, failure: rateLimited}
+	if _, err := Run(ctx, StageMatch, matchDeps(mediaStore, stopping)); err == nil {
+		t.Fatal("expectedValue the rate limit to stop the first run")
+	}
+	assertCandidateFileCount(t, mediaStore, hashA, 1)
+
+	complete := matchDeps(mediaStore, &fakeProvider{honourSizes: true, releases: []libraryprovider.Release{pack}})
+	completedResult, err := Run(ctx, StageMatch, complete)
+	if err != nil || completedResult.CandidatesUpdated != 1 {
+		t.Fatalf("gotValue %+v %v, expectedValue the association completed", completedResult, err)
+	}
+	assertCandidateFileCount(t, mediaStore, hashA, 2)
+	candidateID := candidatesByHash(t, mediaStore)[hashA].ID
+	for _, state := range []store.CandidateState{store.CandidateFetched, store.CandidateVerified} {
+		if err := mediaStore.SetCandidateState(ctx, candidateID, state, fixedNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stoppedAgain := &fakeProvider{honourSizes: true, releases: []libraryprovider.Release{pack}, failOnCall: 2, failure: rateLimited}
+	stoppedResult, _ := Run(ctx, StageMatch, matchDeps(mediaStore, stoppedAgain))
+	idempotentResult, err := Run(ctx, StageMatch, complete)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotState := candidatesByHash(t, mediaStore)[hashA].State
+	if stoppedResult.Reasons[ReasonUpdateDeferred] != 1 || idempotentResult.CandidatesUnchanged != 1 || gotState != store.CandidateVerified {
+		t.Fatalf("gotValue stopped %+v rerun %+v state %s", stoppedResult, idempotentResult, gotState)
+	}
+}
+
+func TestScanStage_keepsIDsWhenArrPathsMatchNothing(t *testing.T) {
+	ctx := context.Background()
+	mediaStore := openTestStore(t)
+	root := t.TempDir()
+	moviePath := writeMediaFile(t, root, "movies/Film.mkv", 10)
+	if _, err := Run(ctx, StageScan, scanDeps(mediaStore, root, fakeArr{items: []arr.Item{{Path: moviePath, TMDBID: 603}}})); err != nil {
+		t.Fatal(err)
+	}
+	misconfigured := fakeArr{items: []arr.Item{{Path: "/unmapped/movies/Film.mkv", TMDBID: 603}}}
+
+	gotResult, err := Run(ctx, StageScan, scanDeps(mediaStore, root, misconfigured))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if gotValue := mediaFilesByPath(t, mediaStore)[moviePath].TMDBID; gotValue != 603 || gotResult.Reasons[ReasonArrPathsMatchedNothing] != 1 {
+		t.Fatalf("gotValue tmdb %d result %+v, expectedValue ids kept and the reason counted", gotValue, gotResult)
+	}
+}
+
+func TestScanStage_countsConflictingIDsAndKeepsTheFirst(t *testing.T) {
+	mediaStore := openTestStore(t)
+	root := t.TempDir()
+	moviePath := writeMediaFile(t, root, "movies/Film.mkv", 10)
+	first := fakeArr{items: []arr.Item{{Path: moviePath, TMDBID: 603}}}
+	second := fakeArr{items: []arr.Item{{Path: moviePath, TMDBID: 604}}}
+
+	gotResult, err := Run(context.Background(), StageScan, scanDeps(mediaStore, root, first, second))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if gotValue := mediaFilesByPath(t, mediaStore)[moviePath].TMDBID; gotValue != 603 || gotResult.Reasons[ReasonConflictingIDs] != 1 {
+		t.Fatalf("gotValue tmdb %d result %+v", gotValue, gotResult)
+	}
+}

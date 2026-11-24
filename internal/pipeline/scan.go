@@ -19,6 +19,8 @@ const (
 	ReasonChangedFileInvalidated = "changed_file_invalidated"
 	ReasonEmptyRootNotPruned     = "empty_root_not_pruned"
 	ReasonArrPathOutsideLibrary  = "arr_path_outside_library"
+	ReasonArrPathsMatchedNothing = "arr_paths_matched_nothing"
+	ReasonConflictingIDs         = "conflicting_ids"
 )
 
 // maxUnidentifiedSamples borne la liste des noms de fichiers sans identifiant renvoyée dans le Result.
@@ -45,11 +47,11 @@ func runScan(ctx context.Context, deps Deps) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-	idsByPath, err := collectArrIDs(ctx, deps)
+	idsByPath, keepKnownIDs, err := collectArrIDs(ctx, deps, &result, current)
 	if err != nil {
 		return result, err
 	}
-	return result, joinExternalIDs(ctx, deps, &result, current, idsByPath)
+	return result, joinExternalIDs(ctx, deps, &result, current, idsByPath, keepKnownIDs)
 }
 
 // refreshInventory invalide tout candidat d'un fichier changé depuis le dernier inventaire, retire les fichiers
@@ -142,21 +144,54 @@ func vanishedFiles(files []store.MediaFile) []store.MediaFile {
 	return vanished
 }
 
-// collectArrIDs indexe les identifiants des instances par chemin, traduit de la vue de l'instance vers la nôtre.
-func collectArrIDs(ctx context.Context, deps Deps) (map[string]externalIDs, error) {
-	idsByPath := map[string]externalIDs{}
+// collectArrIDs indexe les identifiants des instances par chemin, traduit de la vue de l'instance vers la nôtre ; deux
+// instances en désaccord gardent la première valeur vue (raison conflicting_ids). keepKnownIDs est vrai si une instance
+// a renvoyé des fichiers sans qu'aucun chemin ne corresponde à la bibliothèque alors que des fichiers avaient déjà des
+// identifiants : règle de chemins fausse ou montage absent, les effacer serait une perte.
+func collectArrIDs(ctx context.Context, deps Deps, result *Result, files []store.MediaFile) (idsByPath map[string]externalIDs, keepKnownIDs bool, err error) {
+	libraryPaths := map[string]bool{}
+	anyIdentified := false
+	for _, file := range files {
+		libraryPaths[normalizePath(file.Path)] = true
+		anyIdentified = anyIdentified || file.TMDBID != 0 || file.TVDBID != 0
+	}
+	idsByPath = map[string]externalIDs{}
 	for sourceIndex, source := range deps.ArrSources {
 		items, err := source.Items(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("arr source %d: %w", sourceIndex, err)
+			return nil, false, fmt.Errorf("arr source %d: %w", sourceIndex, err)
 		}
+		matchedItems := 0
 		for _, item := range items {
 			localPath := normalizePath(deps.localPath(item.Path))
-			known := idsByPath[localPath]
-			idsByPath[localPath] = externalIDs{tmdbID: max(known.tmdbID, item.TMDBID), tvdbID: max(known.tvdbID, item.TVDBID)}
+			if libraryPaths[localPath] {
+				matchedItems++
+			}
+			mergeIDs(result, idsByPath, localPath, item.TMDBID, item.TVDBID)
+		}
+		if len(items) > 0 && matchedItems == 0 && anyIdentified {
+			result.count(ReasonArrPathsMatchedNothing, 1)
+			keepKnownIDs = true
 		}
 	}
-	return idsByPath, nil
+	return idsByPath, keepKnownIDs, nil
+}
+
+func mergeIDs(result *Result, idsByPath map[string]externalIDs, localPath string, tmdbID, tvdbID int) {
+	known := idsByPath[localPath]
+	merged := known
+	if known.tmdbID == 0 {
+		merged.tmdbID = tmdbID
+	}
+	if known.tvdbID == 0 {
+		merged.tvdbID = tvdbID
+	}
+	tmdbConflict := known.tmdbID != 0 && tmdbID != 0 && known.tmdbID != tmdbID
+	tvdbConflict := known.tvdbID != 0 && tvdbID != 0 && known.tvdbID != tvdbID
+	if tmdbConflict || tvdbConflict {
+		result.count(ReasonConflictingIDs, 1)
+	}
+	idsByPath[localPath] = merged
 }
 
 // localPath traduit un chemin externe ; sans règle applicable, le service voit le même chemin que nous.
@@ -175,15 +210,17 @@ func normalizePath(original string) string {
 	return filepath.Clean(filepath.FromSlash(original))
 }
 
-// joinExternalIDs reporte les identifiants sur les fichiers ; sans instance configurée, les identifiants connus restent.
-func joinExternalIDs(ctx context.Context, deps Deps, result *Result, files []store.MediaFile, idsByPath map[string]externalIDs) error {
+// joinExternalIDs reporte les identifiants sur les fichiers ; sans instance configurée, ou si keepKnownIDs, un
+// fichier absent des instances garde ses identifiants.
+func joinExternalIDs(ctx context.Context, deps Deps, result *Result, files []store.MediaFile, idsByPath map[string]externalIDs, keepKnownIDs bool) error {
 	matchedPaths := 0
 	for _, file := range files {
 		ids, found := idsByPath[normalizePath(file.Path)]
 		if found {
 			matchedPaths++
 		}
-		if len(deps.ArrSources) > 0 && (ids.tmdbID != file.TMDBID || ids.tvdbID != file.TVDBID) {
+		mayClear := len(deps.ArrSources) > 0 && !keepKnownIDs
+		if (found || mayClear) && (ids.tmdbID != file.TMDBID || ids.tvdbID != file.TVDBID) {
 			if err := deps.Store.SetMediaFileIDs(ctx, file.ID, ids.tmdbID, ids.tvdbID); err != nil {
 				return err
 			}

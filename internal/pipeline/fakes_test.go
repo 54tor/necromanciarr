@@ -115,3 +115,47 @@ func candidatesByHash(t *testing.T, mediaStore *store.Store) map[string]store.Ca
 	}
 	return byHash
 }
+
+// lockStealingStore laisse un autre détenteur reprendre le verrou à la première prolongation, ou fait échouer toutes
+// les prolongations si refreshFailure est posé.
+type lockStealingStore struct {
+	*store.Store
+	refreshFailure error
+}
+
+var errFakeRefresh = errors.New("fake store: refresh failed")
+
+func (stealing *lockStealingStore) RefreshRunLock(ctx context.Context, holder string, expiresAt time.Time) error {
+	if stealing.refreshFailure != nil {
+		return stealing.refreshFailure
+	}
+	if err := stealing.ReleaseRunLock(ctx, holder); err != nil {
+		return err
+	}
+	if err := stealing.AcquireRunLock(ctx, "thief", "verify", fixedNow, fixedNow.Add(time.Hour)); err != nil {
+		return err
+	}
+	return stealing.Store.RefreshRunLock(ctx, holder, expiresAt)
+}
+
+// blockingProvider répond au premier appel puis attend l'annulation du contexte.
+type blockingProvider struct {
+	firstReleases []libraryprovider.Release
+	calls         int
+}
+
+func (provider *blockingProvider) Search(ctx context.Context, _ libraryprovider.Query) ([]libraryprovider.Release, error) {
+	provider.calls++
+	if provider.calls == 1 {
+		return provider.firstReleases, nil
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func addEpisodeFile(t *testing.T, mediaStore *store.Store, path string, size int64, tvdbID int) {
+	t.Helper()
+	if err := mediaStore.UpsertMediaFile(context.Background(), store.MediaFile{Path: path, Size: size, ModTime: fixedNow, TVDBID: tvdbID}); err != nil {
+		t.Fatal(err)
+	}
+}
