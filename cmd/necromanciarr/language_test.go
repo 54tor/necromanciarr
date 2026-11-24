@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"necromanciarr/internal/app"
+	"necromanciarr/internal/doctor"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
@@ -94,6 +95,7 @@ func TestJSONOutput_onlyTextFieldsDifferBetweenLanguages(t *testing.T) {
 		{"status", func() *fakeService { return &fakeService{status: app.Status{CrossSeedMode: "delegate"}} }, []string{"status"}},
 		{"proposals list", func() *fakeService { return &fakeService{proposals: proposals} }, []string{"proposals", "list"}},
 		{"doctor", func() *fakeService { return &fakeService{} }, []string{"doctor"}},
+		{"doctor with findings", func() *fakeService { return &fakeService{doctorReport: &doctorFindingsReport} }, []string{"doctor"}},
 		{"stage", func() *fakeService { return &fakeService{} }, []string{"scan"}},
 		{"refused", func() *fakeService { return &fakeService{err: app.ErrConflictNeedsChoose} }, []string{"proposals", "accept", "999"}},
 		{"stale", func() *fakeService { return &fakeService{err: fmt.Errorf("%w: generation 3", app.ErrStaleProposal)} }, []string{"proposals", "accept", "999"}},
@@ -300,5 +302,36 @@ func TestApiKeyHint_followsTheLanguage(t *testing.T) {
 		if exitCode != successExitCode || !strings.Contains(stderr.String(), expectedValue) {
 			t.Fatalf("%s: gotValue %d %q, expectedValue %q", language, exitCode, stderr.String(), expectedValue)
 		}
+	}
+}
+
+var doctorFindingsReport = doctor.Report{Worst: doctor.Fail, Checks: []doctor.Outcome{
+	{ID: "config", TitleKey: i18n.KeyDoctorTitleConfig, Result: doctor.Result{
+		Status: doctor.Warn, Code: doctor.CodeWorkingDirDotEnv,
+		Detail: i18n.Message{Key: i18n.KeyDoctorConfigDotEnv, Params: map[string]string{"dir": "/home/u/config"}},
+		Hint:   i18n.Message{Key: i18n.KeyDoctorConfigDotEnvHint},
+	}},
+	{ID: "arr:radarr:0", TitleKey: i18n.KeyDoctorTitleArr, TitleParams: map[string]string{"kind": "radarr", "index": "0"}, Result: doctor.Result{
+		Status: doctor.Fail, Code: doctor.CodeArrKeyRejected,
+		Detail: i18n.Message{Key: i18n.KeyDoctorArrKeyRejected}, Hint: i18n.Message{Key: i18n.KeyDoctorArrKeyRejectedHint},
+	}},
+	{ID: "library-roots", TitleKey: i18n.KeyDoctorTitleLibraryRoots, Result: doctor.Result{
+		Status: doctor.Warn, Code: doctor.CodeRootEmpty,
+		Details: []i18n.Message{{Key: i18n.KeyDoctorRootNoMedia, Params: map[string]string{"root": "/srv/media", "entries": "3"}}},
+	}},
+}}
+
+func TestDoctorConfigFailure_codeIsStableAndTextFollowsTheLanguage(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{"bogus": 1}`)
+
+	frenchTree := jsonOf(t, configDir, "fr", &fakeService{}, "doctor")
+	englishTree := jsonOf(t, configDir, "en", &fakeService{}, "doctor")
+
+	for _, difference := range compareJSONTrees("doctor config failure", frenchTree, englishTree) {
+		t.Error(difference)
+	}
+	code := englishTree.(map[string]any)["checks"].([]any)[0].(map[string]any)["code"]
+	if code != "config_invalid" {
+		t.Fatalf("gotValue code %v, expectedValue config_invalid", code)
 	}
 }

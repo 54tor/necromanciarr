@@ -457,13 +457,18 @@ func runDoctor(ctx context.Context, call *invocation) (output, error) {
 }
 
 func doctorOutput(translator i18n.Translator, report doctor.Report) output {
-	return output{jsonValue: report, exitCode: doctor.ExitCode(report), text: func(writer io.Writer) { writeDoctorReport(writer, translator, report) }}
+	rendered := doctor.Render(report, translator)
+	return output{jsonValue: rendered, exitCode: doctor.ExitCode(report), text: func(writer io.Writer) { writeDoctorReport(writer, translator, rendered) }}
 }
 
 // doctorConfigFailure remplace tous les contrôles par un seul : sans configuration valide, les autres n'ont pas de sens.
 func doctorConfigFailure(translator i18n.Translator, loadErr error) output {
-	check := doctor.Check{ID: doctor.IDConfig, Title: "Configuration", Run: func(context.Context) doctor.Result {
-		return doctor.Result{Status: doctor.Fail, Detail: loadErr.Error(), Hint: "fix the configuration, then run `necromanciarr config check`"}
+	check := doctor.Check{ID: doctor.IDConfig, TitleKey: i18n.KeyDoctorTitleConfig, Run: func(context.Context) doctor.Result {
+		return doctor.Result{
+			Status: doctor.Fail, Code: doctor.CodeConfigInvalid,
+			Detail: i18n.Message{Key: i18n.KeyDoctorConfigLoadFailed, Params: map[string]string{"error": loadErr.Error()}},
+			Hint:   i18n.Message{Key: i18n.KeyDoctorConfigLoadFailedHint},
+		}
 	}}
 	return doctorOutput(translator, doctor.Run(context.Background(), []doctor.Check{check}))
 }

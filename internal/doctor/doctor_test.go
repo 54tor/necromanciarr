@@ -15,6 +15,7 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/hashsource"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/library"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/linker"
@@ -23,10 +24,10 @@ import (
 )
 
 func fixedCheck(id string, status Status) Check {
-	return Check{ID: id, Title: id, Run: func(context.Context) Result { return Result{Status: status, Detail: id} }}
+	return Check{ID: id, TitleKey: i18n.KeyDoctorTitleConfig, Run: func(context.Context) Result { return Result{Status: status, Code: CodeOK} }}
 }
 
-func resultOf(t *testing.T, report Report, id string) NamedResult {
+func resultOf(t *testing.T, report Report, id string) Outcome {
 	t.Helper()
 	for _, named := range report.Checks {
 		if named.ID == id {
@@ -34,7 +35,7 @@ func resultOf(t *testing.T, report Report, id string) NamedResult {
 		}
 	}
 	t.Fatalf("check %q missing from report %+v", id, report)
-	return NamedResult{}
+	return Outcome{}
 }
 
 func TestRun_reportsWorstStatusAndExitCode(t *testing.T) {
@@ -65,25 +66,25 @@ func TestRun_reportsWorstStatusAndExitCode(t *testing.T) {
 }
 
 func TestRun_contextTimeoutTurnsCheckIntoFailWithoutBlockingOthers(t *testing.T) {
-	blocking := Check{ID: "slow", Title: "slow", Run: func(ctx context.Context) Result {
+	blocking := Check{ID: "slow", TitleKey: i18n.KeyDoctorTitleConfig, Run: func(ctx context.Context) Result {
 		<-ctx.Done()
-		return Result{Status: OK}
+		return Result{Status: OK, Code: CodeOK}
 	}}
 
 	report := Run(context.Background(), []Check{blocking, fixedCheck("next", OK)}, WithTimeout(20*time.Millisecond))
 
-	if resultOf(t, report, "slow").Status != Fail || resultOf(t, report, "next").Status != OK {
+	if resultOf(t, report, "slow").Result.Status != Fail || resultOf(t, report, "next").Result.Status != OK {
 		t.Fatalf("gotValue %+v", report)
 	}
 }
 
 func TestRun_checkPanicIsReportedAsFail(t *testing.T) {
-	panicking := Check{ID: "boom", Title: "boom", Run: func(context.Context) Result { panic("kaboom") }}
+	panicking := Check{ID: "boom", TitleKey: i18n.KeyDoctorTitleConfig, Run: func(context.Context) Result { panic("kaboom") }}
 
 	report := Run(context.Background(), []Check{panicking, fixedCheck("next", OK)})
 
 	boom := resultOf(t, report, "boom")
-	if boom.Status != Fail || !strings.Contains(boom.Detail, "(string)") || resultOf(t, report, "next").Status != OK {
+	if boom.Result.Status != Fail || !strings.Contains(detailOf(boom.Result), "(string)") || resultOf(t, report, "next").Result.Status != OK {
 		t.Fatalf("gotValue %+v", report)
 	}
 }
@@ -94,7 +95,7 @@ func TestRun_cancelledContextSkipsRemainingChecks(t *testing.T) {
 
 	report := Run(ctx, []Check{fixedCheck("a", OK)})
 
-	if resultOf(t, report, "a").Status != Skipped {
+	if resultOf(t, report, "a").Result.Status != Skipped {
 		t.Fatalf("gotValue %+v", report)
 	}
 }
@@ -126,7 +127,7 @@ func TestChecks_libraryApiWarnsWhenSizeFilterIgnored(t *testing.T) {
 	gotIgnoring := checkLibraryAPI(context.Background(), settings, depsWithSearcher(ignoring).withDefaults())
 	gotHonoring := checkLibraryAPI(context.Background(), settings, depsWithSearcher(honoring).withDefaults())
 
-	if gotIgnoring.Status != Warn || gotIgnoring.Hint == "" {
+	if gotIgnoring.Status != Warn || hintOf(gotIgnoring) == "" {
 		t.Fatalf("ignoring: gotValue %+v", gotIgnoring)
 	}
 	if gotHonoring.Status != OK {
@@ -141,7 +142,7 @@ func TestChecks_libraryApiReportsTypedErrorClassWithoutBody(t *testing.T) {
 
 	got := checkLibraryAPI(context.Background(), config.Config{LibraryAPI: "http://example.com"}, depsWithSearcher(denied).withDefaults())
 
-	if got.Status != Fail || !strings.Contains(got.Detail, "access denied") || strings.Contains(got.Detail, "SECRETBODY") {
+	if got.Status != Fail || !strings.Contains(detailOf(got), "access denied") || strings.Contains(detailOf(got), "SECRETBODY") {
 		t.Fatalf("gotValue %+v", got)
 	}
 }
@@ -161,7 +162,7 @@ func TestChecks_linkFeasibilityNamesSameVolumeFixOnCrossDevice(t *testing.T) {
 
 	got := checkLinkFeasibility(settings, deps)
 
-	if got.Status != Fail || !strings.Contains(got.Hint, "same mounted volume") {
+	if got.Status != Fail || !strings.Contains(hintOf(got), "same mounted volume") {
 		t.Fatalf("gotValue %+v", got)
 	}
 }
@@ -190,7 +191,7 @@ func TestChecks_linkFeasibilityDoesNotProbeInsideLibraryRoot(t *testing.T) {
 	if !reflect.DeepEqual(probed, []string{outside}) {
 		t.Fatalf("expectedValue [%s], gotValue %v", outside, probed)
 	}
-	if got.Status != Fail || !strings.Contains(got.Detail, "dans une racine de bibliothèque") {
+	if got.Status != Fail || !strings.Contains(detailOf(got), "inside a library root") {
 		t.Fatalf("gotValue %+v", got)
 	}
 }
@@ -216,7 +217,7 @@ func TestChecks_linkFeasibilityNeverProbesThroughSymlinkIntoLibraryRoot(t *testi
 
 	got := checkLinkFeasibility(settings, deps)
 
-	if got.Status != Fail || !strings.Contains(got.Detail, "dans une racine de bibliothèque") {
+	if got.Status != Fail || !strings.Contains(detailOf(got), "inside a library root") {
 		t.Fatalf("gotValue %+v", got)
 	}
 }
@@ -229,7 +230,7 @@ func TestChecks_linkFeasibilityReportsMissingDirectoryWithoutProbing(t *testing.
 
 	got := checkLinkFeasibility(config.Config{LinkDirs: []string{"/home/u/absent-links"}, LinkType: "hardlink"}, deps)
 
-	if got.Status != Fail || !strings.Contains(got.Detail, "résolu") {
+	if got.Status != Fail || !strings.Contains(detailOf(got), "cannot be resolved") {
 		t.Fatalf("gotValue %+v", got)
 	}
 }
@@ -245,7 +246,7 @@ func TestChecks_configDirRefusesDatabaseInsideLibraryRoot(t *testing.T) {
 
 	got := checkConfigDir(settings, deps)
 
-	if got.Status != Fail || opened || got.Hint == "" {
+	if got.Status != Fail || opened || hintOf(got) == "" {
 		t.Fatalf("opened %v, gotValue %+v", opened, got)
 	}
 }
@@ -287,7 +288,7 @@ func TestChecks_libraryRootsFollowSymlinksAndSkipUnreadableSubdirectories(t *tes
 	}
 	got := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{unreadableRoot}})
 	isRoot := os.Geteuid() == 0
-	if got.Status != OK || (!isRoot && !strings.Contains(got.Detail, "1 unreadable subdirectories skipped")) {
+	if got.Status != OK || (!isRoot && !strings.Contains(detailOf(got), "unreadable subdirectories skipped: 1")) {
 		t.Fatalf("unreadable subdirectory: gotValue %+v", got)
 	}
 }
@@ -303,7 +304,7 @@ func TestChecks_libraryApiSizeFilterIsNotVerifiableWithoutUsableResults(t *testi
 
 			got := checkLibraryAPI(context.Background(), config.Config{LibraryAPI: "http://example.com"}, depsWithSearcher(searcher).withDefaults())
 
-			if got.Status != OK || !strings.Contains(got.Detail, "non vérifiable") {
+			if got.Status != OK || !strings.Contains(detailOf(got), "not verifiable") {
 				t.Fatalf("gotValue %+v", got)
 			}
 		})
@@ -318,23 +319,23 @@ func TestRun_panicMessageNeverLeaksABareSecret(t *testing.T) {
 	report := Run(context.Background(), Build(settings, deps))
 
 	arrResult := resultOf(t, report, "arr:radarr:0")
-	rendered, _ := MarshalJSONReport(report)
-	if arrResult.Status != Fail || strings.Contains(string(rendered), bareSecret) || !strings.Contains(arrResult.Detail, "check panicked") {
+	rendered, _ := MarshalJSONReport(report, englishTranslator)
+	if arrResult.Result.Status != Fail || strings.Contains(string(rendered), bareSecret) || !strings.Contains(detailOf(arrResult.Result), "check panicked") {
 		t.Fatalf("gotValue %s", rendered)
 	}
 }
 
 func TestRun_parentCancellationDuringCheckIsSkipped(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	blocking := Check{ID: "slow", Title: "slow", Run: func(checkCtx context.Context) Result {
+	blocking := Check{ID: "slow", TitleKey: i18n.KeyDoctorTitleConfig, Run: func(checkCtx context.Context) Result {
 		cancel()
 		<-checkCtx.Done()
-		return Result{Status: OK}
+		return Result{Status: OK, Code: CodeOK}
 	}}
 
 	report := Run(ctx, []Check{blocking})
 
-	if resultOf(t, report, "slow").Status != Skipped || ExitCode(report) != 0 {
+	if resultOf(t, report, "slow").Result.Status != Skipped || ExitCode(report) != 0 {
 		t.Fatalf("gotValue %+v", report)
 	}
 }
@@ -353,7 +354,7 @@ func TestChecks_crossSeedWarnsWhenDaemonUnreachableInDelegateMode(t *testing.T) 
 
 	got := checkCrossSeed(context.Background(), settings, deps)
 
-	if got.Status != Warn || !strings.Contains(got.Hint, "unreachable") {
+	if got.Status != Warn || !strings.Contains(hintOf(got), "unreachable") {
 		t.Fatalf("gotValue %+v", got)
 	}
 }
@@ -414,7 +415,7 @@ func TestChecks_libraryRootsAreNeverWritten(t *testing.T) {
 
 	report := Run(context.Background(), Build(settings, deps))
 
-	if resultOf(t, report, IDLibraryRoots).Status != OK {
+	if resultOf(t, report, IDLibraryRoots).Result.Status != OK {
 		t.Fatalf("gotValue %+v", resultOf(t, report, IDLibraryRoots))
 	}
 	if after := snapshotTree(t, libraryRoot); !reflect.DeepEqual(before, after) {
@@ -427,7 +428,7 @@ func TestChecks_libraryRootsWarnsWhenEmptyAndFailsWhenMissing(t *testing.T) {
 
 	got := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{emptyRoot, filepath.Join(emptyRoot, "absent")}})
 
-	if got.Status != Fail || !strings.Contains(got.Detail, "no media file") || !strings.Contains(got.Detail, "not found") {
+	if got.Status != Fail || !strings.Contains(detailOf(got), "no media file") || !strings.Contains(detailOf(got), "not found") {
 		t.Fatalf("gotValue %+v", got)
 	}
 }
@@ -467,17 +468,17 @@ func TestChecks_arrAndQbittorrentReportServiceState(t *testing.T) {
 
 	report := Run(context.Background(), Build(settings, deps))
 
-	if resultOf(t, report, "arr:radarr:0").Status != OK {
+	if resultOf(t, report, "arr:radarr:0").Result.Status != OK {
 		t.Fatalf("arr: %+v", resultOf(t, report, "arr:radarr:0"))
 	}
 	qbitResult := resultOf(t, report, IDQbittorrent)
-	for _, expectedFragment := range []string{"API 2.9.3", "3 torrents", "read-only", `type "deluge"`} {
-		if !strings.Contains(qbitResult.Detail, expectedFragment) {
+	for _, expectedFragment := range []string{"API 2.9.3", "torrents: 3", "read-only", `type "deluge"`} {
+		if !strings.Contains(detailOf(qbitResult.Result), expectedFragment) {
 			t.Fatalf("expectedValue %q in %+v", expectedFragment, qbitResult)
 		}
 	}
-	if qbitResult.Status != Warn {
-		t.Fatalf("gotValue %v", qbitResult.Status)
+	if qbitResult.Result.Status != Warn {
+		t.Fatalf("gotValue %v", qbitResult.Result.Status)
 	}
 }
 
@@ -509,7 +510,7 @@ func TestChecks_fsProvidersAdviceBecomesWarnWithModTimeHint(t *testing.T) {
 
 	got := checkFSProviders(context.Background(), config.Config{FSProviders: []config.FSProvider{{Name: "remote"}}}, deps)
 
-	if got.Status != Warn || !strings.Contains(got.Hint, "no hash") || !strings.Contains(got.Hint, "write cache") {
+	if got.Status != Warn || !strings.Contains(hintOf(got), "no hash") || !strings.Contains(hintOf(got), "write cache") {
 		t.Fatalf("gotValue %+v", got)
 	}
 }
@@ -569,7 +570,7 @@ func TestReport_neverContainsSecrets(t *testing.T) {
 	}
 
 	report := Run(context.Background(), Build(settings, deps))
-	rendered, err := MarshalJSONReport(report)
+	rendered, err := MarshalJSONReport(report, englishTranslator)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +602,7 @@ func TestRun_panicSecretStraddlingTheCutIsFullyRedacted(t *testing.T) {
 
 	report := Run(context.Background(), Build(panicSettings(secret), panickingArrDeps(message)))
 
-	detail := resultOf(t, report, "arr:radarr:0").Detail
+	detail := detailOf(resultOf(t, report, "arr:radarr:0").Result)
 	if strings.Contains(detail, secret[:4]) {
 		t.Fatalf("fragment of the secret survived: %q", detail)
 	}
@@ -610,7 +611,7 @@ func TestRun_panicSecretStraddlingTheCutIsFullyRedacted(t *testing.T) {
 func TestRun_panicMessageIsCappedAt200Runes(t *testing.T) {
 	report := Run(context.Background(), Build(panicSettings("UNRELATEDTOKEN1"), panickingArrDeps(strings.Repeat("x", 500))))
 
-	if gotValue := strings.Count(resultOf(t, report, "arr:radarr:0").Detail, "x"); gotValue != maxPanicMessageRunes {
+	if gotValue := strings.Count(detailOf(resultOf(t, report, "arr:radarr:0").Result), "x"); gotValue != maxPanicMessageRunes {
 		t.Fatalf("expectedValue %d, gotValue %d", maxPanicMessageRunes, gotValue)
 	}
 }
@@ -700,7 +701,7 @@ func TestChecks_crossSeedWarnsWhenConfigJSReadThisToolsVariables(t *testing.T) {
 
 	got := checkCrossSeed(context.Background(), settings, Deps{}.withDefaults())
 
-	if got.Status != Warn || !strings.Contains(got.Detail+got.Hint, "NECROMANCIARR_AUTH_TOKEN") {
+	if got.Status != Warn || !strings.Contains(detailOf(got)+hintOf(got), "NECROMANCIARR_AUTH_TOKEN") {
 		t.Fatalf("gotValue %+v, expectedValue a warning naming the blocked variable", got)
 	}
 }
@@ -708,7 +709,7 @@ func TestChecks_crossSeedWarnsWhenConfigJSReadThisToolsVariables(t *testing.T) {
 func TestChecks_configWarnsWhenTheWorkingDirectoryDotEnvWasRead(t *testing.T) {
 	got := checkConfig(config.Config{ConfigDir: "/home/u/config", WorkingDirDotEnv: true})
 
-	if got.Status != Warn || !strings.Contains(got.Detail+got.Hint, ".env") {
+	if got.Status != Warn || !strings.Contains(detailOf(got)+hintOf(got), ".env") {
 		t.Fatalf("gotValue %+v, expectedValue a warning about the working directory .env", got)
 	}
 }
@@ -721,7 +722,7 @@ func TestChecks_qbittorrentCountsFromASinglePage(t *testing.T) {
 
 	got := checkQbittorrent(context.Background(), settings, deps)
 
-	if got.Status != OK || !strings.Contains(got.Detail, "at least 500 torrents") {
+	if got.Status != OK || !strings.Contains(detailOf(got), "torrents: at least 500") {
 		t.Fatalf("gotValue %+v, expectedValue a count bounded by one page", got)
 	}
 }
@@ -738,7 +739,7 @@ func TestChecks_qbittorrentShowsTheSeedCategoryAndTags(t *testing.T) {
 
 	gotValue := checkQbittorrent(context.Background(), settings, deps)
 
-	if gotValue.Status != OK || !strings.Contains(gotValue.Detail, expectedValue) {
+	if gotValue.Status != OK || !strings.Contains(detailOf(gotValue), expectedValue) {
 		t.Fatalf("gotValue %+v, expectedValue a detail containing %q", gotValue, expectedValue)
 	}
 }

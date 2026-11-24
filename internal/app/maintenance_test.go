@@ -451,7 +451,7 @@ func TestApp_doctorWrapsDoctorPackage(t *testing.T) {
 	ctx := context.Background()
 
 	report, err := service.Doctor(ctx, DoctorOptions{CheckIDs: []string{"library-roots"}})
-	if err != nil || len(report.Checks) != 1 || report.Checks[0].Status != doctor.OK || report.Worst != doctor.OK {
+	if err != nil || len(report.Checks) != 1 || report.Checks[0].Result.Status != doctor.OK || report.Worst != doctor.OK {
 		t.Fatalf("gotValue %+v %v, expectedValue one passing library check", report, err)
 	}
 	if _, err := service.Doctor(ctx, DoctorOptions{CheckIDs: []string{"nope"}}); !errors.Is(err, ErrUnknownCheck) || !strings.Contains(err.Error(), "library-roots") {
@@ -459,7 +459,7 @@ func TestApp_doctorWrapsDoctorPackage(t *testing.T) {
 	}
 	started := time.Now()
 	report, err = service.Doctor(ctx, DoctorOptions{CheckIDs: []string{"arr:radarr:0"}, Timeout: 20 * time.Millisecond})
-	if err != nil || report.Worst != doctor.Fail || !strings.Contains(report.Checks[0].Detail, "did not finish") || time.Since(started) > 5*time.Second {
+	if err != nil || report.Worst != doctor.Fail || report.Checks[0].Result.Code != doctor.CodeCheckTimeout || time.Since(started) > 5*time.Second {
 		t.Fatalf("gotValue %+v %v, expectedValue the check stopped by its timeout", report, err)
 	}
 }

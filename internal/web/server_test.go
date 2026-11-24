@@ -276,6 +276,22 @@ func TestServer_doctorRunsSynchronouslyOnlyByPost(t *testing.T) {
 	expectError(t, "unknown check", readBody(t, unknown), unknown.Code, http.StatusBadRequest, app.ErrorCodeUsage)
 }
 
+func TestServer_doctorReportCarriesCodeAndRenderedTitle(t *testing.T) {
+	handler := newTestHandler(t, &fakeService{}, loopbackSettings())
+
+	response := serve(handler, apiRequest(http.MethodPost, "/api/doctor/run", `{}`))
+
+	var decoded struct {
+		Checks []struct{ ID, Title, Status, Code, Detail string }
+	}
+	if err := json.Unmarshal([]byte(readBody(t, response)), &decoded); err != nil || len(decoded.Checks) != 1 {
+		t.Fatalf("gotValue %v, %+v", err, decoded)
+	}
+	if check := decoded.Checks[0]; check.ID != "config" || check.Title != "Configuration" || check.Code != "ok" {
+		t.Fatalf("gotValue %+v, expectedValue id config, title Configuration, code ok", check)
+	}
+}
+
 func TestServer_unknownApiRouteAndStageAreJSONErrors(t *testing.T) {
 	handler := newTestHandler(t, &fakeService{}, loopbackSettings())
 

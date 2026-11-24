@@ -52,7 +52,7 @@ func TestCli_doctorExitCodes(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 
-			gotValue := run([]string{"doctor", "--config-dir", testCase.configDir, "--check", "library-roots"}, &stdout, &stderr)
+			gotValue := run([]string{"doctor", "--language", "en", "--config-dir", testCase.configDir, "--check", "library-roots"}, &stdout, &stderr)
 
 			if gotValue != testCase.expectedExitCode || !strings.Contains(stdout.String(), testCase.expectedMark) {
 				t.Fatalf("exit %d, stdout %q, stderr %q", gotValue, stdout.String(), stderr.String())

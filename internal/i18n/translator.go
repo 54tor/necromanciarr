@@ -84,5 +84,6 @@ func Keys() []Key {
 	keys := []Key{KeyLegacyText}
 	keys = append(keys, errorKeys...)
 	keys = append(keys, cliKeys...)
-	return append(keys, actionKeys...)
+	keys = append(keys, actionKeys...)
+	return append(keys, doctorKeys...)
 }

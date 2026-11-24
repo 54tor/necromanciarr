@@ -1,0 +1,169 @@
+package i18n
+
+// Clés des textes du diagnostic : titres, détails et conseils des contrôles de doctor.
+const (
+	KeyDoctorTitleConfig                Key = "doctor.title.config"
+	KeyDoctorTitleConfigDir             Key = "doctor.title.config_dir"
+	KeyDoctorTitleAuth                  Key = "doctor.title.auth"
+	KeyDoctorTitleLibraryRoots          Key = "doctor.title.library_roots"
+	KeyDoctorTitleLibraryAPI            Key = "doctor.title.library_api"
+	KeyDoctorTitleArr                   Key = "doctor.title.arr"
+	KeyDoctorTitleQbittorrent           Key = "doctor.title.qbittorrent"
+	KeyDoctorTitleLinks                 Key = "doctor.title.links"
+	KeyDoctorTitleFSProviders           Key = "doctor.title.fs_providers"
+	KeyDoctorTitleCrossSeed             Key = "doctor.title.cross_seed"
+	KeyDoctorTitlePathMappings          Key = "doctor.title.path_mappings"
+	KeyDoctorTitleDedupe                Key = "doctor.title.dedupe"
+	KeyDoctorCancelled                  Key = "doctor.cancelled"
+	KeyDoctorTimeout                    Key = "doctor.timeout"
+	KeyDoctorTimeoutHint                Key = "doctor.timeout.hint"
+	KeyDoctorPanic                      Key = "doctor.panic"
+	KeyDoctorConfigLoaded               Key = "doctor.config.loaded"
+	KeyDoctorConfigDotEnv               Key = "doctor.config.dotenv"
+	KeyDoctorConfigDotEnvHint           Key = "doctor.config.dotenv.hint"
+	KeyDoctorConfigLoadFailed           Key = "doctor.config.load_failed"
+	KeyDoctorConfigLoadFailedHint       Key = "doctor.config.load_failed.hint"
+	KeyDoctorConfigDirMissing           Key = "doctor.config_dir.missing"
+	KeyDoctorConfigDirMissingHint       Key = "doctor.config_dir.missing.hint"
+	KeyDoctorDatabaseDirUnresolved      Key = "doctor.database.dir_unresolved"
+	KeyDoctorDatabaseDirUnresolvedHint  Key = "doctor.database.dir_unresolved.hint"
+	KeyDoctorDatabaseInLibrary          Key = "doctor.database.in_library"
+	KeyDoctorDatabaseInLibraryHint      Key = "doctor.database.in_library.hint"
+	KeyDoctorDatabaseUnwritable         Key = "doctor.database.unwritable"
+	KeyDoctorDatabaseUnwritableHint     Key = "doctor.database.unwritable.hint"
+	KeyDoctorDatabaseOK                 Key = "doctor.database.ok"
+	KeyDoctorAuthLoopback               Key = "doctor.auth.loopback"
+	KeyDoctorAuthNoToken                Key = "doctor.auth.no_token"
+	KeyDoctorAuthNoTokenHint            Key = "doctor.auth.no_token.hint"
+	KeyDoctorAuthToken                  Key = "doctor.auth.token"
+	KeyDoctorRootsNone                  Key = "doctor.roots.none"
+	KeyDoctorRootsNoneHint              Key = "doctor.roots.none.hint"
+	KeyDoctorRootNotFound               Key = "doctor.roots.not_found"
+	KeyDoctorRootNotFoundHint           Key = "doctor.roots.not_found.hint"
+	KeyDoctorRootNotDirectory           Key = "doctor.roots.not_directory"
+	KeyDoctorRootNotReadable            Key = "doctor.roots.not_readable"
+	KeyDoctorRootNotReadableHint        Key = "doctor.roots.not_readable.hint"
+	KeyDoctorRootMediaFound             Key = "doctor.roots.media_found"
+	KeyDoctorRootMediaFoundSkipped      Key = "doctor.roots.media_found_skipped"
+	KeyDoctorRootNoMedia                Key = "doctor.roots.no_media"
+	KeyDoctorRootNoMediaSkipped         Key = "doctor.roots.no_media_skipped"
+	KeyDoctorRootNoMediaHint            Key = "doctor.roots.no_media.hint"
+	KeyDoctorAPINotConfigured           Key = "doctor.api.not_configured"
+	KeyDoctorAPINotConfiguredHint       Key = "doctor.api.not_configured.hint"
+	KeyDoctorAPIClientFailed            Key = "doctor.api.client_failed"
+	KeyDoctorAPIClientFailedHint        Key = "doctor.api.client_failed.hint"
+	KeyDoctorProviderRateLimited        Key = "doctor.api.rate_limited"
+	KeyDoctorProviderAccessDenied       Key = "doctor.api.access_denied"
+	KeyDoctorProviderNotFound           Key = "doctor.api.not_found"
+	KeyDoctorProviderUnavailable        Key = "doctor.api.unavailable"
+	KeyDoctorProviderBadResponse        Key = "doctor.api.bad_response"
+	KeyDoctorProviderTimeout            Key = "doctor.api.timeout"
+	KeyDoctorProviderRequestFailed      Key = "doctor.api.request_failed"
+	KeyDoctorProviderTokenHint          Key = "doctor.api.token.hint"
+	KeyDoctorProviderPathHint           Key = "doctor.api.path.hint"
+	KeyDoctorProviderGenericHint        Key = "doctor.api.generic.hint"
+	KeyDoctorSizeFilterIgnored          Key = "doctor.api.size_filter_ignored"
+	KeyDoctorSizeFilterIgnoredHint      Key = "doctor.api.size_filter_ignored.hint"
+	KeyDoctorSizeFilterUnverifiable     Key = "doctor.api.size_filter_unverifiable"
+	KeyDoctorAPIOK                      Key = "doctor.api.ok"
+	KeyDoctorArrOK                      Key = "doctor.arr.ok"
+	KeyDoctorArrKeyRejected             Key = "doctor.arr.key_rejected"
+	KeyDoctorArrKeyRejectedHint         Key = "doctor.arr.key_rejected.hint"
+	KeyDoctorArrTimeout                 Key = "doctor.arr.timeout"
+	KeyDoctorArrUnreachable             Key = "doctor.arr.unreachable"
+	KeyDoctorArrCheckURLHint            Key = "doctor.arr.check_url.hint"
+	KeyDoctorQbitNone                   Key = "doctor.qbit.none"
+	KeyDoctorQbitBuildFailed            Key = "doctor.qbit.build_failed"
+	KeyDoctorQbitBuildFailedHint        Key = "doctor.qbit.build_failed.hint"
+	KeyDoctorQbitLoginRejected          Key = "doctor.qbit.login_rejected"
+	KeyDoctorQbitTimeout                Key = "doctor.qbit.timeout"
+	KeyDoctorQbitUnreachable            Key = "doctor.qbit.unreachable"
+	KeyDoctorQbitCredentialsHint        Key = "doctor.qbit.credentials.hint"
+	KeyDoctorQbitListFailed             Key = "doctor.qbit.list_failed"
+	KeyDoctorQbitOK                     Key = "doctor.qbit.ok"
+	KeyDoctorQbitOKAtLeast              Key = "doctor.qbit.ok_at_least"
+	KeyDoctorQbitOKReadOnly             Key = "doctor.qbit.ok_read_only"
+	KeyDoctorQbitOKAtLeastReadOnly      Key = "doctor.qbit.ok_at_least_read_only"
+	KeyDoctorQbitSeeds                  Key = "doctor.qbit.seeds"
+	KeyDoctorQbitUnsupported            Key = "doctor.qbit.unsupported"
+	KeyDoctorQbitUnsupportedHint        Key = "doctor.qbit.unsupported.hint"
+	KeyDoctorLinksNone                  Key = "doctor.links.none"
+	KeyDoctorLinkDirUnresolved          Key = "doctor.links.dir_unresolved"
+	KeyDoctorLinkDirUnresolvedHint      Key = "doctor.links.dir_unresolved.hint"
+	KeyDoctorLinkDirInLibrary           Key = "doctor.links.dir_in_library"
+	KeyDoctorLinkDirInLibraryHint       Key = "doctor.links.dir_in_library.hint"
+	KeyDoctorLinkProbeFailed            Key = "doctor.links.probe_failed"
+	KeyDoctorLinkProbeFailedHint        Key = "doctor.links.probe_failed.hint"
+	KeyDoctorLinkKinds                  Key = "doctor.links.kinds"
+	KeyDoctorLinkVFSHint                Key = "doctor.links.vfs.hint"
+	KeyDoctorVolumesNotComparable       Key = "doctor.links.volumes_not_comparable"
+	KeyDoctorVolumesNotComparableHint   Key = "doctor.links.volumes_not_comparable.hint"
+	KeyDoctorVolumesSame                Key = "doctor.links.same_volume"
+	KeyDoctorVolumesDifferSymlink       Key = "doctor.links.volumes_differ_symlink"
+	KeyDoctorVolumesDiffer              Key = "doctor.links.volumes_differ"
+	KeyDoctorSameVolumeHint             Key = "doctor.links.same_volume.hint"
+	KeyDoctorFSNone                     Key = "doctor.fs.none"
+	KeyDoctorFSBuildFailed              Key = "doctor.fs.build_failed"
+	KeyDoctorFSBuildFailedHint          Key = "doctor.fs.build_failed.hint"
+	KeyDoctorFSMount                    Key = "doctor.fs.mount"
+	KeyDoctorFSAdvice                   Key = "doctor.fs.advice"
+	KeyDoctorFSModTimeHint              Key = "doctor.fs.modtime.hint"
+	KeyDoctorCrossSeedNone              Key = "doctor.cross_seed.none"
+	KeyDoctorCrossSeedImported          Key = "doctor.cross_seed.imported"
+	KeyDoctorCrossSeedNoDaemon          Key = "doctor.cross_seed.no_daemon"
+	KeyDoctorCrossSeedDaemonReachable   Key = "doctor.cross_seed.daemon_reachable"
+	KeyDoctorCrossSeedDaemonUnreachable Key = "doctor.cross_seed.daemon_unreachable"
+	KeyDoctorCrossSeedModeDelegate      Key = "doctor.cross_seed.mode_delegate"
+	KeyDoctorCrossSeedModeNative        Key = "doctor.cross_seed.mode_native"
+	KeyDoctorCrossSeedModeDisabled      Key = "doctor.cross_seed.mode_disabled"
+	KeyDoctorCrossSeedModeInvalid       Key = "doctor.cross_seed.mode_invalid"
+	KeyDoctorCrossSeedModeInvalidHint   Key = "doctor.cross_seed.mode_invalid.hint"
+	KeyDoctorCrossSeedWarning           Key = "doctor.cross_seed.warning"
+	KeyDoctorCrossSeedBlockedEnv        Key = "doctor.cross_seed.blocked_env"
+	KeyDoctorPathMappingsNone           Key = "doctor.path_mappings.none"
+	KeyDoctorPathRuleUnreachable        Key = "doctor.path_mappings.unreachable"
+	KeyDoctorPathRuleUnreachableHint    Key = "doctor.path_mappings.unreachable.hint"
+	KeyDoctorPathRuleNoRoot             Key = "doctor.path_mappings.no_root"
+	KeyDoctorPathRuleNoRootHint         Key = "doctor.path_mappings.no_root.hint"
+	KeyDoctorPathRuleOK                 Key = "doctor.path_mappings.ok"
+	KeyDoctorDedupeNone                 Key = "doctor.dedupe.none"
+	KeyDoctorDedupeOverlap              Key = "doctor.dedupe.overlap"
+	KeyDoctorDedupeOverlapHint          Key = "doctor.dedupe.overlap.hint"
+	KeyDoctorDedupeMissing              Key = "doctor.dedupe.missing"
+	KeyDoctorDedupeOK                   Key = "doctor.dedupe.ok"
+)
+
+var doctorKeys = []Key{
+	KeyDoctorTitleConfig, KeyDoctorTitleConfigDir, KeyDoctorTitleAuth, KeyDoctorTitleLibraryRoots,
+	KeyDoctorTitleLibraryAPI, KeyDoctorTitleArr, KeyDoctorTitleQbittorrent, KeyDoctorTitleLinks,
+	KeyDoctorTitleFSProviders, KeyDoctorTitleCrossSeed, KeyDoctorTitlePathMappings, KeyDoctorTitleDedupe,
+	KeyDoctorCancelled, KeyDoctorTimeout, KeyDoctorTimeoutHint, KeyDoctorPanic, KeyDoctorConfigLoaded,
+	KeyDoctorConfigDotEnv, KeyDoctorConfigDotEnvHint, KeyDoctorConfigLoadFailed, KeyDoctorConfigLoadFailedHint,
+	KeyDoctorConfigDirMissing, KeyDoctorConfigDirMissingHint, KeyDoctorDatabaseDirUnresolved,
+	KeyDoctorDatabaseDirUnresolvedHint, KeyDoctorDatabaseInLibrary, KeyDoctorDatabaseInLibraryHint,
+	KeyDoctorDatabaseUnwritable, KeyDoctorDatabaseUnwritableHint, KeyDoctorDatabaseOK, KeyDoctorAuthLoopback,
+	KeyDoctorAuthNoToken, KeyDoctorAuthNoTokenHint, KeyDoctorAuthToken, KeyDoctorRootsNone, KeyDoctorRootsNoneHint,
+	KeyDoctorRootNotFound, KeyDoctorRootNotFoundHint, KeyDoctorRootNotDirectory, KeyDoctorRootNotReadable,
+	KeyDoctorRootNotReadableHint, KeyDoctorRootMediaFound, KeyDoctorRootMediaFoundSkipped, KeyDoctorRootNoMedia,
+	KeyDoctorRootNoMediaSkipped, KeyDoctorRootNoMediaHint, KeyDoctorAPINotConfigured, KeyDoctorAPINotConfiguredHint,
+	KeyDoctorAPIClientFailed, KeyDoctorAPIClientFailedHint, KeyDoctorProviderRateLimited, KeyDoctorProviderAccessDenied,
+	KeyDoctorProviderNotFound, KeyDoctorProviderUnavailable, KeyDoctorProviderBadResponse, KeyDoctorProviderTimeout,
+	KeyDoctorProviderRequestFailed, KeyDoctorProviderTokenHint, KeyDoctorProviderPathHint, KeyDoctorProviderGenericHint,
+	KeyDoctorSizeFilterIgnored, KeyDoctorSizeFilterIgnoredHint, KeyDoctorSizeFilterUnverifiable, KeyDoctorAPIOK,
+	KeyDoctorArrOK, KeyDoctorArrKeyRejected, KeyDoctorArrKeyRejectedHint, KeyDoctorArrTimeout, KeyDoctorArrUnreachable,
+	KeyDoctorArrCheckURLHint, KeyDoctorQbitNone, KeyDoctorQbitBuildFailed, KeyDoctorQbitBuildFailedHint,
+	KeyDoctorQbitLoginRejected, KeyDoctorQbitTimeout, KeyDoctorQbitUnreachable, KeyDoctorQbitCredentialsHint,
+	KeyDoctorQbitListFailed, KeyDoctorQbitOK, KeyDoctorQbitOKAtLeast, KeyDoctorQbitOKReadOnly,
+	KeyDoctorQbitOKAtLeastReadOnly, KeyDoctorQbitSeeds, KeyDoctorQbitUnsupported, KeyDoctorQbitUnsupportedHint,
+	KeyDoctorLinksNone, KeyDoctorLinkDirUnresolved, KeyDoctorLinkDirUnresolvedHint, KeyDoctorLinkDirInLibrary,
+	KeyDoctorLinkDirInLibraryHint, KeyDoctorLinkProbeFailed, KeyDoctorLinkProbeFailedHint, KeyDoctorLinkKinds,
+	KeyDoctorLinkVFSHint, KeyDoctorVolumesNotComparable, KeyDoctorVolumesNotComparableHint, KeyDoctorVolumesSame,
+	KeyDoctorVolumesDifferSymlink, KeyDoctorVolumesDiffer, KeyDoctorSameVolumeHint, KeyDoctorFSNone,
+	KeyDoctorFSBuildFailed, KeyDoctorFSBuildFailedHint, KeyDoctorFSMount, KeyDoctorFSAdvice, KeyDoctorFSModTimeHint,
+	KeyDoctorCrossSeedNone, KeyDoctorCrossSeedImported, KeyDoctorCrossSeedNoDaemon, KeyDoctorCrossSeedDaemonReachable,
+	KeyDoctorCrossSeedDaemonUnreachable, KeyDoctorCrossSeedModeDelegate, KeyDoctorCrossSeedModeNative,
+	KeyDoctorCrossSeedModeDisabled, KeyDoctorCrossSeedModeInvalid, KeyDoctorCrossSeedModeInvalidHint,
+	KeyDoctorCrossSeedWarning, KeyDoctorCrossSeedBlockedEnv, KeyDoctorPathMappingsNone, KeyDoctorPathRuleUnreachable,
+	KeyDoctorPathRuleUnreachableHint, KeyDoctorPathRuleNoRoot, KeyDoctorPathRuleNoRootHint, KeyDoctorPathRuleOK,
+	KeyDoctorDedupeNone, KeyDoctorDedupeOverlap, KeyDoctorDedupeOverlapHint, KeyDoctorDedupeMissing, KeyDoctorDedupeOK,
+}

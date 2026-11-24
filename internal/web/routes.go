@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"necromanciarr/internal/app"
+	"necromanciarr/internal/doctor"
 	"necromanciarr/internal/i18n"
 )
 
@@ -367,7 +368,7 @@ func runDoctor(handler *Handler, request *http.Request) (any, int, error) {
 		return nil, 0, err
 	}
 	report, err := handler.service.Doctor(request.Context(), app.DoctorOptions{CheckIDs: body.Checks})
-	return report, http.StatusOK, err
+	return renderedDoctor(handler, report), http.StatusOK, err
 }
 
 func runDoctorCheck(handler *Handler, request *http.Request) (any, int, error) {
@@ -376,7 +377,12 @@ func runDoctorCheck(handler *Handler, request *http.Request) (any, int, error) {
 	}
 	options := app.DoctorOptions{CheckIDs: []string{request.PathValue("checkId")}}
 	report, err := handler.service.Doctor(request.Context(), options)
-	return report, http.StatusOK, err
+	return renderedDoctor(handler, report), http.StatusOK, err
+}
+
+// renderedDoctor rend le rapport dans la langue du service ; les codes et les états ne sont jamais traduits.
+func renderedDoctor(handler *Handler, report doctor.Report) doctor.RenderedReport {
+	return doctor.Render(report, handler.service.Translator())
 }
 
 func listJobs(handler *Handler, _ *http.Request) (any, int, error) {

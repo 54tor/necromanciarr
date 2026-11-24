@@ -281,7 +281,7 @@ func writeMaintenanceResults(writer io.Writer, translator i18n.Translator, items
 	}
 }
 
-func writeDoctorReport(writer io.Writer, translator i18n.Translator, report doctor.Report) {
+func writeDoctorReport(writer io.Writer, translator i18n.Translator, report doctor.RenderedReport) {
 	for _, named := range report.Checks {
 		_, _ = fmt.Fprintf(writer, "%s %s: %s\n", statusMarks[named.Status], named.Title, named.Detail)
 		if named.Hint != "" {

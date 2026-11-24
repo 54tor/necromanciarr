@@ -18,6 +18,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - CLI text and help, API error messages and action descriptions follow `language`; `GET /api/status` reports it; error codes never change.
 
 ### Changed
+- `doctor` results carry a stable `code` and are rendered in the configured language.
 - A link kind failure (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) now tells the cause and the setting to change.
 
 ### Security

@@ -34,6 +34,7 @@ type fakeService struct {
 	dedupePlan          []app.DedupeProposal
 	repairScan          []app.RepairProposal
 	linkPage            app.LinkPage
+	doctorReport        *doctor.Report
 }
 
 func (fake *fakeService) record(method string, arguments ...any) {
@@ -94,7 +95,10 @@ func (fake *fakeService) AcceptGroup(_ context.Context, groupID int64) ([]int64,
 
 func (fake *fakeService) Doctor(_ context.Context, options app.DoctorOptions) (doctor.Report, error) {
 	fake.record("Doctor", options.CheckIDs)
-	return doctor.Report{Checks: []doctor.NamedResult{{ID: "config", Title: "Configuration"}}}, fake.err
+	if fake.doctorReport != nil {
+		return *fake.doctorReport, fake.err
+	}
+	return doctor.Report{Checks: []doctor.Outcome{{ID: "config", TitleKey: i18n.KeyDoctorTitleConfig, Result: doctor.Result{Code: doctor.CodeOK}}}}, fake.err
 }
 
 func (fake *fakeService) DedupePlan(context.Context) ([]app.DedupeProposal, error) {

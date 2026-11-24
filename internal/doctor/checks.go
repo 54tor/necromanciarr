@@ -2,14 +2,14 @@ package doctor
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"path/filepath"
-	"strings"
+	"strconv"
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/hashsource"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
@@ -93,25 +93,38 @@ func (deps Deps) withDefaults() Deps {
 	return deps
 }
 
+// message construit un message à paramètres nommés (paires nom, valeur).
+func message(key i18n.Key, nameValuePairs ...string) i18n.Message {
+	params := make(map[string]string, len(nameValuePairs)/2)
+	for pairIndex := 0; pairIndex+1 < len(nameValuePairs); pairIndex += 2 {
+		params[nameValuePairs[pairIndex]] = nameValuePairs[pairIndex+1]
+	}
+	return i18n.Message{Key: key, Params: params}
+}
+
+func newCheck(id string, titleKey i18n.Key, run func(context.Context) Result) Check {
+	return Check{ID: id, TitleKey: titleKey, Run: run}
+}
+
 // Build prépare les contrôles de la configuration, dans l'ordre d'exécution. Chaque contrôle masque d'abord les
 // secrets connus de la configuration, si bien qu'aucun appelant ne peut oublier la redaction.
 func Build(settings config.Config, deps Deps) []Check {
 	deps = deps.withDefaults()
 	checks := []Check{
-		{IDConfig, "Configuration", func(context.Context) Result { return checkConfig(settings) }},
-		{IDConfigDir, "Configuration directory and database", func(context.Context) Result { return checkConfigDir(settings, deps) }},
-		{IDAuth, "Authentication", func(context.Context) Result { return checkAuth(settings) }},
-		{IDLibraryRoots, "Library roots", func(ctx context.Context) Result { return checkLibraryRoots(ctx, settings) }},
-		{IDLibraryAPI, "Library provider API", func(ctx context.Context) Result { return checkLibraryAPI(ctx, settings, deps) }},
+		newCheck(IDConfig, i18n.KeyDoctorTitleConfig, func(context.Context) Result { return checkConfig(settings) }),
+		newCheck(IDConfigDir, i18n.KeyDoctorTitleConfigDir, func(context.Context) Result { return checkConfigDir(settings, deps) }),
+		newCheck(IDAuth, i18n.KeyDoctorTitleAuth, func(context.Context) Result { return checkAuth(settings) }),
+		newCheck(IDLibraryRoots, i18n.KeyDoctorTitleLibraryRoots, func(ctx context.Context) Result { return checkLibraryRoots(ctx, settings) }),
+		newCheck(IDLibraryAPI, i18n.KeyDoctorTitleLibraryAPI, func(ctx context.Context) Result { return checkLibraryAPI(ctx, settings, deps) }),
 	}
 	checks = append(checks, arrChecks(settings, deps)...)
 	checks = append(checks,
-		Check{IDQbittorrent, "qBittorrent", func(ctx context.Context) Result { return checkQbittorrent(ctx, settings, deps) }},
-		Check{IDLinks, "Link feasibility", func(context.Context) Result { return checkLinkFeasibility(settings, deps) }},
-		Check{IDFSProviders, "Filesystem providers", func(ctx context.Context) Result { return checkFSProviders(ctx, settings, deps) }},
-		Check{IDCrossSeed, "cross-seed", func(ctx context.Context) Result { return checkCrossSeed(ctx, settings, deps) }},
-		Check{IDPathMappings, "Path mappings", func(context.Context) Result { return checkPathMappings(settings) }},
-		Check{IDDedupe, "Deduplication roots", func(context.Context) Result { return checkDedupe(settings) }},
+		newCheck(IDQbittorrent, i18n.KeyDoctorTitleQbittorrent, func(ctx context.Context) Result { return checkQbittorrent(ctx, settings, deps) }),
+		newCheck(IDLinks, i18n.KeyDoctorTitleLinks, func(context.Context) Result { return checkLinkFeasibility(settings, deps) }),
+		newCheck(IDFSProviders, i18n.KeyDoctorTitleFSProviders, func(ctx context.Context) Result { return checkFSProviders(ctx, settings, deps) }),
+		newCheck(IDCrossSeed, i18n.KeyDoctorTitleCrossSeed, func(ctx context.Context) Result { return checkCrossSeed(ctx, settings, deps) }),
+		newCheck(IDPathMappings, i18n.KeyDoctorTitlePathMappings, func(context.Context) Result { return checkPathMappings(settings) }),
+		newCheck(IDDedupe, i18n.KeyDoctorTitleDedupe, func(context.Context) Result { return checkDedupe(settings) }),
 	)
 	secrets := settings.KnownSecrets()
 	for index := range checks {
@@ -121,61 +134,65 @@ func Build(settings config.Config, deps Deps) []Check {
 }
 
 func redactingRun(run func(context.Context) Result, secrets []string) func(context.Context) Result {
+	redact := func(text string) string { return config.RedactText(text, secrets...) }
 	return func(ctx context.Context) (result Result) {
 		// La panique est récupérée ici pour que les secrets connus soient masqués dans son message.
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				result = panicResult(recovered, func(text string) string { return config.RedactText(text, secrets...) })
+				result = panicResult(recovered, redact)
 			}
 		}()
-		result = run(ctx)
-		result.Detail, result.Hint = config.RedactText(result.Detail, secrets...), config.RedactText(result.Hint, secrets...)
-		return result
+		return redactResult(run(ctx), redact)
 	}
 }
 
-// findings rassemble les constats d'un contrôle qui examine plusieurs éléments ; le statut est le pire constaté.
+// findings rassemble les constats d'un contrôle qui examine plusieurs éléments ; le statut est le pire constaté et le
+// code celui du premier constat de ce statut.
 type findings struct {
-	status Status
-	details,
-	hints []string
+	status  Status
+	code    string
+	details []i18n.Message
+	hints   []i18n.Message
 }
 
-func (collected *findings) add(status Status, detail, hint string) {
-	if status.severity() > collected.status.severity() {
-		collected.status = status
+func (collected *findings) add(status Status, code string, detail, hint i18n.Message) {
+	if collected.code == "" || status.severity() > collected.status.severity() {
+		collected.status, collected.code = status, code
 	}
 	collected.details = append(collected.details, detail)
-	if hint != "" {
+	if hint.Key != "" {
 		collected.hints = append(collected.hints, hint)
 	}
 }
 
 func (collected *findings) result() Result {
-	return Result{
-		Status: collected.status, Detail: strings.Join(collected.details, separatorDetail),
-		Hint: strings.Join(collected.hints, separatorDetail),
+	code := collected.code
+	if code == "" {
+		code = CodeOK
 	}
+	return Result{Status: collected.status, Code: code, Details: collected.details, Hints: collected.hints}
 }
 
 func checkConfig(settings config.Config) Result {
 	sources := settings.Sources
-	detail := fmt.Sprintf("loaded from %s; sources: radarr=%s, sonarr=%s, torrentClients=%s, linkDirs=%s",
-		settings.ConfigDir, sources.Radarr, sources.Sonarr, sources.TorrentClients, sources.LinkDirs)
+	params := []string{
+		"dir", settings.ConfigDir, "radarr", sources.Radarr, "sonarr", sources.Sonarr,
+		"torrent_clients", sources.TorrentClients, "link_dirs", sources.LinkDirs,
+	}
 	if settings.WorkingDirDotEnv {
 		return Result{
-			Status: Warn, Detail: detail + "; variables read from the .env of the working directory",
-			Hint: "move that .env into the configuration directory, or delete it if it belongs to another tool",
+			Status: Warn, Code: CodeWorkingDirDotEnv,
+			Detail: message(i18n.KeyDoctorConfigDotEnv, params...), Hint: message(i18n.KeyDoctorConfigDotEnvHint),
 		}
 	}
-	return Result{Status: OK, Detail: detail}
+	return Result{Status: OK, Code: CodeOK, Detail: message(i18n.KeyDoctorConfigLoaded, params...)}
 }
 
 func checkConfigDir(settings config.Config, deps Deps) Result {
 	if !isDirectory(settings.ConfigDir) {
 		return Result{
-			Status: Fail, Detail: "configuration directory not found: " + settings.ConfigDir,
-			Hint: "create it or pass --config-dir",
+			Status: Fail, Code: CodeConfigDirMissing,
+			Detail: message(i18n.KeyDoctorConfigDirMissing, "path", settings.ConfigDir), Hint: message(i18n.KeyDoctorConfigDirMissingHint),
 		}
 	}
 	databasePath := config.ResolveDBPath(settings)
@@ -185,12 +202,13 @@ func checkConfigDir(settings config.Config, deps Deps) Result {
 	database, err := deps.OpenStore(databasePath)
 	if err != nil {
 		return Result{
-			Status: Fail, Detail: "database cannot be opened read-write: " + err.Error(),
-			Hint: "check that " + filepath.Dir(databasePath) + " is writable and has free space",
+			Status: Fail, Code: CodeDatabaseUnwritable,
+			Detail: message(i18n.KeyDoctorDatabaseUnwritable, "error", err.Error()),
+			Hint:   message(i18n.KeyDoctorDatabaseUnwritableHint, "dir", filepath.Dir(databasePath)),
 		}
 	}
 	_ = database.Close()
-	return Result{Status: OK, Detail: "database opens read-write: " + databasePath}
+	return Result{Status: OK, Code: CodeOK, Detail: message(i18n.KeyDoctorDatabaseOK, "path", databasePath)}
 }
 
 // refuseDatabasePath refuse d'ouvrir la base si son dossier ne se résout pas ou si, liens symboliques suivis (dossier
@@ -199,8 +217,9 @@ func refuseDatabasePath(databasePath string, libraryRoots []string) (Result, boo
 	resolvedDirectory, err := filepath.EvalSymlinks(filepath.Dir(databasePath))
 	if err != nil {
 		return Result{
-			Status: Fail, Detail: "le dossier de la base ne peut pas être résolu : " + filepath.Dir(databasePath),
-			Hint: "créer le dossier ou corriger dbPath",
+			Status: Fail, Code: CodeDatabaseDirUnresolved,
+			Detail: message(i18n.KeyDoctorDatabaseDirUnresolved, "path", filepath.Dir(databasePath)),
+			Hint:   message(i18n.KeyDoctorDatabaseDirUnresolvedHint),
 		}, true
 	}
 	directories := []string{resolvedDirectory}
@@ -210,8 +229,8 @@ func refuseDatabasePath(databasePath string, libraryRoots []string) (Result, boo
 	for _, directory := range directories {
 		if root, inside := insideLibraryRoot(directory, libraryRoots); inside {
 			return Result{
-				Status: Fail, Detail: "la base de données est dans la racine de bibliothèque " + root,
-				Hint: "placer dbPath hors de la bibliothèque : elle n'est jamais écrite",
+				Status: Fail, Code: CodeDatabaseInLibrary,
+				Detail: message(i18n.KeyDoctorDatabaseInLibrary, "root", root), Hint: message(i18n.KeyDoctorDatabaseInLibraryHint),
 			}, true
 		}
 	}
@@ -220,34 +239,35 @@ func refuseDatabasePath(databasePath string, libraryRoots []string) (Result, boo
 
 func checkAuth(settings config.Config) Result {
 	if config.IsLoopbackAddress(settings.ListenAddr) {
-		return Result{Status: OK, Detail: "listening on loopback: " + settings.ListenAddr}
+		return Result{Status: OK, Code: CodeLoopback, Detail: message(i18n.KeyDoctorAuthLoopback, "address", settings.ListenAddr)}
 	}
 	if settings.AuthToken == "" {
 		return Result{
-			Status: Fail, Detail: "listening on " + settings.ListenAddr + " without an auth token",
-			Hint: "set NECROMANCIARR_AUTH_TOKEN or listen on 127.0.0.1",
+			Status: Fail, Code: CodeNoAuthToken,
+			Detail: message(i18n.KeyDoctorAuthNoToken, "address", settings.ListenAddr), Hint: message(i18n.KeyDoctorAuthNoTokenHint),
 		}
 	}
-	return Result{Status: OK, Detail: "listening on " + settings.ListenAddr + " with an auth token"}
+	return Result{Status: OK, Code: CodeAuthTokenOK, Detail: message(i18n.KeyDoctorAuthToken, "address", settings.ListenAddr)}
 }
 
 func checkPathMappings(settings config.Config) Result {
 	if len(settings.PathRules) == 0 {
-		return Result{Status: Skipped, Detail: "no path mapping configured"}
+		return Result{Status: Skipped, Code: CodeNoPathMapping, Detail: message(i18n.KeyDoctorPathMappingsNone)}
 	}
 	var collected findings
 	for ruleIndex, rule := range settings.PathRules {
-		label := fmt.Sprintf("pathMappings[%d]", ruleIndex)
+		index := strconv.Itoa(ruleIndex)
 		if !pathExists(rule.From) && !pathExists(rule.To) {
-			collected.add(Warn, label+": neither from nor to exists on this machine",
-				"fix the rule, or ignore it if both sides only exist in other containers")
+			collected.add(Warn, CodeRuleUnreachable, message(i18n.KeyDoctorPathRuleUnreachable, "index", index),
+				message(i18n.KeyDoctorPathRuleUnreachableHint))
 			continue
 		}
 		if len(settings.LibraryRoots) > 0 && !coversAnyRoot(rule, settings.LibraryRoots) {
-			collected.add(Warn, label+": covers no library root", "check from/to against libraryRoots")
+			collected.add(Warn, CodeRuleNoLibraryRoot, message(i18n.KeyDoctorPathRuleNoRoot, "index", index),
+				message(i18n.KeyDoctorPathRuleNoRootHint))
 			continue
 		}
-		collected.add(OK, label+": ok", "")
+		collected.add(OK, CodeRuleOK, message(i18n.KeyDoctorPathRuleOK, "index", index), i18n.Message{})
 	}
 	return collected.result()
 }
@@ -263,21 +283,21 @@ func coversAnyRoot(rule config.PathRule, roots []string) bool {
 
 func checkDedupe(settings config.Config) Result {
 	if len(settings.Dedupe.TorrentRoots) == 0 {
-		return Result{Status: Skipped, Detail: "dedupe.torrentRoots is empty: deduplication is inactive"}
+		return Result{Status: Skipped, Code: CodeDedupeInactive, Detail: message(i18n.KeyDoctorDedupeNone)}
 	}
 	var collected findings
 	for rootIndex, torrentRoot := range settings.Dedupe.TorrentRoots {
-		label := fmt.Sprintf("dedupe.torrentRoots[%d]", rootIndex)
+		index := strconv.Itoa(rootIndex)
 		if overlapped, found := overlappingTorrentRoot(torrentRoot, settings.LibraryRoots); found {
-			collected.add(Fail, fmt.Sprintf("%s overlaps library root %s", label, overlapped),
-				"torrent roots must be outside the library, or links would replace library files")
+			collected.add(Fail, CodeTorrentRootOverlap, message(i18n.KeyDoctorDedupeOverlap, "index", index, "root", overlapped),
+				message(i18n.KeyDoctorDedupeOverlapHint))
 			continue
 		}
 		if !isDirectory(torrentRoot) {
-			collected.add(Warn, label+": directory not found on this machine", "")
+			collected.add(Warn, CodeTorrentRootMissing, message(i18n.KeyDoctorDedupeMissing, "index", index), i18n.Message{})
 			continue
 		}
-		collected.add(OK, label+": ok", "")
+		collected.add(OK, CodeTorrentRootOK, message(i18n.KeyDoctorDedupeOK, "index", index), i18n.Message{})
 	}
 	return collected.result()
 }

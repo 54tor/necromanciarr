@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"necromanciarr/internal/arr"
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/qbit"
 )
 
@@ -22,9 +24,10 @@ func arrChecks(settings config.Config, deps Deps) []Check {
 	for _, services := range [][]config.ArrService{settings.Radarr, settings.Sonarr} {
 		for serviceIndex, service := range services {
 			checks = append(checks, Check{
-				ID:    fmt.Sprintf("arr:%s:%d", service.Kind, serviceIndex),
-				Title: fmt.Sprintf("%s instance %d", service.Kind, serviceIndex),
-				Run:   func(ctx context.Context) Result { return checkArr(ctx, service, deps) },
+				ID:          fmt.Sprintf("arr:%s:%d", service.Kind, serviceIndex),
+				TitleKey:    i18n.KeyDoctorTitleArr,
+				TitleParams: map[string]string{"kind": service.Kind, "index": strconv.Itoa(serviceIndex)},
+				Run:         func(ctx context.Context) Result { return checkArr(ctx, service, deps) },
 			})
 		}
 	}
@@ -33,114 +36,136 @@ func arrChecks(settings config.Config, deps Deps) []Check {
 
 func checkArr(ctx context.Context, service config.ArrService, deps Deps) Result {
 	err := deps.NewPinger(service).Ping(ctx)
+	hint := message(i18n.KeyDoctorArrCheckURLHint)
 	switch {
 	case err == nil:
-		return Result{Status: OK, Detail: "reachable, API key accepted"}
+		return Result{Status: OK, Code: CodeOK, Detail: message(i18n.KeyDoctorArrOK)}
 	case errors.Is(err, arr.ErrAccessDenied):
-		return Result{Status: Fail, Detail: "reachable, but the API key is rejected", Hint: "check the apikey of this instance in config.json"}
+		return Result{
+			Status: Fail, Code: CodeArrKeyRejected,
+			Detail: message(i18n.KeyDoctorArrKeyRejected), Hint: message(i18n.KeyDoctorArrKeyRejectedHint),
+		}
 	case errors.Is(err, context.DeadlineExceeded):
-		return Result{Status: Fail, Detail: "timed out", Hint: "check the URL and that the instance is running"}
+		return Result{Status: Fail, Code: CodeArrTimeout, Detail: message(i18n.KeyDoctorArrTimeout), Hint: hint}
 	}
-	return Result{Status: Fail, Detail: "unreachable: " + err.Error(), Hint: "check the URL and that the instance is running"}
+	return Result{Status: Fail, Code: CodeArrUnreachable, Detail: message(i18n.KeyDoctorArrUnreachable, "error", err.Error()), Hint: hint}
 }
 
 func checkQbittorrent(ctx context.Context, settings config.Config, deps Deps) Result {
 	unsupported := settings.CrossSeedImport.UnsupportedTorrentClients
 	if len(settings.TorrentClients) == 0 && len(unsupported) == 0 {
-		return Result{Status: Skipped, Detail: "no torrent client configured"}
+		return Result{Status: Skipped, Code: CodeNoTorrentClient, Detail: message(i18n.KeyDoctorQbitNone)}
 	}
 	var collected findings
 	for clientIndex, client := range settings.TorrentClients {
-		collected.add(inspectTorrentClient(ctx, clientIndex, client, deps))
+		status, code, detail, hint := inspectTorrentClient(ctx, clientIndex, client, deps)
+		collected.add(status, code, detail, hint)
 	}
 	if len(settings.TorrentClients) > 0 {
-		collected.add(OK, fmt.Sprintf("seeds added with category %q and tags %s", settings.LinkCategory,
-			strings.Join(settings.SeedTags, ", ")), "")
+		collected.add(OK, CodeSeedSettings,
+			message(i18n.KeyDoctorQbitSeeds, "category", settings.LinkCategory, "tags", strings.Join(settings.SeedTags, ", ")), i18n.Message{})
 	}
 	for _, ignored := range unsupported {
-		collected.add(Warn, fmt.Sprintf("torrentClients[%d]: type %q is not supported", ignored.Index, ignored.Type),
-			"only qbittorrent is supported; this client is ignored")
+		collected.add(Warn, CodeClientTypeUnsupported,
+			message(i18n.KeyDoctorQbitUnsupported, "index", strconv.Itoa(ignored.Index), "type", ignored.Type), message(i18n.KeyDoctorQbitUnsupportedHint))
 	}
 	return collected.result()
 }
 
-func inspectTorrentClient(ctx context.Context, clientIndex int, client config.TorrentClient, deps Deps) (Status, string, string) {
-	label := fmt.Sprintf("torrentClients[%d]", clientIndex)
+func inspectTorrentClient(ctx context.Context, clientIndex int, client config.TorrentClient, deps Deps) (Status, string, i18n.Message, i18n.Message) {
+	index := strconv.Itoa(clientIndex)
 	torrentClient, err := deps.NewTorrentClient(client)
 	if err != nil {
-		return Fail, label + ": " + err.Error(), "check the client URL"
+		return Fail, CodeClientBuildFailed, message(i18n.KeyDoctorQbitBuildFailed, "index", index, "error", err.Error()),
+			message(i18n.KeyDoctorQbitBuildFailedHint)
 	}
 	version, err := torrentClient.Version(ctx)
 	if err != nil {
-		return Fail, label + ": " + describeQbitError(err), "check the URL, user and password"
+		return qbitVersionFailure(index, err)
 	}
 	count, atLeast, err := torrentClient.CountTorrents(ctx)
 	if err != nil {
-		return Fail, label + ": login ok but listing torrents failed: " + describeQbitError(err), ""
+		return Fail, CodeClientListFailed, message(i18n.KeyDoctorQbitListFailed, "index", index, "error", err.Error()), i18n.Message{}
 	}
-	countText := fmt.Sprintf("%d torrents", count)
-	if atLeast {
-		countText = fmt.Sprintf("at least %d torrents", count)
-	}
-	detail := fmt.Sprintf("%s: API %s, %s", label, version, countText)
-	if client.ReadOnly {
-		detail += ", read-only (no torrent will be added)"
-	}
-	return OK, detail, ""
+	return OK, CodeClientOK, message(qbitOKKey(atLeast, client.ReadOnly), "index", index, "version", version, "count", strconv.Itoa(count)), i18n.Message{}
 }
 
-func describeQbitError(err error) string {
-	if errors.Is(err, qbit.ErrAuthFailed) {
-		return "login rejected"
+func qbitOKKey(atLeast, readOnly bool) i18n.Key {
+	switch {
+	case atLeast && readOnly:
+		return i18n.KeyDoctorQbitOKAtLeastReadOnly
+	case atLeast:
+		return i18n.KeyDoctorQbitOKAtLeast
+	case readOnly:
+		return i18n.KeyDoctorQbitOKReadOnly
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "timed out"
+	return i18n.KeyDoctorQbitOK
+}
+
+func qbitVersionFailure(index string, err error) (Status, string, i18n.Message, i18n.Message) {
+	hint := message(i18n.KeyDoctorQbitCredentialsHint)
+	switch {
+	case errors.Is(err, qbit.ErrAuthFailed):
+		return Fail, CodeClientLoginRejected, message(i18n.KeyDoctorQbitLoginRejected, "index", index), hint
+	case errors.Is(err, context.DeadlineExceeded):
+		return Fail, CodeClientTimeout, message(i18n.KeyDoctorQbitTimeout, "index", index), hint
 	}
-	return err.Error()
+	return Fail, CodeClientUnreachable, message(i18n.KeyDoctorQbitUnreachable, "index", index, "error", err.Error()), hint
 }
 
 func checkCrossSeed(ctx context.Context, settings config.Config, deps Deps) Result {
 	imported := settings.CrossSeedImport
 	if !imported.Configured && settings.CrossSeed == nil {
-		return Result{Status: Skipped, Detail: "cross-seed is not configured"}
+		return Result{Status: Skipped, Code: CodeCrossSeedUnset, Detail: message(i18n.KeyDoctorCrossSeedNone)}
 	}
-	parts := []string{}
+	var details []i18n.Message
 	if imported.Configured {
-		parts = append(parts, fmt.Sprintf("config.js imported (keys: %s; %d ignored)",
-			strings.Join(imported.ImportedKeys, ", "), len(imported.IgnoredKeys)+imported.UnnamedIgnoredKeys))
+		details = append(details, message(i18n.KeyDoctorCrossSeedImported, "keys", strings.Join(imported.ImportedKeys, ", "),
+			"ignored", strconv.Itoa(len(imported.IgnoredKeys)+imported.UnnamedIgnoredKeys)))
 	}
 	reachable := settings.CrossSeed != nil && deps.Reachable(ctx, settings.CrossSeed.BaseURL)
-	parts = append(parts, daemonSummary(settings.CrossSeed != nil, reachable))
+	details = append(details, daemonSummary(settings.CrossSeed != nil, reachable))
 	behavior, warning, err := crossseed.ResolveMode(settings.CrossSeedMode, settings.CrossSeed != nil, reachable)
 	if err != nil {
-		return Result{Status: Fail, Detail: err.Error(), Hint: "allowed: " + strings.Join(crossseed.AllowedModes, ", ")}
+		return Result{
+			Status: Fail, Code: CodeCrossSeedModeInvalid, Detail: message(i18n.KeyDoctorCrossSeedModeInvalid, "error", err.Error()),
+			Hint: message(i18n.KeyDoctorCrossSeedModeInvalidHint, "modes", strings.Join(crossseed.AllowedModes, ", ")),
+		}
 	}
-	parts = append(parts, fmt.Sprintf("mode %s resolves to %s", settings.CrossSeedMode, behaviorName(behavior)))
-	if blocked := imported.BlockedEnvironment; len(blocked) > 0 {
-		warning = strings.TrimSpace(warning + " config.js reads variables of this tool, hidden from it: " + strings.Join(blocked, ", "))
-	}
+	details = append(details, message(behaviorKey(behavior), "mode", settings.CrossSeedMode))
+	var hints []i18n.Message
+	code := CodeCrossSeedWarning
 	if warning != "" {
-		return Result{Status: Warn, Detail: strings.Join(parts, separatorDetail), Hint: warning}
+		hints = append(hints, message(i18n.KeyDoctorCrossSeedWarning, "warning", warning))
 	}
-	return Result{Status: OK, Detail: strings.Join(parts, separatorDetail)}
+	if blocked := imported.BlockedEnvironment; len(blocked) > 0 {
+		hints = append(hints, message(i18n.KeyDoctorCrossSeedBlockedEnv, "names", strings.Join(blocked, ", ")))
+		if warning == "" {
+			code = CodeBlockedEnvironment
+		}
+	}
+	if len(hints) > 0 {
+		return Result{Status: Warn, Code: code, Details: details, Hints: hints}
+	}
+	return Result{Status: OK, Code: CodeOK, Details: details}
 }
 
-func daemonSummary(configured, reachable bool) string {
+func daemonSummary(configured, reachable bool) i18n.Message {
 	switch {
 	case !configured:
-		return "no daemon configured"
+		return message(i18n.KeyDoctorCrossSeedNoDaemon)
 	case reachable:
-		return "daemon reachable (TCP)"
+		return message(i18n.KeyDoctorCrossSeedDaemonReachable)
 	}
-	return "daemon unreachable (TCP)"
+	return message(i18n.KeyDoctorCrossSeedDaemonUnreachable)
 }
 
-func behaviorName(behavior crossseed.Behavior) string {
+func behaviorKey(behavior crossseed.Behavior) i18n.Key {
 	switch behavior {
 	case crossseed.Delegate:
-		return "delegate to the daemon"
+		return i18n.KeyDoctorCrossSeedModeDelegate
 	case crossseed.Native:
-		return "native matching"
+		return i18n.KeyDoctorCrossSeedModeNative
 	}
-	return "disabled"
+	return i18n.KeyDoctorCrossSeedModeDisabled
 }

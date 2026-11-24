@@ -42,7 +42,7 @@
 
 - Une pièce qui couvre un fichier absent n'est jamais comptée possédée : un torrent complet côté médias reste `partial_annex` si une annexe manque et qu'aucune variante de `.nfo` ne se vérifie. Le plafond de pièces manquantes d'un `partial_annex` n'est pas configurable.
 - Une annexe `.nfo` conservée pèse 1 Mio au plus ; un `.torrent` conservé 8 Mio au plus. Un `.torrent` dont la longueur de pièce est nulle, négative ou dépasse 256 Mio est `invalid_torrent`.
-- Réponses du client torrent : Seed interroge le client par hash (`torrents/info?hashes=`), jamais la liste entière ; le diagnostic ne lit qu'une page (« at least 500 torrents » au-delà). Le recontrôle d'un chemin (dedupe, repair) lit la liste **page par page** (`limit=500`, tri `sort=hash`, pages qui se chevauchent d'un torrent) et ne garde de chaque page que les torrents dont le dossier contient le fichier : une seule page est en mémoire à la fois, sans limite de taille de client autre qu'une borne de sûreté de 200 000 torrents (`qbit: more torrents than the listing bound`). Chaque page est plafonnée à 8 Mio (`qbit: response larger than its limit`), comme la liste des fichiers d'un torrent et l'export d'un `.torrent` ; une page illisible, trop grosse, ou une annulation arrête la lecture, rien n'est mis en pause. qBittorrent n'a ni instantané ni filtre `save_path` : si le premier hash d'une page n'est plus le dernier de la précédente (torrent ajouté ou retiré pendant la lecture), la liste est relue en entier, trois fois au plus, puis `qbit: the torrent list kept changing while it was read`. L'ensemble des torrents à couvrir est lu une fois avant la pause ; un torrent ajouté après cette lecture n'est pas mis en pause par cette garde.
+- Réponses du client torrent : Seed interroge le client par hash (`torrents/info?hashes=`), jamais la liste entière ; le diagnostic ne lit qu'une page (« torrents : at least 500 » au-delà). Le recontrôle d'un chemin (dedupe, repair) lit la liste **page par page** (`limit=500`, tri `sort=hash`, pages qui se chevauchent d'un torrent) et ne garde de chaque page que les torrents dont le dossier contient le fichier : une seule page est en mémoire à la fois, sans limite de taille de client autre qu'une borne de sûreté de 200 000 torrents (`qbit: more torrents than the listing bound`). Chaque page est plafonnée à 8 Mio (`qbit: response larger than its limit`), comme la liste des fichiers d'un torrent et l'export d'un `.torrent` ; une page illisible, trop grosse, ou une annulation arrête la lecture, rien n'est mis en pause. qBittorrent n'a ni instantané ni filtre `save_path` : si le premier hash d'une page n'est plus le dernier de la précédente (torrent ajouté ou retiré pendant la lecture), la liste est relue en entier, trois fois au plus, puis `qbit: the torrent list kept changing while it was read`. L'ensemble des torrents à couvrir est lu une fois avant la pause ; un torrent ajouté après cette lecture n'est pas mis en pause par cette garde.
 
 ### Périmètre
 
@@ -50,7 +50,7 @@
 - Match n'interroge que les fichiers qui ont un identifiant TMDB ou TVDB de Radarr ou Sonarr. SFTP, Torznab et Prowlarr ne sont pas pris en charge.
 - Une proposition acceptée ne s'annule pas ; une proposition rejetée ne se rouvre pas dans la même génération. Un candidat `failed` n'a pas de relance manuelle : il revient à `matched` seulement si ses associations changent.
 - Les jobs web ne sont pas persistés ; `dedupe apply` et `repair apply` du web s'appliquent un par un.
-- Les textes de diagnostic et les motifs d'échec rendus par le serveur sont en anglais, et `doctor` affiche des chemins absolus à l'opérateur authentifié.
+- Les titres, détails et conseils de `doctor` suivent `language` ; ses codes ne changent jamais. Les motifs d'échec du serveur restent en anglais jusqu'à leur traduction, et `doctor` affiche des chemins absolus à l'opérateur authentifié.
 
 ### Sécurité de l'API
 
@@ -76,32 +76,74 @@
 
 ### Par contrôle `doctor`
 
-| Contrôle | Message | Cause et action |
-|---|---|---|
-| `config` | `undefined variable X` | `${X}` sans valeur : la définir dans l'environnement ou dans `.env` |
-| `config` | `unknown field …`, `parse config.json` | clé inconnue ou JSON invalide : `config.json` est strict |
-| `config` | `linkDirs[i] … overlaps libraryRoots[j]` | dossier de liens dans la bibliothèque ou qui la contient : le déplacer à côté |
-| `auth` | `listening on … without an auth token` | écoute hors boucle locale sans jeton, que `serve` refusera : `necromanciarr api-key`, puis `.env` |
-| `config-dir` | `database cannot be opened read-write` | droits ou espace sur le dossier de la base ; en Docker, propriétaire de `/data` |
-| `config-dir` | `la base de données est dans la racine de bibliothèque` | `dbPath` hors de la bibliothèque |
-| `library-roots` | `not found or not accessible`, `not readable` | montage absent ou droits de l'utilisateur du processus |
-| `library-roots` | `no media file in the first 2000 entries` | racine vide ou montage pas encore prêt |
-| `library-api` | `access denied` | `LIBRARY_PROVIDER_TOKEN` faux ou absent |
-| `library-api` | `not found` | chemin de base de `libraryApi` |
-| `library-api` | `rate limited (retry after …)`, `unavailable` | quota ou panne du fournisseur ; relancer plus tard |
-| `library-api` | `unreadable response (outside the contract)` | réponse hors [`openapi.yaml`](../contract/openapi.yaml) |
-| `library-api` | `ignores the size filter` (`warn`) | fournisseur sans filtre `size` : fonctionne, beaucoup plus de candidats |
-| `arr:radarr:0` | `API key is rejected`, `timed out`, `unreachable` | `?apikey=`, URL, instance démarrée |
-| `qbittorrent` | `login rejected` | identifiants de l'URL ; encoder en pourcentage `@ : / # ?` du mot de passe |
-| `qbittorrent` | `type … is not supported` (`warn`) | client importé de cross-seed autre que qBittorrent : ignoré |
-| `link-feasibility` | `hardlinks and reflinks need one volume` | bibliothèque et liens sous deux montages : un seul montage commun ([05-docker-and-volumes.md](05-docker-and-volumes.md)) |
-| `link-feasibility` | `le dossier de liens est dans une racine de bibliothèque` | déplacer `linkDirs` |
-| `link-feasibility` | `symlink refused …` + `--vfs-links` | relancer rclone avec `--vfs-links` |
-| `fs-providers` | `démarrer le processus rclone du montage avec --rc` | démarrer rclone avec `--rc` et renseigner `rc` |
-| `fs-providers` | `aucune empreinte`, `date de modification` | backend sans MD5 ou sans date : la comparaison relit les fichiers |
-| `cross-seed` | `unreachable` (`warn`) | démon injoignable : repli `native` en mode `auto`, désactivé en `delegate` |
-| `path-mappings` | `covers no library root` | règle qui ne couvre aucune racine |
-| `dedupe` | `overlaps library root` | `torrentRoots` à déplacer hors de la bibliothèque |
+Chaque résultat porte un `code` stable en snake_case, identique en français et en anglais : un script se fie au `code` et au `status`, jamais au `detail` ni au `hint`, qui sont traduits (`language`). Un contrôle qui examine plusieurs éléments (racines, dossiers, clients, règles) porte le code de son pire constat, le premier à statut égal ; tous les constats restent dans `detail`, séparés par « ; ».
+
+| Contrôle | Code | Statut | Cause et action |
+|---|---|---|---|
+| tous | `ok` | `ok` | rien à faire |
+| tous | `check_timeout` | `fail` | le contrôle a dépassé son délai (`WithTimeout`, 10 s par défaut) : service lent ou bloqué |
+| tous | `cancelled` | `skipped` | diagnostic interrompu avant ce contrôle |
+| tous | `panic` | `fail` | bogue : le type et un message masqué sont donnés ; le signaler |
+| `config` | `working_dir_dotenv` | `warn` | un `.env` du dossier de travail a été lu : le déplacer dans le dossier de configuration, ou le supprimer |
+| `config` | `config_invalid` | `fail` | `config.json` invalide (`unknown field …`, `parse config.json`, `undefined variable X`, `linkDirs[i] … overlaps libraryRoots[j]`) : corriger, puis `config check` |
+| `config-dir` | `config_dir_missing` | `fail` | dossier de configuration absent : le créer ou passer `--config-dir` |
+| `config-dir` | `database_dir_unresolved` | `fail` | dossier de la base introuvable : le créer ou corriger `dbPath` |
+| `config-dir` | `database_in_library` | `fail` | `dbPath` dans une racine de bibliothèque : le placer ailleurs |
+| `config-dir` | `database_unwritable` | `fail` | droits ou espace sur le dossier de la base ; en Docker, propriétaire de `/data` |
+| `auth` | `loopback` | `ok` | écoute en boucle locale |
+| `auth` | `auth_token_set` | `ok` | écoute hors boucle locale avec jeton |
+| `auth` | `no_auth_token` | `fail` | écoute hors boucle locale sans jeton, que `serve` refusera : `necromanciarr api-key`, puis `.env` |
+| `library-roots` | `no_library_root` | `warn` | `libraryRoots` vide |
+| `library-roots` | `root_not_found` | `fail` | montage absent ou chemin faux |
+| `library-roots` | `root_not_directory` | `fail` | la racine n'est pas un dossier |
+| `library-roots` | `root_unreadable` | `fail` | droits de l'utilisateur du processus |
+| `library-roots` | `root_empty` | `warn` | aucun média dans les 2000 premières entrées : racine vide ou montage pas encore prêt |
+| `library-roots` | `root_ok` | `ok` | racine lisible, média trouvé |
+| `library-api` | `library_api_unset` | `skipped` | `libraryApi` non configuré |
+| `library-api` | `provider_client_failed` | `fail` | `libraryApi` ou `LIBRARY_PROVIDER_TOKEN` inutilisable |
+| `library-api` | `provider_access_denied` | `fail` | `LIBRARY_PROVIDER_TOKEN` faux ou absent |
+| `library-api` | `provider_not_found` | `fail` | chemin de base de `libraryApi` |
+| `library-api` | `provider_rate_limited`, `provider_unavailable` | `fail` | quota ou panne du fournisseur ; relancer plus tard |
+| `library-api` | `provider_bad_response` | `fail` | réponse hors [`openapi.yaml`](../contract/openapi.yaml) |
+| `library-api` | `provider_timeout`, `provider_request_failed` | `fail` | réseau ou fournisseur ; vérifier `libraryApi` |
+| `library-api` | `size_filter_ignored` | `warn` | fournisseur sans filtre `size` : fonctionne, beaucoup plus de candidats |
+| `library-api` | `size_filter_unverifiable` | `ok` | aucun résultat exploitable pour vérifier le filtre |
+| `arr:radarr:0` | `api_key_rejected` | `fail` | `?apikey=` de l'instance |
+| `arr:radarr:0` | `timed_out`, `unreachable` | `fail` | URL, instance démarrée |
+| `qbittorrent` | `no_torrent_client` | `skipped` | aucun client configuré |
+| `qbittorrent` | `client_build_failed` | `fail` | URL du client inutilisable |
+| `qbittorrent` | `client_login_rejected` | `fail` | identifiants de l'URL ; encoder en pourcentage `@ : / # ?` du mot de passe |
+| `qbittorrent` | `client_timeout`, `client_unreachable` | `fail` | URL, client démarré |
+| `qbittorrent` | `client_list_failed` | `fail` | connexion réussie, liste des torrents refusée |
+| `qbittorrent` | `client_ok`, `seed_settings` | `ok` | client joignable ; catégorie et étiquettes d'ajout |
+| `qbittorrent` | `client_type_unsupported` | `warn` | client importé de cross-seed autre que qBittorrent : ignoré |
+| `link-feasibility` | `no_link_directory` | `skipped` | ni `linkDirs` ni racine torrent |
+| `link-feasibility` | `link_dir_unresolved` | `fail` | dossier de liens introuvable : aucune sonde lancée |
+| `link-feasibility` | `link_dir_in_library` | `fail` | dossier de liens dans la bibliothèque : déplacer `linkDirs` |
+| `link-feasibility` | `link_probe_failed` | `fail` | dossier non accessible en écriture |
+| `link-feasibility` | `link_kinds_ok` | `ok` | sortes de liens voulues acceptées (✓ accepté, ✗ refusé, avec le motif) |
+| `link-feasibility` | `link_kind_fallback` | `warn` | la sorte préférée est refusée, une suivante est acceptée ; avec `symlink` refusé sur un montage rclone : relancer rclone avec `--vfs-links` |
+| `link-feasibility` | `link_kinds_refused` | `fail` | aucune sorte voulue n'est acceptée |
+| `link-feasibility` | `volumes_not_comparable` | `warn` | un des deux chemins n'existe pas |
+| `link-feasibility` | `same_volume` | `ok` | bibliothèque et liens sur un même volume |
+| `link-feasibility` | `volumes_differ_symlink_only` | `warn` | deux volumes : seuls les symlinks traversent |
+| `link-feasibility` | `volumes_differ` | `fail` | bibliothèque et liens sous deux montages : un seul montage commun ([05-docker-and-volumes.md](05-docker-and-volumes.md)) |
+| `fs-providers` | `no_fs_provider` | `skipped` | aucun fournisseur configuré |
+| `fs-providers` | `fs_providers_build_failed` | `fail` | `fsProviders` de `config.json` |
+| `fs-providers` | `mount_ok` | `ok` | montage décrit |
+| `fs-providers` | `mount_advice` | `warn` | le conseil du fournisseur (texte de `hashsource`, non traduit) : démarrer rclone avec `--rc`, backend sans MD5 ou sans date (la comparaison relit les fichiers) |
+| `cross-seed` | `cross_seed_unset` | `skipped` | cross-seed non configuré |
+| `cross-seed` | `cross_seed_mode_invalid` | `fail` | `crossSeedMode` inconnu |
+| `cross-seed` | `cross_seed_warning` | `warn` | démon injoignable : repli `native` en mode `auto`, désactivé en `delegate` |
+| `cross-seed` | `blocked_environment` | `warn` | `config.js` lit des variables de cet outil, qui lui sont cachées |
+| `path-mappings` | `no_path_mapping` | `skipped` | aucune règle |
+| `path-mappings` | `rule_unreachable` | `warn` | ni `from` ni `to` n'existe sur cette machine |
+| `path-mappings` | `rule_no_library_root` | `warn` | règle qui ne couvre aucune racine |
+| `path-mappings` | `rule_ok` | `ok` | règle utilisable |
+| `dedupe` | `dedupe_inactive` | `skipped` | `dedupe.torrentRoots` vide |
+| `dedupe` | `torrent_root_overlaps_library` | `fail` | `torrentRoots` à déplacer hors de la bibliothèque |
+| `dedupe` | `torrent_root_missing` | `warn` | dossier introuvable sur cette machine |
+| `dedupe` | `torrent_root_ok` | `ok` | racine utilisable |
 
 ### Par raison d'étape (`reasons`) et propositions échouées
 
