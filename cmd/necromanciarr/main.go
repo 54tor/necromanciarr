@@ -24,7 +24,6 @@ const (
 	// usageExitCode est le code de sortie d'une ligne de commande invalide.
 	usageExitCode   = 2
 	failureExitCode = 1
-	serveStubText   = "serve: the web interface is not available yet, it comes with a later version"
 )
 
 // lookupEnv lit l'environnement pour config.Load.
@@ -53,8 +52,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case len(args) >= 2 && args[0] == "config" && args[1] == "check":
 		return runConfigCheck(args[2:], stdout, stderr)
 	case len(args) >= 1 && args[0] == "serve":
-		_, _ = fmt.Fprintln(stderr, serveStubText)
-		return usageExitCode
+		return runServe(ctx, args[1:], stdout, stderr)
+	case len(args) >= 1 && args[0] == "healthcheck":
+		return runHealthcheck(ctx, args[1:], stdout, stderr)
 	}
 	spec, rest, found := findCommand(args)
 	if !found {

@@ -279,8 +279,8 @@ func TestCli_forceRequiresYesAndWarnsAboutRewrittenFiles(t *testing.T) {
 	}
 }
 
-func TestCli_serveIsAStubAndHelpPrintsUsage(t *testing.T) {
-	for _, args := range [][]string{{"serve"}, {"help"}, {}, {"--help"}, {"proposals"}} {
+func TestCli_helpPrintsUsage(t *testing.T) {
+	for _, args := range [][]string{{"help"}, {}, {"--help"}, {"proposals"}} {
 		var stdout, stderr bytes.Buffer
 
 		exitCode := run(args, &stdout, &stderr)

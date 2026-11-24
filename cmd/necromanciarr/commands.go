@@ -445,7 +445,8 @@ func buildUsage() string {
 	for _, spec := range commands {
 		_, _ = fmt.Fprintf(&usage, "  %-23s %s\n", spec.name(), spec.summary)
 	}
-	usage.WriteString("  serve                   web interface (not available yet)\n" +
+	usage.WriteString("  serve                   serve the web interface and its api until SIGINT or SIGTERM\n" +
+		"  healthcheck             probe /healthz on loopback: exit 0 if it answers 200, else 1\n" +
 		"  api-key                 print the API key of the web interface\n" +
 		"  config check            print the effective configuration, secrets masked\n" +
 		"\nexit codes: 0 ok (warnings on stderr), 1 failure, 2 usage, 3 stale proposal, 4 refused\n" +
