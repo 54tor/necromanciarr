@@ -230,6 +230,14 @@ func TestSeedStage_incompleteTorrentRunningAfterAddFailsTheProposal(t *testing.T
 				t.Fatalf("gotValue paused=%v failed=%v result %+v, expectedValue a pause and failed=%v", pausedAfterAdd, gotFailed,
 					result, testCase.expectedFailed)
 			}
+			expectedRemoved := []string(nil)
+			if testCase.expectedFailed {
+				expectedRemoved = []string{candidate.Infohash}
+			}
+			if !slices.Equal(fixture.client.removed, expectedRemoved) || (testCase.expectedFailed && len(fixture.client.paused) != 2) {
+				t.Fatalf("gotValue removed %v paused %v, expectedValue a second pause then removal (data kept) only when still running",
+					fixture.client.removed, fixture.client.paused)
+			}
 		})
 	}
 }

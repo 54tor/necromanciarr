@@ -237,39 +237,58 @@ func (run seedRun) takeOverExisting(ctx context.Context, proposalID int64, infoh
 const (
 	pauseCheckAttempts = 10
 	pauseCheckInterval = 200 * time.Millisecond
+	// pauseRetries : une pause, puis une seconde si le client a démarré le torrent malgré tout.
+	pauseRetries = 2
+	// removeTimeout borne le retrait d'un torrent qui refuse la pause, fait même si l'appelant annule.
+	removeTimeout = 30 * time.Second
 )
 
 // ensurePausedAfterAdd redemande la pause d'un torrent incomplet tout juste ajouté, puis vérifie que le client le
 // montre arrêté (ou en contrôle, qui finit arrêté) : un client qui l'aurait démarré quand même écrirait dans les
-// fichiers liés.
+// fichiers liés. Toujours en marche après une seconde pause, il est retiré du client, données gardées.
 func (run seedRun) ensurePausedAfterAdd(ctx context.Context, infohash string) error {
-	if err := run.deps.Client.Pause(ctx, infohash); err != nil {
-		return refusal(ReasonPauseFailed)
-	}
-	for attempt := range pauseCheckAttempts {
-		torrent, present, err := run.deps.Client.FindTorrent(ctx, infohash)
-		if err != nil {
-			return refusal(ReasonNotPausedAfterAdd)
+	for pauseAttempt := range pauseRetries {
+		if err := run.deps.Client.Pause(ctx, infohash); err != nil {
+			return refusal(ReasonPauseFailed)
 		}
-		if present {
-			return checkStoppedState(torrent.State)
+		stopped, err := run.waitStopped(ctx, infohash)
+		if err != nil || stopped {
+			return err
 		}
-		if attempt < pauseCheckAttempts-1 {
-			if err := sleepContext(ctx, pauseCheckInterval); err != nil {
-				return err
-			}
+		if pauseAttempt == pauseRetries-1 {
+			break
 		}
 	}
+	removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), removeTimeout)
+	defer cancel()
+	_ = run.deps.Client.RemoveKeepingData(removeCtx, infohash)
 	return refusal(ReasonNotPausedAfterAdd)
 }
 
-func checkStoppedState(state string) error {
+// waitStopped relit le torrent par hash jusqu'à le voir (ajout asynchrone) ; stopped dit s'il est arrêté ou en
+// contrôle. Introuvable ou illisible : refus.
+func (run seedRun) waitStopped(ctx context.Context, infohash string) (bool, error) {
+	for attempt := range pauseCheckAttempts {
+		torrent, present, err := run.deps.Client.FindTorrent(ctx, infohash)
+		if err != nil {
+			return false, refusal(ReasonNotPausedAfterAdd)
+		}
+		if present {
+			return isStoppedState(torrent.State), nil
+		}
+		if attempt < pauseCheckAttempts-1 {
+			if err := sleepContext(ctx, pauseCheckInterval); err != nil {
+				return false, err
+			}
+		}
+	}
+	return false, refusal(ReasonNotPausedAfterAdd)
+}
+
+func isStoppedState(state string) bool {
 	isStopped := strings.HasPrefix(state, "paused") || strings.HasPrefix(state, "stopped")
 	isChecking := strings.HasPrefix(state, "checking") || state == "queuedForChecking"
-	if isStopped || isChecking {
-		return nil
-	}
-	return refusal(ReasonNotPausedAfterAdd)
+	return isStopped || isChecking
 }
 
 func sleepContext(ctx context.Context, duration time.Duration) error {

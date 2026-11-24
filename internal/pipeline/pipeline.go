@@ -124,6 +124,7 @@ type TorrentClient interface {
 	Add(ctx context.Context, torrent []byte, savePath string, options qbit.AddOptions) error
 	FindTorrent(ctx context.Context, infoHash string) (qbit.TorrentInfo, bool, error)
 	Pause(ctx context.Context, infoHash string) error
+	RemoveKeepingData(ctx context.Context, infoHash string) error
 	RecheckAndGuard(ctx context.Context, infoHash string, timeout time.Duration) (qbit.RecheckResult, error)
 	Resume(ctx context.Context, infoHash string) error
 }

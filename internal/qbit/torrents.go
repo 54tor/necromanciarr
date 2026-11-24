@@ -121,6 +121,14 @@ func (client *Client) Pause(ctx context.Context, infoHash string) error {
 	return client.hashAction(ctx, "pause", infoHash, client.library.PauseCtx)
 }
 
+// RemoveKeepingData retire un torrent du client sans jamais supprimer ses fichiers (deleteFiles=false) : ses données
+// sont des liens vers la bibliothèque.
+func (client *Client) RemoveKeepingData(ctx context.Context, infoHash string) error {
+	return client.hashAction(ctx, "remove", infoHash, func(callCtx context.Context, hashes []string) error {
+		return client.library.DeleteTorrentsCtx(callCtx, hashes, false)
+	})
+}
+
 // Resume reprend un torrent ; la bibliothèque choisit resume ou start selon la version de l'API.
 func (client *Client) Resume(ctx context.Context, infoHash string) error {
 	return client.hashAction(ctx, "resume", infoHash, client.library.ResumeCtx)

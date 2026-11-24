@@ -156,6 +156,16 @@ type fakeTorrentClient struct {
 	existing []qbit.TorrentInfo
 	// reportedState remplace l'état rapporté pour un torrent ajouté (vide = stoppedDL).
 	reportedState string
+	// removed liste les torrents retirés du client (données gardées).
+	removed []string
+}
+
+func (client *fakeTorrentClient) RemoveKeepingData(_ context.Context, infoHash string) error {
+	client.mutex.Lock()
+	defer client.mutex.Unlock()
+	client.removed = append(client.removed, infoHash)
+	delete(client.added, infoHash)
+	return nil
 }
 
 type fakeAdd struct {

@@ -152,6 +152,8 @@ func (fake *fakeQbit) route(writer http.ResponseWriter, request *http.Request, a
 		fake.files(writer, request)
 	case "torrents/export":
 		fake.export(writer, request)
+	case "torrents/delete":
+		fake.remove(writer, request)
 	case "torrents/recheck", "torrents/pause", "torrents/resume", "torrents/stop", "torrents/start":
 		fake.action(writer, request, strings.TrimPrefix(apiPath, "torrents/"))
 	default:
@@ -320,6 +322,17 @@ func (fake *fakeQbit) action(writer http.ResponseWriter, request *http.Request, 
 	case "resume", "start":
 		torrent.State = "uploading"
 	}
+}
+
+// remove enregistre torrents/delete avec la valeur de deleteFiles reçue.
+func (fake *fakeQbit) remove(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost || request.ParseForm() != nil {
+		writer.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	hash := request.PostForm.Get("hashes")
+	fake.actions = append(fake.actions, "delete:"+hash+":deleteFiles="+request.PostForm.Get("deleteFiles"))
+	delete(fake.torrents, hash)
 }
 
 func writeJSON(writer http.ResponseWriter, value any) {

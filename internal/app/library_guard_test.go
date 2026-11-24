@@ -82,6 +82,8 @@ func (client *completeClient) FindTorrent(_ context.Context, infoHash string) (q
 
 func (client *completeClient) Pause(context.Context, string) error { return nil }
 
+func (client *completeClient) RemoveKeepingData(context.Context, string) error { return nil }
+
 func (client *completeClient) RecheckAndGuard(context.Context, string, time.Duration) (qbit.RecheckResult, error) {
 	return qbit.RecheckResult{Progress: 1, Complete: true, Resumed: true}, nil
 }

@@ -128,7 +128,7 @@
 | `already_in_client` | Seed | l'infohash existe dans le client à un autre chemin : rien n'est touché |
 | `client_read_only` | Seed | client déclaré `readonly:` |
 | `add_failed`, `recheck_failed`, `resume_failed`, `pause_failed` | Seed | client injoignable ou refus : `doctor` (`qbittorrent`), relancer |
-| `not_paused_after_add` | Seed | torrent incomplet introuvable ou démarré malgré la pause : vérifier dans le client qu'il est arrêté, puis réaccepter et relancer Seed |
+| `not_paused_after_add` | Seed | torrent incomplet introuvable, ou démarré malgré deux pauses (alors retiré du client, données gardées) : vérifier le client, puis réaccepter et relancer Seed |
 | `incomplete_after_recheck`, `paused_incomplete` | Seed | torrent laissé en pause (voir [03-seed-safety.md](03-seed-safety.md)) |
 | `link_changed`, `annex_changed` | Seed | dossier du torrent modifié depuis Link : réaccepter et relancer `link` |
 | `client_path_invalid` | Seed | chemin client avec caractère interdit sous Windows |

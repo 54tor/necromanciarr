@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -66,5 +67,20 @@ func TestTorrents_namesAnOversizedListingWithATypedError(t *testing.T) {
 
 	if !errors.Is(err, qbit.ErrResponseTooLarge) {
 		t.Fatalf("gotValue %v, expectedValue ErrResponseTooLarge", err)
+	}
+}
+
+func TestRemoveKeepingData_neverAsksToDeleteFiles(t *testing.T) {
+	fake := newFakeQbit(webAPIVersion5)
+	fake.torrents[hashMovie] = movieTorrent(1)
+	server := fake.start(t)
+	client := newTestClient(t, server.URL, "", "")
+
+	if err := client.RemoveKeepingData(context.Background(), hashMovie); err != nil {
+		t.Fatal(err)
+	}
+
+	if expectedAction := "delete:" + hashMovie + ":deleteFiles=false"; !slices.Contains(fake.snapshotActions(), expectedAction) {
+		t.Fatalf("gotValue %v, expectedValue %s", fake.snapshotActions(), expectedAction)
 	}
 }
