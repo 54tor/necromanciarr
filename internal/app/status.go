@@ -16,7 +16,9 @@ type Status struct {
 	Proposals     map[store.ProposalDecision]int `json:"proposals"`
 	Steps         map[store.ProposalStep]int     `json:"steps"`
 	CrossSeedMode string                         `json:"cross_seed_mode"`
-	Warnings      []string                       `json:"warnings,omitempty"`
+	// Language est la langue des textes rendus (fr ou en) : l'interface la lit avant tout rendu.
+	Language string   `json:"language"`
+	Warnings []string `json:"warnings,omitempty"`
 	// Held liste les torrents vérifiés dont le verdict est mis de côté (aucune proposition), avec la raison.
 	Held []HeldCandidate `json:"held"`
 }
@@ -48,7 +50,7 @@ func (svc *service) Status(ctx context.Context) (Status, error) {
 	resolution := svc.crossSeed(ctx)
 	status := Status{
 		Candidates: map[store.CandidateState]int{}, Proposals: map[store.ProposalDecision]int{}, Steps: map[store.ProposalStep]int{},
-		CrossSeedMode: behaviorNames[resolution.Behavior],
+		CrossSeedMode: behaviorNames[resolution.Behavior], Language: string(svc.deps.Translator.Language()),
 	}
 	if resolution.Warning != "" {
 		status.Warnings = []string{resolution.Warning}

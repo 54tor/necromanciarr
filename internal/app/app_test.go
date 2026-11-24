@@ -14,6 +14,7 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
 )
@@ -292,7 +293,7 @@ func TestApp_staleGenerationIsMappedToATypedMessage(t *testing.T) {
 
 	err := service.Accept(ctx, proposalID)
 
-	if !errors.Is(err, ErrStaleProposal) || StaleProposalMessage != "proposition périmée, revérifier" {
+	if !errors.Is(err, ErrStaleProposal) {
 		t.Fatalf("gotValue %v, expectedValue the typed stale message", err)
 	}
 	if _, err := fixture.store.InvalidateCandidatesForFile(ctx, fixture.media.ID, fixedNow); err != nil {
@@ -334,7 +335,7 @@ func TestApp_listProposalsReturnsDetailsForTheCliAndWeb(t *testing.T) {
 func TestApp_actionsRegistryListsEveryServiceMethod(t *testing.T) {
 	serviceType := reflect.TypeFor[Service]()
 	registered := map[string]bool{}
-	for _, action := range Actions() {
+	for _, action := range Actions(i18n.New(i18n.English, nil)) {
 		if _, found := serviceType.MethodByName(action.Method); !found || action.Name == "" || action.Description == "" {
 			t.Fatalf("gotValue action %+v, expectedValue a named action bound to a Service method", action)
 		}
@@ -342,7 +343,7 @@ func TestApp_actionsRegistryListsEveryServiceMethod(t *testing.T) {
 	}
 	for methodIndex := range serviceType.NumMethod() {
 		methodName := serviceType.Method(methodIndex).Name
-		if methodName != "Actions" && !registered[methodName] {
+		if methodName != "Actions" && methodName != "Translator" && !registered[methodName] {
 			t.Fatalf("gotValue no action for %s, expectedValue every Service method registered", methodName)
 		}
 	}

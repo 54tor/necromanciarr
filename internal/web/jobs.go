@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"necromanciarr/internal/i18n"
+
 	"necromanciarr/internal/config"
 )
 
@@ -41,22 +43,25 @@ type Job struct {
 // jobRunner exécute un job à la fois dans le contexte du serveur (jamais celui de la requête, qui finit avec la
 // réponse) : un arrêt du serveur annule le job en cours.
 type jobRunner struct {
-	ctx     context.Context
-	mutex   sync.Mutex
-	history []*Job
-	running bool
-	closed  bool
-	lastID  int64
-	group   sync.WaitGroup
+	describe func(error) (int, ErrorBody)
+	ctx      context.Context
+	mutex    sync.Mutex
+	history  []*Job
+	running  bool
+	closed   bool
+	lastID   int64
+	group    sync.WaitGroup
 }
 
-func newJobRunner(ctx context.Context) *jobRunner { return &jobRunner{ctx: ctx} }
+func newJobRunner(ctx context.Context, describe func(error) (int, ErrorBody)) *jobRunner {
+	return &jobRunner{ctx: ctx, describe: describe}
+}
 
 // errJobRunning : un job tourne déjà ; même code que le verrou d'étape du Service.
-var errJobRunning = newAPIError(http.StatusConflict, errorCodeStageRunning, "another long action is running")
+var errJobRunning = newAPIError(http.StatusConflict, errorCodeStageRunning, i18n.Message{Key: i18n.KeyErrorWebJobRunning})
 
 // errShuttingDown : le serveur s'arrête, aucun job ne démarre plus (WaitGroup.Go après Wait serait une course).
-var errShuttingDown = newAPIError(http.StatusServiceUnavailable, errorCodeShuttingDown, "the server is shutting down")
+var errShuttingDown = newAPIError(http.StatusServiceUnavailable, errorCodeShuttingDown, i18n.Message{Key: i18n.KeyErrorWebShuttingDown})
 
 // startJob lance work en arrière-plan et répond 202 avec le job ; le résultat et l'erreur sont masqués à la lecture
 // (writeJSON), comme toute réponse.
@@ -95,7 +100,7 @@ func (runner *jobRunner) finish(job *Job, work func(ctx context.Context) (any, e
 	finishedAt := time.Now().UTC()
 	job.FinishedAt, job.State, job.Result = &finishedAt, JobDone, result
 	if err != nil {
-		status, body := describe(err)
+		status, body := runner.describe(err)
 		if status == http.StatusInternalServerError {
 			log.Printf("job %d (%s): %s", job.ID, job.Action, config.RedactText(err.Error(), secrets...))
 		}

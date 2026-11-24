@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 
+	"necromanciarr/internal/i18n"
+
 	"necromanciarr/internal/config"
 )
 
@@ -23,20 +25,16 @@ const contentSecurityPolicy = "default-src 'self'; img-src 'self' data:; style-s
 // Éléments du modèle de sécurité de l'API : corps borné, en-tête que seul un script de même origine pose sans
 // prévol CORS (et jamais un formulaire), schéma d'authentification.
 const (
-	maxBodyBytes         = 64 << 10
-	requestedWithHeader  = "X-Requested-With"
-	requestedWithValue   = "necromanciarr"
-	bearerScheme         = "Bearer"
-	defaultHTTPPort      = "80"
-	crossSiteFetch       = "cross-site"
-	jsonContentType      = "application/json"
-	loopbackHostIPv4     = "127.0.0.1"
-	loopbackHostIPv6     = "::1"
-	loopbackHostName     = "localhost"
-	errorMessageHost     = "unknown host header"
-	errorMessageOrigin   = "cross-site request refused"
-	errorMessageToken    = "missing or invalid bearer token"
-	errorMessageMimeType = "content type must be application/json"
+	maxBodyBytes        = 64 << 10
+	requestedWithHeader = "X-Requested-With"
+	requestedWithValue  = "necromanciarr"
+	bearerScheme        = "Bearer"
+	defaultHTTPPort     = "80"
+	crossSiteFetch      = "cross-site"
+	jsonContentType     = "application/json"
+	loopbackHostIPv4    = "127.0.0.1"
+	loopbackHostIPv6    = "::1"
+	loopbackHostName    = "localhost"
 )
 
 func setSecurityHeaders(header http.Header) {
@@ -89,18 +87,18 @@ func (handler *Handler) protect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Cache-Control", "no-store")
 		if !handler.hosts.admits(request.Host) {
-			handler.writeError(writer, newAPIError(http.StatusForbidden, errorCodeForbidden, errorMessageHost))
+			handler.writeError(writer, newAPIError(http.StatusForbidden, errorCodeForbidden, i18n.Message{Key: i18n.KeyErrorWebUnknownHost}))
 			return
 		}
 		if request.Header.Get("Sec-Fetch-Site") == crossSiteFetch {
-			handler.writeError(writer, newAPIError(http.StatusForbidden, errorCodeForbidden, errorMessageOrigin))
+			handler.writeError(writer, newAPIError(http.StatusForbidden, errorCodeForbidden, i18n.Message{Key: i18n.KeyErrorWebCrossSite}))
 			return
 		}
 		if !handler.authorized(request) {
 			// Une ligne par échec, sans limite de débit (risque accepté en v1) ; ni jeton ni en-tête n'y figurent.
 			log.Printf("api: unauthorized request from %s", remoteAddress(request)) // #nosec G706 -- adresse analysée par netip, sans texte libre
 			writer.Header().Set("WWW-Authenticate", bearerScheme)
-			handler.writeError(writer, newAPIError(http.StatusUnauthorized, errorCodeUnauthorized, errorMessageToken))
+			handler.writeError(writer, newAPIError(http.StatusUnauthorized, errorCodeUnauthorized, i18n.Message{Key: i18n.KeyErrorWebBearerToken}))
 			return
 		}
 		if refusal := handler.checkUnsafeMethod(request); refusal != nil {
@@ -135,15 +133,15 @@ func (handler *Handler) checkUnsafeMethod(request *http.Request) error {
 	}
 	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 	if err != nil || mediaType != jsonContentType {
-		return newAPIError(http.StatusUnsupportedMediaType, errorCodeUsage, errorMessageMimeType)
+		return newAPIError(http.StatusUnsupportedMediaType, errorCodeUsage, i18n.Message{Key: i18n.KeyErrorWebContentType})
 	}
 	origin := request.Header.Get("Origin")
 	if origin != "" && !sameOrigin(origin, request.Host) {
-		return newAPIError(http.StatusForbidden, errorCodeForbidden, errorMessageOrigin)
+		return newAPIError(http.StatusForbidden, errorCodeForbidden, i18n.Message{Key: i18n.KeyErrorWebCrossSite})
 	}
 	hasCustomHeader := request.Header.Get(requestedWithHeader) == requestedWithValue
 	if origin == "" && handler.settings.AuthToken == "" && !hasCustomHeader {
-		return newAPIError(http.StatusForbidden, errorCodeForbidden, errorMessageOrigin)
+		return newAPIError(http.StatusForbidden, errorCodeForbidden, i18n.Message{Key: i18n.KeyErrorWebCrossSite})
 	}
 	return nil
 }

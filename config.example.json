@@ -17,6 +17,7 @@
   "linkCategory": "",
   "seedTags": ["necromanciarr"],
   "partialMaxMissingPercent": 100,
+  "language": "fr",
   "dedupe": {
     "torrentRoots": [],
     "kinds": ["symlink"],

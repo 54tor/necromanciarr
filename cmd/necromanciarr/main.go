@@ -60,7 +60,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	spec, rest, found := findCommand(args)
 	if !found {
-		_, _ = fmt.Fprint(stderr, usageText)
+		_, _ = fmt.Fprint(stderr, usageText(i18n.New(languageFromArguments(args), nil)))
 		return usageExitCode
 	}
 	return runCommand(ctx, spec, rest, stdout, stderr)
@@ -83,13 +83,13 @@ func findCommand(args []string) (command, []string, bool) {
 }
 
 // reportError affiche l'erreur ; une ligne de commande invalide affiche l'usage et donne le code 2.
-func reportError(stderr io.Writer, err error) int {
+func reportError(stderr io.Writer, args []string, err error) int {
+	translator := i18n.New(languageFromArguments(args), nil)
+	_, _ = fmt.Fprintln(stderr, "error:", errorMessage(translator, err))
 	if errors.Is(err, config.ErrUsage) {
-		_, _ = fmt.Fprintln(stderr, "error:", err)
-		_, _ = fmt.Fprint(stderr, usageText)
+		_, _ = fmt.Fprint(stderr, usageText(translator))
 		return usageExitCode
 	}
-	_, _ = fmt.Fprintln(stderr, "error:", err)
 	return failureExitCode
 }
 
@@ -106,12 +106,12 @@ func defaultConfigDir() string {
 // sur le disque ni consigné dans un log.
 func runAPIKey(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
-		_, _ = fmt.Fprint(stderr, usageText)
+		_, _ = fmt.Fprint(stderr, usageText(i18n.New(languageFromArguments(args), nil)))
 		return usageExitCode
 	}
 	token, err := config.GenerateAuthToken()
 	if err != nil {
-		return reportError(stderr, err)
+		return reportError(stderr, args, err)
 	}
 	_, _ = fmt.Fprintln(stdout, token)
 	_, _ = fmt.Fprintln(stderr, apiKeyHint)
@@ -121,11 +121,11 @@ func runAPIKey(args []string, stdout, stderr io.Writer) int {
 func runConfigCheck(args []string, stdout, stderr io.Writer) int {
 	loadedConfig, err := config.Load(args, os.LookupEnv, defaultConfigDir())
 	if err != nil {
-		return reportError(stderr, err)
+		return reportError(stderr, args, err)
 	}
 	redactedJSON, err := loadedConfig.RedactedJSON()
 	if err != nil {
-		return reportError(stderr, err)
+		return reportError(stderr, args, err)
 	}
 	_, _ = fmt.Fprintln(stdout, string(redactedJSON))
 	translator := i18n.New(loadedConfig.Language, func(text string) string {

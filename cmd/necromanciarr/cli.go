@@ -12,6 +12,7 @@ import (
 
 	"necromanciarr/internal/app"
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/i18n"
 )
 
 // Codes de sortie : 0 réussi (avertissements compris, une ligne « warning: » chacun), 1 échec, 2 usage, 3 proposition
@@ -61,12 +62,38 @@ func classify(err error) errorClass {
 	return errorClass{code, exitCode}
 }
 
-// errorMessage donne le texte montré à l'opérateur ; une proposition périmée a son message dédié.
-func errorMessage(err error) string {
-	if errors.Is(err, app.ErrStaleProposal) {
-		return app.StaleProposalMessage + " (" + err.Error() + ")"
+// errorMessage donne le texte montré à l'opérateur : le message de l'erreur typée dans la langue, suivi du détail de la
+// chaîne (anglais, masqué à l'affichage) quand l'erreur en porte un. Le détail reste ici, contrairement au web : la CLI
+// est locale à l'opérateur et n'a pas de journal serveur où le retrouver.
+func errorMessage(translator i18n.Translator, err error) string {
+	message := translator.Render(app.MessageOf(err))
+	detail := err.Error()
+	if _, typed := app.Classify(err); typed != nil {
+		if detail == typed.Error() {
+			return message
+		}
+		detail = strings.TrimPrefix(detail, typed.Error()+": ")
 	}
-	return err.Error()
+	return message + " (" + detail + ")"
+}
+
+// languageFromArguments devine la langue avant que la configuration soit chargée (ligne invalide, aide) : --language,
+// puis l'environnement, sinon le français ; une valeur invalide est ignorée, la configuration la refusera plus tard.
+func languageFromArguments(args []string) i18n.Language {
+	rawValue, _ := lookupEnv("NECROMANCIARR_LANGUAGE")
+	for position, argument := range args {
+		switch {
+		case argument == "--language" && position+1 < len(args):
+			rawValue = args[position+1]
+		case strings.HasPrefix(argument, "--language="):
+			rawValue = strings.TrimPrefix(argument, "--language=")
+		}
+	}
+	language, err := i18n.ParseLanguage(rawValue)
+	if err != nil {
+		return i18n.French
+	}
+	return language
 }
 
 // invocation est une sous-commande analysée : arguments positionnels nommés, options propres, options de
@@ -77,6 +104,7 @@ type invocation struct {
 	configArgs []string
 	settings   config.Config
 	service    app.Service
+	translator i18n.Translator
 	stdout     io.Writer
 	stderr     io.Writer
 }
@@ -161,6 +189,19 @@ type printer struct {
 	stdout, stderr io.Writer
 	jsonOutput     bool
 	secrets        []string
+	translator     i18n.Translator
+}
+
+// newPrinter prépare un printer dont la langue est devinée sur la ligne de commande, en attendant la configuration.
+func newPrinter(stdout, stderr io.Writer, args []string) printer {
+	return printer{stdout: stdout, stderr: stderr, translator: i18n.New(languageFromArguments(args), nil)}
+}
+
+// useSettings retient les secrets et la langue de la configuration chargée ; le traducteur masque les valeurs de paramètres.
+func (out *printer) useSettings(settings config.Config) {
+	secrets := settings.KnownSecrets()
+	out.secrets = secrets
+	out.translator = i18n.New(settings.Language, func(text string) string { return config.RedactText(text, secrets...) })
 }
 
 // redact masque les secrets puis retire les caractères de contrôle (ESC, OSC, C1...) d'un texte destiné au terminal :
@@ -216,14 +257,14 @@ func (out printer) writeJSON(value any) error {
 // d'usage rappelle l'usage.
 func (out printer) failure(err error) int {
 	class := classify(err)
-	message := out.redact(errorMessage(err))
+	message := out.redact(errorMessage(out.translator, err))
 	if out.jsonOutput {
 		_ = out.writeJSON(map[string]errorBody{"error": {Code: class.code, Message: message}})
 		return class.exitCode
 	}
 	_, _ = fmt.Fprintln(out.stderr, "error:", message)
 	if class.code == errorCodeUsage {
-		_, _ = fmt.Fprint(out.stderr, usageText)
+		_, _ = fmt.Fprint(out.stderr, usageText(out.translator))
 	}
 	return class.exitCode
 }
@@ -231,7 +272,7 @@ func (out printer) failure(err error) int {
 // runCommand analyse la ligne, charge la configuration, ouvre le Service voulu, exécute et affiche.
 func runCommand(ctx context.Context, spec command, args []string, stdout, stderr io.Writer) int {
 	call, err := parseInvocation(spec, args)
-	out := printer{stdout: stdout, stderr: stderr}
+	out := newPrinter(stdout, stderr, args)
 	if err != nil {
 		out.jsonOutput = slices.Contains(args, "--json")
 		return out.failure(err)
@@ -241,11 +282,12 @@ func runCommand(ctx context.Context, spec command, args []string, stdout, stderr
 	call.settings, err = config.Load(call.configArgs, lookupEnv, defaultConfigDir())
 	if err != nil {
 		if spec.onConfigError != nil && !errors.Is(err, config.ErrUsage) {
-			return out.result(spec.onConfigError(err))
+			return out.result(spec.onConfigError(out.translator, err))
 		}
 		return out.failure(err)
 	}
-	out.secrets = call.settings.KnownSecrets()
+	out.useSettings(call.settings)
+	call.translator = out.translator
 	closeService, err := openFor(ctx, spec, call)
 	if err != nil {
 		return out.failure(err)

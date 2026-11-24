@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/app"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 )
 
@@ -151,7 +152,7 @@ func TestJobs_aPanickingJobFailsWithAnInternalErrorAndTheServerStaysUp(t *testin
 
 	failed := waitJob(t, handler, startJob(t, handler, "/api/stages/scan/run", `{}`).ID)
 
-	if failed.State != JobFailed || failed.Error == nil || failed.Error.Message != internalErrorMessage {
+	if failed.State != JobFailed || failed.Error == nil || failed.Error.Message != fake.Translator().Text(i18n.KeyErrorInternal, nil) {
 		t.Fatalf("gotValue %+v, expectedValue a failed job with an internal error", failed)
 	}
 	if strings.Contains(logged.String(), providerToken) || !strings.Contains(logged.String(), "panic") {

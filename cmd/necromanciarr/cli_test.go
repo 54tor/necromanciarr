@@ -16,6 +16,7 @@ import (
 	"necromanciarr/internal/app"
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/doctor"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
 )
@@ -133,7 +134,9 @@ func (fake *fakeService) ListLinks(_ context.Context, filter app.LinkFilter) (ap
 	return fake.linkPage, fake.err
 }
 
-func (*fakeService) Actions() []app.Action { return app.Actions() }
+func (*fakeService) Actions() []app.Action { return app.Actions(i18n.New(i18n.English, nil)) }
+
+func (*fakeService) Translator() i18n.Translator { return i18n.New(i18n.English, nil) }
 
 type nopCloser struct{}
 
@@ -156,13 +159,17 @@ type cliRun struct {
 func runCli(t *testing.T, configDir string, args ...string) cliRun {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	exitCode := run(append(args, "--config-dir", configDir), &stdout, &stderr)
+	args = append(args, "--config-dir", configDir)
+	if !slices.Contains(args, "--language") {
+		args = append(args, "--language", "en")
+	}
+	exitCode := run(args, &stdout, &stderr)
 	return cliRun{exitCode: exitCode, stdout: stdout.String(), stderr: stderr.String()}
 }
 
 func registryMethods() map[string]string {
 	methods := map[string]string{}
-	for _, action := range app.Actions() {
+	for _, action := range app.Actions(i18n.New(i18n.English, nil)) {
 		methods[action.Name] = action.Method
 	}
 	return methods
@@ -171,7 +178,7 @@ func registryMethods() map[string]string {
 func TestCli_coversEveryRegisteredAction(t *testing.T) {
 	configDir := writeDoctorConfig(t, `{}`)
 	methods := registryMethods()
-	for _, action := range app.Actions() {
+	for _, action := range app.Actions(i18n.New(i18n.English, nil)) {
 		covered := false
 		for _, spec := range commands {
 			if !slices.Contains(spec.actions, action.Name) {
@@ -260,7 +267,7 @@ func TestCli_exitCodesMapTypedErrors(t *testing.T) {
 		})
 	}
 	useFakeService(t, &fakeService{err: app.ErrStaleProposal})
-	if result := runCli(t, configDir, "proposals", "accept", "1"); !strings.Contains(result.stderr, app.StaleProposalMessage) {
+	if result := runCli(t, configDir, "proposals", "accept", "1"); !strings.Contains(result.stderr, "stale proposal, re-verify") {
 		t.Fatalf("gotValue stderr %q, expectedValue the stale proposal message", result.stderr)
 	}
 	for _, args := range [][]string{{"proposals", "accept"}, {"proposals", "accept", "zero"}, {"proposals", "list", "--kind", "bogus"}, {"proposals", "accept", "1", "2"}} {
@@ -296,7 +303,7 @@ func TestCli_helpPrintsUsage(t *testing.T) {
 			t.Fatalf("%v: gotValue exit %d stderr %q, expectedValue 2 with a message", args, exitCode, stderr.String())
 		}
 	}
-	for _, line := range strings.Split(usageText, "\n") {
+	for _, line := range strings.Split(usageText(i18n.New(i18n.English, nil)), "\n") {
 		if utf8.RuneCountInString(line) > tableWidth {
 			t.Fatalf("usage line wider than %d columns: %q", tableWidth, line)
 		}

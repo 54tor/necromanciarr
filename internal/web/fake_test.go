@@ -18,6 +18,7 @@ import (
 	"necromanciarr/internal/app"
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/doctor"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 )
 
@@ -48,6 +49,8 @@ type fakeService struct {
 	lastFilter  app.ProposalFilter
 	lastLinks   app.LinkFilter
 	linkPage    app.LinkPage
+	// language est la langue du Translator (anglais si vide), pour comparer fr et en.
+	language i18n.Language
 	// panicValue fait paniquer RunStage avec cette valeur (job qui plante).
 	panicValue any
 }
@@ -151,7 +154,14 @@ func (fake *fakeService) ListLinks(_ context.Context, filter app.LinkFilter) (ap
 	return fake.linkPage, err
 }
 
-func (*fakeService) Actions() []app.Action { return app.Actions() }
+func (fake *fakeService) Actions() []app.Action { return app.Actions(fake.Translator()) }
+
+func (fake *fakeService) Translator() i18n.Translator {
+	if fake.language == "" {
+		return i18n.New(i18n.English, nil)
+	}
+	return i18n.New(fake.language, nil)
+}
 
 // fakeHealth répond à Ping avec err et retient l'échéance du contexte reçu.
 type fakeHealth struct {

@@ -85,7 +85,7 @@ func TestRun_extraArgumentsAndHelpPrintUsageAndExit2(t *testing.T) {
 func TestRun_configCheckWithAnUnknownFlagNamesItBeforeTheUsage(t *testing.T) {
 	var stderr bytes.Buffer
 
-	exitCode := run([]string{"config", "check", "--bogus"}, &bytes.Buffer{}, &stderr)
+	exitCode := run([]string{"config", "check", "--bogus", "--language", "en"}, &bytes.Buffer{}, &stderr)
 
 	reasonAt, usageAt := strings.Index(stderr.String(), "-bogus"), strings.Index(stderr.String(), "usage: necromanciarr")
 	if exitCode != usageExitCode || reasonAt < 0 || usageAt < 0 || reasonAt > usageAt {

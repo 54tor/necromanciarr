@@ -13,18 +13,16 @@ import (
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/doctor"
 	"necromanciarr/internal/hashsource"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/repair"
 	"necromanciarr/internal/store"
 )
 
-// StaleProposalMessage est le texte montré à l'opérateur pour ErrStaleProposal (couche CLI et web seulement).
-const StaleProposalMessage = "proposition périmée, revérifier"
-
 // Erreurs typées des actions ; leurs messages ne portent ni URL, ni chemin, ni secret.
 var (
 	// ErrStaleProposal : la proposition appartient à une génération antérieure de son candidat (fichier changé,
-	// réassociation) ; il faut revérifier avant de décider. La CLI l'affiche avec StaleProposalMessage.
+	// réassociation) ; il faut revérifier avant de décider.
 	ErrStaleProposal = errors.New("app: stale proposal, re-verify")
 	// ErrForceNotAllowed : un pack dont des fichiers média manquent ne peut jamais être démarré par Force en v1.
 	ErrForceNotAllowed = errors.New("app: a partial pack can never be forced")
@@ -87,8 +85,10 @@ type Service interface {
 	RepairAccept(ctx context.Context, proposalID int64, options ...DecisionOption) (MaintenanceResult, error)
 	// ListLinks liste les liens enregistrés avec leur état courant, lu sur le disque sans rien écrire, par page bornée.
 	ListLinks(ctx context.Context, filter LinkFilter) (LinkPage, error)
-	// Actions renvoie le registre des actions (parité CLI et web).
+	// Actions renvoie le registre des actions (parité CLI et web), descriptions dans la langue du Service.
 	Actions() []Action
+	// Translator donne le traducteur de la langue configurée, que la CLI et le web utilisent pour tout texte rendu.
+	Translator() i18n.Translator
 }
 
 // DecisionOption est une option explicite d'Accept, de DedupeAccept ou de RepairAccept.
@@ -159,6 +159,8 @@ type Deps struct {
 	DoctorDeps       doctor.Deps
 	Maintenance      MaintenanceClient
 	Now              func() time.Time
+	// Translator rend les textes dans la langue configurée (vide : français, sans masquage).
+	Translator i18n.Translator
 	// ResolveCrossSeed, s'il est posé, redonne le mode cross-seed au début de chaque étape, acceptation et Status
 	// (production : sonde TCP mise en cache) ; nil garde CrossSeed, CrossSeedWarning et Stages.Notifier fixes.
 	ResolveCrossSeed func(ctx context.Context) CrossSeedResolution
@@ -175,8 +177,13 @@ type service struct {
 
 // New construit le Service sur ses dépendances.
 func New(deps Deps) Service {
+	if deps.Translator.Language() == "" {
+		deps.Translator = i18n.New(i18n.French, nil)
+	}
 	return &service{deps: deps}
 }
+
+func (svc *service) Translator() i18n.Translator { return svc.deps.Translator }
 
 func (svc *service) now() time.Time {
 	if svc.deps.Now == nil {

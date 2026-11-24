@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"necromanciarr/internal/app"
+	"necromanciarr/internal/i18n"
 )
 
 var updateGolden = flag.Bool("update", false, "réécrit testdata/routes.json depuis la table des routes")
@@ -25,7 +26,7 @@ type goldenRoute struct {
 func currentRoutesGolden(t *testing.T) []byte {
 	t.Helper()
 	mutatingByName := map[string]bool{}
-	for _, action := range app.Actions() {
+	for _, action := range app.Actions(i18n.New(i18n.English, nil)) {
 		mutatingByName[action.Name] = action.Mutating
 	}
 	golden := make([]goldenRoute, 0, len(apiRoutes))

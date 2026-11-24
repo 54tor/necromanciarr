@@ -12,6 +12,7 @@ import (
 
 	"necromanciarr/internal/app"
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/web/ui"
 )
 
@@ -33,12 +34,13 @@ type HealthChecker interface {
 
 // Handler est le handler HTTP complet : API protégée, sonde et interface. Wait attend la fin des jobs en cours.
 type Handler struct {
-	mux      *http.ServeMux
-	service  app.Service
-	health   HealthChecker
-	settings config.Config
-	jobs     *jobRunner
-	hosts    allowedHosts
+	mux        *http.ServeMux
+	service    app.Service
+	health     HealthChecker
+	settings   config.Config
+	translator i18n.Translator
+	jobs       *jobRunner
+	hosts      allowedHosts
 }
 
 // NewHandler sert l'interface embarquée (ui.Assets) ; ctx est le contexte du serveur : son annulation arrête les jobs.
@@ -52,8 +54,9 @@ func NewHandler(ctx context.Context, service app.Service, health HealthChecker, 
 func NewHandlerWithAssets(ctx context.Context, service app.Service, health HealthChecker, settings config.Config, assets fs.FS) *Handler {
 	handler := &Handler{
 		mux: http.NewServeMux(), service: service, health: health, settings: settings,
-		jobs: newJobRunner(ctx), hosts: hostsFor(settings.ListenAddr),
+		translator: service.Translator(), hosts: hostsFor(settings.ListenAddr),
 	}
+	handler.jobs = newJobRunner(ctx, handler.describe)
 	handler.mux.HandleFunc("GET /healthz", handler.serveHealth)
 	for _, apiRoute := range apiRoutes {
 		handler.mux.Handle(apiRoute.pattern(), handler.protect(handler.endpoint(apiRoute.handle)))

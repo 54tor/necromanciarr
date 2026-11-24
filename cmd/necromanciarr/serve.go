@@ -31,12 +31,12 @@ var listen = func(address string) (net.Listener, error) { return net.Listen("tcp
 
 // runServe sert l'API et l'interface jusqu'au premier SIGINT ou SIGTERM (annulation de ctx), puis s'arrête proprement.
 func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	out := printer{stdout: stdout, stderr: stderr}
+	out := newPrinter(stdout, stderr, args)
 	settings, err := config.Load(args, lookupEnv, defaultConfigDir())
 	if err != nil {
 		return out.failure(err)
 	}
-	out.secrets = settings.KnownSecrets()
+	out.useSettings(settings)
 	if err := config.ValidateServe(settings); err != nil {
 		return out.failure(err)
 	}

@@ -15,6 +15,7 @@ import (
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/httpsafe"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/pipeline"
@@ -63,7 +64,9 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 	if err := wireProvider(settings, &stages); err != nil {
 		return Deps{}, err
 	}
-	deps := Deps{Store: openedStore, Config: settings}
+	deps := Deps{Store: openedStore, Config: settings, Translator: i18n.New(settings.Language, func(text string) string {
+		return config.RedactText(text, settings.KnownSecrets()...)
+	})}
 	if err := wireTorrentClient(settings, &stages, &deps); err != nil {
 		return Deps{}, err
 	}

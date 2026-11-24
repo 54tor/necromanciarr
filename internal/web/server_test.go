@@ -19,6 +19,7 @@ import (
 
 	"necromanciarr/internal/app"
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
 )
@@ -221,8 +222,8 @@ func TestForce_onlyAllowedForPartialAnnexAlreadyLinkedAndSeededPaused(t *testing
 		expectError(t, target, readBody(t, response), response.Code, refusal.expectedStatus, refusal.expectedCode)
 	}
 	stale := serve(handler, apiRequest(http.MethodPost, "/api/proposals/4/force", `{"confirm": true}`))
-	if gotMessage := decodeError(t, readBody(t, stale)).Error.Message; gotMessage != app.StaleProposalMessage {
-		t.Fatalf("gotValue %q, expectedValue %q", gotMessage, app.StaleProposalMessage)
+	if gotMessage := decodeError(t, readBody(t, stale)).Error.Message; gotMessage != "stale proposal, re-verify" {
+		t.Fatalf("gotValue %q, expectedValue %q", gotMessage, "stale proposal, re-verify")
 	}
 
 	forced := serve(handler, apiRequest(http.MethodPost, "/api/proposals/1/force", `{"confirm": true}`))
@@ -414,7 +415,7 @@ func TestServer_errorsNeverLeakSecretsOrPaths(t *testing.T) {
 	failureBody, refusalBody, statusBody := readBody(t, failure), readBody(t, refusal), readBody(t, status)
 	expectError(t, "failure", failureBody, failure.Code, http.StatusInternalServerError, app.ErrorCodeFailure)
 	expectError(t, "refusal", refusalBody, refusal.Code, http.StatusUnprocessableEntity, app.ErrorCodeRefused)
-	if gotValue := decodeError(t, refusalBody).Error.Message; gotValue != app.ErrConflictNeedsChoose.Error() {
+	if gotValue := decodeError(t, refusalBody).Error.Message; gotValue != "a conflict cannot be accepted, choose a torrent instead" {
 		t.Fatalf("gotValue %q, expectedValue only the typed message", gotValue)
 	}
 	for _, body := range []string{failureBody, refusalBody, statusBody} {
@@ -479,7 +480,7 @@ var nonActionRoutePrefixes = []string{"GET /api/jobs"}
 func TestWeb_everyRouteMapsToRegisteredAction(t *testing.T) {
 	registeredNames := map[string]bool{}
 	mutatingNames := map[string]bool{}
-	for _, action := range app.Actions() {
+	for _, action := range app.Actions(i18n.New(i18n.English, nil)) {
 		registeredNames[action.Name] = true
 		mutatingNames[action.Name] = action.Mutating
 	}

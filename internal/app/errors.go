@@ -5,6 +5,7 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/dedupe"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/repair"
 	"necromanciarr/internal/store"
@@ -56,4 +57,33 @@ func Classify(err error) (string, error) {
 		}
 	}
 	return ErrorCodeFailure, nil
+}
+
+// messageKeys donne la clé de catalogue de chaque erreur typée de classes : le texte rendu ne dépend jamais du message
+// anglais de l'erreur, qui peut porter un chemin ou le texte d'une couche basse.
+var messageKeys = map[error]i18n.Key{
+	config.ErrUsage: i18n.KeyErrorUsage, ErrUnknownCheck: i18n.KeyErrorUnknownCheck, ErrStaleProposal: i18n.KeyErrorStaleProposal,
+	ErrConflictNeedsChoose: i18n.KeyErrorConflictNeedsChoose, ErrPartialPackNeedsForce: i18n.KeyErrorPartialPackNeedsForce,
+	ErrNotATorrentProposal: i18n.KeyErrorNotATorrentProposal, ErrCandidateAlreadyAccepted: i18n.KeyErrorCandidateAlreadyAccepted,
+	ErrOneTorrentPerFile: i18n.KeyErrorOneTorrentPerFile, ErrNotFull: i18n.KeyErrorNotFull, ErrNotForceable: i18n.KeyErrorNotForceable,
+	ErrNoPrimary: i18n.KeyErrorNoPrimary, ErrForceNotAllowed: i18n.KeyErrorForceNotAllowed,
+	ErrForceIsolationImpossible: i18n.KeyErrorForceIsolationImpossible, ErrCrossSeedNotNative: i18n.KeyErrorCrossSeedNotNative,
+	ErrNotAccepted: i18n.KeyErrorNotAccepted, ErrNotActionable: i18n.KeyErrorNotActionable,
+	ErrWrongProposalKind: i18n.KeyErrorWrongProposalKind, ErrDirectoryInLibrary: i18n.KeyErrorDirectoryInLibrary,
+	ErrRecheckUnavailable: i18n.KeyErrorRecheckUnavailable, store.ErrInvalidTransition: i18n.KeyErrorInvalidTransition,
+	pipeline.ErrGroupInconsistent: i18n.KeyErrorGroupInconsistent, pipeline.ErrClientReadOnly: i18n.KeyErrorClientReadOnly,
+	pipeline.ErrPlacementChanged: i18n.KeyErrorPlacementChanged, dedupe.ErrTorrentRootOverlapsLibrary: i18n.KeyErrorTorrentRootOverlaps,
+	repair.ErrOutsideRoots: i18n.KeyErrorOutsideRoots, store.ErrProposalNotFound: i18n.KeyErrorProposalNotFound,
+	ErrGroupNotFound: i18n.KeyErrorGroupNotFound, ErrNotConfigured: i18n.KeyErrorNotConfigured,
+	pipeline.ErrStageRunning: i18n.KeyErrorStageRunning, ErrInspectionBusy: i18n.KeyErrorInspectionBusy,
+}
+
+// MessageOf donne le message à rendre pour err : la clé de l'erreur typée reconnue, sinon error.internal. Le texte brut
+// d'une erreur non typée n'en fait jamais partie (il reste pour le journal, masqué).
+func MessageOf(err error) i18n.Message {
+	_, typed := Classify(err)
+	if key, known := messageKeys[typed]; known {
+		return i18n.Message{Key: key}
+	}
+	return i18n.Message{Key: i18n.KeyErrorInternal}
 }

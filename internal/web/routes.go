@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"necromanciarr/internal/app"
+	"necromanciarr/internal/i18n"
 )
 
 // route relie une méthode et un chemin de l'API à l'action du registre qu'elle appelle (parité CLI et web). Une route
@@ -58,7 +59,7 @@ const (
 func pathID(request *http.Request, name string) (int64, error) {
 	identifier, err := strconv.ParseInt(request.PathValue(name), 10, 64)
 	if err != nil || identifier <= 0 {
-		return 0, newAPIError(http.StatusBadRequest, errorCodeUsage, name+" must be a positive integer")
+		return 0, newAPIError(http.StatusBadRequest, errorCodeUsage, named(i18n.KeyErrorWebPositiveInteger, name))
 	}
 	return identifier, nil
 }
@@ -67,7 +68,7 @@ func pathID(request *http.Request, name string) (int64, error) {
 func requireKnownQuery(query url.Values, known ...string) error {
 	for name := range query {
 		if !slices.Contains(known, name) {
-			return newAPIError(http.StatusBadRequest, errorCodeUsage, "unknown query parameter "+strconv.Quote(name))
+			return newAPIError(http.StatusBadRequest, errorCodeUsage, named(i18n.KeyErrorWebUnknownQuery, strconv.Quote(name)))
 		}
 	}
 	return nil
@@ -87,7 +88,7 @@ func listProposals(handler *Handler, request *http.Request) (any, int, error) {
 	if rawGroup := query.Get(queryGroup); rawGroup != "" {
 		parsedGroup, err := strconv.ParseInt(rawGroup, 10, 64)
 		if err != nil || parsedGroup <= 0 {
-			return nil, 0, newAPIError(http.StatusBadRequest, errorCodeUsage, "group must be a positive integer")
+			return nil, 0, newAPIError(http.StatusBadRequest, errorCodeUsage, named(i18n.KeyErrorWebPositiveInteger, queryGroup))
 		}
 		groupID = parsedGroup
 	}
@@ -109,7 +110,7 @@ func optionalBool(raw string) (bool, error) {
 	}
 	parsed, err := strconv.ParseBool(raw)
 	if err != nil {
-		return false, newAPIError(http.StatusBadRequest, errorCodeUsage, "current_only must be true or false")
+		return false, newAPIError(http.StatusBadRequest, errorCodeUsage, named(i18n.KeyErrorWebBoolean, queryCurrentOnly))
 	}
 	return parsed, nil
 }
@@ -142,7 +143,7 @@ func optionalCount(query url.Values, name string) (int, error) {
 	}
 	count, err := strconv.Atoi(raw)
 	if err != nil || count < 0 {
-		return 0, newAPIError(http.StatusBadRequest, errorCodeUsage, name+" must be a non-negative integer")
+		return 0, newAPIError(http.StatusBadRequest, errorCodeUsage, named(i18n.KeyErrorWebNonNegativeInteger, name))
 	}
 	return count, nil
 }
@@ -198,7 +199,7 @@ func chooseCandidate(handler *Handler, request *http.Request) (any, int, error) 
 		return nil, 0, err
 	}
 	if body.CandidateID <= 0 {
-		return nil, 0, newAPIError(http.StatusBadRequest, errorCodeUsage, "candidate_id must be a positive integer")
+		return nil, 0, newAPIError(http.StatusBadRequest, errorCodeUsage, named(i18n.KeyErrorWebPositiveInteger, "candidate_id"))
 	}
 	chosenID, err := handler.proposalOfCandidate(request.Context(), proposalID, body.CandidateID)
 	if err != nil {
@@ -215,7 +216,7 @@ func (handler *Handler) proposalOfCandidate(ctx context.Context, proposalID, can
 	}
 	index := slices.IndexFunc(proposals, func(proposal app.Proposal) bool { return proposal.ID == proposalID })
 	if index < 0 {
-		return 0, newAPIError(http.StatusNotFound, errorCodeNotFound, "proposal not found")
+		return 0, newAPIError(http.StatusNotFound, errorCodeNotFound, i18n.Message{Key: i18n.KeyErrorProposalNotFound})
 	}
 	proposal := proposals[index]
 	if proposal.CandidateID == candidateID {
@@ -226,7 +227,7 @@ func (handler *Handler) proposalOfCandidate(ctx context.Context, proposalID, can
 			return member.ProposalID, nil
 		}
 	}
-	return 0, newAPIError(http.StatusUnprocessableEntity, app.ErrorCodeRefused, "candidate is not part of this proposal")
+	return 0, newAPIError(http.StatusUnprocessableEntity, app.ErrorCodeRefused, i18n.Message{Key: i18n.KeyErrorWebCandidateNotInGroup})
 }
 
 // forceProposal exige confirm comme la CLI exige --yes : le client réécrit des pièces à cheval sur un média lié.
@@ -243,7 +244,7 @@ func forceProposal(handler *Handler, request *http.Request) (any, int, error) {
 	}
 	if !body.Confirm {
 		return nil, 0, newAPIError(http.StatusBadRequest, errorCodeConfirmationRequired,
-			"force rewrites pieces that straddle linked files: confirm with {\"confirm\": true}")
+			i18n.Message{Key: i18n.KeyErrorWebConfirmRequired})
 	}
 	result, err := handler.service.Force(request.Context(), proposalID)
 	return result, http.StatusOK, err
@@ -281,7 +282,7 @@ func runStage(handler *Handler, request *http.Request) (any, int, error) {
 		}
 		return handler.startJob("run", func(ctx context.Context) (any, error) { return handler.service.RunStage(ctx, stage) })
 	}
-	return nil, 0, newAPIError(http.StatusBadRequest, errorCodeUsage, "unknown stage "+strconv.Quote(stageName))
+	return nil, 0, newAPIError(http.StatusBadRequest, errorCodeUsage, i18n.Message{Key: i18n.KeyErrorWebUnknownStage, Params: map[string]string{"stage": strconv.Quote(stageName)}})
 }
 
 func planDedupe(handler *Handler, request *http.Request) (any, int, error) {
@@ -389,7 +390,7 @@ func getJob(handler *Handler, request *http.Request) (any, int, error) {
 	}
 	job, found := handler.jobs.get(jobID)
 	if !found {
-		return nil, 0, newAPIError(http.StatusNotFound, errorCodeNotFound, "job not found")
+		return nil, 0, newAPIError(http.StatusNotFound, errorCodeNotFound, i18n.Message{Key: i18n.KeyErrorWebJobNotFound})
 	}
 	return job, http.StatusOK, nil
 }
@@ -411,7 +412,7 @@ func methodNotAllowed(allowed []string) endpointFunc {
 	return func(_ *Handler, _ *http.Request) (any, int, error) {
 		return nil, 0, &apiError{
 			status: http.StatusMethodNotAllowed, allow: strings.Join(allowed, ", "),
-			body: ErrorBody{Code: errorCodeMethodNotAllowed, Message: "method not allowed"},
+			code: errorCodeMethodNotAllowed, message: i18n.Message{Key: i18n.KeyErrorWebMethodNotAllowed},
 		}
 	}
 }
