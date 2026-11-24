@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
@@ -260,4 +261,27 @@ func FuzzRedactText(f *testing.F) {
 			t.Fatalf("gotValue %q, expectedValue the planted passkeys masked", gotValue)
 		}
 	})
+}
+
+func TestRedactJSON_shortSecretsKeepTheJSONValidAndNumbersUntouched(t *testing.T) {
+	// Aucune clé ne contient « a » : redactTree masque aussi les clés, ce que le test ne vise pas.
+	value := map[string]any{"sum": 1420, "id": 42, "level": 0.42, "text": "count 42"}
+
+	encoded, err := RedactJSON(value, "42", "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotValue struct {
+		Sum   int     `json:"sum"`
+		ID    int     `json:"id"`
+		Level float64 `json:"level"`
+		Text  string  `json:"text"`
+	}
+	if err := json.Unmarshal(encoded, &gotValue); err != nil {
+		t.Fatalf("gotValue invalid JSON %s (%v), expectedValue valid JSON", encoded, err)
+	}
+	if gotValue.Sum != 1420 || gotValue.ID != 42 || gotValue.Level != 0.42 || strings.Contains(gotValue.Text, "42") {
+		t.Fatalf("gotValue %+v, expectedValue numbers untouched and the string masked", gotValue)
+	}
 }

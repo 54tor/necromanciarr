@@ -273,7 +273,8 @@ func urlSecrets(rawURL string) []string {
 
 // RedactJSON encode value en JSON indenté, chaque chaîne (valeurs et clés) masquée par RedactText avant l'encodage :
 // un secret qui contient « & », « < », « " », « \ » ou un caractère non ASCII n'a plus la même forme une fois échappé.
-// Les formes échappées des secrets sont aussi remplacées littéralement dans le texte encodé, en défense en profondeur.
+// Les formes échappées des secrets (celles qui diffèrent du secret brut) sont aussi remplacées littéralement dans le
+// texte encodé, en défense en profondeur ; jamais la forme brute, qui toucherait les nombres et la structure.
 // Les clés des objets sortent triées. Sert à la CLI (--json) et à l'API web.
 func RedactJSON(value any, knownSecrets ...string) ([]byte, error) {
 	raw, err := json.Marshal(value)
@@ -297,16 +298,22 @@ func RedactJSON(value any, knownSecrets ...string) ([]byte, error) {
 }
 
 // replaceSecretsLiterally ne fait que des remplacements littéraux, les plus longs d'abord : les expressions de la
-// redaction (URL, « clé=valeur ») mangeraient une barre oblique d'échappement et casseraient le JSON.
+// redaction (URL, « clé=valeur ») mangeraient une barre oblique d'échappement et casseraient le JSON. Seules les formes
+// échappées sont cherchées (elles contiennent une barre oblique inverse, donc n'apparaissent que dans une chaîne) ; si
+// un remplacement rendait malgré tout le JSON invalide, le texte déjà masqué par redactTree est gardé.
 func replaceSecretsLiterally(encoded string, knownSecrets []string) string {
+	replaced := encoded
 	forms := escapedSecrets(knownSecrets)
 	slices.SortStableFunc(forms, func(first, second string) int { return len(second) - len(first) })
 	for _, form := range forms {
 		if form != "" {
-			encoded = strings.ReplaceAll(encoded, form, redactedMark)
+			replaced = strings.ReplaceAll(replaced, form, redactedMark)
 		}
 	}
-	return encoded
+	if !json.Valid([]byte(replaced)) {
+		return encoded
+	}
+	return replaced
 }
 
 // redactTree masque chaque chaîne (valeurs et clés) d'un arbre JSON décodé.
@@ -329,9 +336,9 @@ func redactTree(node any, knownSecrets []string) any {
 	return node
 }
 
-// escapedSecrets donne chaque secret tel quel et sous ses formes échappées par JSON (avec et sans échappement HTML).
+// escapedSecrets donne les formes échappées par JSON (avec et sans échappement HTML) qui diffèrent du secret brut.
 func escapedSecrets(knownSecrets []string) []string {
-	forms := slices.Clone(knownSecrets)
+	var forms []string
 	for _, secret := range knownSecrets {
 		if secret == "" {
 			continue
@@ -342,7 +349,9 @@ func escapedSecrets(knownSecrets []string) []string {
 		_ = encoder.Encode(secret)
 		htmlEscaped, _ := json.Marshal(secret)
 		for _, quoted := range []string{strings.TrimSpace(plain.String()), string(htmlEscaped)} {
-			forms = append(forms, strings.TrimSuffix(strings.TrimPrefix(quoted, `"`), `"`))
+			if form := strings.TrimSuffix(strings.TrimPrefix(quoted, `"`), `"`); form != secret {
+				forms = append(forms, form)
+			}
 		}
 	}
 	return forms
