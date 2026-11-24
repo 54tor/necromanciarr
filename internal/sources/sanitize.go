@@ -34,6 +34,19 @@ func Sanitize(torrent []byte) (sanitized []byte, err error) {
 			sanitized, err = nil, ErrInvalidTorrent
 		}
 	}()
+	kept, err := sanitizedTopLevel(torrent)
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := bencode.Marshal(kept)
+	if err != nil {
+		return nil, ErrInvalidTorrent
+	}
+	return encoded, nil
+}
+
+// sanitizedTopLevel décode le premier niveau et ne garde que keptTopLevelKeys, valeurs en octets bruts.
+func sanitizedTopLevel(torrent []byte) (map[string]bencode.Bytes, error) {
 	topLevel, err := decodeTopLevel(torrent)
 	if err != nil {
 		return nil, err
@@ -44,11 +57,7 @@ func Sanitize(torrent []byte) (sanitized []byte, err error) {
 			kept[key] = value
 		}
 	}
-	encoded, err := bencode.Marshal(kept)
-	if err != nil {
-		return nil, ErrInvalidTorrent
-	}
-	return encoded, nil
+	return kept, nil
 }
 
 // decodeTopLevel garde chaque valeur de premier niveau en octets bruts et exige un dictionnaire info. Les paires sont
