@@ -20,6 +20,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 ### Changed
 - `doctor` results carry a stable `code` and are rendered in the configured language.
 - Proposal warnings are stored as translatable messages and returned as `{code, text}`; reasons come with translated labels (`reason_labels`, `label`). Warnings stored by earlier versions are still shown as they were saved.
+- Proposal warnings are now stored as structured messages; a database written by this version cannot be read by an older binary.
 - A link kind failure (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) now tells the cause and the setting to change.
 
 ### Security
