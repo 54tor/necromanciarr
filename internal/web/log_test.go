@@ -105,14 +105,14 @@ func TestServerLog_everyLineCarriesACode(t *testing.T) {
 }
 
 func TestJobLog_urlCredentialsAndApiKeyQueryAreMaskedWithoutAKnownSecret(t *testing.T) {
-	const leaked = "dial http://alice:hunter2pass@example.com/x?apikey=abcd1234efgh failed"
+	const leaked = "dial http://alice:hunter2pass@example.com/x?apikey=aaaaaaaaaaaa failed"
 	fake := &fakeService{language: i18n.English, errors: map[string]error{"RunStage": errors.New(leaked)}}
 	handler := newTestHandler(t, fake, loopbackSettings())
 	logged := captureLog(handler)
 
 	waitJob(t, handler, startJob(t, handler, "/api/stages/scan/run", `{}`).ID)
 
-	if line := logged.String(); strings.Contains(line, "hunter2pass") || strings.Contains(line, "abcd1234efgh") || !strings.Contains(line, "code=job_failed") {
+	if line := logged.String(); strings.Contains(line, "hunter2pass") || strings.Contains(line, "aaaaaaaaaaaa") || !strings.Contains(line, "code=job_failed") {
 		t.Fatalf("gotValue %q, expectedValue the URL credentials and the apikey masked", line)
 	}
 }
