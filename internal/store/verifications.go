@@ -473,22 +473,27 @@ func (openedStore *Store) SetProposalDecision(ctx context.Context, proposalID in
 		return err
 	}
 	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
-		current, candidateState, err := proposalState(ctx, transaction, proposalID)
-		if err != nil {
-			return err
-		}
-		if !slices.Contains(proposalTransitions[current], decision) {
-			return fmt.Errorf("%w: proposal %s -> %s", ErrInvalidTransition, current, decision)
-		}
-		requiresVerified := decision == ProposalAccepted || decision == ProposalApplied
-		if requiresVerified && candidateState.Valid && CandidateState(candidateState.String) != CandidateVerified {
-			return fmt.Errorf("%w: proposal %s needs a verified candidate, got %s", ErrInvalidTransition, decision, candidateState.String)
-		}
-		if requiresVerified && candidateState.stale() {
-			return fmt.Errorf("%w: proposal %s", ErrStaleGeneration, decision)
-		}
-		return writeDecision(ctx, transaction, proposalID, decision, now)
+		return decideProposal(ctx, transaction, proposalID, decision, now)
 	})
+}
+
+// decideProposal applique, dans la transaction, les contrôles et l'écriture de SetProposalDecision.
+func decideProposal(ctx context.Context, transaction *sql.Tx, proposalID int64, decision ProposalDecision, now time.Time) error {
+	current, candidateState, err := proposalState(ctx, transaction, proposalID)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(proposalTransitions[current], decision) {
+		return fmt.Errorf("%w: proposal %s -> %s", ErrInvalidTransition, current, decision)
+	}
+	requiresVerified := decision == ProposalAccepted || decision == ProposalApplied
+	if requiresVerified && candidateState.Valid && CandidateState(candidateState.String) != CandidateVerified {
+		return fmt.Errorf("%w: proposal %s needs a verified candidate, got %s", ErrInvalidTransition, decision, candidateState.String)
+	}
+	if requiresVerified && candidateState.stale() {
+		return fmt.Errorf("%w: proposal %s", ErrStaleGeneration, decision)
+	}
+	return writeDecision(ctx, transaction, proposalID, decision, now)
 }
 
 // RetryProposal remet en attente une proposition dont l'application a échoué ; son candidat doit être verified (une
