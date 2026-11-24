@@ -42,16 +42,17 @@ func (client *Client) RecheckAndGuard(ctx context.Context, infoHash string, time
 	if err != nil {
 		return RecheckResult{}, err
 	}
-	results, err := client.guardHashes(ctx, []string{normalized}, timeout)
+	results, err := client.guardHashes(ctx, []string{normalized}, []bool{true}, timeout)
 	if len(results) == 0 {
 		return RecheckResult{}, err
 	}
 	return results[0], err
 }
 
-// guardHashes met d'abord tous les torrents en pause, puis les recontrôle un à un, puis ne reprend que ceux à 100 %.
-// Une erreur (pause, recontrôle, délai) laisse tous les torrents en pause : leur état est alors inconnu.
-func (client *Client) guardHashes(ctx context.Context, hashes []string, timeout time.Duration) ([]RecheckResult, error) {
+// guardHashes met d'abord tous les torrents en pause, puis les recontrôle un à un, puis ne reprend que ceux à 100 %
+// dont resumable est vrai (même index). Une erreur (pause, recontrôle, délai) laisse tous les torrents en pause : leur
+// état est alors inconnu.
+func (client *Client) guardHashes(ctx context.Context, hashes []string, resumable []bool, timeout time.Duration) ([]RecheckResult, error) {
 	for _, hash := range hashes {
 		if err := client.Pause(ctx, hash); err != nil {
 			return nil, client.pauseAllAfter(ctx, hashes, fmt.Errorf("qbit: pause before recheck of %s: %w", hash, err))
@@ -66,16 +67,17 @@ func (client *Client) guardHashes(ctx context.Context, hashes []string, timeout 
 		}
 		results[hashIndex].Complete = isComplete(torrent)
 	}
-	return results, client.releaseChecked(ctx, hashes, results)
+	return results, client.releaseChecked(ctx, hashes, resumable, results)
 }
 
-// releaseChecked reprend les torrents à 100 % et remet en pause les autres (pause idempotente).
-func (client *Client) releaseChecked(ctx context.Context, hashes []string, results []RecheckResult) error {
+// releaseChecked reprend les torrents à 100 % qui peuvent l'être et remet en pause les autres (pause idempotente) :
+// un torrent que l'utilisateur avait laissé en pause le reste.
+func (client *Client) releaseChecked(ctx context.Context, hashes []string, resumable []bool, results []RecheckResult) error {
 	var failures []error
 	for hashIndex, hash := range hashes {
-		if !results[hashIndex].Complete {
+		if !results[hashIndex].Complete || !resumable[hashIndex] {
 			if err := client.safetyPause(ctx, hash); err != nil {
-				failures = append(failures, fmt.Errorf("qbit: pause of incomplete %s after recheck failed: %w", hash, err))
+				failures = append(failures, fmt.Errorf("qbit: pause of %s after recheck failed: %w", hash, err))
 			}
 			continue
 		}
@@ -156,7 +158,8 @@ func (client *Client) waitForCheckEnd(ctx context.Context, hash string, timeout 
 }
 
 // RecheckPath satisfait dedupe.Rechecker : tous les torrents dont un fichier est path sont mis en pause, puis
-// recontrôlés ; un torrent incomplet reste en pause et donne ErrIncompleteAfterRecheck avec son hash.
+// recontrôlés ; un torrent incomplet reste en pause et donne ErrIncompleteAfterRecheck avec son hash. Seul un torrent
+// complet qui tournait avant la garde est repris : celui que l'utilisateur avait mis en pause ou arrêté le reste.
 // path est comparé tel quel aux chemins vus par qBittorrent (save_path + nom de fichier).
 func (client *Client) RecheckPath(ctx context.Context, filePath string) error {
 	if err := client.refuseIfReadOnly(); err != nil {
@@ -170,10 +173,12 @@ func (client *Client) RecheckPath(ctx context.Context, filePath string) error {
 		return fmt.Errorf("%w: no torrent covers the path", ErrNotFound)
 	}
 	hashes := make([]string, 0, len(covering))
+	wasRunning := make([]bool, 0, len(covering))
 	for _, match := range covering {
 		hashes = append(hashes, match.hash)
+		wasRunning = append(wasRunning, isRunning(match.state))
 	}
-	results, err := client.guardHashes(ctx, hashes, client.recheckTimeout)
+	results, err := client.guardHashes(ctx, hashes, wasRunning, client.recheckTimeout)
 	if err != nil {
 		return err
 	}
@@ -186,10 +191,21 @@ func (client *Client) RecheckPath(ctx context.Context, filePath string) error {
 	return errors.Join(failures...)
 }
 
-// coveringTorrent est un torrent du client qui contient le fichier ; relativeName est son nom sous save_path.
+// coveringTorrent est un torrent du client qui contient le fichier ; relativeName est son nom sous save_path, state
+// son état lu avant toute pause.
 type coveringTorrent struct {
 	hash         string
 	relativeName string
+	state        string
+}
+
+// notRunningStates : un torrent dans l'un de ces états n'était pas actif avant la garde et ne doit pas être repris.
+var notRunningStates = []string{"error", "missingFiles", "unknown"}
+
+// isRunning dit si un torrent tournait (téléchargement, partage, file d'attente, contrôle) avant la garde.
+func isRunning(state string) bool {
+	isStopped := strings.HasPrefix(state, "paused") || strings.HasPrefix(state, "stopped")
+	return !isStopped && !slices.Contains(notRunningStates, state)
 }
 
 // torrentsCovering trie par hash pour un ordre stable ; un torrent disparu entre la liste et ses fichiers est
@@ -214,7 +230,7 @@ func (client *Client) torrentsCovering(ctx context.Context, filePath string) ([]
 			return nil, err
 		}
 		if hasFile {
-			covering = append(covering, coveringTorrent{hash: strings.ToLower(torrent.Hash), relativeName: relativeName})
+			covering = append(covering, coveringTorrent{hash: strings.ToLower(torrent.Hash), relativeName: relativeName, state: torrent.State})
 		}
 	}
 	sort.Slice(covering, func(left, right int) bool { return covering[left].hash < covering[right].hash })

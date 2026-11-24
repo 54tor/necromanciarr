@@ -740,3 +740,28 @@ func TestTorrentForPath_returnsParsedTorrentAndFileIndex(t *testing.T) {
 		t.Fatalf("expected not found without error, got found=%t err=%v", found, err)
 	}
 }
+
+func TestRecheckPath_resumesOnlyTorrentsThatWereRunningBefore(t *testing.T) {
+	for _, pausedState := range []string{"pausedUP", "stoppedUP", "pausedDL"} {
+		t.Run(pausedState, func(t *testing.T) {
+			fake := newFakeQbit(webAPIVersion4)
+			twinTorrents(fake, 1)
+			fake.torrents[hashPack].State = pausedState
+			server := fake.start(t)
+			client := newTestClient(t, server.URL, "", "")
+
+			if err := client.RecheckPath(context.Background(), moviePath); err != nil {
+				t.Fatalf("RecheckPath: %v", err)
+			}
+			if gotState, _ := fake.torrentState(hashMovie); gotState != "uploading" {
+				t.Fatalf("the running torrent should be resumed, got %s", gotState)
+			}
+			if slices.Contains(fake.snapshotActions(), "resume:"+hashPack) {
+				t.Fatalf("the torrent the user left paused was resumed: %v", fake.snapshotActions())
+			}
+			if gotState, _ := fake.torrentState(hashPack); gotState != "pausedUP" {
+				t.Fatalf("expectedValue the paused torrent left paused, gotValue %s", gotState)
+			}
+		})
+	}
+}
