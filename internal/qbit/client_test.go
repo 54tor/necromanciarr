@@ -813,3 +813,29 @@ func TestAdd_neverLogsTorrentBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestNew_givesTheLibraryASilentLogger(t *testing.T) {
+	client := newTestClient(t, "http://127.0.0.1:8080", "", "")
+
+	if gotValue := qbit.LibraryLogWriter(client); gotValue != io.Discard {
+		t.Fatalf("gotValue %T, expectedValue io.Discard: the library logs URLs and errors", gotValue)
+	}
+}
+
+func TestAdd_transportFailureNeverQuotesTheBaseURLSecret(t *testing.T) {
+	const secretSegment = "/proxy/fake-proxy-key-transport"
+	unreachable := httptest.NewServer(http.NotFoundHandler())
+	unreachable.Close()
+	client := newTestClient(t, unreachable.URL+secretSegment, "", "")
+
+	addErr := client.Add(context.Background(), []byte("d4:infoe"), "/home/u/torrents", qbit.AddOptions{})
+
+	if !errors.Is(addErr, qbit.ErrBadResponse) {
+		t.Fatalf("gotValue %v, expectedValue ErrBadResponse", addErr)
+	}
+	for _, leaked := range []string{"fake-proxy-key-transport", unreachable.URL} {
+		if strings.Contains(addErr.Error(), leaked) || strings.Contains(fmt.Sprintf("%+v", addErr), leaked) {
+			t.Fatalf("gotValue %q in %q, expectedValue no base URL nor secret segment", leaked, addErr)
+		}
+	}
+}

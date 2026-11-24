@@ -61,6 +61,8 @@ type Client struct {
 	pollInterval      time.Duration
 	checkStartTimeout time.Duration
 	recheckTimeout    time.Duration
+	// libraryLog est le journal remis à la bibliothèque : toujours muet (io.Discard), ses lignes citent l'URL et l'erreur.
+	libraryLog *log.Logger
 }
 
 // Option règle un Client à sa création.
@@ -96,6 +98,7 @@ func New(baseURL, user, password string, options ...Option) (*Client, error) {
 		pollInterval:      defaultPollInterval,
 		checkStartTimeout: defaultCheckStartTimeout,
 		recheckTimeout:    defaultRecheckTimeout,
+		libraryLog:        log.New(io.Discard, "", 0),
 	}
 	for _, option := range options {
 		option(client)
@@ -106,8 +109,7 @@ func New(baseURL, user, password string, options ...Option) (*Client, error) {
 		Password:      password,
 		Timeout:       requestTimeoutSeconds,
 		RetryAttempts: singleAttempt,
-		// Journal de la bibliothèque coupé explicitement : ses lignes de nouvelle tentative citent l'URL et l'erreur.
-		Log: log.New(io.Discard, "", 0),
+		Log:           client.libraryLog,
 	})
 	client.library = library.WithHTTPClient(client.newHTTPClient())
 	return client, nil
