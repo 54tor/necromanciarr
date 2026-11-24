@@ -82,15 +82,15 @@ onMounted(load)
         </div>
         <dl class="grid gap-1 text-sm">
           <div>
-            <dt class="inline font-medium">Lien :</dt>
+            <dt class="mr-1 inline font-medium">Lien :</dt>
             <dd class="inline break-all">{{ item.details.link_path }}</dd>
           </div>
           <div v-if="item.details.old_target">
-            <dt class="inline font-medium">Ancienne cible :</dt>
+            <dt class="mr-1 inline font-medium">Ancienne cible :</dt>
             <dd class="inline break-all">{{ item.details.old_target }}</dd>
           </div>
           <div v-if="item.details.new_target">
-            <dt class="inline font-medium">Nouvelle cible :</dt>
+            <dt class="mr-1 inline font-medium">Nouvelle cible :</dt>
             <dd class="inline break-all">{{ item.details.new_target }}</dd>
             <template v-if="item.details.size"> ({{ formatBytes(item.details.size) }})</template>
           </div>

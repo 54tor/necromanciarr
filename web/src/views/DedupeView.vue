@@ -72,23 +72,23 @@ onMounted(load)
         </div>
         <dl class="grid gap-1 text-sm">
           <div>
-            <dt class="inline font-medium">Fichier du torrent :</dt>
+            <dt class="mr-1 inline font-medium">Fichier du torrent :</dt>
             <dd class="inline break-all">{{ item.details.torrent_path }}</dd>
           </div>
           <div v-if="item.details.library_path">
-            <dt class="inline font-medium">Fichier équivalent de la bibliothèque :</dt>
+            <dt class="mr-1 inline font-medium">Fichier équivalent de la bibliothèque :</dt>
             <dd class="inline break-all">{{ item.details.library_path }}</dd>
           </div>
           <div>
-            <dt class="inline font-medium">Espace gagné :</dt>
+            <dt class="mr-1 inline font-medium">Espace gagné :</dt>
             <dd class="inline">{{ formatBytes(item.details.saved_bytes) }}</dd>
             ·
-            <dt class="inline font-medium">Lien :</dt>
+            <dt class="mr-1 inline font-medium">Lien :</dt>
             <dd class="inline">
               {{ labelOf(LINK_KIND_LABELS, item.details.kind ?? '') || 'non défini' }}
             </dd>
             ·
-            <dt class="inline font-medium">Preuve :</dt>
+            <dt class="mr-1 inline font-medium">Preuve :</dt>
             <dd class="inline">
               {{ labelOf(DEDUPE_METHOD_LABELS, item.details.method) }},
               {{ formatBytes(item.details.bytes_to_read) }} à lire
