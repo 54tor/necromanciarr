@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -81,26 +82,58 @@ func declaredKeyConstants(t *testing.T) map[string]string {
 		if err != nil {
 			t.Fatal(err)
 		}
-		collectKeyConstants(parsed, declared)
+		collectKeyConstants(t, fileSet, parsed, declared)
 	}
 	return declared
 }
 
-func collectKeyConstants(parsed *ast.File, declared map[string]string) {
+// keyLiteralOf lit la valeur d'une constante Key écrite « Key = "a" » ou « = Key("a") » ; ok est faux pour une autre forme.
+func keyLiteralOf(valueSpec *ast.ValueSpec, expression ast.Expr) (value string, isKey bool, isLiteral bool) {
+	typeName, isTyped := valueSpec.Type.(*ast.Ident)
+	if call, isCall := expression.(*ast.CallExpr); isCall {
+		functionName, isNamed := call.Fun.(*ast.Ident)
+		if !isNamed || functionName.Name != "Key" || len(call.Args) != 1 {
+			return "", false, false
+		}
+		expression, isTyped, typeName = call.Args[0], true, functionName
+	}
+	if !isTyped || typeName.Name != "Key" {
+		return "", false, false
+	}
+	literal, isBasic := expression.(*ast.BasicLit)
+	if !isBasic || literal.Kind != token.STRING {
+		return "", true, false
+	}
+	value, err := strconv.Unquote(literal.Value)
+	return value, true, err == nil
+}
+
+func collectKeyConstants(t *testing.T, fileSet *token.FileSet, parsed *ast.File, declared map[string]string) {
+	t.Helper()
 	for _, declaration := range parsed.Decls {
 		generic, isGeneric := declaration.(*ast.GenDecl)
 		if !isGeneric || generic.Tok != token.CONST {
 			continue
 		}
+		var lastSpec *ast.ValueSpec
 		for _, spec := range generic.Specs {
 			valueSpec := spec.(*ast.ValueSpec)
-			typeName, isNamed := valueSpec.Type.(*ast.Ident)
-			if !isNamed || typeName.Name != "Key" {
-				continue
+			if len(valueSpec.Values) == 0 && lastSpec != nil {
+				valueSpec = &ast.ValueSpec{Names: valueSpec.Names, Type: lastSpec.Type, Values: lastSpec.Values}
+			} else {
+				lastSpec = valueSpec
 			}
 			for position, name := range valueSpec.Names {
-				literal := valueSpec.Values[position].(*ast.BasicLit)
-				value, _ := strconv.Unquote(literal.Value)
+				if position >= len(valueSpec.Values) {
+					continue
+				}
+				value, isKey, isLiteral := keyLiteralOf(valueSpec, valueSpec.Values[position])
+				if !isKey {
+					continue
+				}
+				if !isLiteral {
+					t.Fatalf("%s: constant %s is a Key with a non-literal value", fileSet.Position(name.Pos()), name.Name)
+				}
 				declared[name.Name] = value
 			}
 		}
@@ -116,7 +149,9 @@ func TestCatalog_everyKeyConstantHasBothTranslations(t *testing.T) {
 	for _, key := range Keys() {
 		registered[key] = true
 	}
+	declaredValues := map[string]bool{}
 	for name, value := range declared {
+		declaredValues[value] = true
 		key := Key(value)
 		if !registered[key] {
 			t.Errorf("constant %s (%q) is missing from Keys()", name, value)
@@ -128,9 +163,65 @@ func TestCatalog_everyKeyConstantHasBothTranslations(t *testing.T) {
 			t.Errorf("constant %s (%q) has no English text", name, value)
 		}
 	}
-	if len(registered) != len(declared) {
-		t.Errorf("Keys() has %d entries, expectedValue %d declared constants", len(registered), len(declared))
+	if gotCount, expectedCount := len(Keys()), len(declaredValues); gotCount != expectedCount {
+		t.Errorf("Keys() has %d entries (a key listed twice counts twice), expectedValue %d distinct declared keys", gotCount, expectedCount)
 	}
+}
+
+func TestCollectKeyConstants_seesEveryDeclarationForm(t *testing.T) {
+	source := `package i18n
+const (
+	A Key = "a"
+	B = Key("b")
+	C, D Key = "c", "d"
+)
+const (
+	E Key = "e"
+	F
+)
+const Other string = "ignored"
+`
+	parsed, err := parser.ParseFile(token.NewFileSet(), "forms.go", source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotValue := map[string]string{}
+
+	collectKeyConstants(t, token.NewFileSet(), parsed, gotValue)
+
+	expectedValue := map[string]string{"A": "a", "B": "b", "C": "c", "D": "d", "E": "e", "F": "e"}
+	if !reflect.DeepEqual(gotValue, expectedValue) {
+		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
+	}
+}
+
+func TestTranslator_zeroValueRendersTheKey(t *testing.T) {
+	var zero Translator
+
+	if gotValue := zero.Text(KeyErrorInternal, nil); gotValue != string(KeyErrorInternal) {
+		t.Fatalf("gotValue %q, expectedValue the key", gotValue)
+	}
+	if gotValue := zero.Render(Message{Key: KeyLegacyText}); gotValue != string(KeyLegacyText) {
+		t.Fatalf("gotValue %q, expectedValue the key", gotValue)
+	}
+	if gotValue := zero.Count(KeyLegacyText, KeyErrorInternal, 2, nil); gotValue != string(KeyErrorInternal) {
+		t.Fatalf("gotValue %q, expectedValue the plural key", gotValue)
+	}
+}
+
+func TestTranslator_concurrentReadsAreRaceFree(t *testing.T) {
+	translator := New(French, strings.ToUpper)
+	var group sync.WaitGroup
+	for range 8 {
+		group.Go(func() {
+			for range 200 {
+				translator.Text(KeyConfigCheckLanguage, map[string]string{"language": "fr", "source": "flag"})
+				translator.Count(KeyErrorInternal, KeyErrorUsage, 2, nil)
+				translator.Render(Message{Key: KeyLegacyText, Params: map[string]string{"text": "x"}})
+			}
+		})
+	}
+	group.Wait()
 }
 
 func TestTranslator_redactsSecretParams(t *testing.T) {

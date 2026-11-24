@@ -13,7 +13,8 @@ import (
 
 var placeholder = regexp.MustCompile(`\{([a-z_]+)\}`)
 
-// Translator rend les messages dans une langue fixée à la création.
+// Translator rend les messages dans une langue fixée à la création ; la valeur zéro est utilisable mais sans catalogue :
+// Text, Count et Render rendent alors la clé telle quelle.
 type Translator struct {
 	language Language
 	catalog  map[Key]string
@@ -82,5 +83,6 @@ func (translator Translator) isPlural(count int) bool {
 func Keys() []Key {
 	keys := []Key{KeyLegacyText}
 	keys = append(keys, errorKeys...)
-	return append(keys, cliKeys...)
+	keys = append(keys, cliKeys...)
+	return append(keys, actionKeys...)
 }
