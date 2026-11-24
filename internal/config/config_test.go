@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"necromanciarr/internal/i18n"
 )
 
 func writeFile(t *testing.T, directory, name, content string) {
@@ -530,5 +532,48 @@ func TestGenerateAuthToken_isLongRandomAndURLSafe(t *testing.T) {
 	}
 	if strings.ContainsAny(first, "+/=") {
 		t.Fatalf("gotValue %q, expectedValue base64url without padding", first)
+	}
+}
+
+func TestLanguage_defaultsToFrenchAndFollowsPriorityChain(t *testing.T) {
+	configDir := t.TempDir()
+	loadedConfig := mustLoad(t, nil, nil, configDir)
+	if loadedConfig.Language != i18n.French || loadedConfig.LanguageSource != "default" {
+		t.Fatalf("gotValue %q/%q, expectedValue fr/default", loadedConfig.Language, loadedConfig.LanguageSource)
+	}
+	writeFile(t, configDir, "config.json", `{"language": "en"}`)
+	loadedConfig = mustLoad(t, nil, nil, configDir)
+	if loadedConfig.Language != i18n.English || loadedConfig.LanguageSource != "config.json" {
+		t.Fatalf("gotValue %q/%q, expectedValue en/config.json", loadedConfig.Language, loadedConfig.LanguageSource)
+	}
+	loadedConfig = mustLoad(t, nil, map[string]string{"NECROMANCIARR_LANGUAGE": " FR "}, configDir)
+	if loadedConfig.Language != i18n.French || loadedConfig.LanguageSource != "NECROMANCIARR_LANGUAGE" {
+		t.Fatalf("gotValue %q/%q, expectedValue fr/env", loadedConfig.Language, loadedConfig.LanguageSource)
+	}
+	loadedConfig = mustLoad(t, []string{"--language", "en"}, map[string]string{"NECROMANCIARR_LANGUAGE": "fr"}, configDir)
+	if loadedConfig.Language != i18n.English || loadedConfig.LanguageSource != "--language" {
+		t.Fatalf("gotValue %q/%q, expectedValue en/--language", loadedConfig.Language, loadedConfig.LanguageSource)
+	}
+}
+
+func TestLanguage_unknownValueIsUsageError(t *testing.T) {
+	configDir := t.TempDir()
+	writeFile(t, configDir, "config.json", `{"language": "xx"}`)
+	for name, load := range map[string]func() error{
+		"flag": func() error { _, err := Load([]string{"--language", "de"}, lookupFrom(nil), t.TempDir()); return err },
+		"env": func() error {
+			_, err := Load(nil, lookupFrom(map[string]string{"NECROMANCIARR_LANGUAGE": "de"}), t.TempDir())
+			return err
+		},
+		"file": func() error { _, err := Load(nil, lookupFrom(nil), configDir); return err },
+	} {
+		err := load()
+		if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "fr, en") {
+			t.Fatalf("%s: gotValue %v, expectedValue a usage error naming the allowed values", name, err)
+		}
+	}
+	_, err := Load([]string{"--language", "de"}, lookupFrom(nil), t.TempDir())
+	if !strings.Contains(err.Error(), `"de"`) {
+		t.Fatalf("gotValue %v, expectedValue the value named", err)
 	}
 }

@@ -92,3 +92,15 @@ func TestRun_configCheckWithAnUnknownFlagNamesItBeforeTheUsage(t *testing.T) {
 		t.Fatalf("gotValue exit %d stderr %q, expectedValue the reason first, then the usage", exitCode, stderr.String())
 	}
 }
+
+func TestRun_configCheckPrintsTheEffectiveLanguageAndItsSource(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"config", "check", "--config-dir", t.TempDir(), "--language", "en"}, &stdout, &stderr)
+
+	expectedValue := "Language: en (source: --language)"
+	if exitCode != successExitCode || !strings.Contains(stderr.String(), expectedValue) ||
+		!strings.Contains(stdout.String(), `"language": "en"`) {
+		t.Fatalf("gotValue exit %d stdout %q stderr %q, expectedValue %q", exitCode, stdout.String(), stderr.String(), expectedValue)
+	}
+}

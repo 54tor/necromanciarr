@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/i18n"
 )
 
 const (
@@ -41,6 +42,7 @@ const (
 	envCrossSeedMode        = "CROSS_SEED_MODE"
 	envSeedTags             = "NECROMANCIARR_SEED_TAGS"
 	envSeedCategory         = "NECROMANCIARR_SEED_CATEGORY"
+	envLanguage             = "NECROMANCIARR_LANGUAGE"
 	// envPartialMaxMissingPercent plafonne les pièces manquantes des propositions partielles (pourcentage).
 	envPartialMaxMissingPercent = "NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT"
 )
@@ -84,6 +86,10 @@ type Config struct {
 	// PartialMaxMissingPercent : au-delà de ce pourcentage de pièces manquantes, un torrent incomplet n'est pas proposé
 	// (100 = sans plafond).
 	PartialMaxMissingPercent float64 `json:"partialMaxMissingPercent"`
+	// Language est la langue d'affichage (fr par défaut) ; LanguageSource dit d'où elle vient (default, config.json,
+	// NECROMANCIARR_LANGUAGE ou --language) pour `config check`.
+	Language       i18n.Language `json:"language"`
+	LanguageSource string        `json:"languageSource"`
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`
@@ -113,6 +119,7 @@ type fileConfig struct {
 	SeedTags           []string          `json:"seedTags"`
 	// PartialMaxMissingPercent : nil distingue une clé absente de 0, qui est accepté.
 	PartialMaxMissingPercent *float64 `json:"partialMaxMissingPercent"`
+	Language                 string   `json:"language"`
 	// LegacyRclone n'existe que pour refuser l'ancienne section avec un message utile.
 	LegacyRclone json.RawMessage `json:"rclone"`
 }
@@ -144,6 +151,7 @@ var dedupeLinkKinds = []string{"symlink", "hardlink", "reflink"}
 // commandLine regroupe les options reconnues ; set indique celles réellement passées.
 type commandLine struct {
 	listen, libraryAPI, configDir, dbPath string
+	language                              string
 	crossSeedConfig, crossSeedMode        string
 	readBytesPerSecond                    int64
 	set                                   map[string]bool
@@ -193,6 +201,9 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir
 	if err := applyPartialCapOverride(&loadedConfig, lookup); err != nil {
 		return Config{}, err
 	}
+	if err := resolveLanguage(&loadedConfig, rawFile.Language, options, lookup); err != nil {
+		return Config{}, err
+	}
 	if err := validate(loadedConfig); err != nil {
 		return Config{}, err
 	}
@@ -209,6 +220,7 @@ func parseCommandLine(args []string) (commandLine, error) {
 	flagSet.StringVar(&options.dbPath, "db-path", "", "sqlite database path")
 	flagSet.StringVar(&options.crossSeedConfig, "cross-seed-config", "", "cross-seed config.js path")
 	flagSet.StringVar(&options.crossSeedMode, "cross-seed-mode", "", "cross-seed mode: auto, delegate, native or off")
+	flagSet.StringVar(&options.language, "language", "", "display language: fr or en")
 	flagSet.Int64Var(&options.readBytesPerSecond, "read-bytes-per-second", 0, "read rate limit")
 	if err := flagSet.Parse(args); err != nil {
 		return commandLine{}, fmt.Errorf("%w: %w", ErrUsage, err)

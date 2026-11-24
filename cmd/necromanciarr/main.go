@@ -18,6 +18,7 @@ import (
 
 	"necromanciarr/internal/app"
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/i18n"
 )
 
 const (
@@ -127,5 +128,11 @@ func runConfigCheck(args []string, stdout, stderr io.Writer) int {
 		return reportError(stderr, err)
 	}
 	_, _ = fmt.Fprintln(stdout, string(redactedJSON))
+	translator := i18n.New(loadedConfig.Language, func(text string) string {
+		return config.RedactText(text, loadedConfig.KnownSecrets()...)
+	})
+	_, _ = fmt.Fprintln(stderr, translator.Text(i18n.KeyConfigCheckLanguage, map[string]string{
+		"language": string(loadedConfig.Language), "source": loadedConfig.LanguageSource,
+	}))
 	return 0
 }

@@ -17,6 +17,7 @@ Du plus fort au plus faible : **options de ligne de commande**, **variables d'en
 | `config.js` de cross-seed | `--cross-seed-config` | `CROSS_SEED_CONFIG` | `crossSeedConfig` |
 | Catégorie des seeds | aucune | `NECROMANCIARR_SEED_CATEGORY` | `linkCategory` |
 | Tags des seeds | aucune | `NECROMANCIARR_SEED_TAGS` (séparés par des virgules) | `seedTags` |
+| Langue d'affichage | `--language` | `NECROMANCIARR_LANGUAGE` | `language` |
 | Plafond de pièces manquantes | aucune | `NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT` | `partialMaxMissingPercent` |
 | Jeton de l'interface | aucune | `NECROMANCIARR_AUTH_TOKEN` | aucune (jamais dans un fichier JSON) |
 | Jeton du fournisseur | aucune | `LIBRARY_PROVIDER_TOKEN` | aucune |
@@ -51,6 +52,7 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 | `skipRecheck` | booléen | `true` | voir [03-seed-safety.md](03-seed-safety.md) |
 | `linkCategory` | chaîne | vide | catégorie qBittorrent des torrents ajoutés ; `NECROMANCIARR_SEED_CATEGORY` l'emporte (espaces retirés) |
 | `seedTags` | liste de chaînes | `["necromanciarr"]` | tags posés avec la catégorie sur chaque torrent ajouté. La liste **remplace** le défaut : sans `necromanciarr`, ce tag n'est plus posé (les filtres de qui ou de cross-seed qui le ciblent ne voient plus ces torrents). Espaces retirés, doublons ignorés, liste vide = défaut ; refus d'un tag vide, contenant une virgule ou de plus de 64 caractères, et de plus de 20 tags |
+| `language` | `fr`, `en` | `fr` | langue des textes affichés (CLI, interface, diagnostics, journal) ; casse et espaces ignorés, toute autre valeur (`fr_FR` compris) est un défaut d'usage qui cite la valeur et les valeurs admises. `config check` affiche la langue effective et sa source |
 | `partialMaxMissingPercent` | nombre de 0 à 100 | `100` (sans plafond) | part maximale de pièces manquantes d'un `partial_annex` ou `partial_pack` ; au-delà, aucune proposition n'est créée (raison `missing_pieces_above_cap`, voir [01-pipeline.md](01-pipeline.md)). `0` ne garde que les torrents complets |
 | `crossSeedConfig` | chemin | vide | relatif : depuis le dossier de configuration |
 | `crossSeed` | URL | vide | `http(s)://hôte:2468?apikey=CLÉ`, sans identifiants d'utilisateur |
