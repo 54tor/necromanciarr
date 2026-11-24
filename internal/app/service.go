@@ -183,6 +183,9 @@ func New(deps Deps) Service {
 	if deps.DoctorDeps.CapsCache == nil {
 		deps.DoctorDeps.CapsCache = doctor.NewCapsCache(doctor.DefaultCapsCacheTTL, deps.Now)
 	}
+	if deps.DoctorDeps.SealedProbe == nil {
+		deps.DoctorDeps.SealedProbe = sealedProbe{databasePath: config.ResolveDBPath(deps.Config)}
+	}
 	return &service{deps: deps}
 }
 

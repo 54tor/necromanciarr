@@ -121,11 +121,11 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `prowlarr` | `prowlarr_access_denied` | `fail` | `?apikey=` de `prowlarr` (Settings > General > API Key) |
 | `prowlarr` | `prowlarr_unreachable`, `prowlarr_bad_response` | `fail` | `prowlarr` est la racine de l'API native (`http://host:9696`, plus la base d'URL), pas un flux ; Prowlarr démarré |
 | `prowlarr` | `prowlarr_indexer_missing_or_disabled` | `warn` | une entrée `torznab` dont l'identifiant du chemin est absent ou désactivé dans Prowlarr : l'activer ou la retirer ; le téléchargement exige que Prowlarr relaie le fichier (mode Proxy, option `Redirect` désactivée sur l'indexeur) |
-| `secret-key` | `secret_key_ok` | `ok` | `NECROMANCIARR_SECRET_KEY` présente (32 octets) et chaque `.torrent` scellé lu en base se descelle (sans `torznab`, la clé seule est contrôlée) |
+| `secret-key` | `secret_key_ok` | `ok` | `NECROMANCIARR_SECRET_KEY` présente (32 octets) et chaque `.torrent` scellé lu en base (1000 au plus par diagnostic ; base absente : aucun) se descelle, la liaison reprise de la ligne du candidat |
 | `secret-key` | `secret_key_missing` | `fail` | `torznab` configuré sans `NECROMANCIARR_SECRET_KEY` : la configuration est refusée ; en générer une avec `necromanciarr api-key --secret` |
 | `secret-key` | `secret_key_wrong_length` | `fail` | la valeur n'est pas 32 octets en base64url sans remplissage (seule l'écriture d'`api-key --secret` est admise) |
 | `secret-key` | `sealed_torrent_unreadable` | `fail` | un `.torrent` scellé ne se descelle plus (clé changée ou bloc altéré) : Seed le refusera ; relancer Verify sur ce candidat |
-| `secret-key` | `sealed_torrents_unchecked` | `warn` | les `.torrent` scellés n'ont pas pu être lus en base, ou cette lecture n'est pas encore branchée ; la clé elle-même est conforme |
+| `secret-key` | `sealed_torrents_unchecked` | `warn` | les `.torrent` scellés n'ont pas pu être lus en base (base verrouillée par une écriture longue, ou illisible) ; la clé elle-même est conforme |
 | `qbittorrent` | `no_torrent_client` | `skipped` | aucun client configuré |
 | `qbittorrent` | `client_build_failed` | `fail` | URL du client inutilisable |
 | `qbittorrent` | `client_login_rejected` | `fail` | identifiants de l'URL ; encoder en pourcentage `@ : / # ?` du mot de passe |
