@@ -273,8 +273,7 @@ func TestNewRclone_selectsRCThenBinaryThenUnavailable(t *testing.T) {
 		t.Fatalf("binary expected, got %T", withBinary)
 	}
 	result, hashErr := nothing.Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
-	reasoned, hasReason := nothing.(interface{ Reason() string })
-	if hashErr != nil || result.Available || !hasReason || reasoned.Reason() != ReasonNoRclone {
+	if hashErr != nil || result.Available {
 		t.Fatalf("fallback source: %+v %v %T", result, hashErr, nothing)
 	}
 }

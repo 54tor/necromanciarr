@@ -41,7 +41,9 @@ const (
 	WarningRecheckFailed = "recheck_failed"
 	// WarningNoClientRecheck : dedupe remplacera le fichier par un lien dur ou symbolique vers la bibliothèque sans
 	// recontrôle du client (aucun client configuré, ou recheckAfter faux) ; un torrent qui tourne pourrait y écrire.
-	WarningNoClientRecheck = "no_client_recheck"
+	WarningNoClientRecheck = "warning.no_client_recheck"
+	// legacyNoClientRecheck : valeur courte écrite par les versions précédentes dans details.warnings.
+	legacyNoClientRecheck = "no_client_recheck"
 	// WarningLinkNotRecorded : le lien est posé mais la base ne l'a pas enregistré.
 	WarningLinkNotRecorded = "link_not_recorded"
 )

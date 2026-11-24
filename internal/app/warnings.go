@@ -16,6 +16,7 @@ var maintenanceWarningKeys = map[string]i18n.Key{
 	WarningPausedIncompleteAfterRecheck: i18n.KeyWarningPausedIncompleteAfterRecheck,
 	WarningRecheckFailed:                i18n.KeyWarningRecheckFailed,
 	WarningNoClientRecheck:              i18n.KeyWarningNoClientRecheck,
+	legacyNoClientRecheck:               i18n.KeyWarningNoClientRecheck,
 	WarningLinkNotRecorded:              i18n.KeyWarningLinkNotRecorded,
 	// Les avertissements du plan dedupe sont stockés sous leur clé.
 	string(i18n.KeyWarningDedupeUnreliableInode): i18n.KeyWarningDedupeUnreliableInode,

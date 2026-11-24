@@ -98,7 +98,7 @@ func (details DedupeDetails) identity() (key, signature string) {
 	key = details.TorrentPath + "\x00" + details.LibraryPath
 	signature = fmt.Sprint(details.Size, details.TorrentModTime.UnixNano(), details.LibraryModTime.UnixNano(), details.Fingerprint,
 		details.LibraryFingerprint, details.Kind, details.LibraryInode, strings.Join(details.Ambiguous, "\x00"), details.Actionable,
-		slices.Contains(details.Warnings, WarningNoClientRecheck))
+		slices.Contains(details.Warnings, WarningNoClientRecheck) || slices.Contains(details.Warnings, legacyNoClientRecheck))
 	return key, signature
 }
 

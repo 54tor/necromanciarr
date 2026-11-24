@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-// ReasonNoRclone est la raison donnée par la source de repli quand rien ne permet d'interroger rclone.
-const ReasonNoRclone = "ni rc ni binaire rclone"
-
 // RcloneOptions règle NewRclone : RCURL (API --rc) prime sur Binary ; sans l'un ni l'autre, le binaire « rclone » du
 // PATH est essayé.
 type RcloneOptions struct {
@@ -44,6 +41,3 @@ type unavailableSource struct{}
 func (unavailableSource) Hash(context.Context, string, Algorithm) (Result, error) {
 	return Result{}, nil
 }
-
-// Reason explique l'absence d'empreinte, pour l'affichage.
-func (unavailableSource) Reason() string { return ReasonNoRclone }

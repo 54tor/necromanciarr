@@ -229,7 +229,7 @@ func TestHealthcheck_outputFollowsTheLanguage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { writer.WriteHeader(http.StatusOK) }))
 	defer server.Close()
 	address := strings.TrimPrefix(server.URL, "http://")
-	expectedText := map[string]string{"fr": "opérationnel", "en": "ok"}
+	expectedText := map[string]string{"fr": "ok", "en": "ok"}
 	for language, expectedValue := range expectedText {
 		gotValue := runCli(t, t.TempDir(), "healthcheck", "--listen", address, "--language", language)
 

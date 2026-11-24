@@ -91,6 +91,12 @@ func TestDedupeDetails_warningsAreStoredAsKeysAndLegacySentencesStayReadable(t *
 		t.Fatalf("gotValue %v, expectedValue %v", details.Warnings, expectedValue)
 	}
 	messages := messagesOfCodes([]string{string(i18n.KeyWarningDedupeSampledVerify), "inode non fiable", WarningNoClientRecheck})
+	if legacy := messagesOfCodes([]string{"no_client_recheck"}); legacy[0].Key != i18n.KeyWarningNoClientRecheck {
+		t.Fatalf("gotValue %q, expectedValue the legacy short code read as its key", legacy[0].Key)
+	}
+	if WarningNoClientRecheck != string(i18n.KeyWarningNoClientRecheck) {
+		t.Fatalf("gotValue %q, expectedValue the full catalogue key stored", WarningNoClientRecheck)
+	}
 	expectedKeys := []i18n.Key{i18n.KeyWarningDedupeSampledVerify, i18n.KeyLegacyText, i18n.KeyWarningNoClientRecheck}
 	for position, expectedKey := range expectedKeys {
 		if messages[position].Key != expectedKey {
