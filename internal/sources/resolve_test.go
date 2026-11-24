@@ -72,6 +72,18 @@ func TestResolveAnnounce_tiersAreACopyOfTheConfiguration(t *testing.T) {
 	}
 }
 
+func TestNewResolver_copiesTheTrackers(t *testing.T) {
+	trackers := configuredTrackers()
+	resolver := NewResolver(trackers)
+
+	trackers[0] = config.Tracker{Key: "tracker-a", Announce: []string{"https://other.example.com/x"}}
+
+	resolution := resolver.Resolve("tracker-a", false)
+	if !slices.EqualFunc(resolution.Tiers, [][]string{{trackerAAnnounce}}, slices.Equal[[]string]) {
+		t.Fatal("gotValue the caller's change seen by the resolver, expectedValue a copy")
+	}
+}
+
 func TestResolveAnnounce_noneWithoutConfigOrSealed(t *testing.T) {
 	resolution := NewResolver(configuredTrackers()).Resolve("tracker-c", false)
 

@@ -27,10 +27,10 @@ type Resolver struct {
 }
 
 // Resolution est le résultat de Resolve. Tiers n'est rempli que pour AnnounceConfig et porte la passkey : String,
-// GoString, LogValue et MarshalJSON le rendent sous config.RedactAnnounce.
+// GoString, LogValue et MarshalJSON le rendent sous config.RedactAnnounce, comme Tiers lui-même.
 type Resolution struct {
 	Source     AnnounceSource
-	Tiers      [][]string
+	Tiers      Tiers
 	TrackerKey string
 }
 
@@ -42,7 +42,7 @@ type redactedResolution struct {
 
 // NewResolver garde les entrées trackers ; la comparaison passe par config.Config.TrackerFor, seule règle des trackers.
 func NewResolver(trackers []config.Tracker) Resolver {
-	return Resolver{trackers: config.Config{Trackers: trackers}}
+	return Resolver{trackers: config.Config{Trackers: slices.Clone(trackers)}}
 }
 
 // Resolve applique la précédence : la configuration gagne et remplace en silence l'annonce d'un indexeur, sinon le
@@ -50,7 +50,7 @@ func NewResolver(trackers []config.Tracker) Resolver {
 func (resolver Resolver) Resolve(tracker string, hasSealedIndexerTorrent bool) Resolution {
 	if config.NormalizeTracker(tracker) != "" {
 		if configured, found := resolver.trackers.TrackerFor(tracker); found {
-			return Resolution{Source: AnnounceConfig, Tiers: [][]string{slices.Clone(configured.Announce)}, TrackerKey: configured.Key}
+			return Resolution{Source: AnnounceConfig, Tiers: Tiers{slices.Clone(configured.Announce)}, TrackerKey: configured.Key}
 		}
 	}
 	if hasSealedIndexerTorrent {
@@ -60,15 +60,7 @@ func (resolver Resolver) Resolve(tracker string, hasSealedIndexerTorrent bool) R
 }
 
 func (resolution Resolution) redacted() redactedResolution {
-	tiers := make([][]string, 0, len(resolution.Tiers))
-	for _, tier := range resolution.Tiers {
-		redactedTier := make([]string, 0, len(tier))
-		for _, announce := range tier {
-			redactedTier = append(redactedTier, config.RedactAnnounce(announce))
-		}
-		tiers = append(tiers, redactedTier)
-	}
-	return redactedResolution{Source: resolution.Source, TrackerKey: resolution.TrackerKey, Tiers: tiers}
+	return redactedResolution{Source: resolution.Source, TrackerKey: resolution.TrackerKey, Tiers: resolution.Tiers.redacted()}
 }
 
 // String masque les annonces pour %v, %+v et %s.

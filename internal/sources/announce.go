@@ -1,13 +1,13 @@
 package sources
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"slices"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
@@ -17,11 +17,6 @@ import (
 )
 
 const (
-	// MaxAnnounceURLs borne le nombre total d'URL d'annonce, tous paliers confondus : un palier est non vide, donc le
-	// nombre de paliers l'est aussi.
-	MaxAnnounceURLs = 512
-	// MaxAnnounceURLBytes borne la longueur d'une URL d'annonce.
-	MaxAnnounceURLBytes = 2048
 	// ReasonInfohashChanged est la raison stable d'ErrInfohashChanged.
 	ReasonInfohashChanged = "infohash_changed_after_inject"
 	announceKey           = "announce"
@@ -38,10 +33,6 @@ var (
 	// ErrNoAnnounce signale un .torrent sans aucune URL d'annonce utilisable.
 	ErrNoAnnounce = errors.New("sources: torrent has no usable announce")
 
-	allowedAnnounceSchemes = []string{"http", "https", "udp"}
-	// marshalTopLevel encode le premier niveau (clés triées octet par octet) ; remplacé seulement par les tests pour
-	// prouver le contrôle de l'infohash.
-	marshalTopLevel = func(topLevel map[string]bencode.Bytes) ([]byte, error) { return bencode.Marshal(topLevel) }
 	// nonSecretSegments sont les noms de fichier usuels d'une annonce : jamais une passkey.
 	nonSecretSegments = []string{"announce", "announce.php", "scrape", "scrape.php", "tracker.php", "index.php"}
 )
@@ -50,7 +41,17 @@ var (
 // première URL du premier palier, announce-list = tiers. Le premier niveau passe par la liste blanche de Sanitize
 // (comment, created by et toute clé pouvant porter une passkey retirés) ; info est recopié octet pour octet. Le
 // résultat porte la passkey : il ne doit vivre qu'en mémoire, jamais être rendu ni écrit dans un journal.
-func InjectAnnounce(torrent []byte, tiers [][]string) (injected []byte, err error) {
+func InjectAnnounce(torrent []byte, tiers [][]string) ([]byte, error) {
+	return injectAnnounce(torrent, tiers, marshalTopLevel)
+}
+
+// marshalTopLevel encode le premier niveau : anacrolix trie les clés octet par octet et recopie bencode.Bytes tel quel.
+func marshalTopLevel(topLevel map[string]bencode.Bytes) ([]byte, error) {
+	return bencode.Marshal(topLevel)
+}
+
+// injectAnnounce reçoit l'encodeur pour que les tests prouvent le contrôle de l'infohash avec un encodeur fautif.
+func injectAnnounce(torrent []byte, tiers [][]string, marshal func(map[string]bencode.Bytes) ([]byte, error)) (injected []byte, err error) {
 	defer func() {
 		if recover() != nil {
 			injected, err = nil, ErrInvalidTorrent
@@ -67,7 +68,7 @@ func InjectAnnounce(torrent []byte, tiers [][]string) (injected []byte, err erro
 	if err := addAnnounce(topLevel, tiers); err != nil {
 		return nil, err
 	}
-	encoded, err := marshalTopLevel(topLevel)
+	encoded, err := marshal(topLevel)
 	if err != nil {
 		return nil, ErrInvalidTorrent
 	}
@@ -110,11 +111,11 @@ func checkTiers(tiers [][]string) error {
 			return fmt.Errorf("%w: tier %d is empty", ErrInvalidAnnounce, tierIndex)
 		}
 		urlCount += len(tier)
-		if urlCount > MaxAnnounceURLs {
-			return fmt.Errorf("%w: more than %d URLs", ErrInvalidAnnounce, MaxAnnounceURLs)
+		if urlCount > config.MaxAnnounceURLs {
+			return fmt.Errorf("%w: more than %d URLs", ErrInvalidAnnounce, config.MaxAnnounceURLs)
 		}
 		for urlIndex, announce := range tier {
-			if !isValidAnnounce(announce) {
+			if config.ValidAnnounceURL(announce) != nil {
 				return fmt.Errorf("%w: tier %d, URL %d is not an http, https or udp URL with a host", ErrInvalidAnnounce, tierIndex, urlIndex)
 			}
 		}
@@ -122,27 +123,11 @@ func checkTiers(tiers [][]string) error {
 	return nil
 }
 
-// isValidAnnounce accepte http, https ou udp avec un hôte, sans fragment, espace ni caractère de contrôle : une URL
-// qui couperait l'en-tête ou la requête du client est refusée.
-func isValidAnnounce(announce string) bool {
-	hasForbiddenCharacter := strings.ContainsFunc(announce, func(character rune) bool {
-		return unicode.IsSpace(character) || unicode.IsControl(character) || character == '#'
-	})
-	if announce == "" || len(announce) > MaxAnnounceURLBytes || !utf8.ValidString(announce) || hasForbiddenCharacter {
-		return false
-	}
-	parsedURL, err := url.Parse(announce)
-	if err != nil || parsedURL.Opaque != "" || parsedURL.Hostname() == "" {
-		return false
-	}
-	return slices.Contains(allowedAnnounceSchemes, parsedURL.Scheme)
-}
-
 // AnnounceTiers lit announce-list (à défaut announce) d'un .torrent d'indexeur non scellé. Une entrée qui n'est pas
 // une URL valide (pas une chaîne, vide, autre schéma) est ignorée, comme le font les clients (BEP 12), et un palier
-// vidé disparaît ; plus de MaxAnnounceURLs URL valides est une erreur, jamais une troncature. Les URL rendues sont
+// vidé disparaît ; plus de config.MaxAnnounceURLs URL valides est une erreur, jamais une troncature. Les URL rendues sont
 // des secrets : l'appelant ajoute DiscoveredSecretValues aux secrets connus de l'opération.
-func AnnounceTiers(torrent []byte) (tiers [][]string, err error) {
+func AnnounceTiers(torrent []byte) (tiers Tiers, err error) {
 	defer func() {
 		if recover() != nil {
 			tiers, err = nil, ErrInvalidTorrent
@@ -165,12 +150,12 @@ func AnnounceTiers(torrent []byte) (tiers [][]string, err error) {
 	return tiers, nil
 }
 
-func announceListTiers(rawList bencode.Bytes) [][]string {
+func announceListTiers(rawList bencode.Bytes) Tiers {
 	var rawTiers []bencode.Bytes
 	if len(rawList) == 0 || bencode.Unmarshal(rawList, &rawTiers) != nil {
 		return nil
 	}
-	var tiers [][]string
+	var tiers Tiers
 	for _, rawTier := range rawTiers {
 		var rawURLs []bencode.Bytes
 		if bencode.Unmarshal(rawTier, &rawURLs) != nil {
@@ -187,9 +172,9 @@ func announceListTiers(rawList bencode.Bytes) [][]string {
 	return tiers
 }
 
-func announceTier(rawAnnounce bencode.Bytes) [][]string {
+func announceTier(rawAnnounce bencode.Bytes) Tiers {
 	if announces := validAnnounces(rawAnnounce); len(announces) > 0 {
-		return [][]string{announces}
+		return Tiers{announces}
 	}
 	return nil
 }
@@ -197,18 +182,18 @@ func announceTier(rawAnnounce bencode.Bytes) [][]string {
 // validAnnounces rend l'URL encodée dans raw si c'est une chaîne d'annonce valide, sinon rien.
 func validAnnounces(raw bencode.Bytes) []string {
 	var announce string
-	if len(raw) == 0 || raw[0] < '0' || raw[0] > '9' || bencode.Unmarshal(raw, &announce) != nil || !isValidAnnounce(announce) {
+	if len(raw) == 0 || raw[0] < '0' || raw[0] > '9' || bencode.Unmarshal(raw, &announce) != nil || config.ValidAnnounceURL(announce) != nil {
 		return nil
 	}
 	return []string{announce}
 }
 
 // DiscoveredSecretValues extrait les valeurs de passkey supposées d'annonces découvertes, pour
-// Config.WithDiscoveredSecrets : l'utilisateur et le mot de passe de l'URL (toute longueur), chaque segment de
-// chemin décodé et chaque valeur de requête décodée d'au moins config.MinKnownSecretLength octets, hors noms de
-// fichier usuels (announce, scrape, index.php…) ; un paramètre sans valeur (« ?PASSKEY ») compte comme une valeur.
-// Plus courts, segments et valeurs sont laissés aux règles d'URL de config.RedactText. Ordre d'apparition, sans
-// doublon.
+// Config.WithDiscoveredSecrets : l'utilisateur et le mot de passe de l'URL, chaque segment du chemin encodé puis décodé
+// un à un, chaque valeur de requête décodée, hors noms de fichier usuels (announce, scrape, index.php…) ; un paramètre
+// sans valeur (« ?PASSKEY ») compte comme une valeur. Toute longueur est rendue : WithDiscoveredSecrets réserve aux
+// URL une valeur de moins de config.MinKnownSecretLength octets, si bien qu'un mot court n'est jamais masqué dans la
+// prose ni le JSON. Ordre d'apparition, sans doublon.
 func DiscoveredSecretValues(tiers [][]string) []string {
 	var values []string
 	for _, tier := range tiers {
@@ -229,8 +214,9 @@ func announceSecretValues(announce string) []string {
 		return nil
 	}
 	values := userinfoValues(parsedURL.User)
-	for _, segment := range strings.Split(parsedURL.Path, "/") {
-		values = appendIfSecretLike(values, segment)
+	// Découper le chemin encodé garde « %2F » dans son segment : « abc%2Fdefghijk » reste une seule valeur.
+	for _, segment := range strings.Split(parsedURL.EscapedPath(), "/") {
+		values = appendIfSecretLike(values, unescapePathSegment(segment))
 	}
 	for _, pair := range strings.FieldsFunc(parsedURL.RawQuery, isQuerySeparator) {
 		name, value, hasValue := strings.Cut(pair, "=")
@@ -240,6 +226,14 @@ func announceSecretValues(announce string) []string {
 		values = appendIfSecretLike(values, unescapeQueryPart(value))
 	}
 	return values
+}
+
+// unescapePathSegment décode un segment de chemin ; mal encodé, il est gardé tel quel.
+func unescapePathSegment(segment string) string {
+	if decoded, err := url.PathUnescape(segment); err == nil {
+		return decoded
+	}
+	return segment
 }
 
 // isQuerySeparator coupe la requête sur « & » et « ; », comme le masquage de config : les paires restent dans l'ordre.
@@ -269,8 +263,37 @@ func userinfoValues(userinfo *url.Userinfo) []string {
 
 func appendIfSecretLike(values []string, candidate string) []string {
 	isFileName := slices.Contains(nonSecretSegments, strings.ToLower(candidate))
-	if len(candidate) < config.MinKnownSecretLength || isFileName {
+	if candidate == "" || isFileName {
 		return values
 	}
 	return append(values, candidate)
 }
+
+// Tiers sont des paliers d'announce-list ; chaque URL porte la passkey. String, GoString, LogValue et MarshalJSON ne
+// rendent que config.RedactAnnounce de chaque URL. Limite de Go : un champ non exporté d'une structure, s'il est de
+// type Tiers, est imprimé brut par %v (fmt n'appelle pas les méthodes d'un champ non exporté).
+type Tiers [][]string
+
+func (tiers Tiers) redacted() [][]string {
+	redactedTiers := make([][]string, 0, len(tiers))
+	for _, tier := range tiers {
+		redactedTier := make([]string, 0, len(tier))
+		for _, announce := range tier {
+			redactedTier = append(redactedTier, config.RedactAnnounce(announce))
+		}
+		redactedTiers = append(redactedTiers, redactedTier)
+	}
+	return redactedTiers
+}
+
+// String masque les URL pour %v, %+v et %s.
+func (tiers Tiers) String() string { return fmt.Sprint(tiers.redacted()) }
+
+// GoString masque les URL pour %#v.
+func (tiers Tiers) GoString() string { return "sources.Tiers" + tiers.String() }
+
+// LogValue masque les URL dans les journaux slog.
+func (tiers Tiers) LogValue() slog.Value { return slog.StringValue(tiers.String()) }
+
+// MarshalJSON rend l'hôte de chaque URL, jamais la passkey.
+func (tiers Tiers) MarshalJSON() ([]byte, error) { return json.Marshal(tiers.redacted()) }

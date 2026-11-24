@@ -2,8 +2,10 @@ package sources
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 
+	"necromanciarr/internal/config"
 	"necromanciarr/internal/torrentcheck"
 )
 
@@ -193,7 +196,7 @@ func TestInjectAnnounce_refusesTrailingBytes(t *testing.T) {
 }
 
 func TestInjectAnnounce_refusesHostileTiers(t *testing.T) {
-	tooManyURLs := [][]string{make([]string, MaxAnnounceURLs+1)}
+	tooManyURLs := [][]string{make([]string, config.MaxAnnounceURLs+1)}
 	for urlIndex := range tooManyURLs[0] {
 		tooManyURLs[0][urlIndex] = fmt.Sprintf("https://t%d.example.com/announce", urlIndex)
 	}
@@ -202,7 +205,7 @@ func TestInjectAnnounce_refusesHostileTiers(t *testing.T) {
 		"empty tier":        {{}},
 		"empty url":         {{""}},
 		"too many urls":     tooManyURLs,
-		"url too long":      {{"https://tracker.example.com/" + strings.Repeat("a", MaxAnnounceURLBytes)}},
+		"url too long":      {{"https://tracker.example.com/" + strings.Repeat("a", config.MaxAnnounceURLBytes)}},
 		"newline":           {{"https://tracker.example.com/" + fakePasskey + "\n/announce"}},
 		"carriage return":   {{"https://tracker.example.com/" + fakePasskey + "\r"}},
 		"space":             {{"https://tracker.example.com/" + fakePasskey + " x"}},
@@ -216,6 +219,8 @@ func TestInjectAnnounce_refusesHostileTiers(t *testing.T) {
 		"fragment":          {{"https://tracker.example.com/announce#" + fakePasskey}},
 		"opaque":            {{"udp:tracker.example.com:" + fakePasskey}},
 		"second tier empty": {{firstAnnounce}, {}},
+		"no-break space":    {{"https://tracker.example.com/" + fakePasskey + "\u00a0"}},
+		"trailing space":    {{"https://tracker.example.com/" + fakePasskey + " "}},
 	}
 	for name, tiers := range scenarios {
 		t.Run(name, func(t *testing.T) {
@@ -242,9 +247,7 @@ func TestInjectAnnounce_acceptsTheThreeSchemesInAnyCase(t *testing.T) {
 }
 
 func TestInjectAnnounce_refusesInfohashDrift(t *testing.T) {
-	originalMarshal := marshalTopLevel
-	t.Cleanup(func() { marshalTopLevel = originalMarshal })
-	marshalTopLevel = func(topLevel map[string]bencode.Bytes) ([]byte, error) {
+	reencodingInfo := func(topLevel map[string]bencode.Bytes) ([]byte, error) {
 		var info map[string]any
 		if err := bencode.Unmarshal(topLevel[infoKey], &info); err != nil {
 			return nil, err
@@ -254,10 +257,10 @@ func TestInjectAnnounce_refusesInfohashDrift(t *testing.T) {
 			return nil, err
 		}
 		topLevel[infoKey] = canonicalInfo
-		return originalMarshal(topLevel)
+		return bencode.Marshal(topLevel)
 	}
 
-	injected, err := InjectAnnounce(injectableTorrent(), announceTiers())
+	injected, err := injectAnnounce(injectableTorrent(), announceTiers(), reencodingInfo)
 
 	if !errors.Is(err, ErrInfohashChanged) || injected != nil {
 		t.Fatalf("gotValue %d bytes, %v, expectedValue ErrInfohashChanged", len(injected), err)
@@ -328,7 +331,7 @@ func TestAnnounceTiers_noAnnounceIsErrNoAnnounce(t *testing.T) {
 
 func TestAnnounceTiers_refusesHostileInput(t *testing.T) {
 	var manyTiers strings.Builder
-	for urlIndex := 0; urlIndex <= MaxAnnounceURLs; urlIndex++ {
+	for urlIndex := 0; urlIndex <= config.MaxAnnounceURLs; urlIndex++ {
 		manyTiers.WriteString("l" + bencodedString(fmt.Sprintf("https://t%d.example.com/a", urlIndex)) + "e")
 	}
 	scenarios := map[string]struct {
@@ -363,7 +366,9 @@ func TestDiscoveredSecretValues_extractsPasskeyShapes(t *testing.T) {
 		"userinfo":       {"https://alice:fake-pw-1@t.example/announce.php", []string{"alice", "fake-pw-1"}},
 		"encoded path":   {"https://t.example/announce/0000%2Bcccc0000", []string{"0000+cccc0000"}},
 		"bare query":     {"https://t.example/announce?0000dddd0000dddd", []string{"0000dddd0000dddd"}},
-		"short values":   {"https://t.example/ab/announce?uid=42", nil},
+		"short values":   {"https://t.example/ab/announce?uid=42", []string{"ab", "42"}},
+		"short path":     {"https://t.example/ab12cd/announce", []string{"ab12cd"}},
+		"encoded slash":  {"https://t.example/abc%2Fdefghijk/announce", []string{"abc/defghijk"}},
 		"common names":   {"https://t.example/tracker.php/announce.php/scrape.php/index.php", nil},
 		"several values": {"https://t.example/0000eeee0000eeee/announce?uid=12345678&pk=0000ffff0000ffff", []string{"0000eeee0000eeee", "12345678", "0000ffff0000ffff"}},
 	}
@@ -375,6 +380,67 @@ func TestDiscoveredSecretValues_extractsPasskeyShapes(t *testing.T) {
 				t.Fatalf("gotValue %q, expectedValue %q", gotValues, scenario.expectedValues)
 			}
 		})
+	}
+}
+
+func TestDiscoveredSecretValues_shortValueIsMaskedInsideURLsOnly(t *testing.T) {
+	secrets := config.Config{}.WithDiscoveredSecrets(DiscoveredSecretValues([][]string{{"https://t.example/ab12cd/announce"}})...)
+
+	if gotValue := config.RedactText("https://t.example/ab12cd/announce", secrets...); gotValue != "https://t.example/***/announce" {
+		t.Fatalf("gotValue %q, expectedValue the short passkey masked in the URL", gotValue)
+	}
+	prose := "ab12cd is an ordinary word here"
+	if gotValue := config.RedactText(prose, secrets...); gotValue != prose {
+		t.Fatalf("gotValue %q, expectedValue prose untouched", gotValue)
+	}
+	encoded, err := config.RedactJSON(map[string]string{"note": "ab12cd"}, secrets...)
+	if err != nil || !strings.Contains(string(encoded), `"ab12cd"`) {
+		t.Fatalf("gotValue %s, %v, expectedValue JSON untouched", encoded, err)
+	}
+}
+
+func TestDiscoveredSecretValues_encodedSlashLeavesNoFragment(t *testing.T) {
+	announce := "https://t.example/abc%2Fdefghijk/announce"
+	secrets := config.Config{}.WithDiscoveredSecrets(DiscoveredSecretValues([][]string{{announce}})...)
+
+	gotValue := config.RedactText("failed: "+announce, secrets...)
+
+	if strings.Contains(gotValue, "abc") || strings.Contains(gotValue, "defghijk") {
+		t.Fatalf("gotValue %q, expectedValue no piece of the passkey", gotValue)
+	}
+}
+
+func TestTiers_rendersNoURL(t *testing.T) {
+	tiers := Tiers{{firstAnnounce, secondAnnounce}}
+	var logged bytes.Buffer
+	slog.New(slog.NewJSONHandler(&logged, nil)).Info("tiers", "tiers", tiers)
+	encoded, err := json.Marshal(tiers)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	renderings := []string{
+		fmt.Sprintf("%v", tiers), fmt.Sprintf("%+v", tiers), fmt.Sprintf("%#v", tiers), fmt.Sprint(tiers),
+		fmt.Sprintf("%v %+v %#v", &tiers, &tiers, &tiers), string(encoded), logged.String(),
+	}
+	for _, rendering := range renderings {
+		if strings.Contains(rendering, fakePasskey) || strings.Contains(rendering, "/announce") ||
+			!strings.Contains(rendering, "udp://tracker.example.com:6969/***") {
+			t.Fatalf("gotValue %s, expectedValue only redacted hosts", rendering)
+		}
+	}
+}
+
+func TestAnnounceTiers_returnsRedactingTiers(t *testing.T) {
+	gotTiers, err := AnnounceTiers(mustInject(t, injectableTorrent(), announceTiers()))
+	if err != nil {
+		t.Fatalf("AnnounceTiers: %v", err)
+	}
+
+	if rendering := fmt.Sprintf("%v", gotTiers); strings.Contains(rendering, fakePasskey) {
+		t.Fatalf("gotValue %s, expectedValue redacted", rendering)
+	}
+	if _, err := InjectAnnounce(injectableTorrent(), gotTiers); err != nil {
+		t.Fatalf("gotValue %v, expectedValue Tiers accepted as [][]string", err)
 	}
 }
 
@@ -440,7 +506,7 @@ func FuzzAnnounceTiers(f *testing.F) {
 		for _, tier := range tiers {
 			urlCount += len(tier)
 		}
-		if len(tiers) == 0 || urlCount > MaxAnnounceURLs {
+		if len(tiers) == 0 || urlCount > config.MaxAnnounceURLs {
 			t.Fatalf("gotValue %d tiers and %d urls, expectedValue bounded and non-empty", len(tiers), urlCount)
 		}
 		if _, parseErr := torrentcheck.Parse(input); parseErr != nil {
