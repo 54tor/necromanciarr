@@ -481,3 +481,23 @@ func TestLoadConfigJS_undefinedGlobalGivesSandboxHint(t *testing.T) {
 		t.Fatalf("gotValue %v, expectedValue a plain exception error", plainErr)
 	}
 }
+
+func TestLoadConfigJS_hidesThisToolsOwnVariablesAndNamesTheAttempt(t *testing.T) {
+	path := writeConfigJS(t, `module.exports = {
+		linkDirs: [String(process.env.NECROMANCIARR_AUTH_TOKEN), String("LIBRARY_PROVIDER_TOKEN" in process.env), process.env.LINK_DIR],
+	};`)
+	environment := map[string]string{
+		"NECROMANCIARR_AUTH_TOKEN": "fake-auth-token-value", "LIBRARY_PROVIDER_TOKEN": "fake-provider-token", "LINK_DIR": "/home/u/links",
+	}
+
+	imported := mustLoadConfigJS(t, path, environment)
+
+	expectedDirs := []string{"undefined", "false", "/home/u/links"}
+	if !slices.Equal(imported.LinkDirs, expectedDirs) {
+		t.Fatalf("gotValue %v, expectedValue %v", imported.LinkDirs, expectedDirs)
+	}
+	expectedBlocked := []string{"LIBRARY_PROVIDER_TOKEN", "NECROMANCIARR_AUTH_TOKEN"}
+	if !slices.Equal(imported.BlockedEnvironment, expectedBlocked) {
+		t.Fatalf("gotValue %v, expectedValue %v", imported.BlockedEnvironment, expectedBlocked)
+	}
+}

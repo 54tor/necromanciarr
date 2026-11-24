@@ -692,3 +692,15 @@ func TestChecks_libraryRootsAgreeWithScanOnMediaExtensions(t *testing.T) {
 		}
 	}
 }
+
+func TestChecks_crossSeedWarnsWhenConfigJSReadThisToolsVariables(t *testing.T) {
+	settings := config.Config{CrossSeedMode: "auto", CrossSeedImport: config.CrossSeedImport{
+		Configured: true, ConfigPath: "/home/u/cross-seed/config.js", BlockedEnvironment: []string{"NECROMANCIARR_AUTH_TOKEN"},
+	}}
+
+	got := checkCrossSeed(context.Background(), settings, Deps{}.withDefaults())
+
+	if got.Status != Warn || !strings.Contains(got.Detail+got.Hint, "NECROMANCIARR_AUTH_TOKEN") {
+		t.Fatalf("gotValue %+v, expectedValue a warning naming the blocked variable", got)
+	}
+}

@@ -73,7 +73,7 @@ Les chemins de la bibliothèque, des dossiers de liens et des racines torrent so
 
 ## Import du `config.js` de cross-seed
 
-Avec `crossSeedConfig`, `CROSS_SEED_CONFIG` ou `--cross-seed-config`, le fichier est évalué dans un bac à sable JavaScript sans entrée-sortie : ni `require`, ni `import`, ni `eval`, ni `Function` ; seul `process.env.NOM` existe, résolu comme `${NOM}` (environnement réel puis `.env`). Limites : fichier ordinaire de 256 Kio au plus, 2 secondes d'évaluation, 256 entrées par liste. Un chemin relatif de la ligne de commande ou de l'environnement part du dossier courant, celui de `config.json` du dossier de configuration.
+Avec `crossSeedConfig`, `CROSS_SEED_CONFIG` ou `--cross-seed-config`, le fichier est évalué dans un bac à sable JavaScript sans entrée-sortie : ni `require`, ni `import`, ni `eval`, ni `Function` ; seul `process.env.NOM` existe, résolu comme `${NOM}` (environnement réel puis `.env`). Les variables de cet outil (`NECROMANCIARR_*`, `LIBRARY_PROVIDER_*`) y sont toujours absentes (`undefined`, `in` faux) : un `config.js` qui les lit ne reçoit rien, `config check` les nomme sous `crossSeedImport.blockedEnvironment` et `doctor` (contrôle `cross-seed`) avertit, sans jamais en montrer la valeur. Limites : fichier ordinaire de 256 Kio au plus, 2 secondes d'évaluation, 256 entrées par liste. Un chemin relatif de la ligne de commande ou de l'environnement part du dossier courant, celui de `config.json` du dossier de configuration.
 
 | Clé importée | Rôle | Règle de fusion |
 |---|---|---|

@@ -6,7 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
+	"regexp"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/dop251/goja"
@@ -64,7 +68,18 @@ type sandbox struct {
 	module           *goja.Object
 	snapshot         goja.Callable
 	isReferenceError goja.Callable
+	blocked          map[string]bool
 }
+
+// blockedEnvironmentPrefixes : les variables de cet outil (jeton web, jeton du fournisseur de bibliothèque...) ne sont
+// jamais visibles du config.js de cross-seed, qui n'en a aucun usage.
+var blockedEnvironmentPrefixes = []string{"NECROMANCIARR_", "LIBRARY_PROVIDER_"}
+
+// unnamedBlockedVariable remplace un nom bloqué non affichable.
+const unnamedBlockedVariable = "(unprintable name)"
+
+// printableVariableName borne ce qu'un avertissement peut afficher d'un nom lu par le script.
+var printableVariableName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 
 // LoadConfigJS évalue le config.js de cross-seed dans un bac à sable et en extrait les clés reprises par Necromanciarr.
 // process.env résout chaque nom par lookupEnv ; le script ne peut ni lire de fichier, ni charger de module, ni
@@ -91,7 +106,12 @@ func LoadConfigJS(ctx context.Context, path string, lookupEnv func(string) (stri
 	if err != nil {
 		return Imported{}, err
 	}
-	return parseExports(exportedJSON)
+	imported, err := parseExports(exportedJSON)
+	if err != nil {
+		return Imported{}, err
+	}
+	imported.BlockedEnvironment = slices.Sorted(maps.Keys(box.blocked))
+	return imported, nil
 }
 
 // readSource refuse avant l'ouverture tout ce qui n'est pas un fichier ordinaire (os.Stat suit les liens symboliques),
@@ -179,11 +199,12 @@ func newSandbox(lookupEnv func(string) (string, bool)) (*sandbox, error) {
 	if err != nil {
 		return nil, err
 	}
-	module, err := exposeGlobals(runtime, lookupEnv)
+	blocked := map[string]bool{}
+	module, err := exposeGlobals(runtime, environmentObject{runtime: runtime, lookupEnv: lookupEnv, blocked: blocked})
 	if err != nil {
 		return nil, err
 	}
-	return &sandbox{runtime: runtime, module: module, snapshot: snapshot, isReferenceError: isReferenceError}, nil
+	return &sandbox{runtime: runtime, module: module, snapshot: snapshot, isReferenceError: isReferenceError, blocked: blocked}, nil
 }
 
 // trustedFunction évalue un script de confiance avant le fichier de l'opérateur et rend la fonction qu'il produit.
@@ -201,14 +222,14 @@ func trustedFunction(runtime *goja.Runtime, script string) (goja.Callable, error
 
 // exposeGlobals définit module.exports non configurable : un accesseur posé dessus s'exécuterait côté Go, hors de
 // portée de l'interruption.
-func exposeGlobals(runtime *goja.Runtime, lookupEnv func(string) (string, bool)) (*goja.Object, error) {
+func exposeGlobals(runtime *goja.Runtime, environmentSource environmentObject) (*goja.Object, error) {
 	exports := runtime.NewObject()
 	module := runtime.NewObject()
 	if err := module.DefineDataProperty("exports", exports, goja.FLAG_TRUE, goja.FLAG_FALSE, goja.FLAG_TRUE); err != nil {
 		return nil, fmt.Errorf("cross-seed config: sandbox setup: %w", err)
 	}
 	process := runtime.NewObject()
-	environment := runtime.NewDynamicObject(environmentObject{runtime: runtime, lookupEnv: lookupEnv})
+	environment := runtime.NewDynamicObject(environmentSource)
 	if err := process.Set("env", environment); err != nil {
 		return nil, fmt.Errorf("cross-seed config: sandbox setup: %w", err)
 	}
@@ -284,15 +305,35 @@ func exceptionLocation(exception *goja.Exception) string {
 	return ""
 }
 
-// environmentObject est process.env : chaque nom lu passe par lookupEnv ; rien n'est énuméré ni écrit.
+// environmentObject est process.env : chaque nom lu passe par lookupEnv ; rien n'est énuméré ni écrit. Un nom de cet
+// outil est noté dans blocked et lu comme absent.
 type environmentObject struct {
 	runtime   *goja.Runtime
 	lookupEnv func(string) (string, bool)
+	blocked   map[string]bool
 }
 
-// Get rend la variable, ou nil (undefined) si elle n'est pas définie.
+// lookup refuse les variables de cet outil et retient le nom demandé (jamais la valeur).
+func (environment environmentObject) lookup(name string) (string, bool) {
+	for _, prefix := range blockedEnvironmentPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			environment.blocked[printableName(name)] = true
+			return "", false
+		}
+	}
+	return environment.lookupEnv(name)
+}
+
+func printableName(name string) string {
+	if printableVariableName.MatchString(name) {
+		return name
+	}
+	return unnamedBlockedVariable
+}
+
+// Get rend la variable, ou nil (undefined) si elle n'est pas définie ou appartient à cet outil.
 func (environment environmentObject) Get(name string) goja.Value {
-	value, found := environment.lookupEnv(name)
+	value, found := environment.lookup(name)
 	if !found {
 		return nil
 	}
@@ -302,9 +343,9 @@ func (environment environmentObject) Get(name string) goja.Value {
 // Set refuse toute écriture.
 func (environment environmentObject) Set(string, goja.Value) bool { return false }
 
-// Has dit si la variable est définie.
+// Has dit si la variable est définie (faux pour une variable de cet outil).
 func (environment environmentObject) Has(name string) bool {
-	_, found := environment.lookupEnv(name)
+	_, found := environment.lookup(name)
 	return found
 }
 

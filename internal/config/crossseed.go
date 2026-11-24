@@ -43,6 +43,8 @@ type CrossSeedImport struct {
 	IgnoredKeys               []string            `json:"ignoredKeys"`
 	UnnamedIgnoredKeys        int                 `json:"unnamedIgnoredKeys"`
 	UnsupportedTorrentClients []UnsupportedClient `json:"unsupportedTorrentClients"`
+	// BlockedEnvironment nomme les variables de cet outil que config.js a tenté de lire : elles lui restent cachées.
+	BlockedEnvironment []string `json:"blockedEnvironment"`
 }
 
 // UnsupportedClient désigne un client torrent importé et écarté : son rang dans torrentClients et son type
@@ -90,6 +92,7 @@ func layerCrossSeed(options commandLine, rawFile fileConfig, configDir string, l
 		layer.status = CrossSeedImport{
 			Configured: true, ConfigPath: path, ImportedKeys: imported.ImportedKeys,
 			IgnoredKeys: imported.IgnoredKeys, UnnamedIgnoredKeys: imported.UnnamedIgnoredKeys,
+			BlockedEnvironment: imported.BlockedEnvironment,
 		}
 	}
 	if err := layer.mergeLists(imported); err != nil {

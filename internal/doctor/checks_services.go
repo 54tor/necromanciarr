@@ -108,6 +108,9 @@ func checkCrossSeed(ctx context.Context, settings config.Config, deps Deps) Resu
 		return Result{Status: Fail, Detail: err.Error(), Hint: "allowed: " + strings.Join(crossseed.AllowedModes, ", ")}
 	}
 	parts = append(parts, fmt.Sprintf("mode %s resolves to %s", settings.CrossSeedMode, behaviorName(behavior)))
+	if blocked := imported.BlockedEnvironment; len(blocked) > 0 {
+		warning = strings.TrimSpace(warning + " config.js reads variables of this tool, hidden from it: " + strings.Join(blocked, ", "))
+	}
 	if warning != "" {
 		return Result{Status: Warn, Detail: strings.Join(parts, separatorDetail), Hint: warning}
 	}

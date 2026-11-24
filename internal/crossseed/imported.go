@@ -54,6 +54,8 @@ type Imported struct {
 	UnnamedIgnoredKeys int
 	// ImportedKeys nomme, triées, les clés reprises avec une valeur (null et undefined valent absence).
 	ImportedKeys []string
+	// BlockedEnvironment nomme, triées, les variables de cet outil que le script a tenté de lire (jamais leur valeur).
+	BlockedEnvironment []string
 }
 
 // keyDecoder range une valeur JSON dans Imported ; l'erreur décrit le type attendu, sans la valeur.
