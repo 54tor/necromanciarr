@@ -186,7 +186,7 @@ func TestConfig_crossSeedDaemonDefaultsToLocalhostWhenHostUnset(t *testing.T) {
 }
 
 func TestConfig_invalidImportedServiceNamesCrossSeedSource(t *testing.T) {
-	crossSeedPath := writeCrossSeedJS(t, `module.exports = { torrentClients: ["deluge:http://alice:secret-deluge@example.com:8112"] };`)
+	crossSeedPath := writeCrossSeedJS(t, `module.exports = { torrentClients: ["qbittorrent:ftp://alice:secret-qbit@example.com:8112"] };`)
 
 	_, err := Load(nil, lookupFrom(nil), configWithCrossSeed(t, crossSeedPath, ""))
 	_, overriddenErr := Load(nil, lookupFrom(nil), configWithCrossSeed(t, crossSeedPath,
@@ -308,5 +308,71 @@ func TestConfig_ambiguousImportedPasswordsNeverLeak(t *testing.T) {
 				assertNoSecret(t, rendering)
 			}
 		})
+	}
+}
+
+func TestConfig_unsupportedImportedClientsBecomeAWarning(t *testing.T) {
+	crossSeedPath := writeCrossSeedJS(t, `module.exports = { torrentClients: [
+		"deluge:http://alice:secret-deluge@example.com:8112",
+		"qbittorrent:http://example.com:8080",
+		"secret-garbage",
+		"transmission:http://alice:secret-transmission@example.com:9091",
+	] };`)
+	expectedWarning := []UnsupportedClient{{Index: 0, Type: "deluge"}, {Index: 2, Type: "unknown"}, {Index: 3, Type: "transmission"}}
+
+	loadedConfig := mustLoad(t, nil, nil, configWithCrossSeed(t, crossSeedPath, ""))
+
+	if len(loadedConfig.TorrentClients) != 1 || loadedConfig.TorrentClients[0].BaseURL != "http://example.com:8080" {
+		t.Fatalf("gotValue %v, expectedValue only the qbittorrent client", loadedConfig.TorrentClients)
+	}
+	if !slices.Equal(loadedConfig.CrossSeedImport.UnsupportedTorrentClients, expectedWarning) {
+		t.Fatalf("gotValue %v, expectedValue %v", loadedConfig.CrossSeedImport.UnsupportedTorrentClients, expectedWarning)
+	}
+	for _, rendering := range renderingsOf(t, loadedConfig) {
+		assertNoSecret(t, rendering)
+	}
+}
+
+func TestConfig_onlyUnsupportedImportedClientsLoadWithAnEmptyList(t *testing.T) {
+	crossSeedPath := writeCrossSeedJS(t, `module.exports = { torrentClients: ["rtorrent:http://example.com:8000/RPC2"] };`)
+
+	loadedConfig := mustLoad(t, nil, nil, configWithCrossSeed(t, crossSeedPath, ""))
+
+	if len(loadedConfig.TorrentClients) != 0 || loadedConfig.Sources.TorrentClients != sourceNone {
+		t.Fatalf("gotValue %v %q, expectedValue no client", loadedConfig.TorrentClients, loadedConfig.Sources.TorrentClients)
+	}
+	if len(loadedConfig.CrossSeedImport.UnsupportedTorrentClients) != 1 {
+		t.Fatalf("gotValue %v, expectedValue one warning", loadedConfig.CrossSeedImport.UnsupportedTorrentClients)
+	}
+}
+
+func TestConfig_explicitCrossSeedUrlRejectsUserinfo(t *testing.T) {
+	configDir := t.TempDir()
+	writeFile(t, configDir, configFileName, `{"crossSeed": "http://alice:secret-pass@example.com:2468?apikey=secret-key"}`)
+
+	_, err := Load(nil, lookupFrom(nil), configDir)
+
+	if err == nil || !strings.Contains(err.Error(), "userinfo") {
+		t.Fatalf("gotValue %v, expectedValue a userinfo error", err)
+	}
+	assertNoSecret(t, err.Error())
+}
+
+func TestConfig_relativeCrossSeedConfigPaths(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(configDir, "cross-seed"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(configDir, "cross-seed"), "config.js", `module.exports = { linkCategory: "from-config-dir" };`)
+	writeFile(t, configDir, configFileName, `{"crossSeedConfig": "cross-seed/config.js"}`)
+	workingDir := t.TempDir()
+	writeFile(t, workingDir, "config.js", `module.exports = { linkCategory: "from-working-dir" };`)
+	t.Chdir(workingDir)
+
+	fromFile := mustLoad(t, nil, nil, configDir).LinkCategory
+	fromEnv := mustLoad(t, nil, map[string]string{envCrossSeedConfig: "config.js"}, configDir).LinkCategory
+
+	if fromFile != "from-config-dir" || fromEnv != "from-working-dir" {
+		t.Fatalf("gotValue %q %q, expectedValue from-config-dir from-working-dir", fromFile, fromEnv)
 	}
 }

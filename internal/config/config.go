@@ -155,7 +155,7 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir
 	if err != nil {
 		return Config{}, err
 	}
-	layer, err := layerCrossSeed(options, rawFile, lookup)
+	layer, err := layerCrossSeed(options, rawFile, configDir, lookup)
 	if err != nil {
 		return Config{}, err
 	}

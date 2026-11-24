@@ -24,6 +24,9 @@ const (
 // ErrEvaluationTimeout signale un config.js dont l'évaluation dépasse le délai accordé.
 var ErrEvaluationTimeout = errors.New("cross-seed config: evaluation timed out")
 
+// ErrNotRegularFile signale un chemin qui n'est pas un fichier ordinaire : une FIFO ou un terminal bloquerait la lecture.
+var ErrNotRegularFile = errors.New("cross-seed config: not a regular file")
+
 // lockdownScript s'exécute avant le fichier de l'opérateur : il retire eval et tout constructeur de fonction
 // (Function, function*, async function), seules portes vers une compilation de code à l'exécution.
 const lockdownScript = `(function () {
@@ -48,11 +51,19 @@ const snapshotScript = `(function (getPrototypeOf, objectPrototype, isArray, str
 	};
 })(Object.getPrototypeOf, Object.prototype, Array.isArray, JSON.stringify)`
 
+// referenceErrorScript rend un test « exception levée par un nom non défini », fondé sur les primitives d'origine.
+const referenceErrorScript = `(function (getPrototypeOf, referenceErrorPrototype) {
+	return function (value) {
+		return value !== null && typeof value === "object" && getPrototypeOf(value) === referenceErrorPrototype;
+	};
+})(Object.getPrototypeOf, ReferenceError.prototype)`
+
 // sandbox est un moteur neuf, sans E/S : seuls module, exports et process.env existent en plus du langage.
 type sandbox struct {
-	runtime  *goja.Runtime
-	module   *goja.Object
-	snapshot goja.Callable
+	runtime          *goja.Runtime
+	module           *goja.Object
+	snapshot         goja.Callable
+	isReferenceError goja.Callable
 }
 
 // LoadConfigJS évalue le config.js de cross-seed dans un bac à sable et en extrait les clés reprises par Necromanciarr.
@@ -83,12 +94,20 @@ func LoadConfigJS(ctx context.Context, path string, lookupEnv func(string) (stri
 	return parseExports(exportedJSON)
 }
 
+// readSource refuse avant l'ouverture tout ce qui n'est pas un fichier ordinaire (os.Stat suit les liens symboliques),
+// puis revérifie le fichier ouvert au cas où le chemin aurait été remplacé entre-temps.
 func readSource(path string) (string, error) {
+	if err := requireRegularFile(os.Stat(path)); err != nil {
+		return "", err
+	}
 	file, err := os.Open(path) // #nosec G304 -- chemin choisi par l'opérateur (crossSeedConfig)
 	if err != nil {
 		return "", fmt.Errorf("cross-seed config: %w", err)
 	}
 	defer func() { _ = file.Close() }()
+	if err := requireRegularFile(file.Stat()); err != nil {
+		return "", err
+	}
 	content, err := io.ReadAll(io.LimitReader(file, maxSourceBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("cross-seed config: read: %w", err)
@@ -97,6 +116,33 @@ func readSource(path string) (string, error) {
 		return "", fmt.Errorf("cross-seed config: file too large (limit %d bytes)", maxSourceBytes)
 	}
 	return string(content), nil
+}
+
+func requireRegularFile(info os.FileInfo, err error) error {
+	if err != nil {
+		return fmt.Errorf("cross-seed config: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%w (%s)", ErrNotRegularFile, fileKind(info.Mode()))
+	}
+	return nil
+}
+
+func fileKind(mode os.FileMode) string {
+	switch {
+	case mode.IsDir():
+		return "directory"
+	case mode&os.ModeNamedPipe != 0:
+		return "named pipe"
+	case mode&os.ModeCharDevice != 0:
+		return "character device"
+	case mode&os.ModeDevice != 0:
+		return "device"
+	case mode&os.ModeSocket != 0:
+		return "socket"
+	default:
+		return "special file"
+	}
 }
 
 // compileSource n'affiche que la position d'une erreur de syntaxe : le message du moteur peut citer le texte fautif.
@@ -125,19 +171,32 @@ func newSandbox(lookupEnv func(string) (string, bool)) (*sandbox, error) {
 	if _, err := runtime.RunString(lockdownScript); err != nil {
 		return nil, fmt.Errorf("cross-seed config: sandbox setup: %w", err)
 	}
-	snapshotValue, err := runtime.RunString(snapshotScript)
+	snapshot, err := trustedFunction(runtime, snapshotScript)
 	if err != nil {
-		return nil, fmt.Errorf("cross-seed config: sandbox setup: %w", err)
+		return nil, err
 	}
-	snapshot, isCallable := goja.AssertFunction(snapshotValue)
-	if !isCallable {
-		return nil, errors.New("cross-seed config: sandbox setup: snapshot is not callable")
+	isReferenceError, err := trustedFunction(runtime, referenceErrorScript)
+	if err != nil {
+		return nil, err
 	}
 	module, err := exposeGlobals(runtime, lookupEnv)
 	if err != nil {
 		return nil, err
 	}
-	return &sandbox{runtime: runtime, module: module, snapshot: snapshot}, nil
+	return &sandbox{runtime: runtime, module: module, snapshot: snapshot, isReferenceError: isReferenceError}, nil
+}
+
+// trustedFunction évalue un script de confiance avant le fichier de l'opérateur et rend la fonction qu'il produit.
+func trustedFunction(runtime *goja.Runtime, script string) (goja.Callable, error) {
+	value, err := runtime.RunString(script)
+	if err != nil {
+		return nil, fmt.Errorf("cross-seed config: sandbox setup: %w", err)
+	}
+	function, isCallable := goja.AssertFunction(value)
+	if !isCallable {
+		return nil, errors.New("cross-seed config: sandbox setup: trusted script is not callable")
+	}
+	return function, nil
 }
 
 // exposeGlobals définit module.exports non configurable : un accesseur posé dessus s'exécuterait côté Go, hors de
@@ -175,11 +234,11 @@ func (box *sandbox) armInterrupts(ctx context.Context) func() {
 // interruption, et le Go ne lit qu'une chaîne JSON.
 func (box *sandbox) evaluate(program *goja.Program) (string, error) {
 	if _, err := box.runtime.RunProgram(program); err != nil {
-		return "", describeRunError(err)
+		return "", box.describeRunError(err)
 	}
 	snapshotJSON, err := box.snapshot(goja.Undefined(), box.module.Get("exports"))
 	if err != nil {
-		return "", describeRunError(err)
+		return "", box.describeRunError(err)
 	}
 	if goja.IsNull(snapshotJSON) || goja.IsUndefined(snapshotJSON) {
 		return "", errors.New("cross-seed config: module.exports must be a plain object")
@@ -188,7 +247,7 @@ func (box *sandbox) evaluate(program *goja.Program) (string, error) {
 }
 
 // describeRunError ne reprend jamais le message d'une exception : le script peut y mettre une valeur de process.env.
-func describeRunError(err error) error {
+func (box *sandbox) describeRunError(err error) error {
 	var interrupted *goja.InterruptedError
 	if errors.As(err, &interrupted) {
 		if cause, isError := interrupted.Value().(error); isError {
@@ -202,9 +261,18 @@ func describeRunError(err error) error {
 	}
 	var exception *goja.Exception
 	if errors.As(err, &exception) {
-		return fmt.Errorf("cross-seed config: script raised an exception%s", exceptionLocation(exception))
+		return fmt.Errorf("cross-seed config: script raised an exception%s%s", exceptionLocation(exception), box.hintFor(exception))
 	}
 	return errors.New("cross-seed config: evaluation failed")
+}
+
+// hintFor explique le cas courant d'un nom non défini (require, import, globaux de Node) sans lire le message.
+func (box *sandbox) hintFor(exception *goja.Exception) string {
+	isReference, err := box.isReferenceError(goja.Undefined(), exception.Value())
+	if err != nil || !isReference.ToBoolean() {
+		return ""
+	}
+	return ": a name is not defined (require and import are not available in the sandbox, only process.env)"
 }
 
 func exceptionLocation(exception *goja.Exception) string {

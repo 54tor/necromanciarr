@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"maps"
 	"math"
+	"net"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -19,7 +21,16 @@ const (
 	authorityTerminators = "/?#"
 	// hostCharacters : nom, IPv4, IPv6 entre crochets (zone %25 comprise) et port.
 	hostCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_:[]%"
+	// maxListEntries borne chaque liste importée : au-delà, ce n'est plus une configuration plausible.
+	maxListEntries = 256
 )
+
+// displayableKeyPattern : une clé ignorée n'est nommée que si elle ressemble à un identifiant JS ; une clé arbitraire
+// pourrait porter une valeur (secret collé par erreur) et n'est que comptée.
+var displayableKeyPattern = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]{0,63}$`)
+
+// hostnamePattern : nom d'hôte DNS ou de service Docker (le « _ » y est courant), sans port.
+var hostnamePattern = regexp.MustCompile(`^[A-Za-z0-9_]([A-Za-z0-9_-]{0,62})(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}))*$`)
 
 // linkTypes sont les valeurs de linkType de cross-seed ; elles portent le même nom que les sortes de liens du linker.
 var linkTypes = []string{"hardlink", "symlink", "reflink"}
@@ -39,6 +50,8 @@ type Imported struct {
 	APIKey         string
 	// IgnoredKeys nomme, triées, les clés présentes mais sans objet ici (règles de recherche par indexeurs…).
 	IgnoredKeys []string
+	// UnnamedIgnoredKeys compte les clés ignorées dont le nom n'est pas affichable.
+	UnnamedIgnoredKeys int
 	// ImportedKeys nomme, triées, les clés reprises avec une valeur (null et undefined valent absence).
 	ImportedKeys []string
 }
@@ -54,7 +67,7 @@ var keyDecoders = map[string]keyDecoder{
 	"linkType":       decodeLinkType,
 	"skipRecheck":    decodeBool(func(target *Imported) *bool { return &target.SkipRecheck }),
 	"linkCategory":   decodeString(func(target *Imported) *string { return &target.LinkCategory }),
-	"host":           decodeString(func(target *Imported) *string { return &target.Host }),
+	"host":           decodeHost,
 	"port":           decodePort,
 	"apiKey":         decodeString(func(target *Imported) *string { return &target.APIKey }),
 }
@@ -69,7 +82,7 @@ func parseExports(exportedJSON string) (Imported, error) {
 	for _, key := range slices.Sorted(maps.Keys(entries)) {
 		decoder, known := keyDecoders[key]
 		if !known {
-			imported.IgnoredKeys = append(imported.IgnoredKeys, key)
+			imported.recordIgnoredKey(key)
 			continue
 		}
 		raw := entries[key]
@@ -84,13 +97,37 @@ func parseExports(exportedJSON string) (Imported, error) {
 	return imported, nil
 }
 
+func (imported *Imported) recordIgnoredKey(key string) {
+	if displayableKeyPattern.MatchString(key) {
+		imported.IgnoredKeys = append(imported.IgnoredKeys, key)
+		return
+	}
+	imported.UnnamedIgnoredKeys++
+}
+
 func decodeStrings(field func(*Imported) *[]string) keyDecoder {
 	return func(raw json.RawMessage, target *Imported) error {
 		if json.Unmarshal(raw, field(target)) != nil {
 			return errors.New("expected an array of strings")
 		}
+		if len(*field(target)) > maxListEntries {
+			return fmt.Errorf("too many entries (limit %d)", maxListEntries)
+		}
 		return nil
 	}
+}
+
+// decodeHost n'accepte qu'un nom d'hôte ou une adresse IP : la valeur sert à construire l'URL du démon.
+func decodeHost(raw json.RawMessage, target *Imported) error {
+	if json.Unmarshal(raw, &target.Host) != nil {
+		return errors.New("expected a string")
+	}
+	isValidHost := target.Host == "" || net.ParseIP(target.Host) != nil || hostnamePattern.MatchString(target.Host)
+	if !isValidHost {
+		target.Host = ""
+		return errors.New("expected a hostname or an IP address")
+	}
+	return nil
 }
 
 func decodeString(field func(*Imported) *string) keyDecoder {

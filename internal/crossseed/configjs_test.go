@@ -411,3 +411,73 @@ func assertNoSecret(t *testing.T, rendered string) {
 		t.Errorf("leaked a secret: %s", rendered)
 	}
 }
+
+func TestLoadConfigJS_directoryIsRejectedBeforeOpening(t *testing.T) {
+	_, err := LoadConfigJS(context.Background(), t.TempDir(), lookupFrom(nil))
+
+	if !errors.Is(err, ErrNotRegularFile) || !strings.Contains(err.Error(), "directory") {
+		t.Fatalf("gotValue %v, expectedValue %v naming a directory", err, ErrNotRegularFile)
+	}
+}
+
+func TestLoadConfigJS_hostMustBeHostnameOrIP(t *testing.T) {
+	acceptedHosts := []string{"cross-seed", "cross_seed", "example.com", "192.0.2.1", "::1", "0.0.0.0"}
+	refusedHosts := []string{
+		"secret@example.com", "example.com/secret", "example.com?secret", "example.com#secret",
+		"secret host", "example.com:2468", "[::1]", "-secret",
+	}
+	for _, host := range append(acceptedHosts, refusedHosts...) {
+		t.Run(host, func(t *testing.T) {
+			path := writeConfigJS(t, `module.exports = { host: `+quoteJS(host)+` };`)
+
+			imported, err := LoadConfigJS(context.Background(), path, lookupFrom(nil))
+
+			if slices.Contains(acceptedHosts, host) {
+				if err != nil || imported.Host != host {
+					t.Fatalf("gotValue %q %v, expectedValue %q", imported.Host, err, host)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), `"host"`) || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("gotValue %v, expectedValue an error naming host without its value", err)
+			}
+		})
+	}
+}
+
+func TestLoadConfigJS_unnamedIgnoredKeysAreCountedNotNamed(t *testing.T) {
+	path := writeConfigJS(t, `module.exports = { "secret value": 1, "secret-key": 2, delay: 30 };`)
+
+	imported := mustLoadConfigJS(t, path, nil)
+
+	if !slices.Equal(imported.IgnoredKeys, []string{"delay"}) || imported.UnnamedIgnoredKeys != 2 {
+		t.Fatalf("gotValue %v %d, expectedValue [delay] 2", imported.IgnoredKeys, imported.UnnamedIgnoredKeys)
+	}
+	assertNoSecret(t, imported.String())
+}
+
+func TestLoadConfigJS_listsAreCapped(t *testing.T) {
+	path := writeConfigJS(t, `module.exports = { linkDirs: Array.from({ length: 257 }, function () { return "/home/u/x"; }) };`)
+
+	_, err := LoadConfigJS(context.Background(), path, lookupFrom(nil))
+
+	if err == nil || !strings.Contains(err.Error(), `"linkDirs"`) || !strings.Contains(err.Error(), "256") {
+		t.Fatalf("gotValue %v, expectedValue a size limit naming linkDirs", err)
+	}
+}
+
+func TestLoadConfigJS_undefinedGlobalGivesSandboxHint(t *testing.T) {
+	expectedHint := "require and import are not available"
+	hintedPath := writeConfigJS(t, `const fs = require("fs"); module.exports = {};`)
+	plainPath := writeConfigJS(t, `throw new Error(process.env.TOKEN);`)
+
+	_, hintedErr := LoadConfigJS(context.Background(), hintedPath, lookupFrom(nil))
+	_, plainErr := LoadConfigJS(context.Background(), plainPath, lookupFrom(map[string]string{"TOKEN": "secret-token"}))
+
+	if hintedErr == nil || !strings.Contains(hintedErr.Error(), expectedHint) {
+		t.Fatalf("gotValue %v, expectedValue the sandbox hint", hintedErr)
+	}
+	if plainErr == nil || strings.Contains(plainErr.Error(), expectedHint) || strings.Contains(plainErr.Error(), "secret-") {
+		t.Fatalf("gotValue %v, expectedValue a plain exception error", plainErr)
+	}
+}

@@ -95,3 +95,14 @@ func assertNoSecret(t *testing.T, rendered string) {
 		t.Errorf("leaked a secret: %s", rendered)
 	}
 }
+
+func TestParseTorrentClient_acceptsEncodedAtInPathAndRefusesRawAt(t *testing.T) {
+	if _, err := ParseTorrentClient("qbittorrent:http://example.com:7476/proxy/ke%40y"); err != nil {
+		t.Fatalf("an encoded @ in the path must be accepted: %v", err)
+	}
+	for _, raw := range []string{"qbittorrent:http://example.com:7476/proxy/ke@y", "http://example.com:7878?apikey=k@y"} {
+		if _, err := parseHTTPURL(strings.TrimPrefix(raw, "qbittorrent:")); err == nil {
+			t.Fatalf("a raw @ after the host must be refused: %s", raw)
+		}
+	}
+}

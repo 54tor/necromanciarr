@@ -101,9 +101,9 @@ func parseHTTPURL(raw string) (*url.URL, error) {
 	if strings.Contains(raw, "#") {
 		return nil, errors.New("fragment not allowed")
 	}
-	// Un « @ » après l'hôte trahit un mot de passe non encodé contenant « / » ou « ? » : url.Parse en aurait fait
-	// un morceau d'hôte ou de chemin, affiché ensuite en clair.
-	if strings.Contains(parsedURL.Path+parsedURL.RawQuery, "@") {
+	// Un « @ » brut après l'hôte trahit un mot de passe non encodé contenant « / » ou « ? » : url.Parse en aurait
+	// fait un morceau d'hôte ou de chemin, affiché ensuite en clair. Un %40 encodé dans le chemin reste permis.
+	if strings.Contains(parsedURL.EscapedPath()+parsedURL.RawQuery, "@") {
 		return nil, errors.New("unescaped userinfo")
 	}
 	return parsedURL, nil

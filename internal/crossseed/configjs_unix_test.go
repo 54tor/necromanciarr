@@ -4,7 +4,9 @@ package crossseed
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -31,5 +33,28 @@ func TestLoadConfigJS_sourceMapCommentIsNeverRead(t *testing.T) {
 		}
 	case <-time.After(evaluationTimeout + time.Second):
 		t.Fatal("the source map file was opened")
+	}
+}
+
+// Une FIFO sans écrivain bloquerait os.Open : elle doit être refusée sur son type, avant l'ouverture.
+func TestLoadConfigJS_fifoIsRejectedWithoutBlocking(t *testing.T) {
+	fifoPath := filepath.Join(t.TempDir(), "config.js")
+	if err := syscall.Mkfifo(fifoPath, 0o600); err != nil {
+		t.Skipf("mkfifo unavailable: %v", err)
+	}
+	finished := make(chan error, 1)
+
+	go func() {
+		_, err := LoadConfigJS(context.Background(), fifoPath, lookupFrom(nil))
+		finished <- err
+	}()
+
+	select {
+	case err := <-finished:
+		if !errors.Is(err, ErrNotRegularFile) || !strings.Contains(err.Error(), "named pipe") {
+			t.Fatalf("gotValue %v, expectedValue %v naming a named pipe", err, ErrNotRegularFile)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reading the FIFO blocked")
 	}
 }
