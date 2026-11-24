@@ -99,8 +99,14 @@ CREATE TABLE IF NOT EXISTS run_lock (
 );`
 
 // postUpgradeSchema s'exécute après l'ajout des colonnes manquantes, dont il dépend. L'index garantit au plus une
-// proposition principale ouverte (pending ou accepted) par groupe.
+// proposition principale ouverte (pending ou accepted) par groupe ; une base qui en aurait deux (avant l'index) ne garde
+// que la meilleure (details.percent, puis le plus petit candidat), sinon la création de l'index échouerait.
 const postUpgradeSchema = `
+UPDATE proposals SET is_primary = 0, primary_source = ''
+WHERE is_primary = 1 AND decision IN ('pending', 'accepted') AND id != (
+	SELECT best.id FROM proposals AS best
+	WHERE best.group_id = proposals.group_id AND best.is_primary = 1 AND best.decision IN ('pending', 'accepted')
+	ORDER BY json_extract(best.details, '$.percent') DESC, best.candidate_id, best.id LIMIT 1);
 CREATE UNIQUE INDEX IF NOT EXISTS proposals_single_primary ON proposals(group_id)
 	WHERE is_primary = 1 AND decision IN ('pending', 'accepted');`
 

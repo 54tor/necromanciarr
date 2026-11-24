@@ -195,6 +195,9 @@ var (
 	ErrProposalNotFound        = errors.New("store: proposal not found")
 	// ErrInvalidProposalDetails signale des détails qui ne sont pas un objet JSON.
 	ErrInvalidProposalDetails = errors.New("store: proposal details must be a JSON object")
+	// ErrStaleGeneration signale une proposition d'une génération antérieure de son candidat : elle ne peut plus être
+	// acceptée, appliquée ni relancée.
+	ErrStaleGeneration = errors.New("store: proposal belongs to an older candidate generation")
 	// ErrUnknownPrimarySource signale une origine de proposition principale inconnue.
 	ErrUnknownPrimarySource = errors.New("store: unknown primary source")
 	// ErrProposalNeedsCandidate signale une proposition sans candidat passée à UpsertProposal.
@@ -405,7 +408,9 @@ func (openedStore *Store) ClearGroupPrimary(ctx context.Context, groupID int64) 
 }
 
 func clearGroupPrimary(ctx context.Context, transaction *sql.Tx, groupID int64) error {
-	_, err := transaction.ExecContext(ctx, `UPDATE proposals SET is_primary = 0, primary_source = '' WHERE group_id = ? AND is_primary = 1`, groupID)
+	// L'historique (applied) garde son marquage : seules les propositions ouvertes comptent pour l'index.
+	_, err := transaction.ExecContext(ctx, `UPDATE proposals SET is_primary = 0, primary_source = ''
+WHERE group_id = ? AND is_primary = 1 AND decision IN (?, ?)`, groupID, string(ProposalPending), string(ProposalAccepted))
 	if err != nil {
 		return fmt.Errorf("clear group primary: %w", err)
 	}
@@ -479,6 +484,9 @@ func (openedStore *Store) SetProposalDecision(ctx context.Context, proposalID in
 		if requiresVerified && candidateState.Valid && CandidateState(candidateState.String) != CandidateVerified {
 			return fmt.Errorf("%w: proposal %s needs a verified candidate, got %s", ErrInvalidTransition, decision, candidateState.String)
 		}
+		if requiresVerified && candidateState.stale() {
+			return fmt.Errorf("%w: proposal %s", ErrStaleGeneration, decision)
+		}
 		return writeDecision(ctx, transaction, proposalID, decision, now)
 	})
 }
@@ -497,24 +505,41 @@ func (openedStore *Store) RetryProposal(ctx context.Context, proposalID int64, n
 		if candidateState.Valid && CandidateState(candidateState.String) != CandidateVerified {
 			return fmt.Errorf("%w: retry needs a verified candidate, got %s", ErrInvalidTransition, candidateState.String)
 		}
+		if candidateState.stale() {
+			return fmt.Errorf("%w: retry", ErrStaleGeneration)
+		}
 		return writeDecision(ctx, transaction, proposalID, ProposalPending, now)
 	})
 }
 
-// proposalState renvoie la décision courante et l'état du candidat (non valide si la proposition n'en a pas).
-func proposalState(ctx context.Context, transaction *sql.Tx, proposalID int64) (ProposalDecision, sql.NullString, error) {
+// proposalCandidate est l'état du candidat d'une proposition ; Valid est faux si elle n'en a pas (dedupe, repair).
+type proposalCandidate struct {
+	sql.NullString
+	proposalGeneration, candidateGeneration int64
+}
+
+// stale dit si la proposition appartient à une génération antérieure de son candidat.
+func (candidate proposalCandidate) stale() bool {
+	return candidate.Valid && candidate.proposalGeneration != candidate.candidateGeneration
+}
+
+// proposalState renvoie la décision courante, l'état et les générations du candidat.
+func proposalState(ctx context.Context, transaction *sql.Tx, proposalID int64) (ProposalDecision, proposalCandidate, error) {
 	var decision string
-	var candidateState sql.NullString
-	err := transaction.QueryRowContext(ctx, `SELECT proposals.decision, torrent_candidates.state FROM proposals
+	var candidate proposalCandidate
+	var candidateGeneration sql.NullInt64
+	err := transaction.QueryRowContext(ctx, `SELECT proposals.decision, torrent_candidates.state, proposals.generation,
+	torrent_candidates.generation FROM proposals
 LEFT JOIN torrent_candidates ON torrent_candidates.id = proposals.candidate_id WHERE proposals.id = ?`, proposalID).
-		Scan(&decision, &candidateState)
+		Scan(&decision, &candidate.NullString, &candidate.proposalGeneration, &candidateGeneration)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", sql.NullString{}, ErrProposalNotFound
+		return "", proposalCandidate{}, ErrProposalNotFound
 	}
 	if err != nil {
-		return "", sql.NullString{}, fmt.Errorf("load proposal: %w", err)
+		return "", proposalCandidate{}, fmt.Errorf("load proposal: %w", err)
 	}
-	return ProposalDecision(decision), candidateState, nil
+	candidate.candidateGeneration = candidateGeneration.Int64
+	return ProposalDecision(decision), candidate, nil
 }
 
 func writeDecision(ctx context.Context, transaction *sql.Tx, proposalID int64, decision ProposalDecision, now time.Time) error {

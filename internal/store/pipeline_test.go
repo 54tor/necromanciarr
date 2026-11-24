@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -643,7 +645,7 @@ func TestSetCandidateState_failedSupersedesOpenProposals(t *testing.T) {
 	}
 
 	decisions := decisionsByID(t, openedStore)
-	expectedDecisions := map[string]ProposalDecision{"pending": ProposalSuperseded, "accepted": ProposalSuperseded, "failed": ProposalFailed}
+	expectedDecisions := map[string]ProposalDecision{"pending": ProposalSuperseded, "accepted": ProposalSuperseded, "failed": ProposalSuperseded}
 	for name, expectedValue := range expectedDecisions {
 		if gotValue := decisions[identifiers[name]]; gotValue != expectedValue {
 			t.Errorf("%s proposal: gotValue %s, expectedValue %s", name, gotValue, expectedValue)
@@ -933,4 +935,241 @@ func candidatesByID(t *testing.T, openedStore *Store) map[int64]Candidate {
 		byID[candidate.ID] = candidate
 	}
 	return byID
+}
+
+func TestReset_supersedesAFailedProposalSoItNeverReachesApplied(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	markVerified(t, openedStore, candidateID)
+	oldID := proposalsByDecision(t, openedStore, candidateID, map[string][]ProposalDecision{"failed": {ProposalAccepted, ProposalFailed}})["failed"]
+	movedFile := MediaFile{ID: mediaFile.ID, Path: mediaFile.Path, Size: mediaFile.Size, ModTime: testNow.Add(time.Second)}
+	if _, outcome := saveTestCandidate(t, openedStore, "aa", movedFile); outcome != SaveUpdated {
+		t.Fatalf("gotValue %s, expectedValue updated (reset)", outcome)
+	}
+	markVerified(t, openedStore, candidateID)
+	if _, created, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: candidateID, Kind: ProposalFull}, testNow); err != nil || !created {
+		t.Fatalf("gotValue created=%v err=%v, expectedValue a new generation proposal", created, err)
+	}
+
+	if gotValue := decisionsByID(t, openedStore)[oldID]; gotValue != ProposalSuperseded {
+		t.Fatalf("gotValue %s, expectedValue the old failed proposal superseded by the reset", gotValue)
+	}
+	if err := openedStore.RetryProposal(ctx, oldID, testNow); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("gotValue %v, expectedValue the superseded proposal cannot be retried", err)
+	}
+}
+
+func TestProposalDecisions_refuseAStaleGeneration(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	markVerified(t, openedStore, candidateID)
+	identifiers := proposalsByDecision(t, openedStore, candidateID, map[string][]ProposalDecision{
+		"pending": nil, "accepted": {ProposalAccepted}, "failed": {ProposalAccepted, ProposalFailed},
+	})
+	// Contourne volontairement les invalidations pour vérifier la défense du store lui-même.
+	if _, err := openedStore.database.ExecContext(ctx, `UPDATE torrent_candidates SET generation = generation + 1`); err != nil {
+		t.Fatal(err)
+	}
+
+	refusals := map[string]error{
+		"accept": openedStore.SetProposalDecision(ctx, identifiers["pending"], ProposalAccepted, testNow),
+		"apply":  openedStore.SetProposalDecision(ctx, identifiers["accepted"], ProposalApplied, testNow),
+		"retry":  openedStore.RetryProposal(ctx, identifiers["failed"], testNow),
+	}
+	for name, err := range refusals {
+		if !errors.Is(err, ErrStaleGeneration) {
+			t.Errorf("%s: gotValue %v, expectedValue ErrStaleGeneration", name, err)
+		}
+	}
+	if err := openedStore.SetProposalDecision(ctx, identifiers["pending"], ProposalRejected, testNow); err != nil {
+		t.Fatalf("gotValue %v, expectedValue rejecting a stale proposal still allowed", err)
+	}
+	dedupeID, err := openedStore.CreateProposal(ctx, Proposal{Kind: ProposalDedupe}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := openedStore.SetProposalDecision(ctx, dedupeID, ProposalAccepted, testNow); err != nil {
+		t.Fatalf("gotValue %v, expectedValue a candidate-less proposal exempt", err)
+	}
+}
+
+func TestSetCandidateState_failedFromVerifiedClearsTheAssignment(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	completeTestVerification(t, openedStore, candidateID, []AssignedFile{{MediaFileID: mediaFile.ID, Path: mediaFile.Path, Size: 10, ModTime: testNow}})
+
+	if err := openedStore.SetCandidateState(ctx, candidateID, CandidateFailed, testNow); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, found, err := openedStore.LoadVerifiedAssignment(ctx, candidateID); found || err != nil {
+		t.Fatalf("gotValue found=%v err=%v, expectedValue no assignment for a failed candidate", found, err)
+	}
+	if rows := countRows(t, openedStore.database, `SELECT count(*) FROM verified_assignments`); rows != 0 {
+		t.Fatalf("gotValue %d rows, expectedValue 0", rows)
+	}
+}
+
+// primaryFullProposal crée une proposition full principale du candidat dans son groupe courant.
+func primaryFullProposal(t *testing.T, openedStore *Store, candidateID int64, percent int) int64 {
+	t.Helper()
+	ctx := context.Background()
+	groupID := candidatesByID(t, openedStore)[candidateID].GroupID
+	details := json.RawMessage(fmt.Sprintf(`{"percent":%d}`, percent))
+	proposalID, _, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: candidateID, GroupID: groupID, Kind: ProposalFull, Details: details}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := openedStore.SetGroupPrimary(ctx, groupID, proposalID, PrimaryAuto); err != nil {
+		t.Fatal(err)
+	}
+	return proposalID
+}
+
+func openPrimaryIDs(t *testing.T, openedStore *Store) []int64 {
+	t.Helper()
+	proposals, err := openedStore.ListProposals(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var identifiers []int64
+	for _, proposal := range proposals {
+		isOpen := proposal.Decision == ProposalPending || proposal.Decision == ProposalAccepted
+		if proposal.Primary && isOpen {
+			identifiers = append(identifiers, proposal.ID)
+		}
+	}
+	return identifiers
+}
+
+func TestRegroupCandidates_movesOpenProposalsAndKeepsOnePrimaryPerRealGroup(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	firstFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	secondFile := insertTestMediaFile(t, openedStore, "/home/u/media/b.mkv", 20)
+	firstCandidate, _ := saveTestCandidate(t, openedStore, "aa", firstFile)
+	secondCandidate, _ := saveTestCandidate(t, openedStore, "bb", secondFile)
+	if err := openedStore.RegroupCandidates(ctx); err != nil {
+		t.Fatal(err)
+	}
+	firstProposal := primaryFullProposal(t, openedStore, firstCandidate, 100)
+	primaryFullProposal(t, openedStore, secondCandidate, 100)
+	bridge := Candidate{Infohash: "cc", Tracker: "tracker-a", Name: "Pack", TotalSize: 30}
+	bridgeFiles := []CandidateFile{
+		{FileIndex: 0, Path: "Pack/a.mkv", Size: 10, MediaFileID: firstFile.ID, MediaSize: 10, MediaModTime: firstFile.ModTime},
+		{FileIndex: 1, Path: "Pack/b.mkv", Size: 20, MediaFileID: secondFile.ID, MediaSize: 20, MediaModTime: secondFile.ModTime},
+	}
+	if _, _, err := openedStore.SaveCandidate(ctx, bridge, bridgeFiles, testNow); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := openedStore.RegroupCandidates(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	proposals, _ := openedStore.ListProposals(ctx, "")
+	for _, proposal := range proposals {
+		if proposal.GroupID != firstCandidate {
+			t.Fatalf("gotValue group %d on %+v, expectedValue the merged group %d", proposal.GroupID, proposal, firstCandidate)
+		}
+	}
+	if gotValue := openPrimaryIDs(t, openedStore); !slices.Equal(gotValue, []int64{firstProposal}) {
+		t.Fatalf("gotValue primaries %v, expectedValue only %d", gotValue, firstProposal)
+	}
+}
+
+func TestRegroupCandidates_electsAPrimaryForAGroupLeftWithoutOne(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	firstCandidate, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	secondCandidate, _ := saveTestCandidate(t, openedStore, "bb", mediaFile)
+	if err := openedStore.RegroupCandidates(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, candidateID := range []int64{firstCandidate, secondCandidate} {
+		details := json.RawMessage(`{"percent":100}`)
+		// Rattachée à un ancien groupe : le regroupement doit la ramener et élire une principale.
+		if _, _, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: candidateID, GroupID: 99, Kind: ProposalFull, Details: details}, testNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := openedStore.RegroupCandidates(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	gotValue := openPrimaryIDs(t, openedStore)
+	proposals, _ := openedStore.ListProposals(ctx, "")
+	if len(gotValue) != 1 || gotValue[0] != proposals[0].ID || proposals[0].PrimarySource != PrimaryAuto {
+		t.Fatalf("gotValue primaries %v in %+v, expectedValue the lowest candidate's full proposal", gotValue, proposals)
+	}
+}
+
+func TestSetGroupPrimary_leavesAppliedHistoryUntouched(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	firstCandidate, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	secondCandidate, _ := saveTestCandidate(t, openedStore, "bb", mediaFile)
+	if err := openedStore.RegroupCandidates(ctx); err != nil {
+		t.Fatal(err)
+	}
+	markVerified(t, openedStore, firstCandidate)
+	appliedID := primaryFullProposal(t, openedStore, firstCandidate, 100)
+	for _, decision := range []ProposalDecision{ProposalAccepted, ProposalApplied} {
+		if err := openedStore.SetProposalDecision(ctx, appliedID, decision, testNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	primaryFullProposal(t, openedStore, secondCandidate, 100)
+
+	proposals, _ := openedStore.ListProposals(ctx, "")
+	if !proposals[0].Primary || proposals[0].PrimarySource != PrimaryAuto {
+		t.Fatalf("gotValue %+v, expectedValue the applied primary kept as history", proposals[0])
+	}
+}
+
+func TestStore_upgradeKeepsTheBestOfTwoOpenPrimariesBeforeIndexing(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "necromanciarr.db")
+	openedStore, err := Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	firstCandidate, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	secondCandidate, _ := saveTestCandidate(t, openedStore, "bb", mediaFile)
+	if _, err := openedStore.database.ExecContext(ctx, `DROP INDEX proposals_single_primary`); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct {
+		candidateID int64
+		percent     int
+	}{{firstCandidate, 90}, {secondCandidate, 100}} {
+		if _, err := openedStore.database.ExecContext(ctx, `INSERT INTO proposals
+	(candidate_id, group_id, kind, decision, warnings, details, created_at, is_primary, primary_source) VALUES (?, 1, 'full', 'pending', '[]', ?, 0, 1, 'auto')`,
+			row.candidateID, fmt.Sprintf(`{"percent":%d}`, row.percent)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := openedStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(databasePath)
+	if err != nil {
+		t.Fatalf("gotValue %v, expectedValue the upgrade to dedupe primaries before creating the index", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	proposals, _ := reopened.ListProposals(ctx, "")
+	if proposals[0].Primary || !proposals[1].Primary {
+		t.Fatalf("gotValue %+v, expectedValue only the 100 %% proposal kept as primary", proposals)
+	}
 }

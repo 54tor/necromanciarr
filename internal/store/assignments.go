@@ -88,14 +88,15 @@ func replaceAssignment(ctx context.Context, transaction *sql.Tx, candidateID int
 }
 
 // LoadVerifiedAssignment renvoie l'association prouvée du candidat ; found est faux s'il n'en a pas (jamais vérifié,
-// ou invalidé). ErrAssignmentMismatch si l'empreinte recalculée diffère de celle de la vérification ou si une ligne
+// invalidé) ou s'il n'est pas verified. ErrAssignmentMismatch si l'empreinte recalculée diffère de celle de la vérification ou si une ligne
 // n'est pas de la génération courante du candidat.
 func (openedStore *Store) LoadVerifiedAssignment(ctx context.Context, candidateID int64) (VerifiedAssignment, bool, error) {
 	assignment := VerifiedAssignment{CandidateID: candidateID}
 	var candidateGeneration int64
 	err := openedStore.database.QueryRowContext(ctx, `SELECT verifications.generation, verifications.mapping_fingerprint,
 	torrent_candidates.generation FROM verifications JOIN torrent_candidates ON torrent_candidates.id = verifications.candidate_id
-	WHERE verifications.candidate_id = ? AND verifications.mapping_fingerprint != ''`, candidateID).
+	WHERE verifications.candidate_id = ? AND verifications.mapping_fingerprint != '' AND torrent_candidates.state = ?`,
+		candidateID, string(CandidateVerified)).
 		Scan(&assignment.Generation, &assignment.Fingerprint, &candidateGeneration)
 	if errors.Is(err, sql.ErrNoRows) {
 		return VerifiedAssignment{}, false, nil

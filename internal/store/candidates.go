@@ -156,7 +156,7 @@ func markStale(ctx context.Context, transaction *sql.Tx, selection string, now t
 	if err := clearVerification(ctx, transaction, selection, arguments...); err != nil {
 		return 0, err
 	}
-	if err := supersedeProposals(ctx, transaction, staleSupersededDecisions, selection, now, arguments...); err != nil {
+	if err := supersedeProposals(ctx, transaction, nonTerminalDecisions, selection, now, arguments...); err != nil {
 		return 0, err
 	}
 	updateArguments := append([]any{string(CandidateStale), now.UnixNano(), string(CandidateStale)}, arguments...)
@@ -181,12 +181,10 @@ func clearVerification(ctx context.Context, transaction *sql.Tx, selection strin
 	return nil
 }
 
-// openDecisions sont les décisions closes quand un candidat est réassocié ou échoue ; un candidat périmé clôt aussi ses
-// propositions failed, qui ne pourraient plus être relancées utilement.
-var (
-	openDecisions            = []ProposalDecision{ProposalPending, ProposalAccepted}
-	staleSupersededDecisions = []ProposalDecision{ProposalPending, ProposalAccepted, ProposalFailed}
-)
+// nonTerminalDecisions sont les décisions closes (superseded) quand un candidat est périmé, réassocié, relancé ou
+// échoue : elles pourraient encore mener à applied. applied, rejected et superseded restent tels quels (rejected ne
+// passe à superseded que par SetProposalDecision).
+var nonTerminalDecisions = []ProposalDecision{ProposalPending, ProposalAccepted, ProposalFailed}
 
 func supersedeProposals(ctx context.Context, transaction *sql.Tx, decisions []ProposalDecision, selection string, now time.Time, arguments ...any) error {
 	proposalArguments := []any{string(ProposalSuperseded), now.UnixNano()}
@@ -266,7 +264,7 @@ func insertCandidate(ctx context.Context, transaction *sql.Tx, candidate Candida
 // resetCandidate remplace les associations et ramène le candidat à matched ; ses propositions ouvertes sont closes,
 // jamais ressuscitées.
 func resetCandidate(ctx context.Context, transaction *sql.Tx, candidateID int64, files []CandidateFile, now time.Time) error {
-	if err := supersedeProposals(ctx, transaction, openDecisions, `SELECT ?`, now, candidateID); err != nil {
+	if err := supersedeProposals(ctx, transaction, nonTerminalDecisions, `SELECT ?`, now, candidateID); err != nil {
 		return err
 	}
 	if err := clearVerification(ctx, transaction, `SELECT ?`, candidateID); err != nil {
@@ -417,7 +415,11 @@ func (openedStore *Store) SetCandidateState(ctx context.Context, candidateID int
 			_, err = markStale(ctx, transaction, `SELECT ?`, now, candidateID)
 			return err
 		case CandidateFailed:
-			if err := supersedeProposals(ctx, transaction, openDecisions, `SELECT ?`, now, candidateID); err != nil {
+			if err := supersedeProposals(ctx, transaction, nonTerminalDecisions, `SELECT ?`, now, candidateID); err != nil {
+				return err
+			}
+			// Un candidat failed n'a plus d'association prouvée ; sa vérification reste pour la revue.
+			if _, err := transaction.ExecContext(ctx, `DELETE FROM verified_assignments WHERE candidate_id = ?`, candidateID); err != nil {
 				return err
 			}
 		}
@@ -439,7 +441,7 @@ func (openedStore *Store) RetryCandidate(ctx context.Context, candidateID int64,
 		if err := clearVerification(ctx, transaction, `SELECT ?`, candidateID); err != nil {
 			return err
 		}
-		if err := supersedeProposals(ctx, transaction, openDecisions, `SELECT ?`, now, candidateID); err != nil {
+		if err := supersedeProposals(ctx, transaction, nonTerminalDecisions, `SELECT ?`, now, candidateID); err != nil {
 			return err
 		}
 		return restartCandidate(ctx, transaction, candidateID, now)
@@ -526,8 +528,72 @@ func (openedStore *Store) RegroupCandidates(ctx context.Context) error {
 				return fmt.Errorf("regroup candidates: %w", err)
 			}
 		}
-		return nil
+		if err := syncProposalGroups(ctx, transaction); err != nil {
+			return err
+		}
+		return electMissingPrimaries(ctx, transaction)
 	})
+}
+
+// syncProposalGroups rattache chaque proposition ouverte au groupe courant de son candidat ; une proposition qui change
+// de groupe perd le rôle de principale, réélu par electMissingPrimaries dans la même transaction.
+func syncProposalGroups(ctx context.Context, transaction *sql.Tx) error {
+	_, err := transaction.ExecContext(ctx, `UPDATE proposals
+SET group_id = (SELECT group_id FROM torrent_candidates WHERE torrent_candidates.id = proposals.candidate_id),
+	is_primary = 0, primary_source = ''
+WHERE candidate_id IS NOT NULL AND decision IN (?, ?)
+	AND group_id IS NOT (SELECT group_id FROM torrent_candidates WHERE torrent_candidates.id = proposals.candidate_id)`,
+		string(ProposalPending), string(ProposalAccepted))
+	if err != nil {
+		return fmt.Errorf("sync proposal groups: %w", err)
+	}
+	return nil
+}
+
+// bestFullOfGroup choisit la proposition full ouverte de la génération courante au plus fort details.percent, à égalité
+// le plus petit candidat : la même règle que l'élection du pipeline.
+const bestFullOfGroup = `SELECT proposals.id FROM proposals
+JOIN torrent_candidates ON torrent_candidates.id = proposals.candidate_id
+WHERE proposals.group_id = ? AND proposals.kind = 'full' AND proposals.decision IN ('pending', 'accepted')
+	AND proposals.generation = torrent_candidates.generation
+ORDER BY json_extract(proposals.details, '$.percent') DESC, proposals.candidate_id, proposals.id LIMIT 1`
+
+// electMissingPrimaries donne une principale auto à chaque groupe qui a une full ouverte mais aucune principale ouverte.
+func electMissingPrimaries(ctx context.Context, transaction *sql.Tx) error {
+	groupIDs, err := groupsWithoutPrimary(ctx, transaction)
+	if err != nil {
+		return err
+	}
+	for _, groupID := range groupIDs {
+		_, err := transaction.ExecContext(ctx, `UPDATE proposals SET is_primary = 1, primary_source = ? WHERE id = (`+bestFullOfGroup+`)`,
+			string(PrimaryAuto), groupID)
+		if err != nil {
+			return fmt.Errorf("elect group primary: %w", err)
+		}
+	}
+	return nil
+}
+
+func groupsWithoutPrimary(ctx context.Context, transaction *sql.Tx) ([]int64, error) {
+	rows, err := transaction.QueryContext(ctx, `SELECT DISTINCT proposals.group_id FROM proposals
+JOIN torrent_candidates ON torrent_candidates.id = proposals.candidate_id
+WHERE proposals.kind = 'full' AND proposals.decision IN ('pending', 'accepted') AND proposals.group_id IS NOT NULL
+	AND proposals.generation = torrent_candidates.generation
+	AND NOT EXISTS (SELECT 1 FROM proposals AS other WHERE other.group_id = proposals.group_id AND other.is_primary = 1
+		AND other.decision IN ('pending', 'accepted'))`)
+	if err != nil {
+		return nil, fmt.Errorf("list groups without primary: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var groupIDs []int64
+	for rows.Next() {
+		var groupID int64
+		if err := rows.Scan(&groupID); err != nil {
+			return nil, err
+		}
+		groupIDs = append(groupIDs, groupID)
+	}
+	return groupIDs, rows.Err()
 }
 
 func computeGroups(ctx context.Context, transaction *sql.Tx) (map[int64]int64, error) {
