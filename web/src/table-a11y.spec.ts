@@ -450,4 +450,46 @@ describe('ConfirmDialog content', () => {
     confirm.click()
     expect(confirmed).toHaveBeenCalledOnce()
   })
+
+  it('shows the caption above the cards on narrow screens unless it is hidden', () => {
+    const wrapper = mountTable()
+    stubViewport(360)
+    const narrow = mount(DataTable<FixtureRow>, {
+      props: {
+        captionKey: 'nav.liens',
+        columns: fixtureColumns,
+        rows: fixtureRows,
+        rowKey: fixtureRowKey,
+        emptyKey: 'nav.etapes',
+      },
+    })
+    const hidden = mount(DataTable<FixtureRow>, {
+      props: {
+        captionKey: 'nav.liens',
+        captionHidden: true,
+        columns: fixtureColumns,
+        rows: fixtureRows,
+        rowKey: fixtureRowKey,
+        emptyKey: 'nav.etapes',
+      },
+    })
+
+    expect(narrow.find('[data-testid="table-card"]').exists()).toBe(true)
+    expect(narrow.get('[data-testid="table-caption"]').text()).toBe('Liens')
+    expect(hidden.find('[data-testid="table-caption"]').exists()).toBe(false)
+    wrapper.unmount()
+    narrow.unmount()
+    hidden.unmount()
+  })
+
+  it('applies the column className to the header and body cells', () => {
+    const columns = fixtureColumns.map((column, position) =>
+      position === 0 ? { ...column, meta: { className: 'w-1/4' } } : column,
+    )
+    const wrapper = mountTable({ columns })
+
+    expect(wrapper.findAll('th')[0]!.classes()).toContain('w-1/4')
+    expect(wrapper.findAll('tbody tr')[0]!.findAll('td')[0]!.classes()).toContain('w-1/4')
+    expect(wrapper.findAll('th')[1]!.classes()).not.toContain('w-1/4')
+  })
 })

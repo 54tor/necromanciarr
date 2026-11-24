@@ -275,4 +275,19 @@ describe('StagesView', () => {
     wrapper.unmount()
     document.body.innerHTML = ''
   })
+
+  it('StagesView_neverShowsTheRawRunActionName', async () => {
+    installFakeApi({
+      'GET /api/jobs': () => [
+        job({ id: 1, state: 'failed', error: { code: 'failure', message: 'x' } }),
+        job({ id: 2, state: 'running' }),
+      ],
+    })
+    const wrapper = mount(StagesView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-row-key="1"]').text()).not.toMatch(/\brun\b/)
+    expect(wrapper.get('[data-row-key="1"]').text()).toContain('Étape')
+    expect(wrapper.get('[data-testid="job-state"]').text()).not.toMatch(/\brun\b/)
+  })
 })

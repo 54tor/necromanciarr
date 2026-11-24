@@ -19,7 +19,13 @@ import { useJobs } from '@/composables/useJobs'
 import { t } from '@/i18n'
 import type { DataColumn } from '@/lib/dataTable'
 import { formatDateTime } from '@/lib/format'
-import { counterLines, reasonLines, stageResultOf, summaryText } from '@/lib/stageSummary'
+import {
+  counterLines,
+  jobActionLabel,
+  reasonLines,
+  stageResultOf,
+  summaryText,
+} from '@/lib/stageSummary'
 import { warningText } from '@/lib/warnings'
 
 const { jobs, runningJob, busy, unreachable, start, refresh } = useJobs()
@@ -27,11 +33,6 @@ const { jobs, runningJob, busy, unreachable, start, refresh } = useJobs()
 const STAGES: readonly StageName[] = ['scan', 'match', 'verify', 'link', 'seed']
 const EMPTY_CELL = '—'
 const STATE_TONES = { running: 'info', done: 'ok', failed: 'fail' } as const
-
-function actionLabel(job: Job): string {
-  const result = stageResultOf(job)
-  return result ? t(`stages.names.${result.stage}`) : job.action
-}
 
 const columns = computed<DataColumn<Job>[]>(() => [
   {
@@ -43,7 +44,7 @@ const columns = computed<DataColumn<Job>[]>(() => [
   {
     id: 'action',
     header: t('stages.columns.action'),
-    accessorFn: actionLabel,
+    accessorFn: jobActionLabel,
     enableSorting: false,
   },
   {
@@ -128,7 +129,7 @@ onMounted(refresh)
           class="mr-1 inline size-4 animate-spin motion-reduce:animate-none"
           aria-hidden="true"
         />
-        {{ t('stages.running', { action: runningJob.action, id: runningJob.id }) }}
+        {{ t('stages.running', { action: jobActionLabel(runningJob), id: runningJob.id }) }}
       </template>
       <template v-else>{{ t('stages.idle') }}</template>
     </p>

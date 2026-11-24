@@ -17,6 +17,8 @@ describe('familyOf', () => {
       'cross-seed': 'sources',
       'fs-providers': 'volumes',
       unknown: 'other',
+      'weird-id': 'other',
+      'arr:radarr:2': 'services',
     }
 
     for (const [checkId, valeurAttendue] of Object.entries(expectedFamilies)) {

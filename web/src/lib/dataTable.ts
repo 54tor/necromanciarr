@@ -1,6 +1,7 @@
 import {
   createPaginatedRowModel,
   createSortedRowModel,
+  metaHelper,
   rowPaginationFeature,
   rowSortingFeature,
   sortFn_alphanumeric,
@@ -11,9 +12,15 @@ import {
   type ColumnDef,
 } from '@tanstack/vue-table'
 
+/** Métadonnées de colonne : classe appliquée à l'en-tête et aux cellules (largeur, alignement). */
+export interface ColumnClassMeta {
+  className?: string
+}
+
 /** Fonctionnalités du tableau : tri et pagination côté client, tout le reste inutile. */
 export const dataTableFeatures = tableFeatures({
   rowSortingFeature,
+  columnMeta: metaHelper<ColumnClassMeta>(),
   sortedRowModel: createSortedRowModel(),
   sortFns: {
     alphanumeric: sortFn_alphanumeric,

@@ -52,6 +52,7 @@ function wrappedText(text: string) {
 const columns = computed<DataColumn<DoctorCheck>[]>(() => [
   {
     id: 'title',
+    meta: { className: 'w-[20%]' },
     header: t('onboarding.columns.check'),
     accessorFn: (check) => check.title,
     enableSorting: false,
@@ -59,6 +60,7 @@ const columns = computed<DataColumn<DoctorCheck>[]>(() => [
   },
   {
     id: 'status',
+    meta: { className: 'w-36' },
     header: t('onboarding.columns.status'),
     accessorFn: (check) => check.status,
     enableSorting: false,
@@ -66,6 +68,7 @@ const columns = computed<DataColumn<DoctorCheck>[]>(() => [
   },
   {
     id: 'detail',
+    meta: { className: 'w-[28%]' },
     header: t('onboarding.columns.detail'),
     accessorFn: (check) => check.detail,
     enableSorting: false,
@@ -80,6 +83,7 @@ const columns = computed<DataColumn<DoctorCheck>[]>(() => [
   },
   {
     id: 'duration',
+    meta: { className: 'w-20' },
     header: t('onboarding.columns.duration'),
     accessorFn: (check) => check.durationMs,
     enableSorting: false,
@@ -101,9 +105,7 @@ function checkKey(check: DoctorCheck): string {
 </script>
 
 <template>
-  <section
-    class="grid gap-6 [&_table]:table-fixed [&_th:first-child]:w-[20%] [&_th:nth-child(2)]:w-36 [&_th:nth-child(3)]:w-[28%] [&_th:nth-child(5)]:w-20 [&_th:last-child]:w-28"
-  >
+  <section class="grid gap-6">
     <PageToolbar>
       <template #actions>
         <Button data-action="doctor" data-scope="toolbar" :disabled="pending" @click="loadAll">
@@ -157,7 +159,7 @@ function checkKey(check: DoctorCheck): string {
         <Button
           size="sm"
           variant="outline"
-          data-action="doctor run"
+          data-action="doctor"
           data-scope="row"
           :aria-label="t('onboarding.rerunCheck', { title: row.title })"
           :disabled="pending"

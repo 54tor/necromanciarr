@@ -87,7 +87,7 @@ describe('OnboardingView', () => {
     const wrapper = mount(OnboardingView)
     await flushPromises()
 
-    const rowButton = wrapper.get('[data-row-key="qbit"] button[data-action="doctor run"]')
+    const rowButton = wrapper.get('[data-row-key="qbit"] button[data-action="doctor"]')
     expect(rowButton.attributes('data-scope')).toBe('row')
     expect(rowButton.attributes('aria-label')).toBe('Relancer le contrôle : Client qBittorrent')
     await rowButton.trigger('click')
@@ -140,7 +140,7 @@ describe('OnboardingView', () => {
     await flushPromises()
     const before = calls.filter((call) => call.path === '/api/doctor/run').length
 
-    await wrapper.find('button[data-action="doctor"]').trigger('click')
+    await wrapper.find('button[data-action="doctor"][data-scope="toolbar"]').trigger('click')
     await flushPromises()
 
     expect(calls.filter((call) => call.path === '/api/doctor/run').length).toBe(before + 1)

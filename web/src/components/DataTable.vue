@@ -86,6 +86,10 @@ const table = useTable({
 
 const headers = computed(() => table.getHeaderGroups().flatMap((group) => group.headers))
 const visibleRows = computed(() => table.getRowModel().rows)
+// Des largeurs de colonne n'ont d'effet qu'en disposition fixe.
+const hasColumnClasses = computed(() =>
+  props.columns.some((column) => column.meta?.className !== undefined),
+)
 const hasSelection = computed(() => props.selectable !== undefined)
 const total = computed(() => props.serverPage?.total ?? props.rows.length)
 const offset = computed(() => props.serverPage?.offset ?? pageIndex.value * props.pageSize)
@@ -197,7 +201,12 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
       {{ error }}
     </p>
     <template v-else>
-      <Table v-if="isWide" data-testid="table-scroll" class="caption-top">
+      <Table
+        v-if="isWide"
+        data-testid="table-scroll"
+        class="caption-top"
+        :class="hasColumnClasses && 'table-fixed'"
+      >
         <TableCaption :class="captionHidden ? 'sr-only' : 'mt-0 mb-2 text-left'">
           {{ t(captionKey) }}
         </TableCaption>
@@ -210,6 +219,7 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
               v-for="header in headers"
               :key="header.id"
               scope="col"
+              :class="header.column.columnDef.meta?.className"
               :aria-sort="
                 header.column.getCanSort() ? ariaSort(header.column.getIsSorted()) : undefined
               "
@@ -235,7 +245,12 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
               </button>
               <FlexRender v-else :header="header" />
             </TableHead>
-            <TableHead v-if="$slots['row-actions']" scope="col" class="text-right">
+            <TableHead
+              v-if="$slots['row-actions']"
+              scope="col"
+              class="text-right"
+              :class="hasColumnClasses && 'w-28'"
+            >
               <span class="sr-only">{{ t('table.actions') }}</span>
             </TableHead>
           </TableRow>
@@ -260,7 +275,12 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
                 @change="onCheckboxChange($event, row.id)"
               />
             </TableCell>
-            <TableCell v-for="cell in row.getAllCells()" :key="cell.id" class="py-0">
+            <TableCell
+              v-for="cell in row.getAllCells()"
+              :key="cell.id"
+              class="py-0"
+              :class="cell.column.columnDef.meta?.className"
+            >
               <FlexRender :cell="cell" />
             </TableCell>
             <TableCell v-if="$slots['row-actions']" class="py-0 text-right">
@@ -270,42 +290,54 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
         </TableBody>
       </Table>
 
-      <ul v-else :aria-label="t(captionKey)" class="flex flex-col gap-2">
-        <li
-          v-for="(row, position) in visibleRows"
-          :key="row.id"
-          data-testid="table-card"
-          :data-row-key="row.id"
-          tabindex="0"
-          class="rounded-lg border border-border bg-card p-3 text-card-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          @keydown="onRowKeydown($event, row.original)"
+      <template v-else>
+        <p
+          v-if="!captionHidden"
+          data-testid="table-caption"
+          class="text-sm font-medium text-muted-foreground"
         >
-          <input
-            v-if="hasSelection && isSelectable(row.original)"
-            type="checkbox"
-            class="mb-2 size-4 accent-primary"
-            :aria-label="t('table.selectRow', { row: offset + position + 1 })"
-            @change="onCheckboxChange($event, row.id)"
-          />
-          <slot name="card" :row="row.original">
-            <dl class="grid gap-1">
-              <div
-                v-for="cell in row.getAllCells()"
-                :key="cell.id"
-                class="flex justify-between gap-3"
-              >
-                <dt class="text-muted-foreground">
-                  <FlexRender v-if="headerOf(cell.column.id)" :header="headerOf(cell.column.id)" />
-                </dt>
-                <dd class="min-w-0 text-right"><FlexRender :cell="cell" /></dd>
-              </div>
-            </dl>
-          </slot>
-          <div v-if="$slots['row-actions']" class="mt-2 flex flex-wrap justify-end gap-2">
-            <slot name="row-actions" :row="row.original" />
-          </div>
-        </li>
-      </ul>
+          {{ t(captionKey) }}
+        </p>
+        <ul :aria-label="t(captionKey)" class="flex flex-col gap-2">
+          <li
+            v-for="(row, position) in visibleRows"
+            :key="row.id"
+            data-testid="table-card"
+            :data-row-key="row.id"
+            tabindex="0"
+            class="rounded-lg border border-border bg-card p-3 text-card-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            @keydown="onRowKeydown($event, row.original)"
+          >
+            <input
+              v-if="hasSelection && isSelectable(row.original)"
+              type="checkbox"
+              class="mb-2 size-4 accent-primary"
+              :aria-label="t('table.selectRow', { row: offset + position + 1 })"
+              @change="onCheckboxChange($event, row.id)"
+            />
+            <slot name="card" :row="row.original">
+              <dl class="grid gap-1">
+                <div
+                  v-for="cell in row.getAllCells()"
+                  :key="cell.id"
+                  class="flex justify-between gap-3"
+                >
+                  <dt class="text-muted-foreground">
+                    <FlexRender
+                      v-if="headerOf(cell.column.id)"
+                      :header="headerOf(cell.column.id)"
+                    />
+                  </dt>
+                  <dd class="min-w-0 text-right"><FlexRender :cell="cell" /></dd>
+                </div>
+              </dl>
+            </slot>
+            <div v-if="$slots['row-actions']" class="mt-2 flex flex-wrap justify-end gap-2">
+              <slot name="row-actions" :row="row.original" />
+            </div>
+          </li>
+        </ul>
+      </template>
 
       <div data-testid="table-status" aria-live="polite">
         <p v-if="loading" class="p-3 text-center text-muted-foreground">

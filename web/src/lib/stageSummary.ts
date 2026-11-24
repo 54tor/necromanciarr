@@ -22,6 +22,13 @@ export function stageResultOf(job: Job): StageResult | undefined {
   return job.action === 'run' && result?.stage ? result : undefined
 }
 
+/** jobActionLabel nomme l'action d'un job : l'étape lancée si le résultat la donne, sinon « Étape » pour `run`. */
+export function jobActionLabel(job: Job): string {
+  const result = stageResultOf(job)
+  if (result) return t(`stages.names.${result.stage}`)
+  return job.action === 'run' ? t('stages.names.run') : job.action
+}
+
 export function counterLines(result: StageResult): SummaryLine[] {
   return (STAGE_COUNTERS[result.stage] ?? []).map((counter) => ({
     label: t(`stages.counters.${counter}`),
