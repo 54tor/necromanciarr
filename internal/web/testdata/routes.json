@@ -73,6 +73,12 @@
   },
   {
     "method": "GET",
+    "path": "/api/links",
+    "action": "links list",
+    "mutating": false
+  },
+  {
+    "method": "GET",
     "path": "/api/doctor",
     "action": "doctor",
     "mutating": false

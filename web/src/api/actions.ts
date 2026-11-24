@@ -41,6 +41,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
   { method: 'POST', path: '/api/dedupe/{id}/apply', action: 'dedupe apply', mutating: true },
   { method: 'POST', path: '/api/repair/scan', action: 'repair scan', mutating: true },
   { method: 'POST', path: '/api/repair/{id}/apply', action: 'repair apply', mutating: true },
+  { method: 'GET', path: '/api/links', action: 'links list', mutating: false },
   { method: 'GET', path: '/api/doctor', action: 'doctor', mutating: false },
   { method: 'GET', path: '/api/doctor/{checkId}', action: 'doctor', mutating: false },
   { method: 'GET', path: '/api/jobs', action: '', mutating: false },
@@ -69,6 +70,7 @@ export const UI_TRIGGERS: Readonly<Record<string, string>> = {
   'dedupe apply': 'DedupeView',
   'repair scan': 'LinksView',
   'repair apply': 'LinksView',
+  'links list': 'LinksView',
   doctor: 'OnboardingView',
 }
 

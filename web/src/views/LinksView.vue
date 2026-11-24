@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { api } from '@/api/endpoints'
 import type { RepairDetails } from '@/api/types'
 import MaintenanceActions from '@/components/MaintenanceActions.vue'
+import RecordedLinks from '@/components/RecordedLinks.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useMaintenance } from '@/composables/useMaintenance'
@@ -13,6 +14,7 @@ import { FIELD_CLASS } from '@/lib/styles'
 const { items, dryRun, busy, pending, load, canApply, applyOne, start } =
   useMaintenance<RepairDetails>('repair', api.repairApply)
 const directory = ref('')
+const scanRepairs = () => start(() => api.repairScan(directory.value.trim()))
 
 onMounted(load)
 </script>
@@ -21,11 +23,16 @@ onMounted(load)
   <section aria-labelledby="links-title" class="grid gap-4">
     <h2 id="links-title" class="text-xl font-semibold">Liens</h2>
     <p class="text-sm text-muted-foreground">
-      Liens cassés ou déplacés détectés, et la réparation proposée pour chacun.
+      Liens créés par l'application et leur état sur le disque, puis les réparations proposées pour
+      les liens cassés ou déplacés.
     </p>
+    <RecordedLinks :busy="busy || pending" @repair="scanRepairs" />
+
+    <h3 class="text-lg font-semibold">Réparations proposées</h3>
     <form
       class="flex flex-wrap items-end gap-3"
-      @submit.prevent="start(() => api.repairScan(directory.trim()))"
+      data-testid="repair-scan-form"
+      @submit.prevent="scanRepairs"
     >
       <label class="grid min-w-64 flex-1 gap-1 text-sm">
         Dossier à explorer (facultatif)

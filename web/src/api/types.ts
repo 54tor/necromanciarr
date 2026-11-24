@@ -85,6 +85,34 @@ export interface RepairDetails {
   scan_directory?: string
 }
 
+export type LinkState = 'ok' | 'diverged' | 'lost' | 'unreadable'
+
+export interface LinkItem {
+  id: number
+  link_path: string
+  target_path: string
+  kind: string
+  state: LinkState
+  recorded_at: string
+  size?: number
+  reason?: string
+}
+
+/** Page de `GET /api/links` : `next` est l'offset de la page suivante (absent à la fin). */
+export interface LinkPage {
+  items: LinkItem[]
+  total: number
+  next?: number
+  truncated: boolean
+  counts: Record<LinkState, number>
+}
+
+export interface LinkFilters {
+  state?: LinkState | ''
+  limit?: number
+  offset?: number
+}
+
 export interface MaintenanceProposal<Details> {
   id: number
   decision: Decision

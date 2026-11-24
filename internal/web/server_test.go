@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -595,5 +596,70 @@ func TestServer_acceptsAPortlessHostWhenListeningOnPort80(t *testing.T) {
 	portless.Host = "localhost"
 	if gotValue := serve(otherPort, portless).Code; gotValue != http.StatusForbidden {
 		t.Fatalf("gotValue %d, expectedValue 403 for a portless host on port 8787", gotValue)
+	}
+}
+
+func TestWeb_linksRouteRequiresAuthValidatesFiltersAndReturnsThePage(t *testing.T) {
+	page := app.LinkPage{
+		Items:  []app.LinkItem{{ID: 1, LinkPath: "/home/u/links/a.mkv", TargetPath: "/home/u/library/a.mkv", Kind: "symlink", State: app.LinkStateLost}},
+		Total:  1,
+		Counts: map[string]int{app.LinkStateOK: 0, app.LinkStateDiverged: 0, app.LinkStateLost: 1, app.LinkStateUnreadable: 0},
+	}
+	fake := &fakeService{linkPage: page}
+	guarded := newTestHandler(t, fake, tokenSettings())
+	anonymous := serve(guarded, apiRequest(http.MethodGet, "/api/links", ""))
+	expectError(t, "no token", readBody(t, anonymous), anonymous.Code, http.StatusUnauthorized, errorCodeUnauthorized)
+	if fake.called("ListLinks") {
+		t.Fatal("gotValue a ListLinks call, expectedValue none without a valid token")
+	}
+
+	handler := newTestHandler(t, fake, loopbackSettings())
+	response := serve(handler, apiRequest(http.MethodGet, "/api/links?state=lost&limit=5000&offset=3", ""))
+	var gotValue app.LinkPage
+	if err := json.Unmarshal([]byte(readBody(t, response)), &gotValue); err != nil || response.Code != http.StatusOK {
+		t.Fatalf("gotValue %d %v, expectedValue 200 with a link page", response.Code, err)
+	}
+	if !reflect.DeepEqual(gotValue, page) {
+		t.Fatalf("gotValue %+v, expectedValue the Service page verbatim %+v", gotValue, page)
+	}
+	if expectedFilter := (app.LinkFilter{State: "lost", Limit: 5000, Offset: 3}); fake.lastLinks != expectedFilter {
+		t.Fatalf("gotValue filter %+v, expectedValue %+v (the Service clamps the limit)", fake.lastLinks, expectedFilter)
+	}
+	for label, target := range map[string]string{
+		"bad limit": "/api/links?limit=many", "negative offset": "/api/links?offset=-1", "unknown parameter": "/api/links?decision=ok",
+	} {
+		rejected := serve(handler, apiRequest(http.MethodGet, target, ""))
+		expectError(t, label, readBody(t, rejected), rejected.Code, http.StatusBadRequest, app.ErrorCodeUsage)
+	}
+}
+
+func TestWeb_linksRouteRefusesAnUnknownStateAndClampsTheLimitThroughTheService(t *testing.T) {
+	openedStore, err := store.Open(filepath.Join(t.TempDir(), "necromanciarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	for index := range app.MaxLinkLimit + 1 {
+		link := store.Link{Kind: "symlink", LinkPath: fmt.Sprintf("/home/u/links/missing-%04d.mkv", index), TargetPath: "/home/u/library/x.mkv", State: store.LinkOK}
+		if err := openedStore.RecordLink(t.Context(), link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	serverContext, cancel := context.WithCancel(context.Background())
+	handler := NewHandlerWithAssets(serverContext, app.New(app.Deps{Store: openedStore}), &fakeHealth{}, loopbackSettings(), builtAssets())
+	t.Cleanup(func() {
+		cancel()
+		handler.Wait()
+	})
+
+	unknown := serve(handler, apiRequest(http.MethodGet, "/api/links?state=broken", ""))
+	expectError(t, "unknown state", readBody(t, unknown), unknown.Code, http.StatusBadRequest, app.ErrorCodeUsage)
+	clamped := serve(handler, apiRequest(http.MethodGet, "/api/links?state=lost&limit=5000", ""))
+	var gotValue app.LinkPage
+	if err := json.Unmarshal([]byte(readBody(t, clamped)), &gotValue); err != nil || clamped.Code != http.StatusOK {
+		t.Fatalf("gotValue %d %v, expectedValue 200", clamped.Code, err)
+	}
+	if len(gotValue.Items) != app.MaxLinkLimit || gotValue.Total != app.MaxLinkLimit+1 || gotValue.Next != app.MaxLinkLimit {
+		t.Fatalf("gotValue %d items, total %d, next %d, expectedValue the limit clamped to %d", len(gotValue.Items), gotValue.Total, gotValue.Next, app.MaxLinkLimit)
 	}
 }

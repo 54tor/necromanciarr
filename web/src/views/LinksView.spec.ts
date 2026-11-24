@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installFakeApi, resetAppState } from '@/test/fakeApi'
-import { job, maintenanceProposal, repairDetails } from '@/test/fixtures'
+import { job, linkItem, linkPage, maintenanceProposal, repairDetails } from '@/test/fixtures'
 import LinksView from './LinksView.vue'
 
 vi.mock('vue-sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
@@ -65,7 +65,7 @@ describe('LinksView', () => {
     await flushPromises()
 
     await wrapper.find('[data-testid="scan-directory"]').setValue(' /data/lost ')
-    await wrapper.find('form').trigger('submit')
+    await wrapper.find('[data-testid="repair-scan-form"]').trigger('submit')
     await flushPromises()
     expect(
       calls.filter((call) => call.method === 'POST').map((call) => [call.path, call.body]),
@@ -89,5 +89,112 @@ describe('LinksView', () => {
       path: '/api/repair/31/apply',
       body: { dry_run: true, accept_pending: true },
     })
+  })
+
+  const recorded = [
+    linkItem(1),
+    linkItem(2, { kind: 'hardlink', state: 'diverged', reason: 'inode changed' }),
+    linkItem(3, { state: 'lost', reason: 'the link target is missing' }),
+    linkItem(4, { state: 'unreadable', reason: 'input/output error' }),
+  ]
+
+  it('LinksView_showsRecordedLinksWithStateAndFilter', async () => {
+    const calls = installFakeApi({
+      'GET /api/proposals': [],
+      'GET /api/jobs': [],
+      'GET /api/links': (call) =>
+        call.query.get('state') === 'lost'
+          ? linkPage([recorded[2]!])
+          : linkPage(recorded, { counts: { ok: 1, diverged: 1, lost: 1, unreadable: 1 } }),
+    })
+    const wrapper = mount(LinksView)
+    await flushPromises()
+
+    const labels = recorded.map((item) =>
+      wrapper.find(`[data-testid="link-${item.id}"] [data-state]`).text(),
+    )
+    expect(labels).toEqual(['Conforme', 'Divergent', 'Perdu', 'Illisible'])
+    for (const badge of wrapper.findAll('[data-testid^="link-"] [data-state]'))
+      expect(badge.find('svg').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="count-lost"]').text()).toBe('1')
+    expect(wrapper.find('[data-testid="link-2"]').text()).toContain('lien physique')
+    expect(wrapper.find('[data-testid="link-3"]').text()).toContain('the link target is missing')
+
+    await wrapper.find('[data-testid="link-state-filter"]').setValue('lost')
+    await flushPromises()
+
+    const linkCalls = calls.filter((call) => call.path === '/api/links')
+    expect(linkCalls.at(-1)?.query.get('state')).toBe('lost')
+    expect(wrapper.find('[data-testid="link-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="link-3"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="links-empty"]').exists()).toBe(false)
+  })
+
+  it('LinksView_loadsMoreAndShowsTruncation', async () => {
+    const calls = installFakeApi({
+      'GET /api/proposals': [],
+      'GET /api/jobs': [],
+      'GET /api/links': (call) =>
+        call.query.get('offset') === '2'
+          ? linkPage(recorded.slice(2), { total: 4 })
+          : linkPage(recorded.slice(0, 2), { total: 4, next: 2, truncated: true }),
+    })
+    const wrapper = mount(LinksView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="links-truncated"]').text()).toContain('partiels')
+    expect(wrapper.findAll('[data-testid="search-repair"]').length).toBe(1)
+
+    await wrapper.find('[data-testid="links-more"]').trigger('click')
+    await flushPromises()
+
+    expect(
+      calls
+        .filter((call) => call.path === '/api/links')
+        .at(-1)
+        ?.query.get('offset'),
+    ).toBe('2')
+    expect(wrapper.find('[data-testid="link-1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="link-4"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="links-more"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="links-truncated"]').exists()).toBe(false)
+  })
+
+  it('LinksView_showsAnEmptyStateWithoutRecordedLinks', async () => {
+    installFakeApi({
+      'GET /api/proposals': [],
+      'GET /api/jobs': [],
+      'GET /api/links': linkPage([], { counts: { ok: 0, diverged: 0, lost: 0, unreadable: 0 } }),
+    })
+    const wrapper = mount(LinksView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="links-empty"]').text()).toContain('Aucun lien enregistré')
+  })
+
+  it('LinksView_offersRepairScanForBrokenLinks', async () => {
+    const calls = installFakeApi({
+      'GET /api/proposals': [],
+      'GET /api/jobs': [],
+      'GET /api/links': linkPage(recorded),
+      'POST /api/repair/scan': () => job({ id: 5, action: 'repair scan' }),
+    })
+    const wrapper = mount(LinksView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="link-1"] [data-testid="search-repair"]').exists()).toBe(
+      false,
+    )
+    for (const brokenId of [2, 3, 4])
+      expect(
+        wrapper.find(`[data-testid="link-${brokenId}"] [data-testid="search-repair"]`).text(),
+      ).toContain('Chercher une réparation')
+
+    await wrapper.find('[data-testid="link-3"] [data-testid="search-repair"]').trigger('click')
+    await flushPromises()
+
+    expect(
+      calls.filter((call) => call.method === 'POST').map((call) => [call.path, call.body]),
+    ).toEqual([['/api/repair/scan', { directory: '' }]])
   })
 })

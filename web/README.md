@@ -33,4 +33,4 @@ Disposition : chaque ligne (proposition, remplacement, lien) est une carte empil
 
 ## Limites v1
 
-Les liens déjà enregistrés ne sont pas listés : la vue « Liens » n'affiche que les réparations proposées, tant que l'action de lecture `links` n'existe pas dans le registre (tâche de suite).
+L'état des liens enregistrés est recalculé à chaque affichage (Lstat et Stat seulement, 20 s au plus, liste marquée partielle au-delà). Un reflink n'est pas comparé à sa cible : il est affiché « Conforme » avec son motif, comme le fait l'analyse de réparation.

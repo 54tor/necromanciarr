@@ -5,6 +5,8 @@ import type {
   ForceResult,
   GroupResult,
   Job,
+  LinkFilters,
+  LinkPage,
   Proposal,
   ProposalFilters,
   StageName,
@@ -19,6 +21,15 @@ function queryOf(filters: ProposalFilters): string {
   if (filters.kind) query.set('kind', filters.kind)
   if (filters.group) query.set('group', String(filters.group))
   if (filters.current_only) query.set('current_only', 'true')
+  const text = query.toString()
+  return text ? `?${text}` : ''
+}
+
+function linkQueryOf(filters: LinkFilters): string {
+  const query = new URLSearchParams()
+  if (filters.state) query.set('state', filters.state)
+  if (filters.limit) query.set('limit', String(filters.limit))
+  if (filters.offset) query.set('offset', String(filters.offset))
   const text = query.toString()
   return text ? `?${text}` : ''
 }
@@ -50,6 +61,8 @@ export const api = {
       dry_run: dryRun,
       accept_pending: acceptPending,
     }),
+  listLinks: (filters: LinkFilters = {}) =>
+    request<LinkPage>('GET', `/api/links${linkQueryOf(filters)}`),
   doctor: () => request<DoctorReport>('GET', '/api/doctor'),
   doctorCheck: (checkId: string) =>
     request<DoctorReport>('GET', `/api/doctor/${encodeURIComponent(checkId)}`),

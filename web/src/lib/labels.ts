@@ -2,6 +2,7 @@ import type {
   CandidateState,
   Decision,
   DoctorStatus,
+  LinkState,
   ProposalKind,
   ProposalStep,
 } from '@/api/types'
@@ -72,6 +73,16 @@ export const REPAIR_STATUS_LABELS: Record<string, string> = {
   ambiguous: 'Ambigu',
   lost: 'Introuvable',
 }
+
+export const LINK_STATE_LABELS: Record<LinkState, string> = {
+  ok: 'Conforme',
+  diverged: 'Divergent',
+  lost: 'Perdu',
+  unreadable: 'Illisible',
+}
+
+/** Ordre d'affichage des états (filtre et effectifs). */
+export const LINK_STATES: readonly LinkState[] = ['ok', 'diverged', 'lost', 'unreadable']
 
 /** labelOf renvoie le libellé français d'une valeur connue, ou la valeur brute d'une valeur inconnue. */
 export function labelOf(labels: Readonly<Record<string, string>>, value: string): string {

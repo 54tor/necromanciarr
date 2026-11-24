@@ -37,6 +37,7 @@ var apiRoutes = []route{
 	{http.MethodPost, "/api/dedupe/{id}/apply", "dedupe apply", "", applyDedupe},
 	{http.MethodPost, "/api/repair/scan", "repair scan", "", scanRepair},
 	{http.MethodPost, "/api/repair/{id}/apply", "repair apply", "", applyRepair},
+	{http.MethodGet, "/api/links", "links list", "", listLinks},
 	{http.MethodGet, "/api/doctor", "doctor", "", runDoctor},
 	{http.MethodGet, "/api/doctor/{checkId}", "doctor", "", runDoctorCheck},
 	{http.MethodGet, "/api/jobs", "", "follow the long actions started by the action routes", listJobs},
@@ -50,6 +51,9 @@ const (
 	queryGroup       = "group"
 	queryCurrentOnly = "current_only"
 	queryCheck       = "check"
+	queryState       = "state"
+	queryLimit       = "limit"
+	queryOffset      = "offset"
 )
 
 func pathID(request *http.Request, name string) (int64, error) {
@@ -109,6 +113,39 @@ func optionalBool(raw string) (bool, error) {
 		return false, newAPIError(http.StatusBadRequest, errorCodeUsage, "current_only must be true or false")
 	}
 	return parsed, nil
+}
+
+// listLinks : le Service valide l'état et borne la limite ; seul le format des nombres est contrôlé ici.
+func listLinks(handler *Handler, request *http.Request) (any, int, error) {
+	query := request.URL.Query()
+	if err := requireKnownQuery(query, queryState, queryLimit, queryOffset); err != nil {
+		return nil, 0, err
+	}
+	filter := app.LinkFilter{State: query.Get(queryState)}
+	var err error
+	if filter.Limit, err = optionalCount(query, queryLimit); err != nil {
+		return nil, 0, err
+	}
+	if filter.Offset, err = optionalCount(query, queryOffset); err != nil {
+		return nil, 0, err
+	}
+	page, err := handler.service.ListLinks(request.Context(), filter)
+	if page.Items == nil {
+		page.Items = []app.LinkItem{}
+	}
+	return page, http.StatusOK, err
+}
+
+func optionalCount(query url.Values, name string) (int, error) {
+	raw := query.Get(name)
+	if raw == "" {
+		return 0, nil
+	}
+	count, err := strconv.Atoi(raw)
+	if err != nil || count < 0 {
+		return 0, newAPIError(http.StatusBadRequest, errorCodeUsage, name+" must be a non-negative integer")
+	}
+	return count, nil
 }
 
 // decisionResult est la réponse d'une décision simple (mêmes champs que la sortie JSON de la CLI).

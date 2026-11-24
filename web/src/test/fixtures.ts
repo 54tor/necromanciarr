@@ -1,4 +1,13 @@
-import type { DedupeDetails, DoctorReport, Job, Proposal, RepairDetails, Status } from '@/api/types'
+import type {
+  DedupeDetails,
+  DoctorReport,
+  Job,
+  LinkItem,
+  LinkPage,
+  Proposal,
+  RepairDetails,
+  Status,
+} from '@/api/types'
 
 export function proposal(overrides: Partial<Proposal> = {}): Proposal {
   return {
@@ -132,4 +141,27 @@ export const repairDetails: RepairDetails = {
   method: 'fingerprint',
   relative: false,
   actionable: true,
+}
+
+export function linkItem(id: number, overrides: Partial<LinkItem> = {}): LinkItem {
+  return {
+    id,
+    link_path: `/data/links/Film.${id}.mkv`,
+    target_path: `/data/library/Film.${id}.mkv`,
+    kind: 'symlink',
+    state: 'ok',
+    recorded_at: '2026-01-01T10:00:00Z',
+    size: 1_000_000,
+    ...overrides,
+  }
+}
+
+export function linkPage(items: LinkItem[], overrides: Partial<LinkPage> = {}): LinkPage {
+  return {
+    items,
+    total: items.length,
+    truncated: false,
+    counts: { ok: 1, diverged: 1, lost: 1, unreadable: 1 },
+    ...overrides,
+  }
 }
