@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/httpsafe"
 )
 
 const (
@@ -56,7 +57,7 @@ func New(baseURL, token string) (*Client, error) {
 		MaxInFlight: defaultConcurrency,
 		base:        parsed,
 		token:       token,
-		httpClient:  newHTTPClient(),
+		httpClient:  httpsafe.NewClient(httpTimeout),
 		cache:       newCache(),
 	}, nil
 }
@@ -64,20 +65,6 @@ func New(baseURL, token string) (*Client, error) {
 // NewFromConfig crée le client depuis libraryApi / LIBRARY_API et LIBRARY_PROVIDER_TOKEN.
 func NewFromConfig(settings config.Config) (*Client, error) {
 	return New(settings.LibraryAPI, settings.LibraryProviderToken)
-}
-
-// newHTTPClient ignore le proxy d'environnement (le jeton Bearer ne doit pas lui être confié) et refuse toute redirection.
-func newHTTPClient() *http.Client {
-	client := &http.Client{
-		Timeout:       httpTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
-	if defaultTransport, isTransport := http.DefaultTransport.(*http.Transport); isTransport {
-		transport := defaultTransport.Clone()
-		transport.Proxy = nil
-		client.Transport = transport
-	}
-	return client
 }
 
 func (client *Client) acquire(ctx context.Context) (func(), error) {
