@@ -37,6 +37,7 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 | `listen` | `hôte:port` | `127.0.0.1:8787` | hors boucle locale, `serve` exige `NECROMANCIARR_AUTH_TOKEN` ; les autres commandes non |
 | `dbPath` | chemin | `necromanciarr.db` | relatif : résolu depuis le dossier de configuration. Doit rester hors de la bibliothèque (`doctor`) |
 | `readBytesPerSecond` | entier (octets/s) | `20971520` (20 Mio/s) | strictement positif |
+| `tieBreakReadBytes` | entier (octets) | `53687091200` (50 Gio) | strictement positif. Octets lus au plus, par candidat, pour départager des fichiers locaux de même taille ; la couverture n'est pas concernée |
 | `libraryApi` | URL | vide | `http(s)`, sans fragment. Vide : Match et Verify refusent (`not_configured`) |
 | `libraryRoots` | liste de chemins | vide | vus par ce processus |
 | `pathMappings` | liste `{from, to}` | vide | `from` : vue de ce processus ; `to` : vue de Radarr, Sonarr et du client torrent |

@@ -4,7 +4,7 @@
 
 ### Lecture et stockage distant
 
-- Verify lit **tous les octets** des fichiers locaux couverts par les pièces d'un candidat. Le seul frein est `readBytesPerSecond` (20 Mio/s par défaut, rafale 1 Mio) ; il n'existe pas de plafond d'octets par candidat. Durée estimée d'un candidat : taille des fichiers divisée par le débit. Les pièces déjà vérifiées ne sont pas relues à la reprise, mais toute invalidation (fichier modifié, associations changées) repart de zéro.
+- Verify lit **tous les octets** des fichiers locaux couverts par les pièces d'un candidat. Le seul frein est `readBytesPerSecond` (20 Mio/s par défaut, rafale 1 Mio) ; la couverture n'a pas de plafond d'octets par candidat (`tieBreakReadBytes` ne borne que le départage des copies de même taille). Durée estimée d'un candidat : taille des fichiers divisée par le débit. Les pièces déjà vérifiées ne sont pas relues à la reprise, mais toute invalidation (fichier modifié, associations changées) repart de zéro.
 - Verify traite un candidat à la fois, sans parallélisme.
 - Sur un stockage objet monté (rclone, S3) la lecture complète coûte du temps, de la bande passante et, chez certains fournisseurs, du transfert facturé. S3 fournit un MD5 mais pas de SHA-1 : la vérification par pièces relit toujours les fichiers ; seules la déduplication et la réparation évitent la lecture via `fsProviders`.
 - `dedupe plan` annonce `bytes_to_read` avant acceptation : 0 si le stockage donne les deux empreintes, la taille d'un fichier s'il en faut une, les deux sinon. Les empreintes début-fin (2 Mio) sont mises en cache par (chemin, taille, date).
@@ -108,6 +108,7 @@
 | `search_failed`, `update_deferred_incomplete_run` | Match | recherche en échec : relancer `match` |
 | `changed_file_stale`, `stale_candidate` | Match, Verify | fichier modifié : relancer `scan`, `match`, `verify` |
 | `media_hash_failed` | Verify | un média présent n'a pas les octets du torrent (ré-encodé, corrompu, autre release) : aucun lien |
+| `read_budget_exceeded` | Verify | départage des copies de même taille arrêté à `tieBreakReadBytes` : les copies restent en litige ; supprimer les doublons ou relever la valeur |
 | `no_file_matched`, `no_exact_size` | Verify, Match | aucun fichier local de la bonne taille |
 | `v2_only`, `invalid_torrent`, `infohash_mismatch` | Verify | `.torrent` inutilisable ou qui n'est pas celui annoncé |
 | `torrent_not_found`, `torrent_fetch_failed`, `torrent_too_large` | Verify | fournisseur : 404, panne, `.torrent` de plus de 8 Mio |

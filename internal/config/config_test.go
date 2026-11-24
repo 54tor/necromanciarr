@@ -236,6 +236,21 @@ func TestLoad_rejectsZeroReadRateFlag(t *testing.T) {
 	}
 }
 
+func TestLoad_tieBreakReadBytesDefaultsTo50GiBAndRejectsNegative(t *testing.T) {
+	const expectedValue = int64(50 << 30)
+	if gotValue := mustLoad(t, nil, nil, t.TempDir()).TieBreakReadBytes; gotValue != expectedValue {
+		t.Fatalf("gotValue %d, expectedValue %d", gotValue, expectedValue)
+	}
+	configDir := t.TempDir()
+	writeFile(t, configDir, configFileName, `{"tieBreakReadBytes": -1}`)
+
+	_, err := Load([]string{"--config-dir", configDir}, lookupFrom(nil), t.TempDir())
+
+	if err == nil || !strings.Contains(err.Error(), "tieBreakReadBytes must be positive") {
+		t.Fatalf("gotValue %v, expectedValue a refusal naming tieBreakReadBytes", err)
+	}
+}
+
 func TestLoad_extraPositionalArgumentIsUsageError(t *testing.T) {
 	_, err := Load([]string{"extra"}, lookupFrom(nil), t.TempDir())
 

@@ -292,6 +292,29 @@ func TestVerifyStage_ambiguousAssignmentIsAConflictNeverResolved(t *testing.T) {
 	}
 }
 
+func TestVerifyStage_readBudgetExceededLeavesTwinsAmbiguousAndKeepsProvenPieces(t *testing.T) {
+	fixture := newVerifyFixture(t)
+	fixture.readBudget = 1
+	candidate := fixture.addCandidate("Movie.2020", "", []torrentEntry{
+		{path: "movie.mkv", content: patternBytes(1, 3*verifyPieceLength), localName: "movie.mkv"},
+		{path: "extra.mkv", content: patternBytes(2, 2*verifyPieceLength), localName: "extra-a.mkv", twinLocalName: "extra-b.mkv"},
+	})
+
+	result := fixture.mustRun()
+
+	if gotValue := result.Reasons[ReasonReadBudget]; gotValue != 1 {
+		t.Fatalf("gotValue %d %s in %+v, expectedValue 1", gotValue, ReasonReadBudget, result)
+	}
+	conflict := singleProposalOfKind(t, fixture.proposalsOf(candidate.ID), store.ProposalConflict)
+	if details := decodeDetails(t, conflict); len(details.AmbiguousFiles) != 1 || conflict.Primary {
+		t.Fatalf("gotValue %+v, expectedValue the twin listed as ambiguous, nothing chosen", details)
+	}
+	verification, found := fixture.verification(candidate.ID)
+	if !found || verification.VerifiedPieces != 3 {
+		t.Fatalf("gotValue %+v (found %v), expectedValue the 3 pieces of the proven movie kept", verification, found)
+	}
+}
+
 func TestVerifyStage_changedFileMarksCandidateStaleAndDropsBitset(t *testing.T) {
 	fixture := newVerifyFixture(t)
 	candidate := fixture.addCandidate("Movie.2020", "", []torrentEntry{

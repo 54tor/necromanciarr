@@ -2,6 +2,7 @@
   "listen": "127.0.0.1:8787",
   "dbPath": "/home/u/necromanciarr/necromanciarr.db",
   "readBytesPerSecond": 20971520,
+  "tieBreakReadBytes": 53687091200,
   "libraryApi": "https://library.example.com",
   "libraryRoots": ["/home/u/media/movies", "/home/u/media/tv"],
   "pathMappings": [{ "from": "/home/u/media", "to": "/data/media" }],

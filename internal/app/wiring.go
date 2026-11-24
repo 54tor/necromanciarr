@@ -58,6 +58,7 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 		Store: openedStore, ScanRoot: pipeline.LibraryScanner(openedStore), LibraryRoots: settings.LibraryRoots,
 		ArrSources: arrSources(settings), Mapper: mapper, ClientMapper: mapper,
 		ReadLimiter: rate.NewLimiter(rate.Limit(settings.ReadBytesPerSecond), readBurstBytes),
+		ReadBudget:  settings.TieBreakReadBytes,
 		LinkDirs:    settings.LinkDirs, LinkKinds: linkKinds, Category: settings.LinkCategory,
 		Tags: []string{defaultTorrentTag}, SkipRecheck: settings.SkipRecheck,
 	}

@@ -24,10 +24,13 @@ const (
 	defaultListenAddr         = "127.0.0.1:8787"
 	defaultDBPath             = "necromanciarr.db"
 	defaultReadBytesPerSecond = 20 * 1024 * 1024
-	configFileName            = "config.json"
-	redactedSecret            = "[redacted]"
-	defaultDedupeMinFileAge   = 10 * time.Minute
-	defaultLinkType           = "hardlink"
+	// defaultTieBreakReadBytes (50 Gio) laisse départager plusieurs copies d'un gros média sans relire sans fin des
+	// copies identiques, que le hash ne séparera jamais.
+	defaultTieBreakReadBytes = 50 << 30
+	configFileName           = "config.json"
+	redactedSecret           = "[redacted]"
+	defaultDedupeMinFileAge  = 10 * time.Minute
+	defaultLinkType          = "hardlink"
 
 	envConfigDir            = "CONFIG_DIR"
 	envLibraryAPI           = "LIBRARY_API"
@@ -50,6 +53,7 @@ type Config struct {
 	ListenAddr         string          `json:"listen"`
 	DBPath             string          `json:"dbPath"`
 	ReadBytesPerSecond int64           `json:"readBytesPerSecond"`
+	TieBreakReadBytes  int64           `json:"tieBreakReadBytes"`
 	LibraryAPI         string          `json:"libraryApi"`
 	LibraryRoots       []string        `json:"libraryRoots"`
 	PathRules          []PathRule      `json:"pathMappings"`
@@ -78,6 +82,7 @@ type fileConfig struct {
 	Listen             string            `json:"listen"`
 	DBPath             string            `json:"dbPath"`
 	ReadBytesPerSecond int64             `json:"readBytesPerSecond"`
+	TieBreakReadBytes  int64             `json:"tieBreakReadBytes"`
 	LibraryAPI         string            `json:"libraryApi"`
 	LibraryRoots       []string          `json:"libraryRoots"`
 	PathMappings       []PathRule        `json:"pathMappings"`
@@ -247,6 +252,7 @@ func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config
 		ListenAddr:         rawFile.Listen,
 		DBPath:             rawFile.DBPath,
 		ReadBytesPerSecond: rawFile.ReadBytesPerSecond,
+		TieBreakReadBytes:  rawFile.TieBreakReadBytes,
 		LibraryAPI:         rawFile.LibraryAPI,
 		LibraryRoots:       rawFile.LibraryRoots,
 		PathRules:          rawFile.PathMappings,
@@ -339,6 +345,9 @@ func applyDefaults(target *Config) {
 	if target.ReadBytesPerSecond == 0 {
 		target.ReadBytesPerSecond = defaultReadBytesPerSecond
 	}
+	if target.TieBreakReadBytes == 0 {
+		target.TieBreakReadBytes = defaultTieBreakReadBytes
+	}
 	if target.CrossSeedMode == "" {
 		target.CrossSeedMode = crossseed.ModeAuto
 	}
@@ -382,6 +391,9 @@ func applyOverrides(target *Config, options commandLine, lookup func(string) (st
 func validate(loadedConfig Config) error {
 	if loadedConfig.ReadBytesPerSecond <= 0 {
 		return errors.New("readBytesPerSecond must be positive")
+	}
+	if loadedConfig.TieBreakReadBytes <= 0 {
+		return errors.New("tieBreakReadBytes must be positive")
 	}
 	if loadedConfig.LibraryAPI != "" {
 		if _, err := parseHTTPURL(loadedConfig.LibraryAPI); err != nil {
