@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -43,6 +44,21 @@ func expectError(t *testing.T, label string, response string, gotStatus, expecte
 	gotCode := decodeError(t, response).Error.Code
 	if gotStatus != expectedStatus || gotCode != expectedCode {
 		t.Fatalf("%s: gotValue %d %q, expectedValue %d %q (body %q)", label, gotStatus, gotCode, expectedStatus, expectedCode, response)
+	}
+}
+
+func TestRun_refusesANonLoopbackListenWithoutToken(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	handler := newTestHandler(t, &fakeService{}, config.Config{ListenAddr: "0.0.0.0:8787"})
+
+	err = Run(context.Background(), listener, handler)
+
+	if err == nil || !strings.Contains(err.Error(), "NECROMANCIARR_AUTH_TOKEN") {
+		t.Fatalf("gotValue %v, expectedValue a refusal naming the token variable", err)
 	}
 }
 

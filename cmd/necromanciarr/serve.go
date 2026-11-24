@@ -37,6 +37,9 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		return out.failure(err)
 	}
 	out.secrets = settings.KnownSecrets()
+	if err := config.ValidateServe(settings); err != nil {
+		return out.failure(err)
+	}
 	service, closer, err := openService(ctx, settings)
 	if err != nil {
 		return out.failure(err)

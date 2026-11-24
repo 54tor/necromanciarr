@@ -14,7 +14,7 @@ Construite par `make docker-build` (étape Node pour l'interface, étape Go stat
 | Sonde de santé | `necromanciarr healthcheck` toutes les 30 s, délai 5 s, démarrage 20 s, 3 essais |
 | Contenu | base `debian:trixie-slim` (tag daté), le binaire et les certificats TLS ; fuseaux horaires embarqués dans le binaire |
 
-L'image écoute sur toutes les interfaces, donc **`NECROMANCIARR_AUTH_TOKEN` est obligatoire** : sans lui le conteneur sort en code 1 avec `listen "0.0.0.0:8787" is not loopback: set NECROMANCIARR_AUTH_TOKEN (at least 32 characters, generate one with necromanciarr api-key)`. Générer un jeton : `docker run --rm necromanciarr:dev api-key`.
+L'image écoute sur toutes les interfaces, donc **`NECROMANCIARR_AUTH_TOKEN` est obligatoire pour `serve`** (la commande par défaut) : sans lui le conteneur sort en code 1 avec `listen "0.0.0.0:8787" is not loopback: set NECROMANCIARR_AUTH_TOKEN (at least 32 characters, generate one with necromanciarr api-key)`. Générer un jeton : `docker run --rm necromanciarr:dev api-key`.
 
 ## Volumes
 
@@ -112,7 +112,7 @@ docker run --rm --user 1000:1000 -v necromanciarr-data:/data -v /srv/storage:/me
   necromanciarr:dev doctor --json
 ```
 
-Chaque commande charge la configuration, et l'image écoute par défaut sur `0.0.0.0:8787` : sans `NECROMANCIARR_AUTH_TOKEN` (variable d'environnement ou ligne de `/data/.env`), même `config check` ou `doctor` échouent avec le message du jeton manquant. Pour une commande ponctuelle sans jeton, ajouter `-e NECROMANCIARR_LISTEN=127.0.0.1:8787`.
+Seul `serve` exige `NECROMANCIARR_AUTH_TOKEN` hors boucle locale : une commande ponctuelle (`config check`, `doctor`, `scan`…) et `healthcheck` tournent sans jeton malgré l'écoute `0.0.0.0:8787` de l'image. Un jeton fourni doit toujours faire 32 caractères au moins, quelle que soit la commande. Sans jeton, `doctor` signale l'écoute publique par son contrôle `auth` (`fail`).
 
 Une commande lancée dans un second processus partage la base et le verrou d'étape avec le serveur : si une étape tourne déjà, elle échoue avec `stage_running` (exit 1) au lieu d'entrer en concurrence. Un `docker run` jetable doit monter les mêmes volumes que le service, sinon il voit une base et des chemins vides.
 

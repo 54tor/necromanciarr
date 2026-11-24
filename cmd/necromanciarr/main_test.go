@@ -38,6 +38,19 @@ func TestRun_configCheckPrintsRedactedConfigAndFailsOnError(t *testing.T) {
 	}
 }
 
+func TestRun_configCheckWorksOnANonLoopbackListenWithoutToken(t *testing.T) {
+	t.Setenv("NECROMANCIARR_LISTEN", "0.0.0.0:8787")
+	t.Setenv("NECROMANCIARR_AUTH_TOKEN", "")
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"config", "check", "--config-dir", t.TempDir()}, &stdout, &stderr)
+
+	if exitCode != successExitCode || !strings.Contains(stdout.String(), "0.0.0.0:8787") {
+		t.Fatalf("gotValue exit %d stdout %q stderr %q, expectedValue the config printed without token", exitCode,
+			stdout.String(), stderr.String())
+	}
+}
+
 func TestRun_apiKeyPrintsAFreshTokenAndWritesNothing(t *testing.T) {
 	workingDir := t.TempDir()
 	t.Chdir(workingDir)

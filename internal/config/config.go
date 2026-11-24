@@ -377,7 +377,8 @@ func applyOverrides(target *Config, options commandLine, lookup func(string) (st
 	}
 }
 
-// Un jeton est exigé hors boucle locale : sans lui, l'interface serait ouverte au réseau sans authentification.
+// validate contrôle la configuration commune à toutes les commandes ; l'exigence de jeton liée à l'écoute est
+// dans ValidateServe. Un jeton fourni doit toujours avoir la longueur minimale.
 func validate(loadedConfig Config) error {
 	if loadedConfig.ReadBytesPerSecond <= 0 {
 		return errors.New("readBytesPerSecond must be positive")
@@ -396,13 +397,19 @@ func validate(loadedConfig Config) error {
 	if err := validateLinkDirs(loadedConfig); err != nil {
 		return err
 	}
-	if loadedConfig.AuthToken == "" && !isLoopbackAddress(loadedConfig.ListenAddr) {
-		return fmt.Errorf("listen %q is not loopback: set %s (at least %d characters, generate one with "+
-			"necromanciarr api-key)", loadedConfig.ListenAddr, envAuthToken, MinAuthTokenLength)
-	}
 	if loadedConfig.AuthToken != "" && len(loadedConfig.AuthToken) < MinAuthTokenLength {
 		return fmt.Errorf("%s must be at least %d characters (generate one with necromanciarr api-key)",
 			envAuthToken, MinAuthTokenLength)
+	}
+	return nil
+}
+
+// ValidateServe vérifie ce que seule l'écoute exige : hors boucle locale, un jeton, sans quoi l'interface serait
+// ouverte au réseau sans authentification. Les commandes ponctuelles n'écoutent pas et ne l'appellent pas.
+func ValidateServe(loadedConfig Config) error {
+	if loadedConfig.AuthToken == "" && !isLoopbackAddress(loadedConfig.ListenAddr) {
+		return fmt.Errorf("listen %q is not loopback: set %s (at least %d characters, generate one with "+
+			"necromanciarr api-key)", loadedConfig.ListenAddr, envAuthToken, MinAuthTokenLength)
 	}
 	return nil
 }

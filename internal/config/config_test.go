@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -41,11 +42,25 @@ func TestLoad_defaultsListenToLoopbackWithoutFile(t *testing.T) {
 	}
 }
 
-func TestLoad_rejectsNonLoopbackWithoutToken(t *testing.T) {
-	_, err := Load([]string{"--listen", "0.0.0.0:8787"}, lookupFrom(nil), t.TempDir())
+func TestLoad_acceptsNonLoopbackWithoutTokenForOneShotCommands(t *testing.T) {
+	loadedConfig := mustLoad(t, []string{"--listen", "0.0.0.0:8787"}, nil, t.TempDir())
 
-	if err == nil {
+	if gotValue := loadedConfig.ListenAddr; gotValue != "0.0.0.0:8787" {
+		t.Fatalf("gotValue %q, expectedValue the non-loopback listen loaded without token", gotValue)
+	}
+}
+
+func TestValidateServe_rejectsNonLoopbackWithoutToken(t *testing.T) {
+	if err := ValidateServe(Config{ListenAddr: "0.0.0.0:8787"}); err == nil {
 		t.Fatal("expected an error for a non-loopback address without token")
+	}
+}
+
+func TestValidateServe_acceptsLoopbackWithoutTokenAndNonLoopbackWithToken(t *testing.T) {
+	for _, settings := range []Config{{ListenAddr: "127.0.0.1:8787"}, {ListenAddr: "0.0.0.0:8787", AuthToken: longTestToken}} {
+		if err := ValidateServe(settings); err != nil {
+			t.Fatalf("listen %q: gotValue %v, expectedValue no error", settings.ListenAddr, err)
+		}
 	}
 }
 
@@ -449,11 +464,15 @@ func TestLoad_rejectsAShortAuthTokenWithoutPrintingIt(t *testing.T) {
 	}
 }
 
-func TestLoad_nonLoopbackWithoutTokenNamesTheVariable(t *testing.T) {
-	_, err := Load(nil, lookupFrom(map[string]string{envListen: "0.0.0.0:8787"}), t.TempDir())
+func TestValidateServe_nonLoopbackWithoutTokenNamesTheVariable(t *testing.T) {
+	loadedConfig := mustLoad(t, nil, map[string]string{envListen: "0.0.0.0:8787"}, t.TempDir())
 
-	if err == nil || !strings.Contains(err.Error(), envAuthToken) || !strings.Contains(err.Error(), "api-key") {
-		t.Fatalf("gotValue %v, expectedValue a refusal naming the token variable and the generator", err)
+	err := ValidateServe(loadedConfig)
+
+	expectedLength := strconv.Itoa(MinAuthTokenLength)
+	if err == nil || !strings.Contains(err.Error(), envAuthToken) || !strings.Contains(err.Error(), "api-key") ||
+		!strings.Contains(err.Error(), expectedLength) {
+		t.Fatalf("gotValue %v, expectedValue a refusal naming the token variable, its minimum length and the generator", err)
 	}
 }
 

@@ -98,8 +98,11 @@ func NewServer(ctx context.Context, handler http.Handler) *http.Server {
 }
 
 // Run sert handler sur listener jusqu'à l'annulation de ctx, puis arrête le serveur proprement (requêtes en cours
-// terminées sous 10 s) et attend la fin des jobs.
+// terminées sous 10 s) et attend la fin des jobs. Hors boucle locale sans jeton, il refuse sans servir.
 func Run(ctx context.Context, listener net.Listener, handler *Handler) error {
+	if err := config.ValidateServe(handler.settings); err != nil {
+		return err
+	}
 	server := NewServer(ctx, handler)
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(listener) }()

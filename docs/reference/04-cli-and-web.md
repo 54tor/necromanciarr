@@ -51,7 +51,7 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 
 ### `serve`, `healthcheck`, `api-key`
 
-- `serve` affiche `listening on http://<adresse>` et, hors boucle locale, `warning: listening outside loopback, every api request needs the bearer token` sur stderr. La configuration refuse de démarrer hors boucle locale sans `NECROMANCIARR_AUTH_TOKEN` : `listen "0.0.0.0:8787" is not loopback: set NECROMANCIARR_AUTH_TOKEN (at least 32 characters, generate one with necromanciarr api-key)`. Arrêt propre à SIGINT/SIGTERM : requêtes en cours terminées sous 10 s, jobs annulés.
+- `serve` affiche `listening on http://<adresse>` et, hors boucle locale, `warning: listening outside loopback, every api request needs the bearer token` sur stderr. `serve` refuse de démarrer hors boucle locale sans `NECROMANCIARR_AUTH_TOKEN`, avant d'ouvrir la base ; les autres commandes, `healthcheck` compris, chargent la même configuration sans jeton : `listen "0.0.0.0:8787" is not loopback: set NECROMANCIARR_AUTH_TOKEN (at least 32 characters, generate one with necromanciarr api-key)`. Arrêt propre à SIGINT/SIGTERM : requêtes en cours terminées sous 10 s, jobs annulés.
 - `healthcheck` charge la même configuration, interroge `GET /healthz` sur l'hôte d'écoute (`0.0.0.0`, `::` ou hôte vide sont sondés par `127.0.0.1`), 3 s au plus, sans proxy ni redirection. Il affiche `ok` (exit 0) ou `healthcheck: unavailable` (exit 1) et rien d'autre.
 - `api-key` tire 256 bits d'aléa, les affiche en base64url sans remplissage (43 caractères) sur stdout et rappelle sur stderr de les mettre dans `.env`. Rien n'est écrit sur disque ni journalisé.
 
@@ -64,7 +64,7 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 | Écoute | Jeton | Contrôle de `Host` |
 |---|---|---|
 | boucle locale (`127.0.0.1`, `[::1]`, `localhost`) | facultatif ; sans jeton, l'API est ouverte à tout processus local | oui |
-| autre adresse (`0.0.0.0`, IP du réseau) | **obligatoire** au démarrage | non : le jeton protège quel que soit le nom, derrière un mandataire notamment |
+| autre adresse (`0.0.0.0`, IP du réseau) | **obligatoire** au démarrage de `serve` (pas pour les commandes ponctuelles) | non : le jeton protège quel que soit le nom, derrière un mandataire notamment |
 
 - Le jeton ne se lit que dans `Authorization: Bearer <jeton>` (schéma insensible à la casse), jamais dans l'URL ni un cookie. Comparaison des empreintes SHA-256 en temps constant. Un jeton refusé : 401, `WWW-Authenticate: Bearer`, une ligne de journal `api: unauthorized request from <adresse>`, sans limite de débit.
 - Un jeton défini sur une écoute en boucle locale est exigé aussi.

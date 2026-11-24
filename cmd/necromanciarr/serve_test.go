@@ -148,8 +148,11 @@ func TestServe_refusesANonLoopbackListenWithoutToken(t *testing.T) {
 
 	exitCode := runServe(context.Background(), []string{"--config-dir", t.TempDir(), "--listen", "0.0.0.0:8787"}, &stdout, &stderr)
 
-	if exitCode == successExitCode || !strings.Contains(stderr.String(), "NECROMANCIARR_AUTH_TOKEN") {
-		t.Fatalf("gotValue exit %d stderr %q, expectedValue a refusal naming the variable", exitCode, stderr.String())
+	refusal := stderr.String()
+	namesTheFix := strings.Contains(refusal, "NECROMANCIARR_AUTH_TOKEN") && strings.Contains(refusal, "32") &&
+		strings.Contains(refusal, "api-key")
+	if exitCode == successExitCode || !namesTheFix {
+		t.Fatalf("gotValue exit %d stderr %q, expectedValue a refusal naming the variable, 32 and api-key", exitCode, refusal)
 	}
 }
 

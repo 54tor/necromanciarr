@@ -76,7 +76,7 @@
 | `config` | `undefined variable X` | `${X}` sans valeur : la définir dans l'environnement ou dans `.env` |
 | `config` | `unknown field …`, `parse config.json` | clé inconnue ou JSON invalide : `config.json` est strict |
 | `config` | `linkDirs[i] … overlaps libraryRoots[j]` | dossier de liens dans la bibliothèque ou qui la contient : le déplacer à côté |
-| `config` | `listen … is not loopback: set NECROMANCIARR_AUTH_TOKEN` | écoute hors boucle locale sans jeton : `necromanciarr api-key`, puis `.env` |
+| `auth` | `listening on … without an auth token` | écoute hors boucle locale sans jeton, que `serve` refusera : `necromanciarr api-key`, puis `.env` |
 | `config-dir` | `database cannot be opened read-write` | droits ou espace sur le dossier de la base ; en Docker, propriétaire de `/data` |
 | `config-dir` | `la base de données est dans la racine de bibliothèque` | `dbPath` hors de la bibliothèque |
 | `library-roots` | `not found or not accessible`, `not readable` | montage absent ou droits de l'utilisateur du processus |
