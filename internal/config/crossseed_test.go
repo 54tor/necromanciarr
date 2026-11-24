@@ -376,3 +376,37 @@ func TestConfig_relativeCrossSeedConfigPaths(t *testing.T) {
 		t.Fatalf("gotValue %q %q, expectedValue from-config-dir from-working-dir", fromFile, fromEnv)
 	}
 }
+
+func TestConfig_crossSeedModePriorityAndValidation(t *testing.T) {
+	configDir := t.TempDir()
+	if got := mustLoad(t, nil, nil, configDir).CrossSeedMode; got != "auto" {
+		t.Fatalf("default: gotValue %q", got)
+	}
+	writeFile(t, configDir, "config.json", `{"crossSeedMode":"native"}`)
+	if got := mustLoad(t, nil, nil, configDir).CrossSeedMode; got != "native" {
+		t.Fatalf("json: gotValue %q", got)
+	}
+	if got := mustLoad(t, nil, map[string]string{"CROSS_SEED_MODE": "delegate"}, configDir).CrossSeedMode; got != "delegate" {
+		t.Fatalf("env: gotValue %q", got)
+	}
+	if got := mustLoad(t, []string{"--cross-seed-mode", "off"}, map[string]string{"CROSS_SEED_MODE": "delegate"}, configDir).CrossSeedMode; got != "off" {
+		t.Fatalf("cli: gotValue %q", got)
+	}
+	if got := mustLoad(t, []string{"--cross-seed-mode", "OFF"}, nil, configDir); !strings.Contains(string(mustJSON(t, got)), `"crossSeedMode":"off"`) {
+		t.Fatal("crossSeedMode not shown in config check output")
+	}
+	_, err := Load([]string{"--cross-seed-mode", "turbo-extra-long-garbage-value-here"}, lookupFrom(nil), configDir)
+	if err == nil || !strings.Contains(err.Error(), "crossSeedMode") || !strings.Contains(err.Error(), "delegate") ||
+		strings.Contains(err.Error(), "garbage-value-here") {
+		t.Fatalf("unexpected error %v", err)
+	}
+}
+
+func mustJSON(t *testing.T, loadedConfig Config) []byte {
+	t.Helper()
+	encoded, err := loadedConfig.RedactedJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bytes.ReplaceAll(encoded, []byte(`": "`), []byte(`":"`))
+}

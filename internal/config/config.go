@@ -16,6 +16,8 @@ import (
 	"reflect"
 	"slices"
 	"time"
+
+	"necromanciarr/internal/crossseed"
 )
 
 const (
@@ -31,6 +33,7 @@ const (
 	envLibraryAPI           = "LIBRARY_API"
 	envAuthToken            = "NECROMANCIARR_AUTH_TOKEN"
 	envLibraryProviderToken = "LIBRARY_PROVIDER_TOKEN"
+	envCrossSeedMode        = "CROSS_SEED_MODE"
 )
 
 // PathRule traduit un préfixe de chemin entre deux vues du même stockage (hôte, conteneur, client torrent).
@@ -61,7 +64,9 @@ type Config struct {
 	LinkCategory    string           `json:"linkCategory"`
 	CrossSeed       *CrossSeedDaemon `json:"crossSeed,omitempty"`
 	CrossSeedImport CrossSeedImport  `json:"crossSeedImport"`
-	Sources         Sources          `json:"sources"`
+	// CrossSeedMode : auto (défaut), delegate, native ou off ; voir crossseed.ResolveMode.
+	CrossSeedMode string  `json:"crossSeedMode"`
+	Sources       Sources `json:"sources"`
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`
@@ -86,6 +91,7 @@ type fileConfig struct {
 	LinkCategory       string            `json:"linkCategory"`
 	CrossSeedConfig    string            `json:"crossSeedConfig"`
 	CrossSeed          string            `json:"crossSeed"`
+	CrossSeedMode      string            `json:"crossSeedMode"`
 	// LegacyRclone n'existe que pour refuser l'ancienne section avec un message utile.
 	LegacyRclone json.RawMessage `json:"rclone"`
 }
@@ -117,7 +123,7 @@ var dedupeLinkKinds = []string{"symlink", "hardlink", "reflink"}
 // commandLine regroupe les options reconnues ; set indique celles réellement passées.
 type commandLine struct {
 	listen, libraryAPI, configDir, dbPath string
-	crossSeedConfig                       string
+	crossSeedConfig, crossSeedMode        string
 	readBytesPerSecond                    int64
 	set                                   map[string]bool
 }
@@ -167,6 +173,9 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir
 	loadedConfig.CrossSeed, loadedConfig.CrossSeedImport, loadedConfig.Sources = layer.daemon, layer.status, layer.sources
 	applyDefaults(&loadedConfig)
 	applyOverrides(&loadedConfig, options, lookup)
+	if loadedConfig.CrossSeedMode, err = crossseed.NormalizeMode(loadedConfig.CrossSeedMode); err != nil {
+		return Config{}, err
+	}
 	if err := validate(loadedConfig); err != nil {
 		return Config{}, err
 	}
@@ -182,6 +191,7 @@ func parseCommandLine(args []string) (commandLine, error) {
 	flagSet.StringVar(&options.configDir, "config-dir", "", "configuration directory")
 	flagSet.StringVar(&options.dbPath, "db-path", "", "sqlite database path")
 	flagSet.StringVar(&options.crossSeedConfig, "cross-seed-config", "", "cross-seed config.js path")
+	flagSet.StringVar(&options.crossSeedMode, "cross-seed-mode", "", "cross-seed mode: auto, delegate, native or off")
 	flagSet.Int64Var(&options.readBytesPerSecond, "read-bytes-per-second", 0, "read rate limit")
 	if err := flagSet.Parse(args); err != nil {
 		return commandLine{}, fmt.Errorf("%w: %w", ErrUsage, err)
@@ -253,6 +263,7 @@ func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config
 		LinkType:           rawFile.LinkType,
 		SkipRecheck:        rawFile.SkipRecheck == nil || *rawFile.SkipRecheck,
 		LinkCategory:       rawFile.LinkCategory,
+		CrossSeedMode:      rawFile.CrossSeedMode,
 	}
 	var err error
 	if loadedConfig.Dedupe, err = parseDedupe(rawFile.Dedupe); err != nil {
@@ -337,6 +348,9 @@ func applyDefaults(target *Config) {
 	if target.ReadBytesPerSecond == 0 {
 		target.ReadBytesPerSecond = defaultReadBytesPerSecond
 	}
+	if target.CrossSeedMode == "" {
+		target.CrossSeedMode = crossseed.ModeAuto
+	}
 	if target.LinkType == "" {
 		target.LinkType = defaultLinkType
 	}
@@ -346,6 +360,12 @@ func applyDefaults(target *Config) {
 func applyOverrides(target *Config, options commandLine, lookup func(string) (string, bool)) {
 	if value, found := lookup(envLibraryAPI); found && value != "" {
 		target.LibraryAPI = value
+	}
+	if value, found := lookup(envCrossSeedMode); found && value != "" {
+		target.CrossSeedMode = value
+	}
+	if options.set["cross-seed-mode"] {
+		target.CrossSeedMode = options.crossSeedMode
 	}
 	target.AuthToken, _ = lookup(envAuthToken)
 	target.LibraryProviderToken, _ = lookup(envLibraryProviderToken)

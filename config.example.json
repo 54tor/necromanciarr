@@ -10,6 +10,7 @@
   "torrentClients": ["qbittorrent:readonly:http://alice:${QBIT_PASSWORD}@example.com:8080"],
   "crossSeedConfig": "",
   "crossSeed": "",
+  "crossSeedMode": "auto",
   "linkDirs": [],
   "linkType": "",
   "linkCategory": "",
