@@ -13,7 +13,7 @@ const (
 	syntheticFileCount     = 100_000
 	syntheticPiecesPerFile = 4
 	syntheticPieceLength   = 16
-	layoutDeadline         = time.Second
+	layoutDeadline         = time.Second * raceSlowdown
 )
 
 // contiguousSource sert chaque fichier depuis un seul tampon contigu.

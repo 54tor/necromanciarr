@@ -162,7 +162,7 @@ func TestFilesSharingMissingPieces_largeLayoutFinishesWithinASecond(t *testing.T
 		if !exposed[0] || !exposed[1] {
 			t.Fatalf("expectedValue the neighbours of a missing file exposed, gotValue %v %v", exposed[0], exposed[1])
 		}
-	case <-time.After(time.Second):
+	case <-time.After(time.Second * raceSlowdown):
 		t.Fatal("expectedValue the exposure computed within a second")
 	}
 }
