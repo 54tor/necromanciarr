@@ -19,6 +19,7 @@ import type { DataColumn } from '@/lib/dataTable'
 import { dedupeWarningTexts } from '@/lib/dedupeWarnings'
 import { formatBytes, formatExactBytes } from '@/lib/format'
 import { DECISION_TONES, decisionRank } from '@/lib/proposalRules'
+import { EMPTY_CELL, pathCell, wrapCell } from '@/lib/tableCells'
 
 type Item = MaintenanceProposal<DedupeDetails>
 
@@ -38,24 +39,10 @@ const {
 } = useMaintenance<DedupeDetails>('dedupe', api.dedupeApply)
 const { call } = useApi()
 
-const EMPTY_CELL = '—'
 const isBlocked = computed(() => busy.value || pending.value)
 
 const bytesCell = (bytes: number) =>
   h('span', { title: formatExactBytes(bytes), 'data-testid': 'bytes-to-read' }, formatBytes(bytes))
-
-/** Un chemin se coupe de préférence après une barre oblique (`<wbr>`), sans changer son texte. */
-function pathCell(path: string) {
-  const segments = path.split(/(?<=\/)/)
-  return h(
-    'span',
-    { class: 'whitespace-normal [overflow-wrap:anywhere]' },
-    segments.flatMap((segment, position) => (position === 0 ? [segment] : [h('wbr'), segment])),
-  )
-}
-
-const wrapCell = (text: string) =>
-  h('span', { class: 'whitespace-normal [overflow-wrap:anywhere]' }, text)
 
 const columns = computed<DataColumn<Item>[]>(() => [
   {

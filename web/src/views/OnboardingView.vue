@@ -7,17 +7,9 @@ import PageToolbar from '@/components/PageToolbar.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import { Button } from '@/components/ui/button'
 import { useOnboarding } from '@/composables/useOnboarding'
-import { t } from '@/i18n'
+import { codeLabel, t } from '@/i18n'
 import { groupByFamily } from '@/lib/doctorFamily'
 import type { DataColumn } from '@/lib/dataTable'
-import {
-  CANDIDATE_LABELS,
-  DECISION_LABELS,
-  HELD_REASON_LABELS,
-  KIND_LABELS,
-  STEP_LABELS,
-  labelOf,
-} from '@/lib/labels'
 import { warningText } from '@/lib/warnings'
 import { navigate } from '@/router'
 
@@ -94,9 +86,9 @@ const columns = computed<DataColumn<DoctorCheck>[]>(() => [
 const families = computed(() => groupByFamily(checks.value))
 
 const STATE_GROUPS = [
-  { key: 'candidates', labels: CANDIDATE_LABELS },
-  { key: 'proposals', labels: DECISION_LABELS },
-  { key: 'steps', labels: STEP_LABELS },
+  { key: 'candidates', group: 'state' },
+  { key: 'proposals', group: 'decision' },
+  { key: 'steps', group: 'state' },
 ] as const
 
 function checkKey(check: DoctorCheck): string {
@@ -187,7 +179,7 @@ function checkKey(check: DoctorCheck): string {
               :key="state"
               class="mr-3 whitespace-nowrap"
             >
-              {{ t('common.labelValue', { label: labelOf(group.labels, state), value: count }) }}
+              {{ t('common.labelValue', { label: codeLabel(group.group, state), value: count }) }}
             </span>
           </dd>
         </div>
@@ -202,10 +194,10 @@ function checkKey(check: DoctorCheck): string {
               {{
                 t('onboarding.state.heldLine', {
                   name: held.candidate_name,
-                  kind: labelOf(KIND_LABELS, held.kind),
+                  kind: codeLabel('kind', held.kind),
                   missing: held.missing_pieces,
                   total: held.total_pieces,
-                  reason: labelOf(HELD_REASON_LABELS, held.reason),
+                  reason: codeLabel('reason', held.reason),
                 })
               }}
             </p>

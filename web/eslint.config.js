@@ -1,14 +1,8 @@
-import { readFileSync } from 'node:fs'
 import js from '@eslint/js'
 import pluginVueI18n from '@intlify/eslint-plugin-vue-i18n'
 import pluginVue from 'eslint-plugin-vue'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
-
-// Fichiers dont la migration vers vue-i18n appartient à D3d ; src/lint-exceptions.spec.ts échoue si l'un n'en a plus besoin.
-const { files: rawTextExceptions } = JSON.parse(
-  readFileSync(new URL('./lint-exceptions.json', import.meta.url), 'utf8'),
-)
 
 export default tseslint.config(
   { ignores: ['node_modules', 'coverage', '../internal/web/ui/dist'] },
@@ -42,10 +36,6 @@ export default tseslint.config(
       ],
       '@intlify/vue-i18n/no-missing-keys': 'error',
     },
-  },
-  {
-    files: rawTextExceptions,
-    rules: { '@intlify/vue-i18n/no-raw-text': 'off' },
   },
   {
     // Prettier gère la mise en forme des gabarits : on coupe les règles de présentation en doublon.

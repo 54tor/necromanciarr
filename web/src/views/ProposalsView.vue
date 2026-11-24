@@ -25,18 +25,20 @@ import { useApi } from '@/composables/useApi'
 import { codeLabel, t } from '@/i18n'
 import type { DataColumn } from '@/lib/dataTable'
 import { formatDateTime, formatPercent, formatRelative } from '@/lib/format'
-import { DECISION_LABELS, KIND_LABELS, REVIEW_KINDS } from '@/lib/labels'
 import {
   canAccept,
   canAcceptGroup,
   canChoose,
   canForce,
   canReject,
+  DECISION_CODES,
   DECISION_TONES,
   decisionRank,
   groupTargets,
   hasSourceField,
   isSelectable,
+  KIND_CODES,
+  REVIEW_KINDS,
 } from '@/lib/proposalRules'
 import { FIELD_CLASS } from '@/lib/styles'
 import { cn } from '@/lib/utils'
@@ -375,8 +377,8 @@ onMounted(load)
           <option value="">
             {{ allOf('proposals.filters.kind') }}
           </option>
-          <option v-for="(label, kind) in KIND_LABELS" :key="kind" :value="kind">
-            {{ label }}
+          <option v-for="kind in KIND_CODES" :key="kind" :value="kind">
+            {{ codeLabel('kind', kind) }}
           </option>
         </select>
         <select
@@ -388,8 +390,8 @@ onMounted(load)
           <option value="">
             {{ allOf('proposals.filters.decision') }}
           </option>
-          <option v-for="(label, decision) in DECISION_LABELS" :key="decision" :value="decision">
-            {{ label }}
+          <option v-for="decision in DECISION_CODES" :key="decision" :value="decision">
+            {{ codeLabel('decision', decision) }}
           </option>
         </select>
         <select

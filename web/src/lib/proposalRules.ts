@@ -1,4 +1,4 @@
-import type { Decision, Proposal } from '@/api/types'
+import type { Decision, Proposal, ProposalKind } from '@/api/types'
 
 /** Décisions depuis lesquelles une proposition peut encore être acceptée (`failed` se réaccepte). */
 const OPEN_DECISIONS: readonly Decision[] = ['pending', 'failed']
@@ -96,3 +96,33 @@ export function groupTargets(members: Proposal[], isNative: boolean): Proposal[]
 export function hasSourceField(proposals: Proposal[]): boolean {
   return proposals.some((proposal) => proposal.source !== undefined)
 }
+
+/** Natures offertes par le filtre de la vue Propositions. */
+export const KIND_CODES: readonly ProposalKind[] = [
+  'full',
+  'partial_annex',
+  'partial_pack',
+  'cross_seed',
+  'conflict',
+  'dedupe',
+  'repair',
+]
+
+/** Décisions offertes par le filtre de la vue Propositions. */
+export const DECISION_CODES: readonly Decision[] = [
+  'pending',
+  'accepted',
+  'rejected',
+  'applied',
+  'failed',
+  'superseded',
+]
+
+/** Natures affichées par la vue Propositions (hors déduplication et réparation, qui ont leur vue). */
+export const REVIEW_KINDS: readonly ProposalKind[] = [
+  'full',
+  'partial_annex',
+  'partial_pack',
+  'cross_seed',
+  'conflict',
+]

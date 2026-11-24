@@ -25,7 +25,7 @@ Vue 3, Vite, TypeScript strict, Tailwind v4, shadcn-vue (Reka UI). Thème unique
 
 ## Textes d'interface
 
-Règle ESLint `no-raw-text` (texte et attributs `title`, `aria-label`, `alt`, `placeholder`) : aucun texte en dur. `lint-exceptions.json` liste les fichiers non encore migrés ; `lint-exceptions.spec.ts` échoue quand l'un n'en a plus besoin.
+Règle ESLint `no-raw-text` (texte et attributs `title`, `aria-label`, `alt`, `placeholder`, props `description` et `confirm-label` de `ConfirmDialog`) : aucun texte en dur, sans liste d'exceptions ; `src/raw-text-lint.spec.ts` prouve que la règle vaut pour tout fichier `.vue`.
 
 ## Logo
 
@@ -46,6 +46,8 @@ Disposition : chaque ligne (proposition, remplacement, lien) est une carte empil
 `Démarrage` et `Étapes` utilisent `DataTable` : les contrôles du diagnostic sont regroupés par famille (préfixe de l'identifiant, `src/lib/doctorFamily.ts` ; identifiant inconnu = « Autres »), un tableau par famille, avec le bouton `data-action="doctor run" data-scope="row"` pour relancer un contrôle ; les jobs sont triés par début décroissant et leur résumé vient de `src/lib/stageSummary.ts` (motifs : `reason_labels` du serveur).
 
 `Propositions` utilise `DataTable` (`ProposalsView.vue`, `ProposalNameCell.vue`, `ProposalDetail.vue`) ; les règles d'état des boutons sont dans `src/lib/proposalRules.ts` (testées). Règle anti-masse : aucune action « accepter » en barre d'outils ; les cases à cocher n'existent que sur les propositions `pending` courantes et ne servent qu'à « Rejeter la sélection » (modale listant les noms, une requête `reject` par proposition après confirmation) ; « Accepter le groupe » agit sur un groupe à la fois et liste ses membres ; Forcer n'est jamais groupé, n'existe que sur un `partial_annex` appliqué à l'étape `seeded_paused_incomplete` (jamais sur un `partial_pack`) et exige de saisir le mot de confirmation. La colonne et le filtre Source restent masqués tant que le serveur n'envoie pas le champ `source` (tâche B14) ; la colonne « Mis à jour » lit `updated_at` (date relative, date complète en `title`). « Accepter le groupe » relit les membres du groupe sans les filtres de la vue et le mode cross-seed (`/api/status`) pour lister ce que le serveur acceptera. Les actions de ligne sont des icônes avec info-bulle (survol et focus clavier, Reka UI) et nom accessible ; dans les cartes, le libellé reste visible.
+
+`Liens` : barre d'outils (Examiner les liens, Rechercher les liens à réparer avec dossier facultatif, simulation cochée par défaut, filtre d'état) et deux onglets. « Liens enregistrés » (`RecordedLinks.vue`, `useRecordedLinks.ts`) est paginé par le serveur (200 par page, `serverPage`) sans tri : l'ordre est celui du serveur. « Réparations » (`RepairsPanel.vue`) applique le motif de Déduplication : simulation directe, apply réel après saisie de `APPLIQUER`/`APPLY` ; ambigu, perdu et recontrôle client attendu restent listés, boutons désactivés.
 
 ## Limites v1
 

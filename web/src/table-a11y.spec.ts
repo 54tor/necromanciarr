@@ -463,6 +463,31 @@ describe('ConfirmDialog content', () => {
     )
   })
 
+  it('emits confirm once when the confirm button is clicked twice quickly', async () => {
+    const confirmed = vi.fn()
+    mount(ConfirmDialog, {
+      props: {
+        open: true,
+        title: 't',
+        description: 'd',
+        confirmLabel: 'ok',
+        summaryKey: 'nav.liens',
+        onConfirm: confirmed,
+      },
+      attachTo: document.body,
+    })
+    await nextTick()
+    const confirmButton = document.body.querySelector<HTMLButtonElement>(
+      '[data-testid="confirm-dialog-confirm"]',
+    )
+
+    confirmButton!.click()
+    confirmButton!.click()
+    await nextTick()
+
+    expect(confirmed).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps the confirm button disabled until the phrase is typed', async () => {
     const confirmed = vi.fn()
     mount(ConfirmDialog, {

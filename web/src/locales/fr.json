@@ -444,8 +444,80 @@
       "rename_not_atomic": "renommage non atomique sur ce volume"
     }
   },
-  "maintenance": {
-    "apply": "Appliquer",
-    "acceptAndApply": "Accepter et appliquer"
+  "links": {
+    "tabsLabel": "Sections de la page Liens",
+    "tabs": {
+      "links": "Liens enregistrés",
+      "repairs": "Réparations"
+    },
+    "caption": "Liens enregistrés",
+    "inspect": "Examiner les liens",
+    "scan": "Rechercher les liens à réparer",
+    "directory": "Dossier à explorer (facultatif)",
+    "dryRun": "Simulation (aucun fichier modifié)",
+    "filterState": "État",
+    "filterAll": "Tous",
+    "countsLabel": "Effectifs par état",
+    "inspecting": "Examen des liens en cours…",
+    "truncated": "Examen interrompu faute de temps (montage lent ou figé) : la liste et les effectifs sont partiels.",
+    "empty": "Aucun lien enregistré.",
+    "emptyFiltered": "Aucun lien enregistré dans cet état.",
+    "loadFailed": "Impossible de charger les liens.",
+    "volumeLocal": "Local",
+    "compared": "Comparé",
+    "notCompared": "Non comparé",
+    "columns": {
+      "link": "Lien",
+      "kind": "Sorte",
+      "target": "Cible",
+      "volume": "Volume",
+      "state": "État",
+      "compared": "Comparé",
+      "size": "Taille"
+    },
+    "actions": {
+      "searchRepair": "Chercher une réparation",
+      "searchRepairOf": "Chercher une réparation pour {name}"
+    },
+    "repairs": {
+      "caption": "Réparations proposées",
+      "empty": "Aucune réparation proposée. Lancez une recherche.",
+      "loadFailed": "Impossible de charger les réparations.",
+      "columns": {
+        "link": "Lien",
+        "newTarget": "Nouvelle cible",
+        "method": "Méthode",
+        "applicable": "Applicable",
+        "decision": "Décision"
+      },
+      "applicable": {
+        "yes": "Applicable",
+        "no": "Non applicable",
+        "ambiguous": "Ambigu : {count} candidat(s)",
+        "candidates": "Cibles possibles",
+        "needsClientRecheck": "Non applicable sans client torrent : la méthode attend son recontrôle"
+      },
+      "actions": {
+        "simulate": "Simuler",
+        "apply": "Appliquer",
+        "acceptAndApply": "Accepter et appliquer",
+        "simulateOf": "Simuler la réparation de {name}",
+        "applyOf": "Appliquer la réparation de {name}",
+        "acceptAndApplyOf": "Accepter et appliquer la réparation de {name}"
+      },
+      "confirm": {
+        "item": "{link} → {target}",
+        "noTarget": "aucune cible",
+        "phrase": "APPLIQUER",
+        "title": "Appliquer cette réparation ?",
+        "descriptionDry": "Simulation : tous les contrôles tournent, aucun fichier n'est modifié.",
+        "descriptionReal": "Le lien listé est refait vers sa nouvelle cible ; la bibliothèque n'est jamais écrite.",
+        "summaryDry": "Simulation : rien n'est créé ni remplacé. La proposition est contrôlée sans être acceptée.",
+        "summaryReal": "Le lien est refait vers la nouvelle cible, après un recontrôle du client torrent quand il est configuré.",
+        "summaryRealPending": "Cette proposition est en attente : elle est acceptée puis appliquée. Le lien est refait vers la nouvelle cible.",
+        "confirmDry": "Lancer la simulation",
+        "confirmReal": "Appliquer pour de bon"
+      }
+    }
   }
 }

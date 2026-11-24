@@ -444,8 +444,80 @@
       "rename_not_atomic": "rename is not atomic on this volume"
     }
   },
-  "maintenance": {
-    "apply": "Apply",
-    "acceptAndApply": "Accept and apply"
+  "links": {
+    "tabsLabel": "Links page sections",
+    "tabs": {
+      "links": "Recorded links",
+      "repairs": "Repairs"
+    },
+    "caption": "Recorded links",
+    "inspect": "Inspect links",
+    "scan": "Search for links to repair",
+    "directory": "Folder to explore (optional)",
+    "dryRun": "Dry run (no file modified)",
+    "filterState": "State",
+    "filterAll": "All",
+    "countsLabel": "Counts by state",
+    "inspecting": "Inspecting the links…",
+    "truncated": "Inspection stopped for lack of time (slow or frozen mount): the list and the counts are partial.",
+    "empty": "No recorded link.",
+    "emptyFiltered": "No recorded link in this state.",
+    "loadFailed": "Unable to load the links.",
+    "volumeLocal": "Local",
+    "compared": "Compared",
+    "notCompared": "Not compared",
+    "columns": {
+      "link": "Link",
+      "kind": "Kind",
+      "target": "Target",
+      "volume": "Volume",
+      "state": "State",
+      "compared": "Compared",
+      "size": "Size"
+    },
+    "actions": {
+      "searchRepair": "Search for a repair",
+      "searchRepairOf": "Search for a repair for {name}"
+    },
+    "repairs": {
+      "caption": "Proposed repairs",
+      "empty": "No repair proposed. Run a search.",
+      "loadFailed": "Unable to load the repairs.",
+      "columns": {
+        "link": "Link",
+        "newTarget": "New target",
+        "method": "Method",
+        "applicable": "Applicable",
+        "decision": "Decision"
+      },
+      "applicable": {
+        "yes": "Applicable",
+        "no": "Not applicable",
+        "ambiguous": "Ambiguous: {count} candidate(s)",
+        "candidates": "Possible targets",
+        "needsClientRecheck": "Not applicable without a torrent client: the method waits for its recheck"
+      },
+      "actions": {
+        "simulate": "Simulate",
+        "apply": "Apply",
+        "acceptAndApply": "Accept and apply",
+        "simulateOf": "Simulate the repair of {name}",
+        "applyOf": "Apply the repair of {name}",
+        "acceptAndApplyOf": "Accept and apply the repair of {name}"
+      },
+      "confirm": {
+        "item": "{link} → {target}",
+        "noTarget": "no target",
+        "phrase": "APPLY",
+        "title": "Apply this repair?",
+        "descriptionDry": "Dry run: every check runs, no file is modified.",
+        "descriptionReal": "The listed link is rebuilt to its new target; the library is never written.",
+        "summaryDry": "Dry run: nothing is created or replaced. The proposal is checked without being accepted.",
+        "summaryReal": "The link is rebuilt to the new target, after a torrent client recheck when one is configured.",
+        "summaryRealPending": "This proposal is pending: it is accepted then applied. The link is rebuilt to the new target.",
+        "confirmDry": "Run the dry run",
+        "confirmReal": "Apply for real"
+      }
+    }
   }
 }

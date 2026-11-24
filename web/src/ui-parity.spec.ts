@@ -40,16 +40,24 @@ async function actionsRenderedBy(view: Component): Promise<Set<string>> {
       return [proposal(), conflictProposal(), proposal({ id: 3, kind: 'partial_annex' })]
     },
   })
-  const wrapper = mount(view)
+  const wrapper = mount(view, { attachTo: document.body })
   await flushPromises()
   const found = new Set<string>()
-  for (const element of wrapper.findAll('[data-action]')) {
-    const action = element.attributes('data-action') ?? ''
-    found.add(action)
-    if (element.attributes('data-scope') === 'row') found.add(`${action}#row`)
+  // Un onglet inactif n'est pas monté : chaque onglet est ouvert à son tour pour que ses boutons soient comptés.
+  const tabCount = wrapper.findAll('[role="tab"]').length
+  for (let tabPosition = 0; tabPosition < Math.max(tabCount, 1); tabPosition++) {
+    if (tabCount > 0) {
+      await wrapper.findAll('[role="tab"]')[tabPosition]!.trigger('mousedown', { button: 0 })
+      await flushPromises()
+    }
+    for (const element of wrapper.findAll('[data-action]')) {
+      const action = element.attributes('data-action') ?? ''
+      found.add(action)
+      if (element.attributes('data-scope') === 'row') found.add(`${action}#row`)
+    }
+    for (const element of wrapper.findAll('[data-scope]'))
+      seenScopes.add(element.attributes('data-scope') ?? '')
   }
-  for (const element of wrapper.findAll('[data-scope]'))
-    seenScopes.add(element.attributes('data-scope') ?? '')
   wrapper.unmount()
   return found
 }

@@ -1,4 +1,4 @@
-import type { DedupeDetails, MaintenanceProposal } from '@/api/types'
+import type { DedupeDetails, MaintenanceProposal, Warning } from '@/api/types'
 import { t, te } from '@/i18n'
 
 /** Ancienne forme courte, encore lue côté serveur : `no_client_recheck`. */
@@ -17,15 +17,21 @@ function renderStored(codeOrText: string): string {
   return key === undefined ? codeOrText : t(key)
 }
 
+/** Avertissements `{code, text}` d'une proposition, sans doublon : le code connu suit la langue, sinon le texte serveur. */
+export function warningTextsOf(warnings: Warning[]): string[] {
+  const texts = warnings.map((warning) =>
+    localeKeyOf(warning.code) === undefined ? warning.text : renderStored(warning.code),
+  )
+  return [...new Set(texts)]
+}
+
 /**
  * Avertissements d'une proposition dedupe, sans doublon : ceux de la proposition (`{code, text}`) d'abord, puis les clés
  * du plan absentes de la liste. Une clé connue suit la langue de l'interface ; une ligne ancienne ou inconnue est
  * rendue telle quelle.
  */
 export function dedupeWarningTexts(item: MaintenanceProposal<DedupeDetails>): string[] {
-  const texts = item.warnings.map((warning) =>
-    localeKeyOf(warning.code) === undefined ? warning.text : renderStored(warning.code),
-  )
+  const texts = warningTextsOf(item.warnings)
   const knownCodes = new Set(item.warnings.map((warning) => warning.code))
   for (const stored of item.details.warnings ?? []) {
     const isAlreadyListed =

@@ -38,7 +38,8 @@ watch(open, () => {
 })
 
 function confirm(): void {
-  if (!canConfirm.value) return
+  // Pendant l'animation de fermeture le bouton reste cliquable : un second clic ne doit rien renvoyer.
+  if (!open.value || !canConfirm.value) return
   open.value = false
   emit('confirm')
 }
