@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"necromanciarr/internal/config"
@@ -150,11 +151,13 @@ type Deps struct {
 	Now              func() time.Time
 }
 
-// inspect et inspectionBudget remplacent, dans les tests seulement, l'examen d'un lien et le budget de ListLinks.
+// inspect et inspectionBudget remplacent, dans les tests seulement, l'examen d'un lien et le budget de ListLinks ;
+// inspecting est vrai tant qu'un examen des liens tourne (un seul à la fois).
 type service struct {
 	deps             Deps
 	inspect          func(store.Link) repair.Inspection
 	inspectionBudget time.Duration
+	inspecting       atomic.Bool
 }
 
 // New construit le Service sur ses dépendances.

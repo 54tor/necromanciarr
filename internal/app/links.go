@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -36,6 +37,10 @@ const (
 	reasonNotCompared      = "this kind of link is not compared with its target"
 	reasonTargetUnreadable = "the link text cannot be read"
 )
+
+// ErrInspectionBusy : un examen des liens est encore en cours (peut-être bloqué sur un montage figé) ; réessayer plus
+// tard.
+var ErrInspectionBusy = errors.New("app: a links inspection is still running, retry later")
 
 // LinkStates liste les états courants qu'un filtre de ListLinks accepte.
 func LinkStates() []string {
@@ -91,13 +96,18 @@ func (svc *service) ListLinks(ctx context.Context, filter LinkFilter) (LinkPage,
 	if err != nil {
 		return LinkPage{}, err
 	}
+	if !svc.inspecting.CompareAndSwap(false, true) {
+		return LinkPage{}, ErrInspectionBusy
+	}
+	release := func() { svc.inspecting.Store(false) }
 	links, err := svc.deps.Store.ListLinks(ctx, "")
 	if err != nil {
+		release()
 		return LinkPage{}, err
 	}
 	budgetCtx, cancel := context.WithTimeout(ctx, svc.linkBudget())
 	defer cancel()
-	items, truncated := inspectLinks(budgetCtx, links, svc.linkInspector())
+	items, truncated := inspectLinks(budgetCtx, links, svc.linkInspector(), release)
 	if err := ctx.Err(); err != nil {
 		return LinkPage{}, err
 	}
@@ -119,10 +129,12 @@ func (svc *service) linkInspector() func(store.Link) repair.Inspection {
 }
 
 // inspectLinks examine les liens dans l'ordre jusqu'à la fin du contexte ; truncated dit que le temps a manqué.
-// ponytail: un Stat bloqué par le noyau garde sa goroutine jusqu'à sa réponse ; un cache d'états si cela gêne.
-func inspectLinks(ctx context.Context, links []store.Link, inspect func(store.Link) repair.Inspection) ([]LinkItem, bool) {
+// release n'est appelé qu'au vrai retour de la goroutine : un Stat bloqué par le noyau garde la garde prise, et les
+// appels suivants sont refusés au lieu d'empiler d'autres goroutines bloquées.
+func inspectLinks(ctx context.Context, links []store.Link, inspect func(store.Link) repair.Inspection, release func()) ([]LinkItem, bool) {
 	results := make(chan LinkItem)
 	go func() {
+		defer release()
 		defer close(results)
 		for _, link := range links {
 			if ctx.Err() != nil {

@@ -28,6 +28,8 @@ const MESSAGES: Record<string, string> = {
   stale_proposal: 'Proposition périmée : relancez la vérification.',
   not_configured: 'Composant non configuré : voir l’onglet Démarrage.',
   stage_running: 'Une étape est déjà en cours.',
+  inspection_busy:
+    'Un examen des liens est encore en cours (montage lent ou figé) : réessayez plus tard.',
   refused: 'Action refusée : elle n’est pas permise pour cette proposition.',
   shutting_down: 'Le serveur est en cours d’arrêt.',
   failure: 'Échec côté serveur. Consultez son journal.',

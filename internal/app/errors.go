@@ -12,13 +12,14 @@ import (
 
 // Codes d'erreur stables partagés par la sortie JSON de la CLI et l'API web ({"error": {"code", "message"}}).
 const (
-	ErrorCodeUsage         = "usage"
-	ErrorCodeStale         = "stale_proposal"
-	ErrorCodeRefused       = "refused"
-	ErrorCodeNotFound      = "not_found"
-	ErrorCodeNotConfigured = "not_configured"
-	ErrorCodeStageRunning  = "stage_running"
-	ErrorCodeFailure       = "failure"
+	ErrorCodeUsage          = "usage"
+	ErrorCodeStale          = "stale_proposal"
+	ErrorCodeRefused        = "refused"
+	ErrorCodeNotFound       = "not_found"
+	ErrorCodeNotConfigured  = "not_configured"
+	ErrorCodeStageRunning   = "stage_running"
+	ErrorCodeInspectionBusy = "inspection_busy"
+	ErrorCodeFailure        = "failure"
 )
 
 // refusals sont les refus typés des règles métier : la demande est bien formée, l'action ne l'est pas.
@@ -41,6 +42,7 @@ var classes = []struct {
 	{ErrorCodeNotFound, []error{store.ErrProposalNotFound, ErrGroupNotFound}},
 	{ErrorCodeNotConfigured, []error{ErrNotConfigured}},
 	{ErrorCodeStageRunning, []error{pipeline.ErrStageRunning}},
+	{ErrorCodeInspectionBusy, []error{ErrInspectionBusy}},
 }
 
 // Classify donne le code stable d'une erreur et l'erreur typée reconnue dans sa chaîne (nil pour ErrorCodeFailure) :

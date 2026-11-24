@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { installFakeApi, resetAppState } from '@/test/fakeApi'
+import { toast } from 'vue-sonner'
+import { failure, installFakeApi, resetAppState } from '@/test/fakeApi'
 import { job, linkItem, linkPage, maintenanceProposal, repairDetails } from '@/test/fixtures'
 import LinksView from './LinksView.vue'
 
@@ -196,5 +197,21 @@ describe('LinksView', () => {
     expect(
       calls.filter((call) => call.method === 'POST').map((call) => [call.path, call.body]),
     ).toEqual([['/api/repair/scan', { directory: '' }]])
+  })
+
+  it('LinksView_showsABusyInspectionOnceWithoutRetrying', async () => {
+    const calls = installFakeApi({
+      'GET /api/proposals': [],
+      'GET /api/jobs': [],
+      'GET /api/links': () => failure(409, 'inspection_busy'),
+    })
+    const wrapper = mount(LinksView)
+    await flushPromises()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    await flushPromises()
+
+    expect(calls.filter((call) => call.path === '/api/links')).toHaveLength(1)
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(expect.stringContaining('examen des liens'))
+    expect(wrapper.find('[data-testid="links-empty"]').exists()).toBe(false)
   })
 })

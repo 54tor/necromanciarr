@@ -611,3 +611,18 @@ func TestCli_linksListRejectsABadCountAndKeepsAnEmptyListAnArray(t *testing.T) {
 		t.Fatalf("gotValue %q, expectedValue an empty items array", empty.stdout)
 	}
 }
+
+func TestCli_linksListWhileAnInspectionRunsExitsOneWithItsCode(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{}`)
+	useFakeService(t, &fakeService{err: app.ErrInspectionBusy})
+
+	jsonRun := runCli(t, configDir, "links", "list", "--json")
+	text := runCli(t, configDir, "links", "list")
+
+	if jsonRun.exitCode != failureExitCode || !strings.Contains(jsonRun.stdout, `"inspection_busy"`) {
+		t.Fatalf("gotValue %+v, expectedValue exit 1 and the inspection_busy code", jsonRun)
+	}
+	if text.exitCode != failureExitCode || !strings.Contains(text.stderr, "still running") {
+		t.Fatalf("gotValue %+v, expectedValue exit 1 and the busy message", text)
+	}
+}

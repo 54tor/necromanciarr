@@ -289,3 +289,65 @@ func TestListLinks_honoursContextCancellation(t *testing.T) {
 		t.Fatalf("gotValue %v, expectedValue context.Canceled while a link stalls", err)
 	}
 }
+
+// eventuallyAvailable relance ListLinks jusqu'à ce que la garde soit rendue (la goroutine bloquée a vraiment fini).
+func eventuallyAvailable(t *testing.T, listing *service) LinkPage {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		page, err := listing.ListLinks(context.Background(), LinkFilter{})
+		if !errors.Is(err, ErrInspectionBusy) {
+			if err != nil {
+				t.Fatal(err)
+			}
+			return page
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("gotValue ErrInspectionBusy for 5 s, expectedValue the guard released once the inspection returned")
+	return LinkPage{}
+}
+
+func TestListLinks_allowsOneInspectionAtATimeUntilTheBlockedOneReturns(t *testing.T) {
+	fixture := newLinksFixture(t)
+	fixture.recordMany(3)
+	listing := fixture.service()
+	release := make(chan struct{})
+	listing.inspect = stalledAfter(1, release)
+	listing.inspectionBudget = 30 * time.Millisecond
+
+	first, firstErr := listing.ListLinks(context.Background(), LinkFilter{})
+	_, secondErr := listing.ListLinks(context.Background(), LinkFilter{})
+	code, _ := Classify(secondErr)
+
+	if firstErr != nil || !first.Truncated || len(first.Items) != 1 {
+		t.Fatalf("first: gotValue %+v %v, expectedValue one link and truncated", first, firstErr)
+	}
+	if !errors.Is(secondErr, ErrInspectionBusy) || code != ErrorCodeInspectionBusy {
+		t.Fatalf("second: gotValue %v (%s), expectedValue ErrInspectionBusy while the first inspection is blocked", secondErr, code)
+	}
+	close(release)
+	if page := eventuallyAvailable(t, listing); page.Truncated || len(page.Items) != 3 {
+		t.Fatalf("after release: gotValue %+v, expectedValue the full list", page)
+	}
+}
+
+func TestListLinks_keepsTheGuardAfterACancelledCallUntilTheInspectionReturns(t *testing.T) {
+	fixture := newLinksFixture(t)
+	fixture.recordMany(2)
+	listing := fixture.service()
+	release := make(chan struct{})
+	listing.inspect = stalledAfter(0, release)
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(20*time.Millisecond, cancel)
+
+	_, cancelledErr := listing.ListLinks(ctx, LinkFilter{})
+	_, busyErr := listing.ListLinks(context.Background(), LinkFilter{})
+
+	if !errors.Is(cancelledErr, context.Canceled) || !errors.Is(busyErr, ErrInspectionBusy) {
+		t.Fatalf("gotValue %v then %v, expectedValue context.Canceled then ErrInspectionBusy", cancelledErr, busyErr)
+	}
+	close(release)
+	listing.inspect = func(store.Link) repair.Inspection { return repair.Inspection{Condition: repair.ConditionOK} }
+	eventuallyAvailable(t, listing)
+}

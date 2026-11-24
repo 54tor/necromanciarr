@@ -13,6 +13,7 @@ describe('Errors', () => {
       'stale_proposal',
       'not_configured',
       'stage_running',
+      'inspection_busy',
       'refused',
       'shutting_down',
       'failure',
@@ -25,6 +26,7 @@ describe('Errors', () => {
       expect(gotMessage, code).toMatch(/[a-zé]/i)
     }
     expect(messageForCode('stage_running')).toBe('Une étape est déjà en cours.')
+    expect(messageForCode('inspection_busy')).toContain('examen des liens')
   })
 
   it('Errors_neverShowsServerTextForAnUnknownCode', () => {

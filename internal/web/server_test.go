@@ -663,3 +663,12 @@ func TestWeb_linksRouteRefusesAnUnknownStateAndClampsTheLimitThroughTheService(t
 		t.Fatalf("gotValue %d items, total %d, next %d, expectedValue the limit clamped to %d", len(gotValue.Items), gotValue.Total, gotValue.Next, app.MaxLinkLimit)
 	}
 }
+
+func TestWeb_linksRouteAnswers409WhileAnInspectionRuns(t *testing.T) {
+	fake := &fakeService{errors: map[string]error{"ListLinks": app.ErrInspectionBusy}}
+	handler := newTestHandler(t, fake, loopbackSettings())
+
+	response := serve(handler, apiRequest(http.MethodGet, "/api/links", ""))
+
+	expectError(t, "busy", readBody(t, response), response.Code, http.StatusConflict, app.ErrorCodeInspectionBusy)
+}
