@@ -43,6 +43,13 @@ type ProposalFilter struct {
 	CurrentOnly bool
 }
 
+// NewProposalFilter construit un filtre depuis des valeurs textuelles (requête web) sans dépendre du store.
+func NewProposalFilter(decision, kind string, groupID int64, currentOnly bool) ProposalFilter {
+	return ProposalFilter{
+		Decision: store.ProposalDecision(decision), Kind: store.ProposalKind(kind), GroupID: groupID, CurrentOnly: currentOnly,
+	}
+}
+
 func (filter ProposalFilter) keeps(view Proposal) bool {
 	rejectedByDecision := filter.Decision != "" && view.Decision != filter.Decision
 	rejectedByKind := filter.Kind != "" && view.Kind != filter.Kind

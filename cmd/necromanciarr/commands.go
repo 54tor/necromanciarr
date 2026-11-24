@@ -74,7 +74,7 @@ var commands = buildCommands()
 
 func buildCommands() []command {
 	var built []command
-	for _, stage := range []pipeline.Stage{pipeline.StageScan, pipeline.StageMatch, pipeline.StageVerify, pipeline.StageLink, pipeline.StageSeed} {
+	for _, stage := range app.Stages() {
 		built = append(built, stageCommand(stage))
 	}
 	return append(built, []command{

@@ -1,6 +1,10 @@
 package app
 
-import "slices"
+import (
+	"slices"
+
+	"necromanciarr/internal/pipeline"
+)
 
 // Action décrit une action du Service pour la CLI et le web : Name est la commande (« proposals accept »), Method la
 // méthode de Service appelée, Mutating dit si elle modifie l'état (base, disque ou client torrent), Arguments liste les
@@ -93,4 +97,10 @@ func Actions() []Action {
 
 func (svc *service) Actions() []Action {
 	return Actions()
+}
+
+// Stages liste les étapes que RunStage accepte, dans l'ordre d'exécution : le web les reconnaît par leur nom sans
+// dépendre du pipeline.
+func Stages() []pipeline.Stage {
+	return []pipeline.Stage{pipeline.StageScan, pipeline.StageMatch, pipeline.StageVerify, pipeline.StageLink, pipeline.StageSeed}
 }
