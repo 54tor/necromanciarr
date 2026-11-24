@@ -50,9 +50,15 @@ export interface Proposal {
   primary: boolean
   generation: number
   current: boolean
-  warnings: string[]
+  warnings: Warning[]
   details: ProposalDetails
   maintenance?: DedupeDetails | RepairDetails
+}
+
+/** Avertissement de proposition : `code` est la clé stable du message, `text` son rendu dans la langue. */
+export interface Warning {
+  code: string
+  text: string
 }
 
 export interface DedupeDetails {
@@ -119,7 +125,7 @@ export interface LinkFilters {
 export interface MaintenanceProposal<Details> {
   id: number
   decision: Decision
-  warnings: string[]
+  warnings: Warning[]
   details: Details
 }
 
@@ -141,7 +147,7 @@ interface IsolatedFile {
 export interface ForceResult {
   proposal_id: number
   forced: boolean
-  warnings: string[]
+  warnings: Warning[]
   replaced?: IsolatedFile[]
 }
 

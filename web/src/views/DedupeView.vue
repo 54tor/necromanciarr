@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useMaintenance } from '@/composables/useMaintenance'
 import { formatBytes } from '@/lib/format'
+import { uniqueWarnings, warningText } from '@/lib/warnings'
 import { DECISION_LABELS, DEDUPE_METHOD_LABELS, LINK_KIND_LABELS, labelOf } from '@/lib/labels'
 
 const {
@@ -126,11 +127,14 @@ onMounted(load)
           Raison : {{ item.details.reason }}
         </p>
         <p
-          v-for="warning in [...new Set([...item.warnings, ...(item.details.warnings ?? [])])]"
-          :key="warning"
+          v-for="(warning, position) in uniqueWarnings([
+            ...item.warnings,
+            ...(item.details.warnings ?? []),
+          ])"
+          :key="position"
           class="text-sm"
         >
-          Avertissement : {{ warning }}
+          Avertissement : {{ warningText(warning) }}
         </p>
         <MaintenanceActions
           action="dedupe apply"

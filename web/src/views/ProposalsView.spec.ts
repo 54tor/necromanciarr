@@ -70,6 +70,22 @@ describe('ProposalsView', () => {
     expect(card.find('[data-testid="kind"]').text()).toBe('Torrent complet')
   })
 
+  it('ProposalsView_showsTheTextOfStructuredAndLegacyWarnings', async () => {
+    const withWarnings = proposal({
+      id: 12,
+      warnings: [{ code: 'warning.sources_changed', text: 'sources changed' }, 'old text' as never],
+    })
+    const { wrapper } = await mountView([withWarnings])
+
+    const warningsText = wrapper
+      .find('[data-testid="proposal-12"] ul[aria-label="Avertissements"]')
+      .text()
+
+    expect(warningsText).toContain('sources changed')
+    expect(warningsText).toContain('old text')
+    expect(warningsText).not.toContain('warning.sources_changed')
+  })
+
   it('ProposalsView_hidesDedupeAndRepairRows', async () => {
     const { wrapper } = await mountView([proposal(), maintenanceProposal(99, dedupeDetails)])
 

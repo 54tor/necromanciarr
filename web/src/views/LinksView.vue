@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useMaintenance } from '@/composables/useMaintenance'
 import { formatBytes } from '@/lib/format'
+import { warningText } from '@/lib/warnings'
 import { DECISION_LABELS, REPAIR_METHOD_LABELS, REPAIR_STATUS_LABELS, labelOf } from '@/lib/labels'
 import { FIELD_CLASS } from '@/lib/styles'
 
@@ -116,8 +117,8 @@ onMounted(load)
         >
           <li v-for="path in item.details.candidates" :key="path">{{ path }}</li>
         </ul>
-        <p v-for="warning in item.warnings" :key="warning" class="text-sm">
-          Avertissement : {{ warning }}
+        <p v-for="(warning, position) in item.warnings" :key="position" class="text-sm">
+          Avertissement : {{ warningText(warning) }}
         </p>
         <MaintenanceActions
           action="repair apply"

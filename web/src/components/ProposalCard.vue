@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { formatBytes, formatPercent } from '@/lib/format'
+import { warningText } from '@/lib/warnings'
 import { DECISION_LABELS, KIND_LABELS, STEP_LABELS } from '@/lib/labels'
 
 const props = defineProps<{ proposal: Proposal; disabled: boolean }>()
@@ -76,7 +77,9 @@ const fileSummary = computed(() => {
     </div>
 
     <ul v-if="proposal.warnings.length" class="grid gap-1 text-sm" aria-label="Avertissements">
-      <li v-for="warning in proposal.warnings" :key="warning">Avertissement : {{ warning }}</li>
+      <li v-for="(warning, position) in proposal.warnings" :key="position">
+        Avertissement : {{ warningText(warning) }}
+      </li>
     </ul>
 
     <div class="flex flex-wrap gap-2">
