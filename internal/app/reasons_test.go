@@ -16,7 +16,7 @@ import (
 	"necromanciarr/internal/store"
 )
 
-var reasonConstantName = regexp.MustCompile(`^(Reason|RepairReason|DedupeReason|Exclusion)[A-Z]`)
+var reasonConstantName = regexp.MustCompile(`^(Reason|RepairReason|DedupeReason|LinkReason|Exclusion)[A-Z]`)
 
 func reasonCodesDeclaredIn(t *testing.T, directory string) []string {
 	t.Helper()

@@ -93,6 +93,7 @@ const (
 	KeyCLIUsageConfigCheck       Key = "cli.usage.config_check"
 	KeyCLIUsageExitCodes         Key = "cli.usage.exit_codes"
 	KeyCLIUsageAllAccepted       Key = "cli.usage.all_accepted"
+	KeyCLIHealthcheckOK          Key = "cli.healthcheck.ok"
 )
 
 var cliKeys = []Key{
@@ -117,5 +118,5 @@ var cliKeys = []Key{
 	KeyCLISummaryReject, KeyCLISummaryChoose, KeyCLISummaryForce, KeyCLISummaryDedupePlan, KeyCLISummaryApply,
 	KeyCLISummaryRepairScan, KeyCLISummaryLinksList, KeyCLISummaryDoctor,
 	KeyCLIUsageHeader, KeyCLIUsageServe, KeyCLIUsageHealthcheck, KeyCLIUsageAPIKey,
-	KeyCLIUsageConfigCheck, KeyCLIUsageExitCodes, KeyCLIUsageAllAccepted,
+	KeyCLIUsageConfigCheck, KeyCLIUsageExitCodes, KeyCLIUsageAllAccepted, KeyCLIHealthcheckOK,
 }

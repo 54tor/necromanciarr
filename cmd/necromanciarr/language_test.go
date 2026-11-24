@@ -93,6 +93,13 @@ func TestJSONOutput_onlyTextFieldsDifferBetweenLanguages(t *testing.T) {
 		args  []string
 	}{
 		{"status", func() *fakeService { return &fakeService{status: app.Status{CrossSeedMode: "delegate"}} }, []string{"status"}},
+		{"links list", func() *fakeService { return &fakeService{linkPage: sampleLinkPage()} }, []string{"links", "list"}},
+		{"status with warnings", func() *fakeService {
+			return &fakeService{status: app.Status{Warnings: []app.Warning{{Code: "warning.crossseed.fallback_native", Text: "x"}}}}
+		}, []string{"status"}},
+		{"dedupe apply with warnings", func() *fakeService {
+			return &fakeService{maintenanceWarnings: []app.Warning{{Code: "warning.recheck_failed", Text: "y"}}}
+		}, []string{"dedupe", "apply", "5"}},
 		{"proposals list", func() *fakeService { return &fakeService{proposals: proposals} }, []string{"proposals", "list"}},
 		{"doctor", func() *fakeService { return &fakeService{} }, []string{"doctor"}},
 		{"doctor with findings", func() *fakeService { return &fakeService{doctorReport: &doctorFindingsReport} }, []string{"doctor"}},

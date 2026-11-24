@@ -175,8 +175,8 @@ func checkFSProviders(ctx context.Context, settings config.Config, deps Deps) Re
 			collected.add(OK, CodeMountOK, describeMount(report), i18n.Message{})
 			continue
 		}
-		collected.add(Warn, CodeMountAdvice, describeMount(report),
-			message(i18n.KeyDoctorFSAdvice, "advice", strings.Join(report.Advice, separatorDetail)))
+		collected.add(Warn, CodeMountAdvice, describeMount(report), report.Advice[0])
+		collected.hints = append(collected.hints, report.Advice[1:]...)
 	}
 	collected.hints = append(collected.hints, message(i18n.KeyDoctorFSModTimeHint))
 	return collected.result()

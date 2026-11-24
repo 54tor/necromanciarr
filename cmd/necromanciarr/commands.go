@@ -159,7 +159,7 @@ func stageCommand(stage pipeline.Stage) command {
 }
 
 func stageWarnings(translator i18n.Translator, result pipeline.Result) []string {
-	warnings := slices.Clone(result.Warnings)
+	warnings := warningTexts(result.WarningViews)
 	if result.Failed > 0 {
 		warnings = append(warnings, translator.Count(i18n.KeyCLIStageFailedWarningOne, i18n.KeyCLIStageFailedWarningMany, result.Failed, nil))
 	}
@@ -171,7 +171,7 @@ func runStatus(ctx context.Context, call *invocation) (output, error) {
 	if err != nil {
 		return output{}, err
 	}
-	return output{jsonValue: status, text: func(writer io.Writer) { writeStatus(writer, call.translator, status) }, warnings: status.Warnings}, nil
+	return output{jsonValue: status, text: func(writer io.Writer) { writeStatus(writer, call.translator, status) }, warnings: warningTexts(status.Warnings)}, nil
 }
 
 // knownKinds et knownDecisions valident --kind et --state : une faute de frappe ne doit pas donner une liste vide.
@@ -397,7 +397,7 @@ func worseExitCode(current, candidate int) int {
 }
 
 // warningTexts garde le texte rendu de chaque avertissement.
-func warningTexts(warnings []app.Warning) []string {
+func warningTexts(warnings []i18n.Rendered) []string {
 	texts := make([]string, 0, len(warnings))
 	for _, warning := range warnings {
 		texts = append(texts, warning.Text)
@@ -409,7 +409,7 @@ func itemWarnings(translator i18n.Translator, items []applyItem) []string {
 	var warnings []string
 	for _, item := range items {
 		for _, warning := range item.Warnings {
-			warnings = append(warnings, translator.Text(i18n.KeyCLIProposalLine, textParams("id", strconv.FormatInt(item.ProposalID, 10), "text", warning)))
+			warnings = append(warnings, translator.Text(i18n.KeyCLIProposalLine, textParams("id", strconv.FormatInt(item.ProposalID, 10), "text", warning.Text)))
 		}
 	}
 	return warnings

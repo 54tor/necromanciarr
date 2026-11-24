@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/repair"
 	"necromanciarr/internal/store"
 )
@@ -28,16 +29,17 @@ const (
 	linkInspectionBudget = 20 * time.Second
 )
 
-// Motifs d'un état autre que « conforme » vérifié.
+// Motifs stables d'un état autre que « conforme » vérifié (LinkItem.Reason, jamais traduits ; Label les traduit).
 const (
-	reasonLinkMissing      = "the link itself is missing"
-	reasonTargetMissing    = "the link target is missing"
-	reasonInodeDiverged    = "the hardlink no longer shares the inode of its target"
-	reasonTargetRenamed    = "the recorded target was renamed, the hardlink still holds the data"
-	reasonNotCompared      = "not compared: no recorded size for this kind of link"
-	reasonReplaced         = "symlink replaced by a regular file"
-	reasonResized          = "size differs from the recorded size"
-	reasonTargetUnreadable = "the link text cannot be read"
+	LinkReasonMissing          = "link_missing"
+	LinkReasonTargetMissing    = "link_target_missing"
+	LinkReasonInodeDiverged    = "link_inode_diverged"
+	LinkReasonTargetRenamed    = "link_target_renamed"
+	LinkReasonNotCompared      = "link_not_compared"
+	LinkReasonReplaced         = "link_replaced"
+	LinkReasonResized          = "link_resized"
+	LinkReasonTargetUnreadable = "link_target_unreadable"
+	LinkReasonInspectionFailed = "link_inspection_failed"
 )
 
 // ErrInspectionBusy : un examen des liens est encore en cours (peut-être bloqué sur un montage figé) ; réessayer plus
@@ -68,7 +70,16 @@ type LinkItem struct {
 	RecordedAt time.Time `json:"recorded_at"`
 	Size       int64     `json:"size,omitempty"`
 	Reason     string    `json:"reason,omitempty"`
+	Label      string    `json:"label,omitempty"`
 	Compared   bool      `json:"compared"`
+}
+
+// labelled ajoute le libellé traduit du motif.
+func (item LinkItem) labelled(translator i18n.Translator) LinkItem {
+	if item.Reason != "" {
+		item.Label = translator.ReasonLabel(item.Reason)
+	}
+	return item
 }
 
 // LinkPage est une page de ListLinks : Total compte les liens du filtre, Next est l'Offset de la page suivante (absent
@@ -115,6 +126,9 @@ func (svc *service) ListLinks(ctx context.Context, filter LinkFilter) (LinkPage,
 	items, truncated := inspectLinks(budgetCtx, links, svc.linkInspector(), release)
 	if err := ctx.Err(); err != nil {
 		return LinkPage{}, err
+	}
+	for position := range items {
+		items[position] = items[position].labelled(svc.deps.Translator)
 	}
 	return pageOf(items, filter, truncated), nil
 }
@@ -181,24 +195,24 @@ func linkItem(link store.Link, inspection repair.Inspection) LinkItem {
 func stateOf(inspection repair.Inspection) (state, reason string) {
 	switch inspection.Condition {
 	case repair.ConditionLost:
-		return LinkStateLost, reasonLinkMissing
+		return LinkStateLost, LinkReasonMissing
 	case repair.ConditionBroken:
 		if inspection.Err != nil {
-			return LinkStateUnreadable, reasonTargetUnreadable
+			return LinkStateUnreadable, LinkReasonTargetUnreadable
 		}
-		return LinkStateLost, reasonTargetMissing
+		return LinkStateLost, LinkReasonTargetMissing
 	case repair.ConditionDiverged:
-		return LinkStateDiverged, reasonInodeDiverged
+		return LinkStateDiverged, LinkReasonInodeDiverged
 	case repair.ConditionReplaced:
-		return LinkStateDiverged, reasonReplaced
+		return LinkStateDiverged, LinkReasonReplaced
 	case repair.ConditionResized:
-		return LinkStateDiverged, reasonResized
+		return LinkStateDiverged, LinkReasonResized
 	case repair.ConditionRenamedTarget:
-		return LinkStateOK, reasonTargetRenamed
+		return LinkStateOK, LinkReasonTargetRenamed
 	case repair.ConditionUnverified:
-		return LinkStateOK, reasonNotCompared
+		return LinkStateOK, LinkReasonNotCompared
 	case repair.ConditionUnreadable:
-		return LinkStateUnreadable, inspection.Err.Error()
+		return LinkStateUnreadable, LinkReasonInspectionFailed
 	}
 	return LinkStateOK, ""
 }

@@ -7,6 +7,7 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/i18n"
 )
 
 // crossSeedResolutionTTL : un serve qui tourne des jours suit l'arrêt et le retour du démon cross-seed, sans sonder
@@ -20,7 +21,7 @@ const crossSeedProbeTimeout = 2 * time.Second
 // notificateur (le webhook en Delegate, sinon aucun).
 type CrossSeedResolution struct {
 	Behavior crossseed.Behavior
-	Warning  string
+	Warnings []i18n.Message
 	Notifier crossseed.Notifier
 }
 
@@ -64,10 +65,14 @@ func (resolver *crossSeedResolver) probe(ctx context.Context) CrossSeedResolutio
 	daemonReachable := daemonConfigured && resolver.reachable(ctx, settings.CrossSeed.BaseURL)
 	// Le mode a été validé au chargement de la configuration : ResolveMode ne peut plus refuser.
 	behavior, warning, _ := crossseed.ResolveMode(settings.CrossSeedMode, daemonConfigured, daemonReachable)
-	if len(settings.TorrentClients) > 1 {
-		warning = joinWarnings(warning, multipleClientsWarning)
+	var warnings []i18n.Message
+	if warning.Key != "" {
+		warnings = append(warnings, warning)
 	}
-	resolution := CrossSeedResolution{Behavior: behavior, Warning: warning, Notifier: crossseed.Noop{}}
+	if len(settings.TorrentClients) > 1 {
+		warnings = append(warnings, warningMultipleClients)
+	}
+	resolution := CrossSeedResolution{Behavior: behavior, Warnings: warnings, Notifier: crossseed.Noop{}}
 	if behavior == crossseed.Delegate && resolver.webhook != nil {
 		resolution.Notifier = resolver.webhook
 	}
@@ -79,5 +84,5 @@ func (svc *service) crossSeed(ctx context.Context) CrossSeedResolution {
 	if svc.deps.ResolveCrossSeed != nil {
 		return svc.deps.ResolveCrossSeed(ctx)
 	}
-	return CrossSeedResolution{Behavior: svc.deps.CrossSeed, Warning: svc.deps.CrossSeedWarning, Notifier: svc.deps.Stages.Notifier}
+	return CrossSeedResolution{Behavior: svc.deps.CrossSeed, Warnings: svc.deps.CrossSeedWarnings, Notifier: svc.deps.Stages.Notifier}
 }

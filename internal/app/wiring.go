@@ -28,9 +28,10 @@ const (
 	readBurstBytes = 1 << 20
 	// hashSourceTimeout borne une requête vers un fournisseur d'empreintes (rclone rc).
 	hashSourceTimeout = 30 * time.Second
-	// multipleClientsWarning : seul le premier client torrent configuré reçoit les seeds.
-	multipleClientsWarning = "several torrent clients are configured: only the first one is used"
 )
+
+// warningMultipleClients : seul le premier client torrent configuré reçoit les seeds.
+var warningMultipleClients = i18n.Message{Key: i18n.KeyWarningMultipleClients}
 
 // NewFromConfig construit le Service de production : store (config.ResolveDBPath), fournisseur de bibliothèque,
 // instances Radarr et Sonarr, premier client torrent, registre d'empreintes, mode et notificateur cross-seed, mapper
@@ -144,14 +145,7 @@ func wireCrossSeed(ctx context.Context, settings config.Config, stages *pipeline
 	reachable := func(probeCtx context.Context, baseURL string) bool { return crossseed.Reachable(probeCtx, baseURL, 0) }
 	resolver := newCrossSeedResolver(settings, webhook, reachable, time.Now)
 	initial := resolver.resolve(ctx)
-	stages.CrossSeed, stages.CrossSeedWarning, stages.Notifier = initial.Behavior, initial.Warning, initial.Notifier
-	deps.CrossSeed, deps.CrossSeedWarning, deps.ResolveCrossSeed = initial.Behavior, initial.Warning, resolver.resolve
+	stages.CrossSeed, stages.CrossSeedWarnings, stages.Notifier = initial.Behavior, initial.Warnings, initial.Notifier
+	deps.CrossSeed, deps.CrossSeedWarnings, deps.ResolveCrossSeed = initial.Behavior, initial.Warnings, resolver.resolve
 	return nil
-}
-
-func joinWarnings(first, second string) string {
-	if first == "" {
-		return second
-	}
-	return first + "; " + second
 }

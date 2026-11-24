@@ -106,7 +106,6 @@ const (
 	KeyDoctorFSBuildFailed              Key = "doctor.fs.build_failed"
 	KeyDoctorFSBuildFailedHint          Key = "doctor.fs.build_failed.hint"
 	KeyDoctorFSMount                    Key = "doctor.fs.mount"
-	KeyDoctorFSAdvice                   Key = "doctor.fs.advice"
 	KeyDoctorFSModTimeHint              Key = "doctor.fs.modtime.hint"
 	KeyDoctorCrossSeedNone              Key = "doctor.cross_seed.none"
 	KeyDoctorCrossSeedImported          Key = "doctor.cross_seed.imported"
@@ -118,7 +117,6 @@ const (
 	KeyDoctorCrossSeedModeDisabled      Key = "doctor.cross_seed.mode_disabled"
 	KeyDoctorCrossSeedModeInvalid       Key = "doctor.cross_seed.mode_invalid"
 	KeyDoctorCrossSeedModeInvalidHint   Key = "doctor.cross_seed.mode_invalid.hint"
-	KeyDoctorCrossSeedWarning           Key = "doctor.cross_seed.warning"
 	KeyDoctorCrossSeedBlockedEnv        Key = "doctor.cross_seed.blocked_env"
 	KeyDoctorPathMappingsNone           Key = "doctor.path_mappings.none"
 	KeyDoctorPathRuleUnreachable        Key = "doctor.path_mappings.unreachable"
@@ -159,11 +157,11 @@ var doctorKeys = []Key{
 	KeyDoctorLinkDirInLibraryHint, KeyDoctorLinkProbeFailed, KeyDoctorLinkProbeFailedHint, KeyDoctorLinkKinds,
 	KeyDoctorLinkVFSHint, KeyDoctorVolumesNotComparable, KeyDoctorVolumesNotComparableHint, KeyDoctorVolumesSame,
 	KeyDoctorVolumesDifferSymlink, KeyDoctorVolumesDiffer, KeyDoctorSameVolumeHint, KeyDoctorFSNone,
-	KeyDoctorFSBuildFailed, KeyDoctorFSBuildFailedHint, KeyDoctorFSMount, KeyDoctorFSAdvice, KeyDoctorFSModTimeHint,
+	KeyDoctorFSBuildFailed, KeyDoctorFSBuildFailedHint, KeyDoctorFSMount, KeyDoctorFSModTimeHint,
 	KeyDoctorCrossSeedNone, KeyDoctorCrossSeedImported, KeyDoctorCrossSeedNoDaemon, KeyDoctorCrossSeedDaemonReachable,
 	KeyDoctorCrossSeedDaemonUnreachable, KeyDoctorCrossSeedModeDelegate, KeyDoctorCrossSeedModeNative,
 	KeyDoctorCrossSeedModeDisabled, KeyDoctorCrossSeedModeInvalid, KeyDoctorCrossSeedModeInvalidHint,
-	KeyDoctorCrossSeedWarning, KeyDoctorCrossSeedBlockedEnv, KeyDoctorPathMappingsNone, KeyDoctorPathRuleUnreachable,
+	KeyDoctorCrossSeedBlockedEnv, KeyDoctorPathMappingsNone, KeyDoctorPathRuleUnreachable,
 	KeyDoctorPathRuleUnreachableHint, KeyDoctorPathRuleNoRoot, KeyDoctorPathRuleNoRootHint, KeyDoctorPathRuleOK,
 	KeyDoctorDedupeNone, KeyDoctorDedupeOverlap, KeyDoctorDedupeOverlapHint, KeyDoctorDedupeMissing, KeyDoctorDedupeOK,
 }

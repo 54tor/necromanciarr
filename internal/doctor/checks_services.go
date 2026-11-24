@@ -135,12 +135,13 @@ func checkCrossSeed(ctx context.Context, settings config.Config, deps Deps) Resu
 	details = append(details, message(behaviorKey(behavior), "mode", settings.CrossSeedMode))
 	var hints []i18n.Message
 	code := CodeCrossSeedWarning
-	if warning != "" {
-		hints = append(hints, message(i18n.KeyDoctorCrossSeedWarning, "warning", warning))
+	hasWarning := warning.Key != ""
+	if hasWarning {
+		hints = append(hints, warning)
 	}
 	if blocked := imported.BlockedEnvironment; len(blocked) > 0 {
 		hints = append(hints, message(i18n.KeyDoctorCrossSeedBlockedEnv, "names", strings.Join(blocked, ", ")))
-		if warning == "" {
+		if !hasWarning {
 			code = CodeBlockedEnvironment
 		}
 	}

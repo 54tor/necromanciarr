@@ -69,6 +69,17 @@ func (translator Translator) Render(message Message) string {
 	return translator.Text(message.Key, message.Params)
 }
 
+// Rendered est un message rendu pour l'API et la CLI : Code est la clé stable (jamais traduite), Text son rendu.
+type Rendered struct {
+	Code string `json:"code"`
+	Text string `json:"text"`
+}
+
+// Rendered rend le message avec sa clé comme code.
+func (translator Translator) Rendered(message Message) Rendered {
+	return Rendered{Code: string(message.Key), Text: translator.Render(message)}
+}
+
 // Count choisit le singulier ou le pluriel selon la langue et ajoute le paramètre count.
 func (translator Translator) Count(singular, plural Key, count int, params map[string]string) string {
 	withCount := make(map[string]string, len(params)+1)
@@ -97,5 +108,6 @@ func Keys() []Key {
 	keys = append(keys, actionKeys...)
 	keys = append(keys, doctorKeys...)
 	keys = append(keys, reasonKeys...)
+	keys = append(keys, logKeys...)
 	return append(keys, warningKeys...)
 }

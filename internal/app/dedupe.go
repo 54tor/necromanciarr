@@ -44,9 +44,47 @@ type DedupeDetails struct {
 	InodeReliable      bool      `json:"inode_reliable"`
 }
 
-// DedupeReasonIsolatedCopy : le fichier côté torrent est une copie indépendante posée par Force (ou un reflink) ; le
-// relier à la bibliothèque déferait l'isolation qui protège celle-ci.
-const DedupeReasonIsolatedCopy = "isolated_copy"
+// Motifs stables d'une proposition dedupe sans remplacement possible (DedupeDetails.Reason, jamais traduits).
+const (
+	// DedupeReasonIsolatedCopy : le fichier côté torrent est une copie indépendante posée par Force (ou un reflink) ; le
+	// relier à la bibliothèque déferait l'isolation qui protège celle-ci.
+	DedupeReasonIsolatedCopy = "isolated_copy"
+	// DedupeReasonHashUnavailable : la vérification par empreinte est exigée et le stockage n'en fournit pas.
+	DedupeReasonHashUnavailable = "hash_unavailable"
+	// DedupeReasonNoKind : aucune sorte de lien n'est demandée dans la configuration.
+	DedupeReasonNoKind = "no_link_kind"
+	// DedupeReasonCrossDevice : le torrent et la bibliothèque sont sur deux volumes.
+	DedupeReasonCrossDevice = "cross_device"
+	// DedupeReasonKindUnsupported : aucune sorte demandée n'est prise en charge par ce dossier.
+	DedupeReasonKindUnsupported = "link_kind_unsupported"
+	// DedupeReasonProbeFailed : la sonde du dossier torrent a échoué, ou son échec n'a pas de motif plus précis.
+	DedupeReasonProbeFailed = "link_probe_failed"
+)
+
+// dedupeReasonCode ramène la cause d'un plan sans remplacement à un motif stable : l'ordre est celui de la précision
+// (empreinte, configuration, volume, prise en charge), tout le reste est un échec de sonde.
+func dedupeReasonCode(cause error) string {
+	switch {
+	case errors.Is(cause, dedupe.ErrHashUnavailable):
+		return DedupeReasonHashUnavailable
+	case errors.Is(cause, linker.ErrNoKind):
+		return DedupeReasonNoKind
+	case errors.Is(cause, linker.ErrCrossDevice):
+		return DedupeReasonCrossDevice
+	case errors.Is(cause, linker.ErrUnsupported):
+		return DedupeReasonKindUnsupported
+	}
+	return DedupeReasonProbeFailed
+}
+
+// storedWarningKeys range les avertissements d'un plan sous leur clé : les messages de dedupe n'ont pas de paramètre.
+func storedWarningKeys(messages []i18n.Message) []string {
+	keys := make([]string, 0, len(messages))
+	for _, message := range messages {
+		keys = append(keys, string(message.Key))
+	}
+	return keys
+}
 
 // DedupeProposal est une proposition dedupe telle que la CLI et le web l'affichent.
 type DedupeProposal struct {
@@ -78,7 +116,7 @@ func dedupeDetailsOf(replacement dedupe.Replacement) DedupeDetails {
 	details := DedupeDetails{
 		TorrentPath: replacement.TorrentPath, LibraryPath: replacement.LibraryPath, Size: replacement.Size,
 		SavedBytes: replacement.SavedBytes, BytesToRead: replacement.BytesToRead, Method: string(replacement.Method),
-		HashAlgorithm: string(replacement.HashAlgorithm), Warnings: replacement.Warnings, Ambiguous: replacement.Ambiguous,
+		HashAlgorithm: string(replacement.HashAlgorithm), Warnings: storedWarningKeys(replacement.Warnings), Ambiguous: replacement.Ambiguous,
 		Actionable: replacement.Kind != 0 && len(replacement.Ambiguous) == 0, Fingerprint: replacement.Fingerprint,
 		LibraryFingerprint: replacement.LibraryFingerprint, TorrentModTime: replacement.TorrentModTime,
 		LibraryModTime: replacement.LibraryModTime, LibraryDevice: replacement.LibraryDevice,
@@ -88,7 +126,7 @@ func dedupeDetailsOf(replacement dedupe.Replacement) DedupeDetails {
 		details.Kind = replacement.Kind.String()
 	}
 	if replacement.Reason != nil {
-		details.Reason = replacement.Reason.Error()
+		details.Reason = dedupeReasonCode(replacement.Reason)
 	}
 	return details
 }
@@ -96,7 +134,7 @@ func dedupeDetailsOf(replacement dedupe.Replacement) DedupeDetails {
 func (details DedupeDetails) replacement() dedupe.Replacement {
 	return dedupe.Replacement{
 		TorrentPath: details.TorrentPath, LibraryPath: details.LibraryPath, Size: details.Size, Kind: linkKindByName[details.Kind],
-		SavedBytes: details.SavedBytes, Ambiguous: details.Ambiguous, Warnings: details.Warnings, BytesToRead: details.BytesToRead,
+		SavedBytes: details.SavedBytes, Ambiguous: details.Ambiguous, Warnings: messagesOfCodes(details.Warnings), BytesToRead: details.BytesToRead,
 		Method: dedupe.Method(details.Method), HashAlgorithm: hashsource.Algorithm(details.HashAlgorithm),
 		Fingerprint: details.Fingerprint, LibraryFingerprint: details.LibraryFingerprint, TorrentModTime: details.TorrentModTime,
 		LibraryModTime: details.LibraryModTime, LibraryDevice: details.LibraryDevice, LibraryInode: details.LibraryInode,
@@ -241,7 +279,7 @@ func (svc *service) applyDedupe(ctx context.Context, details DedupeDetails, resu
 		return outcome.Err
 	}
 	if outcome.Done {
-		result.Warnings = outcomeWarnings(outcome.Err, outcome.RecheckErr)
+		*result = result.withWarnings(svc.deps.Translator, outcomeWarnings(outcome.Err, outcome.RecheckErr))
 	}
 	finishCtx, cancel := bookkeeping(ctx)
 	defer cancel()
@@ -250,16 +288,16 @@ func (svc *service) applyDedupe(ctx context.Context, details DedupeDetails, resu
 
 // outcomeWarnings : enregistrement manqué après remplacement, et sort du recontrôle ; un torrent incomplet après
 // recontrôle reste en pause (le client le garde ainsi), jamais repris ici.
-func outcomeWarnings(recordErr, recheckErr error) []string {
-	var warnings []string
+func outcomeWarnings(recordErr, recheckErr error) []i18n.Message {
+	var warnings []i18n.Message
 	if recordErr != nil {
-		warnings = append(warnings, WarningLinkNotRecorded)
+		warnings = append(warnings, i18n.Message{Key: i18n.KeyWarningLinkNotRecorded})
 	}
 	switch {
 	case errors.Is(recheckErr, qbit.ErrIncompleteAfterRecheck):
-		warnings = append(warnings, WarningPausedIncompleteAfterRecheck)
+		warnings = append(warnings, i18n.Message{Key: i18n.KeyWarningPausedIncompleteAfterRecheck})
 	case recheckErr != nil:
-		warnings = append(warnings, WarningRecheckFailed)
+		warnings = append(warnings, i18n.Message{Key: i18n.KeyWarningRecheckFailed})
 	}
 	return warnings
 }

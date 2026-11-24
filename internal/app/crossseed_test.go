@@ -8,6 +8,7 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/i18n"
 )
 
 // switchingDaemon simule un démon cross-seed qui s'arrête puis redémarre ; probes compte les sondes TCP.
@@ -37,14 +38,14 @@ func TestCrossSeedResolver_followsTheDaemonAndCachesForThirtySeconds(t *testing.
 	if first.Behavior != crossseed.Delegate || cached.Behavior != crossseed.Delegate || daemon.probes != 2 {
 		t.Fatalf("gotValue %v then %v after %d probes, expectedValue delegate cached for 30 s", first.Behavior, cached.Behavior, daemon.probes)
 	}
-	if refreshed.Behavior != crossseed.Native || refreshed.Warning == "" {
+	if refreshed.Behavior != crossseed.Native || len(refreshed.Warnings) == 0 {
 		t.Fatalf("gotValue %+v, expectedValue native with a warning once the daemon stops", refreshed)
 	}
 }
 
 func TestService_statusAndAcceptUseTheCurrentCrossSeedResolution(t *testing.T) {
 	fixture := newDecisionFixture(t)
-	resolutions := []CrossSeedResolution{{Behavior: crossseed.Native}, {Behavior: crossseed.Disabled, Warning: "daemon gone"}}
+	resolutions := []CrossSeedResolution{{Behavior: crossseed.Native}, {Behavior: crossseed.Disabled, Warnings: []i18n.Message{{Key: i18n.KeyWarningCrossSeedDelegateUnreachable}}}}
 	calls := 0
 	service := New(Deps{
 		Store: fixture.store, Client: fixture.resumer, Now: func() time.Time { return fixedNow },

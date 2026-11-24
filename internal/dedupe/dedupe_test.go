@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
 )
@@ -456,9 +457,9 @@ func TestPlan_warnsOnNonLocalVolumes(t *testing.T) {
 
 	replacement := planOne(t, layout, options)
 
-	for _, expectedWarning := range []string{warningUnreliableInode, warningFullNetworkRead, warningRenameNotAtomic} {
-		if !slices.Contains(replacement.Warnings, expectedWarning) {
-			t.Fatalf("missing warning %q in %v", expectedWarning, replacement.Warnings)
+	for _, expectedWarning := range []i18n.Message{warningUnreliableInode, warningFullNetworkRead, warningRenameNotAtomic} {
+		if !slices.ContainsFunc(replacement.Warnings, func(got i18n.Message) bool { return got.Key == expectedWarning.Key }) {
+			t.Fatalf("missing warning %q in %v", expectedWarning.Key, replacement.Warnings)
 		}
 	}
 	if _, err := Apply(context.Background(), []Replacement{replacement}, options); err != nil {
@@ -703,6 +704,23 @@ func TestPlan_ignoresTemporaryEntriesOfThisTool(t *testing.T) {
 	}
 }
 
+func TestDedupePlan_warningsCarryStableCode(t *testing.T) {
+	layout := newOperatorLayout(t)
+	options := baseOptions(layout.torrentRoot)
+	options.filesystemKind = func(string) (linker.FilesystemKind, error) { return linker.Fuse, nil }
+
+	replacement := planOne(t, layout, options)
+
+	expectedValue := []i18n.Key{i18n.KeyWarningDedupeUnreliableInode, i18n.KeyWarningDedupeFullNetworkRead, i18n.KeyWarningDedupeRenameNotAtomic}
+	var gotValue []i18n.Key
+	for _, warning := range replacement.Warnings {
+		gotValue = append(gotValue, warning.Key)
+	}
+	if !slices.Equal(gotValue, expectedValue) {
+		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
+	}
+}
+
 func TestPlan_warnsWhenRenameOverwriteIsNotConfirmed(t *testing.T) {
 	layout := newOperatorLayout(t)
 	options := baseOptions(layout.torrentRoot)
@@ -712,7 +730,7 @@ func TestPlan_warnsWhenRenameOverwriteIsNotConfirmed(t *testing.T) {
 		replacement := planOne(t, layout, options)
 
 		expectedValue := !renameOverwrite
-		if gotValue := slices.Contains(replacement.Warnings, warningRenameNotAtomic); gotValue != expectedValue {
+		if gotValue := slices.ContainsFunc(replacement.Warnings, func(got i18n.Message) bool { return got.Key == warningRenameNotAtomic.Key }); gotValue != expectedValue {
 			t.Fatalf("renameOverwrite %v: warning present %v, expected %v", renameOverwrite, gotValue, expectedValue)
 		}
 	}

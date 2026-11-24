@@ -228,7 +228,7 @@ func (svc *service) applyRepair(ctx context.Context, details RepairDetails, resu
 		return outcome.Err
 	}
 	if outcome.Done {
-		result.Warnings = outcomeWarnings(outcome.Err, outcome.RecheckErr)
+		*result = result.withWarnings(svc.deps.Translator, outcomeWarnings(outcome.Err, outcome.RecheckErr))
 	}
 	finishCtx, cancel := bookkeeping(ctx)
 	defer cancel()

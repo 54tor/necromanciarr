@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"necromanciarr/internal/i18n"
 )
 
 func TestResolveMode_table(t *testing.T) {
@@ -37,8 +39,27 @@ func TestResolveMode_table(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%+v: %v", testCase, err)
 		}
-		if gotBehavior != testCase.expectedBehavior || (gotWarning != "") != testCase.expectWarning {
+		if gotBehavior != testCase.expectedBehavior || (gotWarning.Key != "") != testCase.expectWarning {
 			t.Fatalf("%+v: gotValue %v %q", testCase, gotBehavior, gotWarning)
+		}
+	}
+}
+
+func TestResolveMode_warningsAreStableKeys(t *testing.T) {
+	cases := []struct {
+		mode                  string
+		configured, reachable bool
+		expectedValue         i18n.Key
+	}{
+		{"delegate", false, false, i18n.KeyWarningCrossSeedDelegateNoDaemon},
+		{"delegate", true, false, i18n.KeyWarningCrossSeedDelegateUnreachable},
+		{"auto", true, false, i18n.KeyWarningCrossSeedFallbackNative},
+		{"auto", true, true, ""},
+	}
+	for _, testCase := range cases {
+		_, gotValue, err := ResolveMode(testCase.mode, testCase.configured, testCase.reachable)
+		if err != nil || gotValue.Key != testCase.expectedValue || len(gotValue.Params) != 0 {
+			t.Fatalf("%+v: gotValue %+v %v, expectedValue key %q without params", testCase, gotValue, err, testCase.expectedValue)
 		}
 	}
 }

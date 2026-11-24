@@ -293,7 +293,7 @@ func TestApp_dedupeRechecksThroughClientViewPathAndKeepsIncompleteTorrentsPaused
 		t.Fatalf("gotValue %+v %v %v, expectedValue one recheck of %s", result, err, fixture.client.recheckedPaths, expectedPath)
 	}
 	stored := fixture.proposalsOfKind(store.ProposalDedupe)[0]
-	if !slices.Contains(result.Warnings, WarningPausedIncompleteAfterRecheck) || !hasStoredWarning(stored.Warnings, i18n.KeyWarningPausedIncompleteAfterRecheck) ||
+	if !hasWarning(result.Warnings, i18n.KeyWarningPausedIncompleteAfterRecheck) || !hasStoredWarning(stored.Warnings, i18n.KeyWarningPausedIncompleteAfterRecheck) ||
 		len(fixture.resumer.resumed) != 0 {
 		t.Fatalf("gotValue %+v and stored %v, resumed %v, expectedValue the paused warning and no resume", result, stored.Warnings, fixture.resumer.resumed)
 	}
@@ -588,7 +588,7 @@ func TestApp_repairRechecksTheRepointedLinkThroughTheClientAndNeverResumes(t *te
 	if err != nil || !result.Applied || !slices.Equal(fixture.client.recheckedPaths, []string{repairablePath}) {
 		t.Fatalf("gotValue %+v %v %v, expectedValue one recheck of the repaired link", result, err, fixture.client.recheckedPaths)
 	}
-	if !slices.Contains(result.Warnings, WarningPausedIncompleteAfterRecheck) || len(fixture.resumer.resumed) != 0 {
+	if !hasWarning(result.Warnings, i18n.KeyWarningPausedIncompleteAfterRecheck) || len(fixture.resumer.resumed) != 0 {
 		t.Fatalf("gotValue %+v resumed %v, expectedValue the paused warning and no resume", result, fixture.resumer.resumed)
 	}
 }

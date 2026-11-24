@@ -29,9 +29,9 @@ func TestPipeline_usesOnlyTheMessageTypesOfTheCatalogue(t *testing.T) {
 				return true
 			}
 			qualifier, isIdentifier := selector.X.(*ast.Ident)
-			isCatalogueUse := isIdentifier && qualifier.Name == "i18n" && selector.Sel.Name != "Message" && !strings.HasPrefix(selector.Sel.Name, "Key")
+			isCatalogueUse := isIdentifier && qualifier.Name == "i18n" && selector.Sel.Name != "Message" && selector.Sel.Name != "Rendered" && !strings.HasPrefix(selector.Sel.Name, "Key")
 			if isCatalogueUse {
-				t.Errorf("%s: i18n.%s used, expectedValue only Message and Key constants", path, selector.Sel.Name)
+				t.Errorf("%s: i18n.%s used, expectedValue only Message, Rendered and Key constants", path, selector.Sel.Name)
 			}
 			return true
 		})

@@ -28,7 +28,7 @@ type fakeService struct {
 	err                 error
 	proposals           []app.Proposal
 	status              app.Status
-	maintenanceWarnings []string
+	maintenanceWarnings []app.Warning
 	applyErrors         map[int64]error
 	lastApplyOptions    []app.DecisionOption
 	dedupePlan          []app.DedupeProposal
@@ -224,7 +224,7 @@ func TestCli_neverPrintsSecrets(t *testing.T) {
 	const secret = "CLISECRETKEY"
 	configDir := writeDoctorConfig(t, `{"radarr": ["http://example.com:7878?apikey=`+secret+`"]}`)
 	leaky := errors.New("request to http://example.com/x?apikey=" + secret + " failed, key " + secret)
-	fake := &fakeService{err: leaky, status: app.Status{Warnings: []string{"warning with " + secret}}}
+	fake := &fakeService{err: leaky, status: app.Status{Warnings: []app.Warning{{Code: "warning.test", Text: "warning with " + secret}}}}
 	useFakeService(t, fake)
 
 	for _, args := range [][]string{{"status"}, {"status", "--json"}, {"proposals", "accept", "1"}, {"proposals", "accept", "1", "--json"}, {"scan"}} {
@@ -386,12 +386,12 @@ func TestCli_dedupeApplyAllAcceptedAppliesOnlyAcceptedProposals(t *testing.T) {
 
 func TestCli_warningsOnlyExitZeroWithAWarningLine(t *testing.T) {
 	configDir := writeDoctorConfig(t, `{}`)
-	useFakeService(t, &fakeService{maintenanceWarnings: []string{app.WarningPausedIncompleteAfterRecheck}})
+	useFakeService(t, &fakeService{maintenanceWarnings: []app.Warning{{Code: "warning.paused_incomplete_after_recheck", Text: "paused after the recheck"}}})
 
 	text := runCli(t, configDir, "dedupe", "apply", "8")
 	jsonRun := runCli(t, configDir, "dedupe", "apply", "8", "--json")
 
-	if text.exitCode != 0 || !strings.Contains(text.stderr, "warning: proposal 8: "+app.WarningPausedIncompleteAfterRecheck) {
+	if text.exitCode != 0 || !strings.Contains(text.stderr, "warning: proposal 8: paused after the recheck") {
 		t.Fatalf("gotValue %+v, expectedValue exit 0 and a warning line", text)
 	}
 	if jsonRun.exitCode != 0 || !strings.Contains(jsonRun.stdout, `"warnings"`) || strings.Contains(jsonRun.stderr, "warning:") {
@@ -426,8 +426,8 @@ func TestCli_neverPrintsSecretsWithJSONEscapedCharacters(t *testing.T) {
 	forbidden := []string{secret, strings.Trim(string(escaped), `"`), `tok&en<x\"y\\zé`}
 	leakyText := "provider said " + secret
 	fake := &fakeService{
-		status:              app.Status{Warnings: []string{leakyText}},
-		maintenanceWarnings: []string{leakyText},
+		status:              app.Status{Warnings: []app.Warning{{Code: "warning.test", Text: leakyText}}},
+		maintenanceWarnings: []app.Warning{{Code: "warning.test", Text: leakyText}},
 	}
 	useFakeService(t, fake)
 	assertMasked := func(args []string, result cliRun) {
@@ -536,7 +536,7 @@ func TestCli_jsonStaysValidWithAssignmentsAndQuotesInMessages(t *testing.T) {
 	t.Setenv("LIBRARY_PROVIDER_TOKEN", `x"y`)
 	configDir := writeDoctorConfig(t, `{}`)
 	tricky := `token=x"y password=a\b"c url http://example.com/?apikey=k"q`
-	fake := &fakeService{status: app.Status{Warnings: []string{tricky}}, maintenanceWarnings: []string{tricky}}
+	fake := &fakeService{status: app.Status{Warnings: []app.Warning{{Code: "warning.test", Text: tricky}}}, maintenanceWarnings: []app.Warning{{Code: "warning.test", Text: tricky}}}
 	useFakeService(t, fake)
 	runs := [][]string{{"status", "--json"}, {"dedupe", "apply", "2", "--json"}}
 
@@ -559,7 +559,7 @@ func sampleLinkPage() app.LinkPage {
 	return app.LinkPage{
 		Items: []app.LinkItem{
 			{ID: 3, LinkPath: "/home/u/links/ok.mkv", TargetPath: "/home/u/library/ok.mkv", Kind: "symlink", State: app.LinkStateOK},
-			{ID: 4, LinkPath: longPath, TargetPath: "/home/u/library/gone.mkv", Kind: "hardlink", State: app.LinkStateLost, Reason: "the link target is missing"},
+			{ID: 4, LinkPath: longPath, TargetPath: "/home/u/library/gone.mkv", Kind: "hardlink", State: app.LinkStateLost, Reason: app.LinkReasonTargetMissing, Label: "the link target is missing"},
 		},
 		Total: 9, Next: 12, Truncated: true,
 		Counts: map[string]int{app.LinkStateOK: 1, app.LinkStateDiverged: 0, app.LinkStateLost: 8, app.LinkStateUnreadable: 0},
@@ -577,7 +577,7 @@ func TestCli_linksListPrintsATableAndStableJSON(t *testing.T) {
 	if text.exitCode != successExitCode || !fake.called("ListLinks {lost 2 10}") {
 		t.Fatalf("gotValue %+v calls %v, expectedValue exit 0 and the filter passed through", text, fake.calls)
 	}
-	for _, expectedValue := range []string{"lost 8", "/home/u/links/ok.mkv", "the link target is missing", "showing 11-12 of 9", "--offset 12"} {
+	for _, expectedValue := range []string{"lost 8", "/home/u/links/ok.mkv", app.LinkReasonTargetMissing + " (the link target is missing)", "showing 11-12 of 9", "--offset 12"} {
 		if !strings.Contains(text.stdout, expectedValue) {
 			t.Fatalf("gotValue %q, expectedValue %q in the text output", text.stdout, expectedValue)
 		}

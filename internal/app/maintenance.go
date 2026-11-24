@@ -55,12 +55,24 @@ const (
 // MaintenanceResult rend compte d'une application dedupe ou repair : LinkTarget est la cible écrite (ou qui le
 // serait en DryRun), BytesRead les octets lus pour la preuve, Warnings les avertissements ajoutés.
 type MaintenanceResult struct {
-	ProposalID int64    `json:"proposal_id"`
-	Applied    bool     `json:"applied"`
-	DryRun     bool     `json:"dry_run"`
-	LinkTarget string   `json:"link_target,omitempty"`
-	BytesRead  int64    `json:"bytes_read"`
-	Warnings   []string `json:"warnings,omitempty"`
+	ProposalID int64     `json:"proposal_id"`
+	Applied    bool      `json:"applied"`
+	DryRun     bool      `json:"dry_run"`
+	LinkTarget string    `json:"link_target,omitempty"`
+	BytesRead  int64     `json:"bytes_read"`
+	Warnings   []Warning `json:"warnings,omitempty"`
+	// stored garde les messages tels qu'ils seront enregistrés sur la proposition.
+	stored []i18n.Message
+}
+
+// withWarnings pose les avertissements : rendus dans la langue pour la sortie, bruts pour l'enregistrement.
+func (result MaintenanceResult) withWarnings(translator i18n.Translator, messages []i18n.Message) MaintenanceResult {
+	result.stored = messages
+	result.Warnings = nil
+	if len(messages) > 0 {
+		result.Warnings = warningViews(translator, messages)
+	}
+	return result
 }
 
 // maintenanceDetails est le détail d'une proposition dedupe ou repair : key l'identifie d'une exécution à l'autre,
@@ -220,7 +232,7 @@ func (svc *service) finishMaintenance(ctx context.Context, result *MaintenanceRe
 			return err
 		}
 		result.Applied = true
-		return svc.addWarnings(ctx, result.ProposalID, result.Warnings)
+		return svc.addWarnings(ctx, result.ProposalID, result.stored)
 	}
 	for _, staleCause := range staleCauses {
 		if errors.Is(cause, staleCause) {
@@ -245,8 +257,8 @@ func bookkeeping(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), bookkeepingTimeout)
 }
 
-func (svc *service) addWarnings(ctx context.Context, proposalID int64, warnings []string) error {
-	for _, warning := range messagesOfCodes(warnings) {
+func (svc *service) addWarnings(ctx context.Context, proposalID int64, warnings []i18n.Message) error {
+	for _, warning := range warnings {
 		if err := svc.deps.Store.AddProposalWarning(ctx, proposalID, warning); err != nil {
 			return err
 		}

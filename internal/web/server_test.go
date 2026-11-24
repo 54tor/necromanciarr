@@ -412,7 +412,7 @@ func TestServer_errorsNeverLeakSecretsOrPaths(t *testing.T) {
 	settings := tokenSettings()
 	settings.LibraryProviderToken = "provider-test-token"
 	fake := &fakeService{
-		status: app.Status{Warnings: []string{"daemon refused provider-test-token at http://example.com/?apikey=provider-test-token"}},
+		status: app.Status{Warnings: []app.Warning{{Code: "warning.test", Text: "daemon refused provider-test-token at http://example.com/?apikey=provider-test-token"}}},
 		errors: map[string]error{
 			"Reject": errors.New("open /home/u/library/film.mkv: token=" + testToken + " goroutine 7 [running]"),
 			"Accept": fmt.Errorf("%w: proposal 3 under /home/u/library", app.ErrConflictNeedsChoose),

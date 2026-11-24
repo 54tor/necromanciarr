@@ -67,7 +67,7 @@ func codeScenarios(t *testing.T) []codeScenario {
 		Reachable:  func(context.Context, string) bool { return true },
 		DescribeMounts: func(context.Context, []config.FSProvider) ([]hashsource.ProviderMountReport, error) {
 			return []hashsource.ProviderMountReport{{Provider: "remote", MountReport: hashsource.MountReport{
-				Mount: hashsource.Mount{LocalPath: "/home/u/mnt", Remote: "remote:"}, Advice: []string{"no hash"},
+				Mount: hashsource.Mount{LocalPath: "/home/u/mnt", Remote: "remote:"}, Advice: []i18n.Message{{Key: i18n.KeyAdviceMountNoHash}},
 			}}}, nil
 		},
 		NewSearcher: func(config.Config) (Searcher, error) {

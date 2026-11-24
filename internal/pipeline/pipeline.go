@@ -153,7 +153,7 @@ func LibraryScanner(mediaStore *store.Store) RootScanner {
 // ProbeLinks nil vaut linker.Probe ; PrepareCopy nil vaut linker.PrepareCopy (copie indépendante posée avant un
 // Force). Pour Seed : Client, ClientMapper (nil = même vue que le client), Category et Tags,
 // SkipRecheck (permis de sauter le recontrôle quand notre vérification couvre 100 %), RecheckTimeout (0 = une heure),
-// Notifier (nil = aucun) et CrossSeedWarning, l'avertissement de crossseed.ResolveMode recopié dans le Result.
+// Notifier (nil = aucun) et CrossSeedWarnings, les avertissements de crossseed.ResolveMode recopiés dans le Result.
 type Deps struct {
 	Store            Store
 	ScanRoot         RootScanner
@@ -182,7 +182,7 @@ type Deps struct {
 	SkipRecheck              bool
 	RecheckTimeout           time.Duration
 	Notifier                 crossseed.Notifier
-	CrossSeedWarning         string
+	CrossSeedWarnings        []i18n.Message
 	Now                      func() time.Time
 	LockTTL                  time.Duration
 }
@@ -229,8 +229,10 @@ type Result struct {
 	Linked                 int `json:"linked"`
 	Seeded                 int `json:"seeded"`
 	SeededPausedIncomplete int `json:"seeded_paused_incomplete"`
-	// Warnings porte les avertissements globaux de l'étape (mode cross-seed), sans URL ni secret.
-	Warnings []string `json:"warnings,omitempty"`
+	// Warnings porte les avertissements globaux de l'étape (mode cross-seed), sans URL ni secret ; ils ne sortent jamais
+	// tels quels : l'application remplit WarningViews, rendus dans la langue.
+	Warnings     []i18n.Message  `json:"-"`
+	WarningViews []i18n.Rendered `json:"warnings,omitempty"`
 }
 
 func (result *Result) count(reason string, amount int) {

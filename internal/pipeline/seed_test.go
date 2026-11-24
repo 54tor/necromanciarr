@@ -189,9 +189,9 @@ func TestSeedStage_delegateModeNotifiesWebhookNativeModeDoesNot(t *testing.T) {
 }
 
 func TestSeedStage_reportsTheCrossSeedModeWarningAndNeedsAClient(t *testing.T) {
-	deps := Deps{Store: openTestStore(t), CrossSeedWarning: "cross-seed is configured but unreachable"}
+	deps := Deps{Store: openTestStore(t), CrossSeedWarnings: []i18n.Message{{Key: i18n.KeyWarningCrossSeedFallbackNative}}}
 	result, err := Run(context.Background(), StageSeed, deps)
-	if !errors.Is(err, ErrNoTorrentClient) || !slices.Equal(result.Warnings, []string{deps.CrossSeedWarning}) {
+	if !errors.Is(err, ErrNoTorrentClient) || !slices.Equal(warningKeys(result.Warnings), []i18n.Key{i18n.KeyWarningCrossSeedFallbackNative}) {
 		t.Fatalf("gotValue %v %+v, expectedValue ErrNoTorrentClient with the mode warning", err, result)
 	}
 }

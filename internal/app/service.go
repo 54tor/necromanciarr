@@ -143,26 +143,26 @@ type Resumer interface {
 }
 
 // Deps regroupe les dépendances du Service : Stages sert aux étapes (même store, mêmes clients), Client à Force (nil =
-// aucun client), CrossSeed et CrossSeedWarning viennent de crossseed.ResolveMode, Now nil vaut time.Now. HashSources
+// aucun client), CrossSeed et CrossSeedWarnings viennent de crossseed.ResolveMode, Now nil vaut time.Now. HashSources
 // est le registre des fournisseurs d'empreintes, construit une fois pour les actions dedupe et repair. Config donne
 // au diagnostic et à dedupe et repair leurs réglages (racines, section dedupe, dossiers de liens) ; DoctorDeps remplace
 // les accès extérieurs du diagnostic (vide en production) ; Maintenance est le client torrent de dedupe et repair
 // (nil = ni recontrôle ni recherche par torrent). dedupe et repair prennent le verrou des étapes de Stages.Store.
 type Deps struct {
-	Store            Store
-	Stages           pipeline.Deps
-	Client           Resumer
-	CrossSeed        crossseed.Behavior
-	CrossSeedWarning string
-	HashSources      hashsource.Registry
-	Config           config.Config
-	DoctorDeps       doctor.Deps
-	Maintenance      MaintenanceClient
-	Now              func() time.Time
+	Store             Store
+	Stages            pipeline.Deps
+	Client            Resumer
+	CrossSeed         crossseed.Behavior
+	CrossSeedWarnings []i18n.Message
+	HashSources       hashsource.Registry
+	Config            config.Config
+	DoctorDeps        doctor.Deps
+	Maintenance       MaintenanceClient
+	Now               func() time.Time
 	// Translator rend les textes dans la langue configurée (vide : français, sans masquage).
 	Translator i18n.Translator
 	// ResolveCrossSeed, s'il est posé, redonne le mode cross-seed au début de chaque étape, acceptation et Status
-	// (production : sonde TCP mise en cache) ; nil garde CrossSeed, CrossSeedWarning et Stages.Notifier fixes.
+	// (production : sonde TCP mise en cache) ; nil garde CrossSeed, CrossSeedWarnings et Stages.Notifier fixes.
 	ResolveCrossSeed func(ctx context.Context) CrossSeedResolution
 }
 
@@ -198,9 +198,9 @@ func (svc *service) RunStage(ctx context.Context, stage pipeline.Stage) (pipelin
 	}
 	stages := svc.deps.Stages
 	resolution := svc.crossSeed(ctx)
-	stages.CrossSeed, stages.CrossSeedWarning, stages.Notifier = resolution.Behavior, resolution.Warning, resolution.Notifier
+	stages.CrossSeed, stages.CrossSeedWarnings, stages.Notifier = resolution.Behavior, resolution.Warnings, resolution.Notifier
 	result, err := pipeline.Run(ctx, stage, stages)
-	return withReasonLabels(svc.deps.Translator, result), err
+	return withRenderedTexts(svc.deps.Translator, result), err
 }
 
 // checkStageDeps refuse proprement une étape dont un composant manque, au lieu d'échouer au milieu.

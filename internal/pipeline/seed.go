@@ -54,9 +54,7 @@ const defaultSeedRecheckTimeout = time.Hour
 // réécrirait sinon des pièces à cheval sur un fichier lié de la bibliothèque.
 func runSeed(ctx context.Context, deps Deps) (Result, error) {
 	var result Result
-	if deps.CrossSeedWarning != "" {
-		result.Warnings = append(result.Warnings, deps.CrossSeedWarning)
-	}
+	result.Warnings = append(result.Warnings, deps.CrossSeedWarnings...)
 	if deps.Client == nil {
 		return result, ErrNoTorrentClient
 	}

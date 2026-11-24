@@ -17,6 +17,27 @@ const (
 	KeyWarningRecheckFailed                Key = "warning.recheck_failed"
 	KeyWarningNoClientRecheck              Key = "warning.no_client_recheck"
 	KeyWarningLinkNotRecorded              Key = "warning.link_not_recorded"
+
+	KeyWarningDedupeUnreliableInode        Key = "warning.dedupe.unreliable_inode"
+	KeyWarningDedupeFullNetworkRead        Key = "warning.dedupe.full_network_read"
+	KeyWarningDedupeSampledVerify          Key = "warning.dedupe.sampled_verify"
+	KeyWarningDedupeRenameNotAtomic        Key = "warning.dedupe.rename_not_atomic"
+	KeyWarningCrossSeedDelegateNoDaemon    Key = "warning.crossseed.delegate_no_daemon"
+	KeyWarningCrossSeedDelegateUnreachable Key = "warning.crossseed.delegate_unreachable"
+	KeyWarningCrossSeedFallbackNative      Key = "warning.crossseed.fallback_native"
+	KeyWarningMultipleClients              Key = "warning.multiple_clients"
+)
+
+// Conseils sur un montage réseau (doctor, contrôle rclone) : produits par hashsource sous forme de messages.
+const (
+	KeyAdviceMountStartRC        Key = "advice.mount.start_rc"
+	KeyAdviceMountNoHash         Key = "advice.mount.no_hash"
+	KeyAdviceMountNoModTime      Key = "advice.mount.no_mod_time"
+	KeyAdviceMountModTimeUnknown Key = "advice.mount.mod_time_unknown"
+	KeyAdviceMountVFSLinks       Key = "advice.mount.vfs_links"
+	KeyAdviceMountRcloneError    Key = "advice.mount.rclone_error"
+	KeyAdviceMountNoSample       Key = "advice.mount.no_sample"
+	KeyAdviceMountInvalid        Key = "advice.mount.invalid"
 )
 
 var warningKeys = []Key{
@@ -25,4 +46,9 @@ var warningKeys = []Key{
 	KeyWarningApplicationFailed, KeyWarningApplicationFailedCrossDevice, KeyWarningApplicationFailedNoLinkDir,
 	KeyWarningApplicationFailedKindRefused, KeyWarningApplicationFailedDetail, KeyWarningPausedIncompleteAfterRecheck,
 	KeyWarningRecheckFailed, KeyWarningNoClientRecheck, KeyWarningLinkNotRecorded,
+	KeyWarningDedupeUnreliableInode, KeyWarningDedupeFullNetworkRead, KeyWarningDedupeSampledVerify,
+	KeyWarningDedupeRenameNotAtomic, KeyWarningCrossSeedDelegateNoDaemon, KeyWarningCrossSeedDelegateUnreachable,
+	KeyWarningCrossSeedFallbackNative, KeyWarningMultipleClients,
+	KeyAdviceMountStartRC, KeyAdviceMountNoHash, KeyAdviceMountNoModTime, KeyAdviceMountModTimeUnknown,
+	KeyAdviceMountVFSLinks, KeyAdviceMountRcloneError, KeyAdviceMountNoSample, KeyAdviceMountInvalid,
 }

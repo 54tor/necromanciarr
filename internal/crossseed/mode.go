@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"necromanciarr/internal/i18n"
 )
 
 // Behavior est ce que le pipeline fait de cross-seed pour un seed.
@@ -57,39 +59,42 @@ func truncate(text string, limit int) string {
 	return string(runes[:limit])
 }
 
-// ResolveMode décide du comportement. Le message d'avertissement, s'il n'est pas vide, est à consigner : delegate
-// sans démon joignable n'est jamais silencieusement remplacé par native.
-func ResolveMode(mode string, daemonConfigured, daemonReachable bool) (Behavior, string, error) {
+// Avertissements de ResolveMode : des messages sans paramètre, rendus par l'appelant.
+var (
+	warningDelegateNoDaemon    = i18n.Message{Key: i18n.KeyWarningCrossSeedDelegateNoDaemon}
+	warningDelegateUnreachable = i18n.Message{Key: i18n.KeyWarningCrossSeedDelegateUnreachable}
+	warningFallbackNative      = i18n.Message{Key: i18n.KeyWarningCrossSeedFallbackNative}
+)
+
+// ResolveMode décide du comportement. L'avertissement, s'il a une clé, est à consigner : delegate sans démon joignable
+// n'est jamais silencieusement remplacé par native.
+func ResolveMode(mode string, daemonConfigured, daemonReachable bool) (Behavior, i18n.Message, error) {
 	normalized, err := NormalizeMode(mode)
 	if err != nil {
-		return Disabled, "", err
+		return Disabled, i18n.Message{}, err
 	}
 	usable := daemonConfigured && daemonReachable
 	switch normalized {
 	case ModeNative:
-		return Native, "", nil
+		return Native, i18n.Message{}, nil
 	case ModeOff:
-		return Disabled, "", nil
+		return Disabled, i18n.Message{}, nil
 	case ModeDelegate:
 		if usable {
-			return Delegate, "", nil
+			return Delegate, i18n.Message{}, nil
 		}
-		return Disabled, "crossSeedMode is delegate but " + unusableReason(daemonConfigured) + ": cross-seed search disabled", nil
+		if daemonConfigured {
+			return Disabled, warningDelegateUnreachable, nil
+		}
+		return Disabled, warningDelegateNoDaemon, nil
 	}
 	if usable {
-		return Delegate, "", nil
+		return Delegate, i18n.Message{}, nil
 	}
 	if daemonConfigured {
-		return Native, "cross-seed is configured but unreachable: falling back to native matching", nil
+		return Native, warningFallbackNative, nil
 	}
-	return Native, "", nil
-}
-
-func unusableReason(daemonConfigured bool) string {
-	if daemonConfigured {
-		return "the cross-seed daemon is unreachable"
-	}
-	return "no cross-seed daemon is configured"
+	return Native, i18n.Message{}, nil
 }
 
 type dialFunc func(ctx context.Context, network, address string) (net.Conn, error)

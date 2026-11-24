@@ -252,7 +252,7 @@ func writeLinks(writer io.Writer, translator i18n.Translator, page app.LinkPage,
 	for _, item := range page.Items {
 		writeRow(writer, linkColumns, fmt.Sprint(item.ID), item.State, item.Kind, item.LinkPath)
 		if item.Reason != "" {
-			_, _ = fmt.Fprintln(writer, fitText("       "+item.Reason, tableWidth))
+			_, _ = fmt.Fprintln(writer, fitText("       "+item.Reason+" ("+item.Label+")", tableWidth))
 		}
 	}
 	_, _ = fmt.Fprintln(writer, translator.Text(i18n.KeyCLILinksShowing, textParams(

@@ -117,7 +117,7 @@ func (state snapshot) view(translator i18n.Translator, proposal store.Proposal) 
 		Current: state.current(proposal), Warnings: warningViews(translator, proposal.Warnings),
 	}
 	if isMaintenanceKind(proposal.Kind) {
-		view.Current, view.Maintenance = true, proposal.Details
+		view.Current, view.Maintenance = true, labelledMaintenance(translator, proposal)
 		return view
 	}
 	_ = json.Unmarshal(proposal.Details, &view.Details)
@@ -125,6 +125,32 @@ func (state snapshot) view(translator i18n.Translator, proposal store.Proposal) 
 		view.Details.ExcludedFiles[position].Label = translator.ReasonLabel(view.Details.ExcludedFiles[position].Reason)
 	}
 	return view
+}
+
+// labelledMaintenance ajoute le libellé traduit du motif au détail dedupe ou repair ; un détail illisible reste tel quel.
+func labelledMaintenance(translator i18n.Translator, proposal store.Proposal) json.RawMessage {
+	var labelled any
+	switch proposal.Kind {
+	case store.ProposalDedupe:
+		var details DedupeDetails
+		if json.Unmarshal(proposal.Details, &details) != nil {
+			return proposal.Details
+		}
+		labelled = details.labelled(translator)
+	case store.ProposalRepair:
+		var details RepairDetails
+		if json.Unmarshal(proposal.Details, &details) != nil {
+			return proposal.Details
+		}
+		labelled = details.labelled(translator)
+	default:
+		return proposal.Details
+	}
+	encoded, err := json.Marshal(labelled)
+	if err != nil {
+		return proposal.Details
+	}
+	return encoded
 }
 
 func (svc *service) ListProposals(ctx context.Context, filter ProposalFilter) ([]Proposal, error) {

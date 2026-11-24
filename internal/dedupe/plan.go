@@ -15,6 +15,7 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/hashsource"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
 )
@@ -34,11 +35,11 @@ const (
 )
 
 // Avertissements portés par un Replacement dont un des fichiers est sur un volume FUSE, réseau ou inconnu.
-const (
-	warningUnreliableInode = "inode non fiable"
-	warningFullNetworkRead = "lecture complète d'un montage réseau"
-	warningSampledVerify   = "vérification par échantillons, plus faible que la comparaison complète"
-	warningRenameNotAtomic = "renommage non atomique sur ce volume"
+var (
+	warningUnreliableInode = i18n.Message{Key: i18n.KeyWarningDedupeUnreliableInode}
+	warningFullNetworkRead = i18n.Message{Key: i18n.KeyWarningDedupeFullNetworkRead}
+	warningSampledVerify   = i18n.Message{Key: i18n.KeyWarningDedupeSampledVerify}
+	warningRenameNotAtomic = i18n.Message{Key: i18n.KeyWarningDedupeRenameNotAtomic}
 )
 
 // toolEntryMarker repère les entrées temporaires de necromanciarr (sonde, lien en cours) : jamais candidates.
@@ -98,7 +99,7 @@ type Replacement struct {
 	SavedBytes         int64
 	Ambiguous          []string
 	Reason             error
-	Warnings           []string
+	Warnings           []i18n.Message
 	BytesToRead        int64
 	Method             Method
 	HashAlgorithm      hashsource.Algorithm
@@ -416,8 +417,8 @@ func (run *planRun) renameIsUncertain(torrentDir, torrentPath string) bool {
 	return isRemoteVolume || !run.capabilities[torrentDir].capabilities.RenameOverwrite
 }
 
-func (run *planRun) warnings(torrentPath string, libraryPaths []string, method Method) []string {
-	var warnings []string
+func (run *planRun) warnings(torrentPath string, libraryPaths []string, method Method) []i18n.Message {
+	var warnings []i18n.Message
 	libraryIsLocal := !slices.ContainsFunc(libraryPaths, func(path string) bool { return run.volumeOf(path) != linker.Local })
 	allLocal := libraryIsLocal && run.volumeOf(torrentPath) == linker.Local
 	if !libraryIsLocal {

@@ -60,6 +60,20 @@ const (
 	KeyReasonAnnexHashFailed             Key = "reason.annex_hash_failed"
 	KeyReasonNeedsClientRecheck          Key = "reason.needs_client_recheck"
 	KeyReasonIsolatedCopy                Key = "reason.isolated_copy"
+
+	KeyReasonLinkMissing          Key = "reason.link_missing"
+	KeyReasonLinkTargetMissing    Key = "reason.link_target_missing"
+	KeyReasonLinkInodeDiverged    Key = "reason.link_inode_diverged"
+	KeyReasonLinkTargetRenamed    Key = "reason.link_target_renamed"
+	KeyReasonLinkNotCompared      Key = "reason.link_not_compared"
+	KeyReasonLinkReplaced         Key = "reason.link_replaced"
+	KeyReasonLinkResized          Key = "reason.link_resized"
+	KeyReasonLinkTargetUnreadable Key = "reason.link_target_unreadable"
+	KeyReasonLinkInspectionFailed Key = "reason.link_inspection_failed"
+	KeyReasonHashUnavailable      Key = "reason.hash_unavailable"
+	KeyReasonNoLinkKind           Key = "reason.no_link_kind"
+	KeyReasonLinkKindUnsupported  Key = "reason.link_kind_unsupported"
+	KeyReasonLinkProbeFailed      Key = "reason.link_probe_failed"
 )
 
 var reasonKeys = []Key{
@@ -79,4 +93,8 @@ var reasonKeys = []Key{
 	KeyReasonStaleCandidate, KeyReasonStaleGeneration, KeyReasonTorrentFetchFailed, KeyReasonTorrentNotFound,
 	KeyReasonTorrentTooLarge, KeyReasonUpdateDeferredIncompleteRun, KeyReasonAnnexHashFailed, KeyReasonNeedsClientRecheck,
 	KeyReasonIsolatedCopy,
+	KeyReasonLinkMissing, KeyReasonLinkTargetMissing, KeyReasonLinkInodeDiverged, KeyReasonLinkTargetRenamed,
+	KeyReasonLinkNotCompared, KeyReasonLinkReplaced, KeyReasonLinkResized, KeyReasonLinkTargetUnreadable,
+	KeyReasonLinkInspectionFailed, KeyReasonHashUnavailable, KeyReasonNoLinkKind, KeyReasonLinkKindUnsupported,
+	KeyReasonLinkProbeFailed,
 }

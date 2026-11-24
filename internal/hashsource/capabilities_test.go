@@ -5,11 +5,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/store"
 )
 
@@ -191,9 +193,33 @@ func TestDescribeMount_explainsMissingHash(t *testing.T) {
 	if report.Mode != ModeBinary || !report.BinaryFound || !report.Probed || len(report.Capabilities.Hashes) != 0 || !report.SymlinksKnown {
 		t.Fatalf("unexpected report %+v", report)
 	}
-	advice := strings.Join(report.Advice, "\n")
-	if !strings.Contains(advice, "aucune empreinte") || !strings.Contains(advice, "--rc") {
-		t.Fatalf("advice must explain the missing hash and how to start rc: %q", advice)
+	if gotValue := adviceKeys(report); !slices.Contains(gotValue, i18n.KeyAdviceMountNoHash) || !slices.Contains(gotValue, i18n.KeyAdviceMountStartRC) {
+		t.Fatalf("gotValue %v, expectedValue the missing hash and how to start rc", gotValue)
+	}
+}
+
+// adviceKeys liste les clés des conseils d'un rapport de montage.
+func adviceKeys(report MountReport) []i18n.Key {
+	keys := make([]i18n.Key, 0, len(report.Advice))
+	for _, advice := range report.Advice {
+		keys = append(keys, advice.Key)
+	}
+	return keys
+}
+
+func TestHashsource_warningsAreMessages(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	report := DescribeMount(context.Background(), Mount{LocalPath: t.TempDir(), Remote: "remote:bucket"})
+
+	expectedValue := []i18n.Message{{Key: i18n.KeyAdviceMountStartRC}}
+	if !reflect.DeepEqual(report.Advice, expectedValue) {
+		t.Fatalf("gotValue %+v, expectedValue %+v", report.Advice, expectedValue)
+	}
+	for _, advice := range report.Advice {
+		if strings.Contains(string(advice.Key), " ") || strings.ContainsAny(string(advice.Key), "éèà") {
+			t.Fatalf("gotValue %q, expectedValue a stable key and not a sentence", advice.Key)
+		}
 	}
 }
 
@@ -202,7 +228,7 @@ func TestDescribeMount_withoutRcNorBinaryTellsHowToStartRC(t *testing.T) {
 
 	report := DescribeMount(context.Background(), Mount{LocalPath: t.TempDir(), Remote: "remote:bucket"})
 
-	if report.Mode != ModeNone || report.BinaryFound || report.Probed || !strings.Contains(strings.Join(report.Advice, "\n"), "--rc --rc-addr") {
+	if report.Mode != ModeNone || report.BinaryFound || report.Probed || !slices.Contains(adviceKeys(report), i18n.KeyAdviceMountStartRC) {
 		t.Fatalf("unexpected report %+v", report)
 	}
 }
