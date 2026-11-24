@@ -32,6 +32,7 @@ const (
 const (
 	defaultMaxCandidatesToRead = 5
 	hardlinkKind               = "hardlink"
+	symlinkKind                = "symlink"
 )
 
 // Repair propose de faire pointer LinkPath vers NewTarget au lieu de OldTarget (texte du lien tel que lu). Size est la
@@ -234,8 +235,14 @@ type Condition string
 const (
 	// ConditionOK : symlink dont la cible répond, ou hardlink qui partage encore l'inode de sa cible.
 	ConditionOK Condition = "ok"
-	// ConditionUnverified : lien qui n'est ni un symlink ni un hardlink (reflink, copie) ; rien n'est comparé.
+	// ConditionUnverified : reflink ou copie sans taille enregistrée ; rien n'est comparé.
 	ConditionUnverified Condition = "unverified"
+	// ConditionReplaced : symlink enregistré remplacé par un fichier ordinaire.
+	ConditionReplaced Condition = "replaced"
+	// ConditionSizeMatches : reflink ou copie de la taille enregistrée ; le contenu n'est pas lu.
+	ConditionSizeMatches Condition = "size_matches"
+	// ConditionResized : reflink ou copie dont la taille n'est plus la taille enregistrée.
+	ConditionResized Condition = "resized"
 	// ConditionLost : le lien lui-même a disparu.
 	ConditionLost Condition = "lost"
 	// ConditionBroken : symlink dont la cible est absente ; OldTarget est son texte.
@@ -284,12 +291,24 @@ func inspect(lstat, stat func(path string) (fs.FileInfo, error), link store.Link
 	return Inspection{Condition: ConditionBroken, OldTarget: oldTarget, Err: err}
 }
 
-// inspectNonSymlink : seul un hardlink peut diverger (inode plus partagé avec la cible) ; une cible simplement
-// renommée ne le fait pas diverger, et les autres sortes de liens ne sont pas comparées.
+// inspectNonSymlink : un symlink enregistré devenu fichier est remplacé ; un hardlink diverge quand il ne partage plus
+// l'inode de sa cible (une cible simplement renommée ne le fait pas diverger) ; un reflink ou une copie diverge quand
+// sa taille n'est plus celle enregistrée, sans lecture de contenu (taille inconnue : rien n'est comparé).
 func inspectNonSymlink(stat func(path string) (fs.FileInfo, error), link store.Link, linkInfo fs.FileInfo) Inspection {
-	if link.Kind != hardlinkKind {
+	switch {
+	case link.Kind == symlinkKind:
+		return Inspection{Condition: ConditionReplaced}
+	case link.Kind == hardlinkKind:
+		return inspectHardlink(stat, link, linkInfo)
+	case link.Size <= 0:
 		return Inspection{Condition: ConditionUnverified}
+	case linkInfo.Size() != link.Size:
+		return Inspection{Condition: ConditionResized}
 	}
+	return Inspection{Condition: ConditionSizeMatches}
+}
+
+func inspectHardlink(stat func(path string) (fs.FileInfo, error), link store.Link, linkInfo fs.FileInfo) Inspection {
 	targetInfo, err := stat(link.TargetPath)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -316,13 +335,13 @@ func (run *scanRun) examine(link store.Link) error {
 	case ConditionUnreadable:
 		run.markUnreadable(link.LinkPath, inspection.Err)
 		return nil
-	case ConditionUnverified:
+	case ConditionUnverified, ConditionSizeMatches:
 		run.report.OK = append(run.report.OK, link.LinkPath)
 		return nil
 	case ConditionRenamedTarget:
 		run.report.RenamedTarget = append(run.report.RenamedTarget, link.LinkPath)
 		return nil
-	case ConditionDiverged:
+	case ConditionDiverged, ConditionReplaced, ConditionResized:
 		run.report.Diverged = append(run.report.Diverged, link.LinkPath)
 		return run.setState(link, store.LinkDiverged)
 	case ConditionBroken:

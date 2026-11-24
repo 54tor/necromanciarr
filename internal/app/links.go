@@ -34,7 +34,9 @@ const (
 	reasonTargetMissing    = "the link target is missing"
 	reasonInodeDiverged    = "the hardlink no longer shares the inode of its target"
 	reasonTargetRenamed    = "the recorded target was renamed, the hardlink still holds the data"
-	reasonNotCompared      = "this kind of link is not compared with its target"
+	reasonNotCompared      = "not compared: no recorded size for this kind of link"
+	reasonReplaced         = "symlink replaced by a regular file"
+	reasonResized          = "size differs from the recorded size"
 	reasonTargetUnreadable = "the link text cannot be read"
 )
 
@@ -55,6 +57,8 @@ type LinkFilter struct {
 }
 
 // LinkItem est un lien enregistré avec son état courant ; Reason explique un état autre que « conforme » vérifié.
+// Compared est faux quand rien n'a pu être comparé (reflink ou copie sans taille enregistrée) : « conforme » veut
+// seulement dire que le lien existe.
 type LinkItem struct {
 	ID         int64     `json:"id"`
 	LinkPath   string    `json:"link_path"`
@@ -64,6 +68,7 @@ type LinkItem struct {
 	RecordedAt time.Time `json:"recorded_at"`
 	Size       int64     `json:"size,omitempty"`
 	Reason     string    `json:"reason,omitempty"`
+	Compared   bool      `json:"compared"`
 }
 
 // LinkPage est une page de ListLinks : Total compte les liens du filtre, Next est l'Offset de la page suivante (absent
@@ -166,12 +171,13 @@ func linkItem(link store.Link, inspection repair.Inspection) LinkItem {
 	state, reason := stateOf(inspection)
 	return LinkItem{
 		ID: link.ID, LinkPath: link.LinkPath, TargetPath: link.TargetPath, Kind: link.Kind, State: state,
-		RecordedAt: link.CreatedAt, Size: link.Size, Reason: reason,
+		RecordedAt: link.CreatedAt, Size: link.Size, Reason: reason, Compared: inspection.Condition != repair.ConditionUnverified,
 	}
 }
 
 // stateOf ramène les conditions de repair aux quatre états de la liste : un symlink cassé est perdu comme un lien
-// disparu, une cible renommée ou non comparée reste conforme avec son motif.
+// disparu, un symlink remplacé ou une copie retaillée diverge, une cible renommée ou non comparée reste conforme avec
+// son motif ; une copie de la taille enregistrée est conforme sans motif.
 func stateOf(inspection repair.Inspection) (state, reason string) {
 	switch inspection.Condition {
 	case repair.ConditionLost:
@@ -183,6 +189,10 @@ func stateOf(inspection repair.Inspection) (state, reason string) {
 		return LinkStateLost, reasonTargetMissing
 	case repair.ConditionDiverged:
 		return LinkStateDiverged, reasonInodeDiverged
+	case repair.ConditionReplaced:
+		return LinkStateDiverged, reasonReplaced
+	case repair.ConditionResized:
+		return LinkStateDiverged, reasonResized
 	case repair.ConditionRenamedTarget:
 		return LinkStateOK, reasonTargetRenamed
 	case repair.ConditionUnverified:

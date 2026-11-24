@@ -97,7 +97,12 @@ func (fixture *linksFixture) libraryFile(name string) string {
 
 func (fixture *linksFixture) record(kind, linkPath, targetPath string) {
 	fixture.t.Helper()
-	link := store.Link{Kind: kind, LinkPath: linkPath, TargetPath: targetPath, Size: 42, State: store.LinkOK, CreatedAt: fixedNow}
+	fixture.recordSized(kind, linkPath, targetPath, 42)
+}
+
+func (fixture *linksFixture) recordSized(kind, linkPath, targetPath string, size int64) {
+	fixture.t.Helper()
+	link := store.Link{Kind: kind, LinkPath: linkPath, TargetPath: targetPath, Size: size, State: store.LinkOK, CreatedAt: fixedNow}
 	if err := fixture.store.RecordLink(context.Background(), link); err != nil {
 		fixture.t.Fatal(err)
 	}
@@ -166,6 +171,21 @@ func TestListLinks_reportsOkDivergedLostUnreadableWithoutWriting(t *testing.T) {
 	missing := filepath.Join(fixture.links, "never-there.mkv")
 	fixture.record("symlink", missing, fixture.libraryFile("orphan.mkv"))
 	unreadable := fixture.symlink("not-a-dir.mkv", filepath.Join(fixture.libraryFile("plain.mkv"), "child"))
+	replacedSymlink := fixture.symlink("replaced-symlink.mkv", fixture.libraryFile("kept.mkv"))
+	if err := os.Remove(replacedSymlink); err != nil {
+		t.Fatal(err)
+	}
+	writeAgedFile(t, replacedSymlink, []byte("a regular file now"), agedModTime)
+	copyContent := []byte("copy content")
+	resizedCopy := filepath.Join(fixture.links, "resized.mkv")
+	writeAgedFile(t, resizedCopy, copyContent, agedModTime)
+	fixture.recordSized("reflink", resizedCopy, fixture.libraryFile("resized.mkv"), int64(len(copyContent))+1)
+	sameSizeCopy := filepath.Join(fixture.links, "same-size.mkv")
+	writeAgedFile(t, sameSizeCopy, copyContent, agedModTime)
+	fixture.recordSized("reflink", sameSizeCopy, fixture.libraryFile("same-size.mkv"), int64(len(copyContent)))
+	unsizedCopy := filepath.Join(fixture.links, "unsized.mkv")
+	writeAgedFile(t, unsizedCopy, copyContent, agedModTime)
+	fixture.recordSized("reflink", unsizedCopy, fixture.libraryFile("unsized.mkv"), 0)
 	statesBefore := fixture.storedStates()
 	treeBefore := snapshotTree(t, fixture.root)
 
@@ -173,7 +193,8 @@ func TestListLinks_reportsOkDivergedLostUnreadableWithoutWriting(t *testing.T) {
 
 	expectedValue := map[string]string{
 		okSymlink: LinkStateOK, okHardlink: LinkStateOK, diverged: LinkStateDiverged, broken: LinkStateLost,
-		missing: LinkStateLost, unreadable: LinkStateUnreadable,
+		missing: LinkStateLost, unreadable: LinkStateUnreadable, replacedSymlink: LinkStateDiverged,
+		resizedCopy: LinkStateDiverged, sameSizeCopy: LinkStateOK, unsizedCopy: LinkStateOK,
 	}
 	gotValue := statesByPath(page)
 	if err != nil || len(gotValue) != len(expectedValue) || page.Total != len(expectedValue) || page.Truncated || page.Next != 0 {
@@ -184,7 +205,7 @@ func TestListLinks_reportsOkDivergedLostUnreadableWithoutWriting(t *testing.T) {
 			t.Fatalf("%s: gotValue %q, expectedValue %q", linkPath, gotValue[linkPath], expectedState)
 		}
 	}
-	expectedCounts := map[string]int{LinkStateOK: 2, LinkStateDiverged: 1, LinkStateLost: 2, LinkStateUnreadable: 1}
+	expectedCounts := map[string]int{LinkStateOK: 4, LinkStateDiverged: 3, LinkStateLost: 2, LinkStateUnreadable: 1}
 	for state, expectedCount := range expectedCounts {
 		if page.Counts[state] != expectedCount {
 			t.Fatalf("counts: gotValue %v, expectedValue %v", page.Counts, expectedCounts)
@@ -192,8 +213,9 @@ func TestListLinks_reportsOkDivergedLostUnreadableWithoutWriting(t *testing.T) {
 	}
 	for _, item := range page.Items {
 		hasReason := item.Reason != ""
-		if item.RecordedAt != fixedNow || item.Size != 42 || item.Kind == "" || hasReason == (item.State == LinkStateOK) {
-			t.Fatalf("gotValue %+v, expectedValue the recorded fields and a reason for every non-ok link only", item)
+		comparedOK := item.State == LinkStateOK && item.Compared
+		if item.RecordedAt != fixedNow || item.Kind == "" || hasReason == comparedOK || item.Compared == (item.LinkPath == unsizedCopy) {
+			t.Fatalf("gotValue %+v, expectedValue the recorded fields, a reason unless compared ok, compared false only when unsized", item)
 		}
 	}
 	assertTreeUnchanged(t, treeBefore, snapshotTree(t, fixture.root))
@@ -205,7 +227,7 @@ func TestListLinks_reportsOkDivergedLostUnreadableWithoutWriting(t *testing.T) {
 	}
 
 	filtered, err := fixture.service().ListLinks(context.Background(), LinkFilter{State: LinkStateLost})
-	if err != nil || filtered.Total != 2 || len(filtered.Items) != 2 || filtered.Counts[LinkStateOK] != 2 {
+	if err != nil || filtered.Total != 2 || len(filtered.Items) != 2 || filtered.Counts[LinkStateOK] != 4 {
 		t.Fatalf("gotValue %+v %v, expectedValue the two lost links and the full counts", filtered, err)
 	}
 	_, err = fixture.service().ListLinks(context.Background(), LinkFilter{State: "broken"})

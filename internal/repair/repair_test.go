@@ -6,8 +6,10 @@ import (
 	"crypto/sha1" // #nosec G505 -- SHA1 imposé par le format .torrent
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -679,5 +681,42 @@ func TestApply_refusesWhenOldTargetReappeared(t *testing.T) {
 		if !errors.Is(err, ErrChangedSinceScan) {
 			t.Fatalf("dryRun=%v: expected ErrChangedSinceScan, got %v", dryRun, err)
 		}
+	}
+}
+
+func TestScan_flagsReplacedSymlinksAndResizedCopiesAsDiverged(t *testing.T) {
+	directory := t.TempDir()
+	replaced := filepath.Join(directory, "replaced.mkv")
+	resized := filepath.Join(directory, "resized.mkv")
+	sameSize := filepath.Join(directory, "same-size.mkv")
+	unsized := filepath.Join(directory, "unsized.mkv")
+	for _, path := range []string{replaced, resized, sameSize, unsized} {
+		writeFileAt(t, path, patterned(64, 1), agedModTime)
+	}
+	links := []store.Link{
+		{Kind: "symlink", LinkPath: replaced, TargetPath: "/home/u/library/replaced.mkv", Size: 64},
+		{Kind: "reflink", LinkPath: resized, TargetPath: "/home/u/library/resized.mkv", Size: 65},
+		{Kind: "reflink", LinkPath: sameSize, TargetPath: "/home/u/library/same-size.mkv", Size: 64},
+		{Kind: "copy", LinkPath: unsized, TargetPath: "/home/u/library/unsized.mkv"},
+	}
+
+	_, report, err := Scan(context.Background(), Options{}, links, nil)
+
+	expectedDiverged := []string{replaced, resized}
+	if err != nil || !slices.Equal(report.Diverged, expectedDiverged) {
+		t.Fatalf("gotValue diverged %v %v, expectedValue %v", report.Diverged, err, expectedDiverged)
+	}
+	if expectedOK := []string{sameSize, unsized}; !slices.Equal(report.OK, expectedOK) {
+		t.Fatalf("gotValue ok %v, expectedValue %v", report.OK, expectedOK)
+	}
+	conditions := map[string]Condition{}
+	for _, link := range links {
+		conditions[link.LinkPath] = Inspect(link).Condition
+	}
+	expectedConditions := map[string]Condition{
+		replaced: ConditionReplaced, resized: ConditionResized, sameSize: ConditionSizeMatches, unsized: ConditionUnverified,
+	}
+	if !maps.Equal(conditions, expectedConditions) {
+		t.Fatalf("gotValue %v, expectedValue %v", conditions, expectedConditions)
 	}
 }
