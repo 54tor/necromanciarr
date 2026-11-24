@@ -20,7 +20,7 @@ const (
 	ReasonNoExactSize   = "no_exact_size"
 	ReasonSearchFailed  = "search_failed"
 	ReasonStaleDetected = "stale_candidate"
-	// ReasonUpdateDeferred compte les candidats connus non réassociés parce que l'exécution n'a pas tout cherché.
+	// ReasonUpdateDeferred compte chaque candidat connu non réassocié parce que l'exécution n'a pas tout cherché.
 	ReasonUpdateDeferred = "update_deferred_incomplete_run"
 )
 
@@ -152,7 +152,7 @@ func groupQuery(ids externalIDs, files []store.MediaFile) libraryprovider.Query 
 }
 
 // savePending enregistre chaque release cumulée. Après une exécution incomplète (arrêt ou recherche en échec), les
-// associations cumulées peuvent être partielles : seuls les nouveaux candidats sont créés, un candidat connu n'est
+// associations cumulées peuvent être partielles : seul un candidat nouveau est créé, un candidat connu n'est
 // jamais réassocié (ce qui le ramènerait à matched).
 func savePending(ctx context.Context, deps Deps, result *Result, pending map[candidateKey]*pendingCandidate,
 	known map[candidateKey]bool, complete bool, now time.Time,
