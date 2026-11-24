@@ -9,6 +9,7 @@ require (
 	github.com/dop251/goja v0.0.0-20261122185237-35fdc4b88e39
 	github.com/getkin/kin-openapi v0.146.0
 	golang.org/x/sys v0.50.0
+	golang.org/x/time v0.16.0
 	modernc.org/sqlite v1.63.0
 )
 

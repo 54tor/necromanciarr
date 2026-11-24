@@ -1,0 +1,149 @@
+// Package app est la couche applicative commune à la ligne de commande et au serveur web : chaque action de
+// l'opérateur passe par Service, qui s'appuie sur le store et les étapes du pipeline.
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/hashsource"
+	"necromanciarr/internal/pipeline"
+	"necromanciarr/internal/store"
+)
+
+// Erreurs typées des actions ; leurs messages ne portent ni URL, ni chemin, ni secret.
+var (
+	// ErrStaleProposal : la proposition appartient à une génération antérieure de son candidat (fichier changé,
+	// réassociation) ; il faut revérifier avant de décider.
+	ErrStaleProposal = errors.New("app: proposition périmée, revérifier")
+	// ErrConflictNeedsChoose : un litige ne s'accepte pas, l'opérateur choisit le torrent avec Choose.
+	ErrConflictNeedsChoose = errors.New("app: a conflict cannot be accepted, choose a torrent instead")
+	// ErrPartialPackNeedsForce : un pack dont des fichiers média manquent est ignoré par défaut.
+	ErrPartialPackNeedsForce = errors.New("app: a partial pack needs the explicit allow-partial-pack option")
+	// ErrNotATorrentProposal : la proposition ne lie aucun torrent (dedupe, repair : actions dédiées).
+	ErrNotATorrentProposal = errors.New("app: this proposal does not link a torrent")
+	// ErrCandidateAlreadyAccepted : une autre proposition du même torrent est déjà acceptée ou appliquée.
+	ErrCandidateAlreadyAccepted = errors.New("app: another proposal of this torrent is already accepted")
+	// ErrOneTorrentPerFile : en mode cross-seed désactivé, un fichier ne sert qu'à un seul torrent.
+	ErrOneTorrentPerFile = errors.New("app: cross-seed is disabled, another torrent of this group is already accepted")
+	// ErrNotFull : seule une proposition full peut devenir la principale de son groupe.
+	ErrNotFull = errors.New("app: only a full proposal can be chosen")
+	// ErrNotForceable : Force ne démarre qu'un partial_annex déjà lié et laissé en pause par Seed.
+	ErrNotForceable = errors.New("app: only a linked partial_annex left paused by seed can be forced")
+	// ErrNoPrimary : le groupe n'a pas de proposition principale full ouverte (Choose d'abord).
+	ErrNoPrimary = errors.New("app: the group has no open primary full proposal")
+	// ErrGroupNotFound : aucun candidat vérifié n'appartient à ce groupe.
+	ErrGroupNotFound = errors.New("app: group not found")
+	// ErrNotConfigured : l'étape demandée a besoin d'un composant absent de la configuration (nommé dans le message).
+	ErrNotConfigured = errors.New("app: component not configured")
+)
+
+// Service regroupe les actions de l'opérateur ; c'est la seule porte d'entrée de la CLI et du web.
+type Service interface {
+	// RunStage exécute une étape du pipeline sous son verrou.
+	RunStage(ctx context.Context, stage pipeline.Stage) (pipeline.Result, error)
+	// Status résume l'état des candidats, des propositions et du mode cross-seed.
+	Status(ctx context.Context) (Status, error)
+	// ListProposals liste les propositions qui passent le filtre, avec leurs détails.
+	ListProposals(ctx context.Context, filter ProposalFilter) ([]Proposal, error)
+	// Accept accepte une proposition de torrent de la génération courante.
+	Accept(ctx context.Context, proposalID int64, options ...DecisionOption) error
+	// Reject rejette une proposition.
+	Reject(ctx context.Context, proposalID int64) error
+	// Choose fait d'une proposition full la principale de son groupe (choix de l'opérateur).
+	Choose(ctx context.Context, proposalID int64) error
+	// Force démarre un partial_annex lié et laissé en pause, après décision explicite de l'opérateur.
+	Force(ctx context.Context, proposalID int64, options ...DecisionOption) (ForceResult, error)
+	// AcceptGroup accepte la principale du groupe, plus les autres torrents vérifiés en mode Native.
+	AcceptGroup(ctx context.Context, groupID int64) ([]int64, error)
+	// Actions renvoie le registre des actions (parité CLI et web).
+	Actions() []Action
+}
+
+// DecisionOption est une option explicite d'Accept ou de Force.
+type DecisionOption int
+
+// AllowPartialPack autorise un pack dont des fichiers média manquent (ignoré par défaut).
+const AllowPartialPack DecisionOption = iota + 1
+
+// ForceResult rend compte d'un Force : Warnings rappelle toujours les avertissements de la proposition.
+type ForceResult struct {
+	ProposalID int64
+	Forced     bool
+	Warnings   []string
+}
+
+// Store est la part du store utilisée par les actions.
+type Store interface {
+	ListProposals(ctx context.Context, decision store.ProposalDecision) ([]store.Proposal, error)
+	ListCandidatesByState(ctx context.Context, states ...store.CandidateState) ([]store.Candidate, error)
+	ListProposalProgress(ctx context.Context) (map[int64]store.ProposalProgress, error)
+	SaveProposalProgress(ctx context.Context, progress store.ProposalProgress, now time.Time) error
+	SetProposalDecision(ctx context.Context, proposalID int64, decision store.ProposalDecision, now time.Time) error
+	RetryProposal(ctx context.Context, proposalID int64, now time.Time) error
+	SetGroupPrimary(ctx context.Context, groupID, proposalID int64, source store.PrimarySource) error
+}
+
+// Resumer démarre un torrent du client ; *qbit.Client convient.
+type Resumer interface {
+	Resume(ctx context.Context, infoHash string) error
+}
+
+// Deps regroupe les dépendances du Service : Stages sert aux étapes (même store, mêmes clients), Client à Force (nil =
+// aucun client), CrossSeed et CrossSeedWarning viennent de crossseed.ResolveMode, Now nil vaut time.Now. HashSources
+// est le registre des fournisseurs d'empreintes, construit une fois pour les actions dedupe et repair.
+type Deps struct {
+	Store            Store
+	Stages           pipeline.Deps
+	Client           Resumer
+	CrossSeed        crossseed.Behavior
+	CrossSeedWarning string
+	HashSources      hashsource.Registry
+	Now              func() time.Time
+}
+
+type service struct {
+	deps Deps
+}
+
+// New construit le Service sur ses dépendances.
+func New(deps Deps) Service {
+	return &service{deps: deps}
+}
+
+func (svc *service) now() time.Time {
+	if svc.deps.Now == nil {
+		return time.Now()
+	}
+	return svc.deps.Now()
+}
+
+func (svc *service) RunStage(ctx context.Context, stage pipeline.Stage) (pipeline.Result, error) {
+	if err := svc.checkStageDeps(stage); err != nil {
+		return pipeline.Result{Stage: stage}, err
+	}
+	return pipeline.Run(ctx, stage, svc.deps.Stages)
+}
+
+// checkStageDeps refuse proprement une étape dont un composant manque, au lieu d'échouer au milieu.
+func (svc *service) checkStageDeps(stage pipeline.Stage) error {
+	stages := svc.deps.Stages
+	switch {
+	case stage == pipeline.StageMatch && stages.Provider == nil, stage == pipeline.StageVerify && stages.Fetcher == nil:
+		return fmt.Errorf("%w: library provider", ErrNotConfigured)
+	case stage == pipeline.StageSeed && stages.Client == nil:
+		return fmt.Errorf("%w: torrent client", ErrNotConfigured)
+	}
+	return nil
+}
+
+// mapStale traduit le refus de génération du store en message pour l'opérateur.
+func mapStale(err error) error {
+	if errors.Is(err, store.ErrStaleGeneration) {
+		return fmt.Errorf("%w: %w", ErrStaleProposal, err)
+	}
+	return err
+}
