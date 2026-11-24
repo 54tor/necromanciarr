@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import en from '@/locales/en.json'
 import fr from '@/locales/fr.json'
+import { readFileSync } from 'node:fs'
+import { ROUTES } from '@/router'
 import { codeLabel, initialLanguage, setLanguage } from '@/i18n'
 
 type Tree = { [key: string]: string | Tree }
@@ -51,5 +53,30 @@ describe('locales', () => {
     expect(initialLanguage(['de-DE', 'en-GB', 'fr'])).toBe('en')
     expect(initialLanguage(['de-DE', 'ja'])).toBe('fr')
     expect(initialLanguage([])).toBe('fr')
+  })
+
+  it('labels every doctor code of the Go catalogue in both languages', () => {
+    const goSource = readFileSync('../internal/doctor/codes.go', 'utf8')
+    const goCodes = [...goSource.matchAll(/^\s*Code\w+\s*=\s*"([a-z_]+)"/gm)].map(
+      (match) => match[1] ?? '',
+    )
+    const doctorKeys = {
+      fr: Object.keys((fr as Tree & { codes: { doctor: Tree } }).codes.doctor),
+      en: Object.keys((en as Tree & { codes: { doctor: Tree } }).codes.doctor),
+    }
+
+    expect(goCodes.length).toBeGreaterThan(50)
+    for (const language of ['fr', 'en'] as const) {
+      expect(
+        goCodes.filter((code) => !doctorKeys[language].includes(code)),
+        language,
+      ).toEqual([])
+    }
+  })
+
+  it('has a nav label for every route in both languages', () => {
+    for (const messages of [flatten(fr as Tree), flatten(en as Tree)]) {
+      for (const route of ROUTES) expect(messages[`nav.${route.navKey}`], route.navKey).toBeTruthy()
+    }
   })
 })

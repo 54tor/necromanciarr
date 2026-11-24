@@ -8,7 +8,7 @@ export type MessageSchema = typeof fr
 
 const FALLBACK_LANGUAGE: Language = 'fr'
 
-// Runtime seul (alias `vue-i18n` -> build runtime dans vite.config.ts) et messages précompilés par le plugin :
+// Runtime seul (option `runtimeOnly` du plugin dans vite.config.ts) et messages précompilés par le plugin :
 // aucun `eval` ni `new Function`, ce que la CSP du serveur (sans `unsafe-eval`) exige.
 export const i18n = createI18n<[MessageSchema], Language>({
   legacy: false,
