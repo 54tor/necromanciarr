@@ -143,3 +143,61 @@ func TestArrPing_keyNeverAppearsInErrors(t *testing.T) {
 		t.Fatalf("gotValue %v, expectedValue an error without the key", err)
 	}
 }
+
+func TestArrClient_sendsBasicCredentialsToTheConfiguredHost(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		user, password, hasBasic := request.BasicAuth()
+		if !hasBasic || user != "alice" || password != "fake-password" || request.Header.Get("X-Api-Key") != "secret-key" {
+			http.Error(writer, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		_, _ = writer.Write([]byte(`{}`))
+	}))
+	t.Cleanup(server.Close)
+
+	err := New("radarr", server.URL, "secret-key", WithBasicAuth("alice", "fake-password")).Ping(context.Background())
+	if err != nil {
+		t.Fatalf("gotValue %v, expectedValue nil", err)
+	}
+}
+
+func TestArrClient_withoutUserSendsNoAuthorizationHeader(t *testing.T) {
+	gotAuthorization := "unset"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		gotAuthorization = request.Header.Get("Authorization")
+		_, _ = writer.Write([]byte(`{}`))
+	}))
+	t.Cleanup(server.Close)
+
+	if err := New("radarr", server.URL, "secret-key", WithBasicAuth("", "")).Ping(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuthorization != "" {
+		t.Fatalf("gotValue %q, expectedValue no Authorization header", gotAuthorization)
+	}
+}
+
+func TestArrClient_refusesRedirectsAndNeverForwardsCredentials(t *testing.T) {
+	otherHostReached := false
+	otherHost := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		otherHostReached = true
+		_, _ = writer.Write([]byte(`{}`))
+	}))
+	t.Cleanup(otherHost.Close)
+	redirecting := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, otherHost.URL+request.URL.Path, http.StatusFound)
+	}))
+	t.Cleanup(redirecting.Close)
+
+	err := New("radarr", redirecting.URL, "secret-key", WithBasicAuth("alice", "fake-password")).Ping(context.Background())
+
+	if !errors.Is(err, ErrRedirectRefused) {
+		t.Fatalf("gotValue %v, expectedValue ErrRedirectRefused", err)
+	}
+	if otherHostReached {
+		t.Fatal("redirect followed: credentials sent to another host")
+	}
+	if strings.Contains(err.Error(), "secret-key") || strings.Contains(err.Error(), "fake-password") {
+		t.Fatalf("secret leaked in error: %v", err)
+	}
+}

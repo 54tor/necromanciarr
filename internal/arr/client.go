@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"necromanciarr/internal/httpsafe"
 )
 
 const (
@@ -24,6 +26,10 @@ const (
 
 // ErrUnknownKind signale un type d'instance qui n'est ni radarr ni sonarr.
 var ErrUnknownKind = errors.New("arr: unknown kind")
+
+// ErrRedirectRefused signale une réponse de redirection : la suivre transmettrait la clé et les identifiants à un
+// autre hôte.
+var ErrRedirectRefused = errors.New("arr: redirect refused")
 
 // ErrAccessDenied signale une clé d'API refusée par l'instance (HTTP 401 ou 403).
 var ErrAccessDenied = errors.New("arr: access denied")
@@ -40,17 +46,32 @@ type Client struct {
 	kind       string
 	baseURL    string
 	apiKey     string
+	user       string
+	password   string
 	httpClient *http.Client
 }
 
-// New crée un client ; kind est passé en minuscules et l'éventuel / final de baseURL est retiré.
-func New(kind, baseURL, apiKey string) *Client {
-	return &Client{
+// Option règle un Client à sa création.
+type Option func(*Client)
+
+// WithBasicAuth envoie l'authentification basique d'un proxy inverse ; sans effet si user est vide.
+func WithBasicAuth(user, password string) Option {
+	return func(client *Client) { client.user, client.password = user, password }
+}
+
+// New crée un client ; kind est passé en minuscules et l'éventuel / final de baseURL est retiré. Le client HTTP
+// refuse les redirections et ignore le proxy d'environnement, car chaque requête porte la clé d'API.
+func New(kind, baseURL, apiKey string, options ...Option) *Client {
+	client := &Client{
 		kind:       strings.ToLower(kind),
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		apiKey:     apiKey,
-		httpClient: &http.Client{Timeout: requestTimeout},
+		httpClient: httpsafe.NewClient(requestTimeout),
 	}
+	for _, option := range options {
+		option(client)
+	}
+	return client
 }
 
 // Ping vérifie que l'instance répond et accepte la clé, par un appel authentifié minimal (GET /api/v3/system/status).
@@ -131,6 +152,9 @@ func (client *Client) getJSON(ctx context.Context, endpoint string, query url.Va
 		return fmt.Errorf("arr %s: build request: %w", endpoint, errors.Unwrap(err))
 	}
 	request.Header.Set(apiKeyHeader, client.apiKey)
+	if client.user != "" {
+		request.SetBasicAuth(client.user, client.password)
+	}
 
 	response, err := client.httpClient.Do(request)
 	if err != nil {
@@ -139,6 +163,9 @@ func (client *Client) getJSON(ctx context.Context, endpoint string, query url.Va
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
 		return fmt.Errorf("arr %s: %w (HTTP %d)", endpoint, ErrAccessDenied, response.StatusCode)
+	}
+	if response.StatusCode >= http.StatusMultipleChoices && response.StatusCode < http.StatusBadRequest {
+		return fmt.Errorf("arr %s: %w (HTTP %d)", endpoint, ErrRedirectRefused, response.StatusCode)
 	}
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("arr %s: unexpected status %d", endpoint, response.StatusCode)

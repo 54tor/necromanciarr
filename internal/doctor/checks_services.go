@@ -13,7 +13,7 @@ import (
 )
 
 func newArrPinger(service config.ArrService) Pinger {
-	return arr.New(service.Kind, service.BaseURL, service.APIKey)
+	return arr.New(service.Kind, service.BaseURL, service.APIKey, arr.WithBasicAuth(service.User, service.Password))
 }
 
 // arrChecks crée un contrôle par instance, identifié « arr:<kind>:<rang dans la liste du kind> ».
