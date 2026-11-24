@@ -14,11 +14,16 @@ import (
 	"necromanciarr/internal/store"
 )
 
+// StaleProposalMessage est le texte montré à l'opérateur pour ErrStaleProposal (couche CLI et web seulement).
+const StaleProposalMessage = "proposition périmée, revérifier"
+
 // Erreurs typées des actions ; leurs messages ne portent ni URL, ni chemin, ni secret.
 var (
 	// ErrStaleProposal : la proposition appartient à une génération antérieure de son candidat (fichier changé,
-	// réassociation) ; il faut revérifier avant de décider.
-	ErrStaleProposal = errors.New("app: proposition périmée, revérifier")
+	// réassociation) ; il faut revérifier avant de décider. La CLI l'affiche avec StaleProposalMessage.
+	ErrStaleProposal = errors.New("app: stale proposal, re-verify")
+	// ErrForceNotAllowed : un pack dont des fichiers média manquent ne peut jamais être démarré par Force en v1.
+	ErrForceNotAllowed = errors.New("app: a partial pack can never be forced")
 	// ErrConflictNeedsChoose : un litige ne s'accepte pas, l'opérateur choisit le torrent avec Choose.
 	ErrConflictNeedsChoose = errors.New("app: a conflict cannot be accepted, choose a torrent instead")
 	// ErrPartialPackNeedsForce : un pack dont des fichiers média manquent est ignoré par défaut.
@@ -56,14 +61,14 @@ type Service interface {
 	// Choose fait d'une proposition full la principale de son groupe (choix de l'opérateur).
 	Choose(ctx context.Context, proposalID int64) error
 	// Force démarre un partial_annex lié et laissé en pause, après décision explicite de l'opérateur.
-	Force(ctx context.Context, proposalID int64, options ...DecisionOption) (ForceResult, error)
+	Force(ctx context.Context, proposalID int64) (ForceResult, error)
 	// AcceptGroup accepte la principale du groupe, plus les autres torrents vérifiés en mode Native.
 	AcceptGroup(ctx context.Context, groupID int64) ([]int64, error)
 	// Actions renvoie le registre des actions (parité CLI et web).
 	Actions() []Action
 }
 
-// DecisionOption est une option explicite d'Accept ou de Force.
+// DecisionOption est une option explicite d'Accept.
 type DecisionOption int
 
 // AllowPartialPack autorise un pack dont des fichiers média manquent (ignoré par défaut).
@@ -83,7 +88,9 @@ type Store interface {
 	ListProposalProgress(ctx context.Context) (map[int64]store.ProposalProgress, error)
 	SaveProposalProgress(ctx context.Context, progress store.ProposalProgress, now time.Time) error
 	SetProposalDecision(ctx context.Context, proposalID int64, decision store.ProposalDecision, now time.Time) error
-	RetryProposal(ctx context.Context, proposalID int64, now time.Time) error
+	AcceptProposals(ctx context.Context, proposalIDs []int64, now time.Time) error
+	LoadVerifiedAssignment(ctx context.Context, candidateID int64) (store.VerifiedAssignment, bool, error)
+	SetCandidateState(ctx context.Context, candidateID int64, state store.CandidateState, now time.Time) error
 	SetGroupPrimary(ctx context.Context, groupID, proposalID int64, source store.PrimarySource) error
 }
 

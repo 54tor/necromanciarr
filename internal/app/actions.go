@@ -51,7 +51,7 @@ var registry = []Action{
 	},
 	{
 		Name: actionNameProposalPrefix + "force", Method: "Force", Description: "start a linked partial_annex left paused by seed",
-		Mutating: true, Arguments: []string{ArgumentProposalID}, Options: []string{OptionAllowPartialPack},
+		Mutating: true, Arguments: []string{ArgumentProposalID},
 	},
 	{
 		Name: actionNameProposalPrefix + "accept-group", Method: "AcceptGroup",

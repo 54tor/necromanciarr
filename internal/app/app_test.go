@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -48,7 +50,15 @@ func newDecisionFixture(t *testing.T) *decisionFixture {
 	t.Helper()
 	openedStore := openTestStore(t)
 	ctx := context.Background()
-	if err := openedStore.UpsertMediaFile(ctx, store.MediaFile{Path: "/home/u/media/movie.mkv", Size: 40, ModTime: fixedNow, TMDBID: 603}); err != nil {
+	moviePath := filepath.Join(t.TempDir(), "movie.mkv")
+	if err := os.WriteFile(moviePath, bytes.Repeat([]byte("m"), 40), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(moviePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := openedStore.UpsertMediaFile(ctx, store.MediaFile{Path: moviePath, Size: 40, ModTime: info.ModTime(), TMDBID: 603}); err != nil {
 		t.Fatal(err)
 	}
 	mediaFiles, err := openedStore.ListMediaFiles(ctx)
@@ -62,19 +72,23 @@ func (fixture *decisionFixture) service(behavior crossseed.Behavior) Service {
 	return New(Deps{Store: fixture.store, Client: fixture.resumer, CrossSeed: behavior, Now: func() time.Time { return fixedNow }})
 }
 
-// verifiedCandidate enregistre un candidat associé au fichier local partagé, puis le passe à verified et le regroupe.
+// verifiedCandidate enregistre un candidat associé au fichier local partagé, termine sa vérification avec cette
+// association prouvée, puis le regroupe.
 func (fixture *decisionFixture) verifiedCandidate(infohash string) store.Candidate {
 	fixture.t.Helper()
 	ctx := context.Background()
-	file := store.CandidateFile{FileIndex: 0, Path: "Movie/movie.mkv", Size: 40, MediaFileID: fixture.media.ID, MediaSize: 40, MediaModTime: fixedNow}
+	file := store.CandidateFile{FileIndex: 0, Path: "Movie/movie.mkv", Size: 40, MediaFileID: fixture.media.ID, MediaSize: 40, MediaModTime: fixture.media.ModTime}
 	candidateID, _, err := fixture.store.SaveCandidate(ctx, store.Candidate{Infohash: infohash, Name: "Movie " + infohash, TotalSize: 40}, []store.CandidateFile{file}, fixedNow)
 	if err != nil {
 		fixture.t.Fatal(err)
 	}
-	for _, state := range []store.CandidateState{store.CandidateFetched, store.CandidateVerified} {
-		if err := fixture.store.SetCandidateState(ctx, candidateID, state, fixedNow); err != nil {
-			fixture.t.Fatal(err)
-		}
+	if err := fixture.store.SetCandidateState(ctx, candidateID, store.CandidateFetched, fixedNow); err != nil {
+		fixture.t.Fatal(err)
+	}
+	proven := []store.AssignedFile{{MediaFileID: fixture.media.ID, Path: fixture.media.Path, Size: 40, ModTime: fixture.media.ModTime}}
+	verification := store.Verification{CandidateID: candidateID, TotalPieces: 1, VerifiedPieces: 1, CheckedBitset: []byte{1}, VerifiedBitset: []byte{1}, MediaComplete: true, Percent: 100}
+	if err := fixture.store.CompleteVerification(ctx, verification, proven, fixedNow); err != nil {
+		fixture.t.Fatal(err)
 	}
 	if err := fixture.store.RegroupCandidates(ctx); err != nil {
 		fixture.t.Fatal(err)
@@ -212,11 +226,43 @@ func TestApp_forceStartsOnlyLinkedSeededPartialAnnexAfterExplicitCall(t *testing
 	}
 	packID := fixture.proposal(fixture.verifiedCandidate("cc"), store.ProposalPartialPack)
 	fixture.seedPaused(packID)
-	if _, err := service.Force(ctx, packID); !errors.Is(err, ErrPartialPackNeedsForce) {
-		t.Fatalf("partial pack: gotValue %v, expectedValue ErrPartialPackNeedsForce", err)
+	if _, err := service.Force(ctx, packID); !errors.Is(err, ErrForceNotAllowed) {
+		t.Fatalf("partial pack: gotValue %v, expectedValue ErrForceNotAllowed", err)
 	}
-	if result, err := service.Force(ctx, packID, AllowPartialPack); err != nil || !result.Forced {
-		t.Fatalf("partial pack with option: gotValue %+v %v, expectedValue forced", result, err)
+}
+
+func TestApp_forceRechecksTheSourcesBeforeStarting(t *testing.T) {
+	fixture := newDecisionFixture(t)
+	ctx := context.Background()
+	annex := fixture.verifiedCandidate("aa")
+	annexID := fixture.proposal(annex, store.ProposalPartialAnnex)
+	fixture.seedPaused(annexID)
+	changedTime := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(fixture.media.Path, changedTime, changedTime); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := fixture.service(crossseed.Delegate).Force(ctx, annexID)
+
+	if !errors.Is(err, ErrStaleProposal) || len(fixture.resumer.resumed) != 0 || fixture.candidate(annex.ID).State != store.CandidateStale {
+		t.Fatalf("gotValue %v resumed=%v, expectedValue a refusal, nothing started and a stale candidate", err, fixture.resumer.resumed)
+	}
+}
+
+func TestApp_acceptGroupIgnoresAPrimaryFlagOnAClosedProposal(t *testing.T) {
+	fixture := newDecisionFixture(t)
+	ctx := context.Background()
+	primary, other := fixture.verifiedCandidate("aa"), fixture.verifiedCandidate("bb")
+	primaryID := fixture.proposal(primary, store.ProposalFull)
+	fixture.proposal(other, store.ProposalFull)
+	groupID := pipeline.GroupOf(fixture.candidate(primary.ID))
+	if err := fixture.store.SetGroupPrimary(ctx, groupID, primaryID, store.PrimaryAuto); err != nil {
+		t.Fatal(err)
+	}
+	fixture.seedPaused(primaryID)
+
+	if _, err := fixture.service(crossseed.Native).AcceptGroup(ctx, groupID); !errors.Is(err, ErrNoPrimary) {
+		t.Fatalf("gotValue %v, expectedValue ErrNoPrimary: an applied primary is history, not an open choice", err)
 	}
 }
 
@@ -247,7 +293,7 @@ func TestApp_acceptGroupAcceptsAllVerifiedFullAndCrossSeedInNativeOnly(t *testin
 // staleStore simule le refus de génération du store au moment de la décision.
 type staleStore struct{ *store.Store }
 
-func (staleStore) SetProposalDecision(context.Context, int64, store.ProposalDecision, time.Time) error {
+func (staleStore) AcceptProposals(context.Context, []int64, time.Time) error {
 	return store.ErrStaleGeneration
 }
 
@@ -259,7 +305,7 @@ func TestApp_staleGenerationIsMappedToATypedMessage(t *testing.T) {
 
 	err := service.Accept(ctx, proposalID)
 
-	if !errors.Is(err, ErrStaleProposal) || !strings.Contains(err.Error(), "proposition périmée, revérifier") {
+	if !errors.Is(err, ErrStaleProposal) || StaleProposalMessage != "proposition périmée, revérifier" {
 		t.Fatalf("gotValue %v, expectedValue the typed stale message", err)
 	}
 	if _, err := fixture.store.InvalidateCandidatesForFile(ctx, fixture.media.ID, fixedNow); err != nil {

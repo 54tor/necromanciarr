@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -176,17 +177,13 @@ func (svc *service) checkFreeToAccept(state snapshot, proposal store.Proposal) e
 	return nil
 }
 
-// accept passe à accepted, en remettant d'abord en attente une proposition dont l'application a échoué.
-func (svc *service) accept(ctx context.Context, proposal store.Proposal) error {
-	if proposal.Decision == store.ProposalAccepted || proposal.Decision == store.ProposalApplied {
-		return nil
+// accept passe à accepted (une proposition failed est d'abord remise en attente), tout ou rien, dans une transaction.
+func (svc *service) accept(ctx context.Context, proposals ...store.Proposal) error {
+	proposalIDs := make([]int64, 0, len(proposals))
+	for _, proposal := range proposals {
+		proposalIDs = append(proposalIDs, proposal.ID)
 	}
-	if proposal.Decision == store.ProposalFailed {
-		if err := svc.deps.Store.RetryProposal(ctx, proposal.ID, svc.now()); err != nil {
-			return mapStale(err)
-		}
-	}
-	return mapStale(svc.deps.Store.SetProposalDecision(ctx, proposal.ID, store.ProposalAccepted, svc.now()))
+	return mapStale(svc.deps.Store.AcceptProposals(ctx, proposalIDs, svc.now()))
 }
 
 func (svc *service) Reject(ctx context.Context, proposalID int64) error {
@@ -215,7 +212,7 @@ func (svc *service) Choose(ctx context.Context, proposalID int64) error {
 	return svc.deps.Store.SetGroupPrimary(ctx, groupID, proposalID, store.PrimaryOperator)
 }
 
-func (svc *service) Force(ctx context.Context, proposalID int64, options ...DecisionOption) (ForceResult, error) {
+func (svc *service) Force(ctx context.Context, proposalID int64) (ForceResult, error) {
 	state, err := svc.loadSnapshot(ctx)
 	if err != nil {
 		return ForceResult{}, err
@@ -225,19 +222,20 @@ func (svc *service) Force(ctx context.Context, proposalID int64, options ...Deci
 		return ForceResult{}, err
 	}
 	result := ForceResult{ProposalID: proposalID, Warnings: proposal.Warnings}
-	isForceableKind := proposal.Kind == store.ProposalPartialAnnex ||
-		(proposal.Kind == store.ProposalPartialPack && slices.Contains(options, AllowPartialPack))
 	progress := state.progress[proposal.ID]
 	isPausedBySeed := proposal.Decision == store.ProposalApplied && progress.Step == store.StepSeededPausedIncomplete
 	switch {
-	case proposal.Kind == store.ProposalPartialPack && !isForceableKind:
-		return result, ErrPartialPackNeedsForce
-	case !isForceableKind || !isPausedBySeed:
+	case proposal.Kind == store.ProposalPartialPack:
+		return result, ErrForceNotAllowed
+	case proposal.Kind != store.ProposalPartialAnnex || !isPausedBySeed:
 		return result, ErrNotForceable
 	case !state.current(proposal):
 		return result, ErrStaleProposal
 	case svc.deps.Client == nil:
 		return result, fmt.Errorf("%w: torrent client", ErrNotConfigured)
+	}
+	if err := svc.checkSourcesUnchanged(ctx, proposal.CandidateID); err != nil {
+		return result, err
 	}
 	if err := svc.deps.Client.Resume(ctx, state.candidates[proposal.CandidateID].Infohash); err != nil {
 		return result, err
@@ -248,6 +246,22 @@ func (svc *service) Force(ctx context.Context, proposalID int64, options ...Deci
 	}
 	result.Forced = true
 	return result, nil
+}
+
+// checkSourcesUnchanged refait le contrôle de Link avant de démarrer : un fichier source changé depuis la vérification
+// rend le candidat stale et l'action est refusée.
+func (svc *service) checkSourcesUnchanged(ctx context.Context, candidateID int64) error {
+	assignment, found, err := svc.deps.Store.LoadVerifiedAssignment(ctx, candidateID)
+	if err != nil && !errors.Is(err, store.ErrAssignmentMismatch) {
+		return err
+	}
+	if found && err == nil && !pipeline.AssignedFilesChanged(assignment.Files) {
+		return nil
+	}
+	if err := svc.deps.Store.SetCandidateState(ctx, candidateID, store.CandidateStale, svc.now()); err != nil {
+		return err
+	}
+	return ErrStaleProposal
 }
 
 func (svc *service) AcceptGroup(ctx context.Context, groupID int64) ([]int64, error) {
@@ -263,17 +277,17 @@ func (svc *service) AcceptGroup(ctx context.Context, groupID int64) ([]int64, er
 	if err != nil {
 		return nil, err
 	}
-	var accepted []int64
+	accepted := make([]int64, 0, len(targets))
 	for _, target := range targets {
 		if !isOpenTorrentDecision(target) {
 			if err := svc.checkFreeToAccept(state, target); err != nil {
-				return accepted, err
+				return nil, err
 			}
 		}
-		if err := svc.accept(ctx, target); err != nil {
-			return accepted, err
-		}
 		accepted = append(accepted, target.ID)
+	}
+	if err := svc.accept(ctx, targets...); err != nil {
+		return nil, err
 	}
 	return accepted, nil
 }
@@ -305,7 +319,8 @@ func (state snapshot) groupMembers(groupID int64) ([]store.Proposal, error) {
 // torrent vérifié, sa proposition cross_seed (à défaut sa full). Un torrent déjà pris n'est pas repris.
 func (state snapshot) groupTargets(members []store.Proposal, behavior crossseed.Behavior) ([]store.Proposal, error) {
 	primaryIndex := slices.IndexFunc(members, func(proposal store.Proposal) bool {
-		return proposal.Primary && proposal.Kind == store.ProposalFull
+		isOpen := proposal.Decision == store.ProposalPending || proposal.Decision == store.ProposalAccepted
+		return isOpen && proposal.Primary && proposal.Kind == store.ProposalFull
 	})
 	if primaryIndex < 0 {
 		return nil, ErrNoPrimary
