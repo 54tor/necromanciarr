@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { api } from '@/api/endpoints'
 import type { DoctorCheck, DoctorReport, DoctorStatus, Status } from '@/api/types'
+import { setLanguage } from '@/i18n'
 import { onboardingSkipped } from '@/state/session'
 import { useApi } from './useApi'
 
@@ -24,6 +25,12 @@ function isFirstLaunch(current: Status | undefined): boolean {
   return total(current.candidates) === 0 && total(current.proposals) === 0
 }
 
+/** applyStatus mémorise le statut et bascule l'interface dans la langue du serveur (première réponse authentifiée). */
+function applyStatus(current: Status): void {
+  status.value = current
+  setLanguage(current.language)
+}
+
 export function useOnboarding() {
   const { call, pending } = useApi()
   const worst = computed(() => worstOf(checks.value))
@@ -38,7 +45,7 @@ export function useOnboarding() {
       call(() => api.status()),
     ])
     if (report) checks.value = report.checks
-    if (currentStatus) status.value = currentStatus
+    if (currentStatus) applyStatus(currentStatus)
     loaded.value = Boolean(report)
   }
 
@@ -51,7 +58,7 @@ export function useOnboarding() {
 
   async function refreshStatus(): Promise<void> {
     const currentStatus = await call(() => api.status())
-    if (currentStatus) status.value = currentStatus
+    if (currentStatus) applyStatus(currentStatus)
   }
 
   function skip(): void {

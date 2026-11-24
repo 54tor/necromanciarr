@@ -39,6 +39,7 @@ describe('OnboardingView', () => {
         checks: [
           {
             id: 'qbit',
+            code: 'client_ok',
             title: 'Client qBittorrent',
             status: 'ok',
             detail: 'Connecté.',
@@ -111,7 +112,13 @@ describe('OnboardingView', () => {
   it('OnboardingView_redirectsOnFirstLaunchEvenWithoutFail', async () => {
     installFakeApi({
       'POST /api/doctor/run': okReport,
-      'GET /api/status': { candidates: {}, proposals: {}, steps: {}, cross_seed_mode: 'disabled' },
+      'GET /api/status': {
+        candidates: {},
+        proposals: {},
+        steps: {},
+        cross_seed_mode: 'disabled',
+        language: 'fr',
+      },
     })
     window.location.hash = '#/propositions'
 
@@ -144,6 +151,7 @@ describe('OnboardingView', () => {
         proposals: { pending: 2 },
         steps: { seeded_paused_incomplete: 1 },
         cross_seed_mode: 'disabled',
+        language: 'fr',
       },
     })
     const wrapper = mount(OnboardingView)
@@ -165,6 +173,7 @@ describe('OnboardingView', () => {
         proposals: {},
         steps: {},
         cross_seed_mode: 'disabled',
+        language: 'fr',
         held: [
           {
             candidate_id: 7,
@@ -197,6 +206,7 @@ describe('OnboardingView', () => {
         proposals: {},
         steps: {},
         cross_seed_mode: 'native',
+        language: 'fr',
         warnings: [
           { code: 'warning.crossseed.fallback_native', text: 'repli sur la correspondance native' },
         ],

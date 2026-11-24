@@ -2,7 +2,6 @@ import { flushPromises, mount as mountComponent, type VueWrapper } from '@vue/te
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.vue'
 import { authToken, loginRequired } from './api/client'
-import { ROUTES } from './router'
 import { failure, installFakeApi, resetAppState } from './test/fakeApi'
 import { busyStatus, okReport } from './test/fixtures'
 
@@ -32,7 +31,21 @@ describe('App', () => {
     const gotTabs = wrapper.findAll('nav a').map((link) => link.text())
 
     expect(wrapper.text()).toContain('Necromanciarr')
-    expect(gotTabs).toEqual(ROUTES.map((route) => route.label))
+    expect(gotTabs).toEqual(['Démarrage', 'Propositions', 'Déduplication', 'Liens', 'Étapes'])
+  })
+
+  it('App_switchesToTheServerLanguageAtTheFirstStatus', async () => {
+    installFakeApi({
+      'POST /api/doctor/run': okReport,
+      'GET /api/status': { ...busyStatus, language: 'en' },
+      'GET /api/proposals': [],
+    })
+    const wrapper = mount(App)
+    await flushPromises()
+
+    const gotTabs = wrapper.findAll('nav a').map((link) => link.text())
+
+    expect(gotTabs).toEqual(['Getting started', 'Proposals', 'Deduplication', 'Links', 'Stages'])
   })
 
   it('marks the current tab with aria-current', async () => {

@@ -1,0 +1,79 @@
+{
+  "nav": {
+    "label": "Main navigation",
+    "demarrage": "Getting started",
+    "propositions": "Proposals",
+    "deduplication": "Deduplication",
+    "liens": "Links",
+    "etapes": "Stages"
+  },
+  "actions": {
+    "signIn": "Sign in"
+  },
+  "common": {
+    "token": "Token"
+  },
+  "views": {
+    "login": {
+      "title": "Access token required",
+      "description": "Enter the value of NECROMANCIARR_AUTH_TOKEN. It is kept in memory for this tab only and is never stored.",
+      "rejected": "Token rejected by the server: check it and try again."
+    }
+  },
+  "codes": {
+    "kind": {
+      "full": "Complete torrent",
+      "partial_annex": "Partial, missing extras",
+      "partial_pack": "Partial pack",
+      "cross_seed": "Cross-seed",
+      "conflict": "Conflict between torrents",
+      "dedupe": "Deduplication",
+      "repair": "Repair",
+      "hardlink": "hard link",
+      "reflink": "reflink",
+      "symlink": "symbolic link"
+    },
+    "state": {
+      "ok": "Compliant",
+      "diverged": "Diverged",
+      "lost": "Lost",
+      "unreadable": "Unreadable",
+      "matched": "Matched",
+      "fetched": "Fetched",
+      "verified": "Verified",
+      "failed": "Failed",
+      "stale": "Stale",
+      "linked": "Linked",
+      "seeded": "Seeded",
+      "seeded_paused_incomplete": "Seeded, paused (incomplete)",
+      "forced": "Forced"
+    },
+    "reason": {
+      "inode": "same inode",
+      "size-mtime": "size and modification time",
+      "fingerprint": "content fingerprint",
+      "torrent-pieces": "torrent pieces",
+      "hash": "known hash",
+      "full": "full read",
+      "sampled": "sampling",
+      "repairable": "Repairable",
+      "ambiguous": "Ambiguous",
+      "lost": "Not found",
+      "missing_pieces_above_cap": "above the partialMaxMissingPercent cap"
+    },
+    "decision": {
+      "pending": "Pending",
+      "accepted": "Accepted",
+      "rejected": "Rejected",
+      "applied": "Applied",
+      "failed": "Failed",
+      "superseded": "Superseded"
+    },
+    "doctor": {
+      "ok": "OK",
+      "warn": "Warning",
+      "fail": "Failed",
+      "skipped": "Skipped"
+    }
+  }
+}

@@ -2,16 +2,17 @@ import { onScopeDispose, ref } from 'vue'
 
 export interface AppRoute {
   path: string
-  label: string
+  /** Clé de libellé `nav.<navKey>` dans les fichiers de langue. */
+  navKey: string
 }
 
 /** Onglets de l'application, dans l'ordre d'affichage. */
 export const ROUTES: readonly AppRoute[] = [
-  { path: '/demarrage', label: 'Démarrage' },
-  { path: '/propositions', label: 'Propositions' },
-  { path: '/deduplication', label: 'Déduplication' },
-  { path: '/liens', label: 'Liens' },
-  { path: '/etapes', label: 'Étapes' },
+  { path: '/demarrage', navKey: 'demarrage' },
+  { path: '/propositions', navKey: 'propositions' },
+  { path: '/deduplication', navKey: 'deduplication' },
+  { path: '/liens', navKey: 'liens' },
+  { path: '/etapes', navKey: 'etapes' },
 ]
 
 const DEFAULT_PATH = '/propositions'

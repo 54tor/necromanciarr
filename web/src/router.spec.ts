@@ -36,8 +36,8 @@ describe('Router', () => {
   })
 
   it('Router_declaresTheFiveTabsInOrder', () => {
-    const gotLabels = ROUTES.map((route) => route.label)
+    const gotKeys = ROUTES.map((route) => route.navKey)
 
-    expect(gotLabels).toEqual(['Démarrage', 'Propositions', 'Déduplication', 'Liens', 'Étapes'])
+    expect(gotKeys).toEqual(['demarrage', 'propositions', 'deduplication', 'liens', 'etapes'])
   })
 })

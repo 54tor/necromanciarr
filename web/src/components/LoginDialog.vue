@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { t } from '@/i18n'
 import { FIELD_CLASS } from '@/lib/styles'
 
 const token = ref('')
@@ -31,10 +32,9 @@ function submit(): void {
       @interact-outside.prevent
     >
       <DialogHeader>
-        <DialogTitle>Jeton d’accès requis</DialogTitle>
+        <DialogTitle>{{ t('views.login.title') }}</DialogTitle>
         <DialogDescription>
-          Saisissez la valeur de NECROMANCIARR_AUTH_TOKEN. Elle est gardée en mémoire pour cet
-          onglet seulement et n’est jamais enregistrée.
+          {{ t('views.login.description') }}
         </DialogDescription>
       </DialogHeader>
       <p
@@ -43,10 +43,10 @@ function submit(): void {
         class="text-sm text-destructive"
         data-testid="login-rejected"
       >
-        Jeton refusé par le serveur : vérifiez-le et recommencez.
+        {{ t('views.login.rejected') }}
       </p>
       <form class="grid gap-3" @submit.prevent="submit">
-        <label for="auth-token" class="text-sm font-medium">Jeton</label>
+        <label for="auth-token" class="text-sm font-medium">{{ t('common.token') }}</label>
         <input
           id="auth-token"
           v-model="token"
@@ -55,7 +55,7 @@ function submit(): void {
           required
           :class="FIELD_CLASS"
         />
-        <Button type="submit" data-testid="login-submit">Se connecter</Button>
+        <Button type="submit" data-testid="login-submit">{{ t('actions.signIn') }}</Button>
       </form>
     </DialogContent>
   </Dialog>

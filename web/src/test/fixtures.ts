@@ -67,6 +67,7 @@ export const doctorReport: DoctorReport = {
   checks: [
     {
       id: 'config',
+      code: 'config_valid',
       title: 'Configuration',
       status: 'ok',
       detail: 'Configuration valide.',
@@ -74,15 +75,24 @@ export const doctorReport: DoctorReport = {
     },
     {
       id: 'qbit',
+      code: 'client_unreachable',
       title: 'Client qBittorrent',
       status: 'fail',
       detail: 'Connexion refusée.',
       hint: 'Vérifiez l’adresse du client.',
       durationMs: 12,
     },
-    { id: 'links', title: 'Liens', status: 'warn', detail: 'Volumes distincts.', durationMs: 3 },
+    {
+      id: 'links',
+      code: 'volumes_differ',
+      title: 'Liens',
+      status: 'warn',
+      detail: 'Volumes distincts.',
+      durationMs: 3,
+    },
     {
       id: 'provider',
+      code: 'not_configured',
       title: 'Fournisseur de bibliothèque',
       status: 'skipped',
       detail: 'Non configuré.',
@@ -101,6 +111,7 @@ export const busyStatus: Status = {
   proposals: { pending: 2 },
   steps: {},
   cross_seed_mode: 'disabled',
+  language: 'fr',
 }
 
 export function job(overrides: Partial<Job> = {}): Job {

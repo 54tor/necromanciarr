@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch, type Component } from 'vue'
 import { authToken, loginRequired } from '@/api/client'
 import LoginDialog from '@/components/LoginDialog.vue'
 import { Toaster } from '@/components/ui/sonner'
+import { t } from '@/i18n'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { ROUTES, currentPath, navigate, useHashRouter } from '@/router'
 import DedupeView from '@/views/DedupeView.vue'
@@ -63,7 +64,7 @@ watch(loginRequired, (required) => {
         </svg>
         <h1 class="text-2xl font-semibold tracking-tight">{{ productName }}</h1>
       </div>
-      <nav aria-label="Navigation principale">
+      <nav :aria-label="t('nav.label')">
         <ul class="flex flex-wrap gap-1">
           <li v-for="route in ROUTES" :key="route.path">
             <a
@@ -71,7 +72,7 @@ watch(loginRequired, (required) => {
               :aria-current="currentPath === route.path ? 'page' : undefined"
               class="inline-block rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-3 focus-visible:ring-ring/50 aria-[current=page]:bg-secondary aria-[current=page]:text-foreground"
             >
-              {{ route.label }}
+              {{ t(`nav.${route.navKey}`) }}
             </a>
           </li>
         </ul>

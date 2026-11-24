@@ -16,6 +16,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - `partialMaxMissingPercent` (`NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT`, default 100): partial torrents missing more pieces are not proposed; `status` lists them with the reason `missing_pieces_above_cap`, and each Verify applies the current cap.
 - `language` (`--language`, `NECROMANCIARR_LANGUAGE`, default `fr`): display language of the CLI, web interface, diagnostics and logs (`fr` or `en`).
 - CLI text and help, API error messages and action descriptions follow `language`; `GET /api/status` reports it; error codes never change.
+- The web interface switches to `language` once the server answers (browser language until then, French by default); navigation, access-token dialog and code labels are translated, with no script evaluation so the strict content security policy is unchanged.
 
 ### Changed
 - Server log lines are translated and carry a stable `code` attribute (`job_failed`, `server_listening`, ...); the `serve` startup line is now a structured log line (`code=server_listening`) and follows `language`, as do the other `serve` messages; Go HTTP server errors and handler panics are logged through the same coded, redacted log.

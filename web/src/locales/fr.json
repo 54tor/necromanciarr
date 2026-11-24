@@ -1,0 +1,79 @@
+{
+  "nav": {
+    "label": "Navigation principale",
+    "demarrage": "Démarrage",
+    "propositions": "Propositions",
+    "deduplication": "Déduplication",
+    "liens": "Liens",
+    "etapes": "Étapes"
+  },
+  "actions": {
+    "signIn": "Se connecter"
+  },
+  "common": {
+    "token": "Jeton"
+  },
+  "views": {
+    "login": {
+      "title": "Jeton d’accès requis",
+      "description": "Saisissez la valeur de NECROMANCIARR_AUTH_TOKEN. Elle est gardée en mémoire pour cet onglet seulement et n’est jamais enregistrée.",
+      "rejected": "Jeton refusé par le serveur : vérifiez-le et recommencez."
+    }
+  },
+  "codes": {
+    "kind": {
+      "full": "Torrent complet",
+      "partial_annex": "Partiel, annexes manquantes",
+      "partial_pack": "Pack partiel",
+      "cross_seed": "Cross-seed",
+      "conflict": "Conflit entre torrents",
+      "dedupe": "Déduplication",
+      "repair": "Réparation",
+      "hardlink": "lien physique",
+      "reflink": "reflink",
+      "symlink": "lien symbolique"
+    },
+    "state": {
+      "ok": "Conforme",
+      "diverged": "Divergent",
+      "lost": "Perdu",
+      "unreadable": "Illisible",
+      "matched": "Associés",
+      "fetched": "Téléchargés",
+      "verified": "Vérifiés",
+      "failed": "En échec",
+      "stale": "Obsolètes",
+      "linked": "Liée",
+      "seeded": "Ensemencée",
+      "seeded_paused_incomplete": "Ensemencée, en pause (incomplète)",
+      "forced": "Forcée"
+    },
+    "reason": {
+      "inode": "même inode",
+      "size-mtime": "taille et date de modification",
+      "fingerprint": "empreinte du contenu",
+      "torrent-pieces": "pièces du torrent",
+      "hash": "empreinte connue",
+      "full": "lecture complète",
+      "sampled": "échantillonnage",
+      "repairable": "Réparable",
+      "ambiguous": "Ambigu",
+      "lost": "Introuvable",
+      "missing_pieces_above_cap": "au-delà du plafond partialMaxMissingPercent"
+    },
+    "decision": {
+      "pending": "En attente",
+      "accepted": "Acceptée",
+      "rejected": "Rejetée",
+      "applied": "Appliquée",
+      "failed": "Échec",
+      "superseded": "Remplacée"
+    },
+    "doctor": {
+      "ok": "OK",
+      "warn": "Avertissement",
+      "fail": "Échec",
+      "skipped": "Ignoré"
+    }
+  }
+}

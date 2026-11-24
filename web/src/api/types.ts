@@ -3,8 +3,8 @@
 export type ProposalKind =
   'full' | 'partial_annex' | 'partial_pack' | 'cross_seed' | 'conflict' | 'dedupe' | 'repair'
 export type Decision = 'pending' | 'accepted' | 'rejected' | 'applied' | 'failed' | 'superseded'
-export type ProposalStep = 'linked' | 'seeded' | 'seeded_paused_incomplete' | 'forced'
-export type CandidateState = 'matched' | 'fetched' | 'verified' | 'failed' | 'stale'
+type ProposalStep = 'linked' | 'seeded' | 'seeded_paused_incomplete' | 'forced'
+type CandidateState = 'matched' | 'fetched' | 'verified' | 'failed' | 'stale'
 
 interface AmbiguousFile {
   torrent_path: string
@@ -162,6 +162,8 @@ export interface Status {
   proposals: Partial<Record<Decision, number>>
   steps: Partial<Record<ProposalStep, number>>
   cross_seed_mode: string
+  /** Langue des textes rendus par le serveur. */
+  language: 'fr' | 'en'
   warnings?: Warning[]
   /** Torrents vérifiés non proposés (verdict mis de côté), avec la raison. */
   held?: HeldCandidate[]
@@ -210,6 +212,8 @@ export interface DoctorCheck {
   id: string
   title: string
   status: DoctorStatus
+  /** Code stable du résultat (identique dans les deux langues). */
+  code: string
   detail: string
   hint?: string
   durationMs: number

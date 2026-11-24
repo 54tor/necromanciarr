@@ -4,6 +4,8 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -99,5 +101,37 @@ func TestServer_nestedClientRouteServesAnIndexWithAbsoluteAssetURLs(t *testing.T
 	}
 	if gotValue := serve(handler, apiRequest(http.MethodGet, "/assets/index-abc.js", "")).Code; gotValue != http.StatusOK {
 		t.Fatalf("gotValue %d, expectedValue the asset served at its absolute url", gotValue)
+	}
+}
+
+// TestBuiltUI_loadsUnderServerCSP sert l'interface construite (make ui) sous la vraie CSP : aucun script ne doit
+// compiler du texte (eval, new Function), faute de quoi vue-i18n échouerait chez l'opérateur.
+func TestBuiltUI_loadsUnderServerCSP(t *testing.T) {
+	built := os.DirFS("ui/dist")
+	if _, err := fs.Stat(built, "index.html"); err != nil {
+		t.Skip("interface non construite (make ui)")
+	}
+	handler := newTestHandlerWith(t, &fakeService{}, &fakeHealth{}, loopbackSettings(), built)
+
+	index := serve(handler, apiRequest(http.MethodGet, "/", ""))
+	policy := index.Header().Get("Content-Security-Policy")
+	if policy != contentSecurityPolicy || strings.Contains(policy, "unsafe-eval") {
+		t.Fatalf("gotValue %q, expectedValue the real CSP without unsafe-eval", policy)
+	}
+	scripts := regexp.MustCompile(`src="(/assets/[^"]+\.js)"`).FindAllStringSubmatch(readBody(t, index), -1)
+	if len(scripts) == 0 {
+		t.Fatal("gotValue no script in the built index, expectedValue at least one bundle")
+	}
+	for _, script := range scripts {
+		response := serve(handler, apiRequest(http.MethodGet, script[1], ""))
+		body := readBody(t, response)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s: gotValue %d, expectedValue 200", script[1], response.Code)
+		}
+		for _, forbidden := range []string{"new Function(", "eval(", "Function(\"return"} {
+			if strings.Contains(body, forbidden) {
+				t.Fatalf("%s: gotValue %q in the bundle, expectedValue no runtime code compilation", script[1], forbidden)
+			}
+		}
 	}
 }

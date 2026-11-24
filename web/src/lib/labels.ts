@@ -1,21 +1,62 @@
-import type {
-  CandidateState,
-  Decision,
-  DoctorStatus,
-  LinkState,
-  ProposalKind,
-  ProposalStep,
-} from '@/api/types'
+import type { CodeGroup } from '@/i18n'
+import { codeLabel } from '@/i18n'
+import type { ProposalKind } from '@/api/types'
 
-export const KIND_LABELS: Record<ProposalKind, string> = {
-  full: 'Torrent complet',
-  partial_annex: 'Partiel, annexes manquantes',
-  partial_pack: 'Pack partiel',
-  cross_seed: 'Cross-seed',
-  conflict: 'Conflit entre torrents',
-  dedupe: 'Déduplication',
-  repair: 'Réparation',
+/**
+ * labelTable expose un groupe de codes comme une table `code -> libellé` : chaque lecture passe par `codeLabel`,
+ * donc suit la langue active. Supprimée avec les vues qui l'utilisent (D3d).
+ */
+function labelTable(group: CodeGroup, codes: readonly string[]): Readonly<Record<string, string>> {
+  const table: Record<string, string> = {}
+  for (const code of codes) {
+    Object.defineProperty(table, code, { enumerable: true, get: () => codeLabel(group, code) })
+  }
+  return table
 }
+
+export const KIND_LABELS = labelTable('kind', [
+  'full',
+  'partial_annex',
+  'partial_pack',
+  'cross_seed',
+  'conflict',
+  'dedupe',
+  'repair',
+])
+export const DECISION_LABELS = labelTable('decision', [
+  'pending',
+  'accepted',
+  'rejected',
+  'applied',
+  'failed',
+  'superseded',
+])
+export const STEP_LABELS = labelTable('state', [
+  'linked',
+  'seeded',
+  'seeded_paused_incomplete',
+  'forced',
+])
+export const DOCTOR_LABELS = labelTable('doctor', ['ok', 'warn', 'fail', 'skipped'])
+export const REPAIR_METHOD_LABELS = labelTable('reason', [
+  'inode',
+  'size-mtime',
+  'fingerprint',
+  'torrent-pieces',
+])
+export const DEDUPE_METHOD_LABELS = labelTable('reason', ['hash', 'full', 'sampled'])
+export const LINK_KIND_LABELS = labelTable('kind', ['hardlink', 'reflink', 'symlink'])
+export const REPAIR_STATUS_LABELS = labelTable('reason', ['repairable', 'ambiguous', 'lost'])
+export const LINK_STATE_LABELS = labelTable('state', ['ok', 'diverged', 'lost', 'unreadable'])
+export const CANDIDATE_LABELS = labelTable('state', [
+  'matched',
+  'fetched',
+  'verified',
+  'failed',
+  'stale',
+])
+/** Raisons pour lesquelles un torrent vérifié n'est pas proposé (inconnue : affichée telle quelle). */
+export const HELD_REASON_LABELS = labelTable('reason', ['missing_pieces_above_cap'])
 
 /** Natures affichées par le filtre de la vue Propositions (hors déduplication et réparation, qui ont leur vue). */
 export const REVIEW_KINDS: readonly ProposalKind[] = [
@@ -26,78 +67,10 @@ export const REVIEW_KINDS: readonly ProposalKind[] = [
   'conflict',
 ]
 
-export const DECISION_LABELS: Record<Decision, string> = {
-  pending: 'En attente',
-  accepted: 'Acceptée',
-  rejected: 'Rejetée',
-  applied: 'Appliquée',
-  failed: 'Échec',
-  superseded: 'Remplacée',
-}
-
-export const STEP_LABELS: Record<ProposalStep, string> = {
-  linked: 'Liée',
-  seeded: 'Ensemencée',
-  seeded_paused_incomplete: 'Ensemencée, en pause (incomplète)',
-  forced: 'Forcée',
-}
-
-export const DOCTOR_LABELS: Record<DoctorStatus, string> = {
-  ok: 'OK',
-  warn: 'Avertissement',
-  fail: 'Échec',
-  skipped: 'Ignoré',
-}
-
-export const REPAIR_METHOD_LABELS: Record<string, string> = {
-  inode: 'même inode',
-  'size-mtime': 'taille et date de modification',
-  fingerprint: 'empreinte du contenu',
-  'torrent-pieces': 'pièces du torrent',
-}
-
-export const DEDUPE_METHOD_LABELS: Record<string, string> = {
-  hash: 'empreinte connue',
-  full: 'lecture complète',
-  sampled: 'échantillonnage',
-}
-
-export const LINK_KIND_LABELS: Record<string, string> = {
-  hardlink: 'lien physique',
-  reflink: 'reflink',
-  symlink: 'lien symbolique',
-}
-
-export const REPAIR_STATUS_LABELS: Record<string, string> = {
-  repairable: 'Réparable',
-  ambiguous: 'Ambigu',
-  lost: 'Introuvable',
-}
-
-export const LINK_STATE_LABELS: Record<LinkState, string> = {
-  ok: 'Conforme',
-  diverged: 'Divergent',
-  lost: 'Perdu',
-  unreadable: 'Illisible',
-}
-
 /** Ordre d'affichage des états (filtre et effectifs). */
-export const LINK_STATES: readonly LinkState[] = ['ok', 'diverged', 'lost', 'unreadable']
+export const LINK_STATES = ['ok', 'diverged', 'lost', 'unreadable'] as const
 
-/** labelOf renvoie le libellé français d'une valeur connue, ou la valeur brute d'une valeur inconnue. */
+/** labelOf renvoie le libellé d'une valeur connue, ou la valeur brute d'une valeur inconnue. */
 export function labelOf(labels: Readonly<Record<string, string>>, value: string): string {
   return labels[value] ?? value
-}
-
-export const CANDIDATE_LABELS: Record<CandidateState, string> = {
-  matched: 'Associés',
-  fetched: 'Téléchargés',
-  verified: 'Vérifiés',
-  failed: 'En échec',
-  stale: 'Obsolètes',
-}
-
-/** Raisons pour lesquelles un torrent vérifié n'est pas proposé (inconnue : affichée telle quelle). */
-export const HELD_REASON_LABELS: Readonly<Record<string, string>> = {
-  missing_pieces_above_cap: 'au-delà du plafond partialMaxMissingPercent',
 }

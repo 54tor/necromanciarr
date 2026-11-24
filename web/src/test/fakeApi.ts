@@ -1,3 +1,4 @@
+import { setLanguage } from '@/i18n'
 import { vi } from 'vitest'
 import { authToken, loginRejected, loginRequired } from '@/api/client'
 import { onboardingState } from '@/composables/useOnboarding'
@@ -52,7 +53,7 @@ export function installFakeApi(routes: Routes): FakeCall[] {
   return calls
 }
 
-/** resetAppState remet à zéro l'état partagé des modules (jeton, jobs, diagnostic, « passer », hash). */
+/** resetAppState remet à zéro l'état partagé des modules (jeton, jobs, diagnostic, « passer », hash, langue). */
 export function resetAppState(): void {
   authToken.value = ''
   loginRequired.value = false
@@ -62,5 +63,6 @@ export function resetAppState(): void {
   onboardingState.status.value = undefined
   onboardingState.loaded.value = false
   jobs.value = []
+  setLanguage('fr')
   window.location.hash = ''
 }
