@@ -7,10 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 )
 
@@ -65,7 +67,7 @@ func runSeed(ctx context.Context, deps Deps) (Result, error) {
 	if err := work.checkGroups(); err != nil {
 		return result, err
 	}
-	run := seedRun{deps: deps, result: &result}
+	run := seedRun{deps: deps, result: &result, discovered: &[]string{}}
 	for _, proposal := range work.proposals {
 		if err := ctx.Err(); err != nil {
 			return result, err
@@ -81,15 +83,28 @@ func runSeed(ctx context.Context, deps Deps) (Result, error) {
 			continue
 		}
 		if err := run.seedProposal(ctx, proposal, candidate, progress.LinkRoot); err != nil {
-			return result, err
+			return result, run.redact(err)
 		}
 	}
 	return result, nil
 }
 
+// seedRun porte une exécution de Seed ; discovered retient les valeurs de passkey lues dans les .torrent d'indexeur de
+// l'étape, qui masquent toute erreur sortante (redact).
 type seedRun struct {
-	deps   Deps
-	result *Result
+	deps       Deps
+	result     *Result
+	discovered *[]string
+}
+
+// redact masque, dans l'erreur qui arrête l'étape, les passkeys découvertes pendant l'étape, sous toutes les formes de
+// config.Config.WithDiscoveredSecrets ; l'application masque en plus les secrets connus de la configuration.
+func (run seedRun) redact(err error) error {
+	if len(*run.discovered) == 0 {
+		return err
+	}
+	secrets := config.Config{}.WithDiscoveredSecrets(*run.discovered...)
+	return redactedError{text: config.RedactText(err.Error(), secrets...), cause: err}
 }
 
 // seedProposal ne renvoie une erreur que pour arrêter l'étape ; un refus (refusal) passe la proposition à failed.
@@ -106,6 +121,10 @@ func (run seedRun) seedProposal(ctx context.Context, proposal store.Proposal, ca
 // dossier du torrent intacts (sinon échec et étape effacée, Link refera le dossier). Un torrent déjà dans le client
 // n'est repris en main que s'il pointe sur notre dossier.
 func (run seedRun) seedChecked(ctx context.Context, proposal store.Proposal, candidate store.Candidate, linkRoot string) error {
+	// Défense : Link a déjà refusé une proposition sans annonce ; rien n'est relu ni ajouté.
+	if AnnounceSourceOf(run.deps.Announces, candidate) == sources.AnnounceNone {
+		return refusal(ReasonNoAnnounce)
+	}
 	proven, reason, err := loadProven(ctx, run.deps, proposal, candidate)
 	switch {
 	case err != nil:
@@ -141,7 +160,7 @@ func (run seedRun) seedChecked(ctx context.Context, proposal store.Proposal, can
 		return run.takeOverExisting(ctx, proposal.ID, candidate.Infohash, existing, savePath, linkRoot, complete)
 	}
 	skipChecking := complete && run.deps.SkipRecheck && certain
-	if err := run.addStopped(ctx, candidate.ID, savePath, skipChecking); err != nil {
+	if err := run.addStopped(ctx, candidate, savePath, skipChecking); err != nil {
 		return err
 	}
 	if !complete {
@@ -301,14 +320,17 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 	}
 }
 
-// addStopped ajoute le torrent arrêté au chemin que voit le client ; un client readonly arrête l'étape.
-func (run seedRun) addStopped(ctx context.Context, candidateID int64, savePath string, skipChecking bool) error {
-	raw, err := run.deps.Store.CandidateTorrent(ctx, candidateID)
+// addStopped ajoute le torrent arrêté au chemin que voit le client ; un client readonly arrête l'étape. Le .torrent
+// remis, annonce comprise, n'existe qu'en mémoire le temps de l'appel ; l'erreur du client n'est jamais relue.
+func (run seedRun) addStopped(ctx context.Context, candidate store.Candidate, savePath string, skipChecking bool) error {
+	injected, err := run.announcedTorrent(ctx, candidate)
 	if err != nil {
 		return err
 	}
+	// Au mieux : Go peut avoir copié ces octets ailleurs (pile, ramasse-miettes, tampon du client HTTP).
+	defer clear(injected)
 	options := qbit.AddOptions{Category: run.deps.Category, Tags: run.deps.Tags, Start: false, SkipChecking: skipChecking}
-	err = run.deps.Client.Add(ctx, raw, savePath, options)
+	err = run.deps.Client.Add(ctx, injected, savePath, options)
 	switch {
 	case errors.Is(err, qbit.ErrReadOnly):
 		run.result.count(ReasonClientReadOnly, 1)

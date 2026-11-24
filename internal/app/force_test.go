@@ -14,6 +14,7 @@ import (
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 
+	"necromanciarr/internal/config"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
@@ -90,7 +91,7 @@ func newForceFixture(t *testing.T, prepareCopy func(source, destination, root st
 		{FileIndex: 0, Path: "Movie/movie.mkv", Size: info.Size(), MediaFileID: mediaFiles[0].ID, MediaSize: info.Size(), MediaModTime: info.ModTime()},
 		{FileIndex: 1, Path: "Movie/movie.nfo", Size: missingNfoSize},
 	}
-	candidate := store.Candidate{Infohash: infohash, Name: "Movie", TotalSize: info.Size() + missingNfoSize}
+	candidate := store.Candidate{Infohash: infohash, Tracker: trackerAEntry.Key, Name: "Movie", TotalSize: info.Size() + missingNfoSize}
 	if _, _, err := openedStore.SaveCandidate(ctx, candidate, files, fixedNow); err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +99,8 @@ func newForceFixture(t *testing.T, prepareCopy func(source, destination, root st
 		t.Fatal(err)
 	}
 	client := &completeClient{added: map[string]bool{}}
-	service := New(Deps{Store: openedStore, Client: client, Stages: pipeline.Deps{
+	settings := config.Config{Trackers: []config.Tracker{trackerAEntry}}
+	service := New(Deps{Store: openedStore, Client: client, Config: settings, Stages: pipeline.Deps{
 		Store: openedStore, Fetcher: singleTorrentFetcher{raw: raw}, LinkDirs: []string{linkDir}, LibraryRoots: []string{libraryDir},
 		LinkKinds: []linker.Kind{linker.Hardlink}, Client: client, PrepareCopy: prepareCopy,
 	}})

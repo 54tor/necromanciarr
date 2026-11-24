@@ -86,6 +86,27 @@ A `.torrent` downloaded from a Torznab indexer carries the tracker announce, hen
 - **The key**: 32 bytes in base64url without padding (43 characters), drawn by `necromanciarr api-key --secret`, which prints it on stdout only. Only this spelling is accepted (no standard base64, no hex, no spaces); an invalid value is a usage error that names the variable only. The key is never serialized and is masked everywhere in its likely spellings (raw, base64, hex). Zeroing it in memory is best effort only: Go does not guarantee there is no copy.
 - **Key lost or changed**: candidates stay readable (the sanitized copy is enough for Verify), but Seed refuses a candidate whose blob no longer unseals and `doctor` (`secret-key`) reports it as `sealed_torrent_unreadable`. Running Verify again on this candidate fetches a fresh `.torrent` within the indexer budget. Back the key up with the `.env`.
 
+## Announce injection
+
+The provider's `.torrent` has no announce, and the kept copy of an indexer `.torrent` is stripped of it. Seed hands the client a `.torrent` built in memory: the sanitized copy from the `torrent` column (`info` copied byte for byte, `private` flag intact), plus `announce` and `announce-list`.
+
+| Source (`announce_source`) | Condition | Injected announce |
+|---|---|---|
+| `config` | a `trackers` entry covers the candidate's tracker (key or alias, after normalization) | the configured one, which replaces any other, even an indexer's |
+| `indexer` | no entry, but a sealed `.torrent` with the same infohash is stored | the sealed `.torrent`'s one, unsealed in memory with the binding of the candidate row |
+| `none` | neither (an empty tracker included: only the `indexer` path remains) | none: `no_announce` |
+
+- **`no_announce`**: the proposal carries the warning "no announce for tracker <name>: add a `trackers` entry" and `seedable: false`. Both are computed at every read (`proposals list`, `status`, Link, Seed) and never stored: adding the `trackers` entry lifts the state without re-verifying. Accepting stays allowed; Link refuses the proposal (`no_announce`) before any probe or folder creation, and Seed refuses it again as a defence. A public torrent follows the same rule: no DHT-only seed. The interface shows the "No announce" pill and disables the Accept button, with the reason as tooltip.
+- **Checks before the add**: a sealed `.torrent` that no longer unseals gives `sealed_torrent_unreadable` (run Verify again), a sealed `.torrent` without `NECROMANCIARR_SECRET_KEY` gives `secret_key_missing`, and an infohash read back (after unsealing, then after injection) that differs from the candidate's gives `infohash_changed_after_inject`. In all these cases, nothing reaches the client.
+- **Memory only**: the injected `.torrent` is passed only to the client add; it is never written to disk, to the database, to a stage result, a warning, a response or a log, and its buffer is cleared after the add (best effort: Go may have made copies). The unsealed plaintext is cleared as soon as its announce is read; the passkey values it carries (path segments, parameter values) mask any error leaving the stage. The client's add error is never read back: a server that copies the received body into its response leaks nothing.
+- **cross-seed**: in `delegate` mode, the notification sends only `{"infoHash": …}`. In `native` mode, each torrent of a group resolves its own announce and can be `no_announce` alone; `accept-group` accepts anyway, Link and Seed handle each proposal by its own announce. qBittorrent then keeps the announce in its own state, outside Necromanciarr's control.
+
+| Data | Where | Lifetime |
+|---|---|---|
+| Configured announce | template in `config.json`, value in the environment | — |
+| Complete indexer `.torrent` | `torrent_sealed`, sealed | until the decision, or as soon as a `trackers` entry covers the tracker (at startup and at every read) |
+| Injected `.torrent` | nowhere | the time of the add |
+
 ## Passkey masking
 
 Every output (CLI text and `--json`, web API, interface, `doctor`, server log, job results, panic messages) goes through the same masking:
@@ -102,7 +123,7 @@ Every output (CLI text and `--json`, web API, interface, `doctor`, server log, j
 | Word of at least 16 characters with a digit in the host (token as a subdomain) | `https://0000aaaa0000aaaa0000aaaa0000aaaa.t.example/` | `https://***.t.example/` |
 | JSON-escaped URL (`https:\/\/…`, PHP `json_encode` body) | an announce URL in a response body | `***` |
 
-Accepted limits: a passkey shorter than 16 characters in a path, neither after a passkey name nor a `trackers` value, stays visible; a standard base64 passkey (`+`, `/`) is cut into pieces shorter than 16 characters and is masked only if it is a known secret; a URL without `scheme://` is not recognized; a URL split by a space or a newline is handled only up to the split. Outside a URL, a bare passkey is masked only if it is a known secret (8 characters at least); once Seed reads the announce of an indexer `.torrent`, its passkey will join the known secrets for the time of the operation: only values enter (8 bytes at least for replacement everywhere, shorter ones kept for URLs), never ordinary path words such as `announce`. An infohash placed in a URL is masked by the 16-character rule (harmless: it is not secret); alone, outside a URL, it stays visible. Masking runs in linear time and a second pass changes nothing.
+Accepted limits: a passkey shorter than 16 characters in a path, neither after a passkey name nor a `trackers` value, stays visible; a standard base64 passkey (`+`, `/`) is cut into pieces shorter than 16 characters and is masked only if it is a known secret; a URL without `scheme://` is not recognized; a URL split by a space or a newline is handled only up to the split. Outside a URL, a bare passkey is masked only if it is a known secret (8 characters at least); when Seed reads the announce of an indexer `.torrent`, its passkey joins the known secrets for the time of the stage: only values enter (8 bytes at least for replacement everywhere, shorter ones kept for URLs), never ordinary path words such as `announce`. An infohash placed in a URL is masked by the 16-character rule (harmless: it is not secret); alone, outside a URL, it stays visible. Masking runs in linear time and a second pass changes nothing.
 
 ## Resumption after an interruption
 

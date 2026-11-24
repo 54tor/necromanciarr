@@ -18,6 +18,7 @@ import (
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
 )
@@ -68,6 +69,7 @@ type Store interface {
 	SetCandidateState(ctx context.Context, candidateID int64, state store.CandidateState, now time.Time) error
 	SaveCandidateTorrent(ctx context.Context, candidateID int64, raw []byte, now time.Time) error
 	CandidateTorrent(ctx context.Context, candidateID int64) ([]byte, error)
+	CandidateSealed(ctx context.Context, candidateID int64) ([]byte, bool, error)
 	PurgeSealedOlderThan(ctx context.Context, now time.Time, olderThan time.Duration) (int, error)
 	LoadVerification(ctx context.Context, candidateID int64) (store.Verification, bool, error)
 	SaveVerification(ctx context.Context, verification store.Verification, now time.Time) error
@@ -155,6 +157,10 @@ func LibraryScanner(mediaStore *store.Store) RootScanner {
 // Force). Pour Seed : Client, ClientMapper (nil = même vue que le client), Category et Tags,
 // SkipRecheck (permis de sauter le recontrôle quand notre vérification couvre 100 %), RecheckTimeout (0 = une heure),
 // Notifier (nil = aucun) et CrossSeedWarnings, les avertissements de crossseed.ResolveMode recopiés dans le Result.
+//
+// Pour Verify, Link et Seed : Announces résout l'annonce de chaque candidat d'après la section trackers (valeur zéro :
+// aucune entrée, seul un .torrent scellé d'indexeur peut fournir une annonce) ; Sealer déscelle ces .torrent (nil :
+// pas de NECROMANCIARR_SECRET_KEY).
 type Deps struct {
 	Store            Store
 	ScanRoot         RootScanner
@@ -184,6 +190,8 @@ type Deps struct {
 	RecheckTimeout           time.Duration
 	Notifier                 crossseed.Notifier
 	CrossSeedWarnings        []i18n.Message
+	Announces                sources.Resolver
+	Sealer                   *sources.Sealer
 	Now                      func() time.Time
 	LockTTL                  time.Duration
 }

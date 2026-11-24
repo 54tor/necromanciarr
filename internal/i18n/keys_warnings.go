@@ -26,6 +26,8 @@ const (
 	KeyWarningCrossSeedDelegateUnreachable Key = "warning.crossseed.delegate_unreachable"
 	KeyWarningCrossSeedFallbackNative      Key = "warning.crossseed.fallback_native"
 	KeyWarningMultipleClients              Key = "warning.multiple_clients"
+	// KeyWarningNoAnnounce est calculé à la lecture (jamais stocké) : paramètre tracker.
+	KeyWarningNoAnnounce Key = "warning.no_announce"
 )
 
 // Conseils sur un montage réseau (doctor, contrôle rclone) : produits par hashsource sous forme de messages.
@@ -48,7 +50,7 @@ var warningKeys = []Key{
 	KeyWarningRecheckFailed, KeyWarningNoClientRecheck, KeyWarningLinkNotRecorded,
 	KeyWarningDedupeUnreliableInode, KeyWarningDedupeFullNetworkRead, KeyWarningDedupeSampledVerify,
 	KeyWarningDedupeRenameNotAtomic, KeyWarningCrossSeedDelegateNoDaemon, KeyWarningCrossSeedDelegateUnreachable,
-	KeyWarningCrossSeedFallbackNative, KeyWarningMultipleClients,
+	KeyWarningCrossSeedFallbackNative, KeyWarningMultipleClients, KeyWarningNoAnnounce,
 	KeyAdviceMountStartRC, KeyAdviceMountNoHash, KeyAdviceMountNoModTime, KeyAdviceMountModTimeUnknown,
 	KeyAdviceMountVFSLinks, KeyAdviceMountRcloneError, KeyAdviceMountNoSample, KeyAdviceMountInvalid,
 }

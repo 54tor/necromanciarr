@@ -260,3 +260,23 @@ func TestNoop_doesNothing(t *testing.T) {
 		t.Fatal(gotError)
 	}
 }
+
+func TestWebhook_bodyContainsOnlyInfoHash(t *testing.T) {
+	var recorded recordedRequest
+	server := newRecordingServer(t, http.StatusNoContent, &recorded)
+
+	if err := mustWebhook(t, server.URL).Notify(context.Background(), testInfoHash); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mode delegate : aucune annonce ni passkey ne quitte Necromanciarr, cross-seed injecte ses propres annonces.
+	var payload map[string]any
+	decoder := json.NewDecoder(strings.NewReader(string(recorded.body)))
+	if err := decoder.Decode(&payload); err != nil || decoder.More() {
+		t.Fatalf("gotValue body %q (%v), expectedValue one JSON object", recorded.body, err)
+	}
+	expectedValue := map[string]any{"infoHash": testInfoHash}
+	if fmt.Sprint(payload) != fmt.Sprint(expectedValue) || recorded.rawQuery != "" || strings.Contains(string(recorded.body), "://") {
+		t.Fatalf("gotValue body %q query %q, expectedValue only the infoHash field", recorded.body, recorded.rawQuery)
+	}
+}

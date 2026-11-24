@@ -80,9 +80,16 @@ func (fixture *decisionFixture) service(behavior crossseed.Behavior) Service {
 // association prouvée, puis le regroupe.
 func (fixture *decisionFixture) verifiedCandidate(infohash string) store.Candidate {
 	fixture.t.Helper()
+	return fixture.verifiedCandidateOn(infohash, "")
+}
+
+// verifiedCandidateOn est verifiedCandidate pour un candidat de ce tracker.
+func (fixture *decisionFixture) verifiedCandidateOn(infohash, tracker string) store.Candidate {
+	fixture.t.Helper()
 	ctx := context.Background()
 	file := store.CandidateFile{FileIndex: 0, Path: "Movie/movie.mkv", Size: 40, MediaFileID: fixture.media.ID, MediaSize: 40, MediaModTime: fixture.media.ModTime}
-	candidateID, _, err := fixture.store.SaveCandidate(ctx, store.Candidate{Infohash: infohash, Name: "Movie " + infohash, TotalSize: 40}, []store.CandidateFile{file}, fixedNow)
+	candidate := store.Candidate{Infohash: infohash, Tracker: tracker, Name: "Movie " + infohash, TotalSize: 40}
+	candidateID, _, err := fixture.store.SaveCandidate(ctx, candidate, []store.CandidateFile{file}, fixedNow)
 	if err != nil {
 		fixture.t.Fatal(err)
 	}

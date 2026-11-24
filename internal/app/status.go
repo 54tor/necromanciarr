@@ -6,6 +6,7 @@ import (
 
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/pipeline"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 )
 
@@ -21,6 +22,9 @@ type Status struct {
 	Warnings []Warning `json:"warnings,omitempty"`
 	// Held liste les torrents vérifiés dont le verdict est mis de côté (aucune proposition), avec la raison.
 	Held []HeldCandidate `json:"held"`
+	// NoAnnounce compte les propositions de torrent ouvertes et courantes sans annonce (no_announce), recalculé à chaque
+	// lecture depuis la section trackers.
+	NoAnnounce int `json:"no_announce"`
 }
 
 // HeldCandidate est un torrent vérifié non proposé : nature qu'il aurait eue, raison et pièces manquantes.
@@ -61,6 +65,9 @@ func (svc *service) Status(ctx context.Context) (Status, error) {
 	}
 	for _, proposal := range state.proposals {
 		status.Proposals[proposal.Decision]++
+		if state.isOpenWithoutAnnounce(proposal) {
+			status.NoAnnounce++
+		}
 	}
 	for _, progress := range state.progress {
 		if progress.Step != "" {
@@ -87,4 +94,15 @@ func (svc *service) heldCandidates(ctx context.Context, state snapshot) ([]HeldC
 		})
 	}
 	return held, nil
+}
+
+// isOpenWithoutAnnounce : proposition de torrent courante, encore à lier ou à reprendre, que Link refuserait faute
+// d'annonce.
+func (state snapshot) isOpenWithoutAnnounce(proposal store.Proposal) bool {
+	isOpen := proposal.Decision == store.ProposalPending || proposal.Decision == store.ProposalAccepted ||
+		proposal.Decision == store.ProposalFailed
+	if !isOpen || !pipeline.IsTorrentProposal(proposal.Kind) || !state.current(proposal) {
+		return false
+	}
+	return pipeline.AnnounceSourceOf(state.announces, state.candidates[proposal.CandidateID]) == sources.AnnounceNone
 }

@@ -2,20 +2,20 @@ package pipeline
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"maps"
 	"slices"
 	"strconv"
 
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/matcher"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
 )
 
 // ProposalDetails est le contenu de Proposal.Details pour les propositions créées par Verify. MissingPieces compte les
-// pièces non vérifiées ; Candidates liste chaque torrent d'un groupe en litige, sans en choisir aucun.
+// pièces non vérifiées ; Candidates liste chaque torrent d'un groupe en litige, sans en choisir aucun. Seedable et
+// AnnounceSource (config, indexer ou none, jamais une URL) sont calculés à chaque lecture (WithAnnounce), jamais stockés.
 type ProposalDetails struct {
 	Percent           float64         `json:"percent"`
 	VerifiedPieces    int             `json:"verified_pieces"`
@@ -25,6 +25,8 @@ type ProposalDetails struct {
 	AmbiguousFiles    []AmbiguousFile `json:"ambiguous_files,omitempty"`
 	ExcludedFiles     []ExcludedFile  `json:"excluded_files,omitempty"`
 	Candidates        []GroupMember   `json:"candidates,omitempty"`
+	Seedable          bool            `json:"seedable"`
+	AnnounceSource    string          `json:"announce_source"`
 }
 
 // ExclusionAnnexHashFailed : un fichier annexe de la bibliothèque, de même taille, a une pièce au SHA1 faux ; il n'est
@@ -191,13 +193,16 @@ func (run candidateRun) propose(ctx context.Context, candidate store.Candidate, 
 	if created {
 		run.result.ProposalsCreated++
 	}
+	if IsTorrentProposal(decided.kind) && AnnounceSourceOf(run.deps.Announces, candidate) == sources.AnnounceNone {
+		run.result.count(ReasonNoAnnounce, 1)
+	}
 	return err
 }
 
 func upsertProposal(ctx context.Context, deps Deps, proposal store.Proposal, details ProposalDetails) (bool, error) {
-	encoded, err := json.Marshal(details)
+	encoded, err := encodeStoredDetails(details)
 	if err != nil {
-		return false, fmt.Errorf("encode proposal details: %w", err)
+		return false, err
 	}
 	proposal.Details = encoded
 	_, created, err := deps.Store.UpsertProposal(ctx, proposal, deps.now())

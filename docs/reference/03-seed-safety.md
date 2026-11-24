@@ -86,6 +86,27 @@ Un `.torrent` téléchargé d'un indexeur Torznab porte l'annonce du tracker, do
 - **La clé** : 32 octets en base64url sans remplissage (43 caractères), tirés par `necromanciarr api-key --secret` qui l'affiche sur stdout seulement. Seule cette écriture est admise (ni base64 standard, ni hexadécimal, ni espace) ; une valeur invalide est une erreur d'usage qui ne nomme que la variable. La clé n'est jamais sérialisée et elle est masquée partout sous ses écritures probables (brute, base64, hexadécimal). Sa remise à zéro en mémoire n'est qu'un effort : Go ne garantit pas l'absence de copie.
 - **Clé perdue ou changée** : les candidats restent lisibles (la copie assainie suffit à Verify), mais Seed refuse un candidat dont le bloc ne se descelle plus et `doctor` (`secret-key`) le signale en `sealed_torrent_unreadable`. Relancer Verify sur ce candidat récupère un `.torrent` neuf dans le budget de l'indexeur. Sauvegarder la clé avec le `.env`.
 
+## Injection de l'annonce
+
+Le `.torrent` du fournisseur n'a pas d'annonce, et la copie conservée d'un `.torrent` d'indexeur en est privée. Seed rend au client un `.torrent` construit en mémoire : la copie assainie de la colonne `torrent` (`info` recopié octet pour octet, drapeau `private` intact), plus `announce` et `announce-list`.
+
+| Source (`announce_source`) | Condition | Annonce injectée |
+|---|---|---|
+| `config` | une entrée `trackers` couvre le tracker du candidat (clé ou alias, après normalisation) | celle de la configuration, qui remplace toute autre, même celle d'un indexeur |
+| `indexer` | aucune entrée, mais un `.torrent` scellé de même infohash est en base | celle du `.torrent` scellé, descellé en mémoire avec la liaison de la ligne du candidat |
+| `none` | ni l'une ni l'autre (tracker vide compris : seule la voie `indexer` reste) | aucune : `no_announce` |
+
+- **`no_announce`** : la proposition porte l'avertissement « aucune annonce pour le tracker <nom> : ajouter une entrée `trackers` » et `seedable: false`. Les deux sont recalculés à chaque lecture (`proposals list`, `status`, Link, Seed) et jamais stockés : ajouter l'entrée `trackers` lève l'état sans revérifier. Accepter reste permis ; Link refuse la proposition (`no_announce`) avant toute sonde ou création de dossier, et Seed la refuse encore par défense. Un torrent public suit la même règle : pas de seed par DHT seul. L'interface affiche la pastille « Sans annonce » et désactive le bouton Accepter, avec la raison en info-bulle.
+- **Contrôles avant l'ajout** : un `.torrent` scellé qui ne se descelle plus donne `sealed_torrent_unreadable` (relancer Verify), un `.torrent` scellé sans `NECROMANCIARR_SECRET_KEY` donne `secret_key_missing`, et un infohash relu (après descellement, puis après injection) différent de celui du candidat donne `infohash_changed_after_inject`. Dans tous ces cas, rien n'est remis au client.
+- **Mémoire seulement** : le `.torrent` injecté n'est passé qu'à l'ajout du client ; il n'est jamais écrit sur disque, en base, dans un résultat d'étape, un avertissement, une réponse ou un journal, et son tampon est effacé après l'ajout (au mieux : Go peut en avoir fait des copies). Le clair descellé est effacé dès l'annonce lue ; les valeurs de passkey qu'elle porte (segments de chemin, valeurs de paramètres) masquent toute erreur qui sort de l'étape. L'erreur du client à l'ajout n'est jamais relue : un serveur qui recopie le corps reçu dans sa réponse ne fait rien fuir.
+- **cross-seed** : en mode `delegate`, la notification n'envoie que `{"infoHash": …}`. En mode `native`, chaque torrent d'un groupe résout sa propre annonce et peut être `no_announce` seul ; `accept-group` accepte quand même, Link et Seed traitent chaque proposition selon sa propre annonce. qBittorrent garde ensuite l'annonce dans son propre état, hors du contrôle de Necromanciarr.
+
+| Donnée | Où | Durée |
+|---|---|---|
+| Annonce configurée | gabarit dans `config.json`, valeur dans l'environnement | — |
+| `.torrent` d'indexeur complet | `torrent_sealed`, scellé | jusqu'à la décision, ou dès qu'une entrée `trackers` couvre le tracker (au démarrage et à chaque lecture) |
+| `.torrent` injecté | nulle part | le temps de l'ajout |
+
 ## Masquage des passkeys
 
 Toute sortie (CLI texte et `--json`, API web, interface, `doctor`, journal du serveur, résultats de jobs, messages de panique) passe par le même masquage :
@@ -102,7 +123,7 @@ Toute sortie (CLI texte et `--json`, API web, interface, `doctor`, journal du se
 | Mot d'au moins 16 caractères avec un chiffre dans l'hôte (jeton en sous-domaine) | `https://0000aaaa0000aaaa0000aaaa0000aaaa.t.example/` | `https://***.t.example/` |
 | URL échappée pour JSON (`https:\/\/…`, corps PHP `json_encode`) | une URL d'annonce dans un corps de réponse | `***` |
 
-Limites acceptées : une passkey de moins de 16 caractères dans un chemin, ni après un nom de passkey ni valeur de `trackers`, reste visible ; une passkey en base64 standard (`+`, `/`) est coupée en morceaux de moins de 16 caractères et n'est masquée que si c'est un secret connu ; une URL sans `scheme://` n'est pas reconnue ; une URL coupée par une espace ou un saut de ligne n'est traitée que jusqu'à la coupure. Hors d'une URL, une passkey nue n'est masquée que si c'est un secret connu (8 caractères au moins) ; quand Seed lira l'annonce d'un `.torrent` d'indexeur, sa passkey rejoindra les secrets connus le temps de l'opération : seules des valeurs y entrent (8 octets au moins pour le remplacement partout, plus courtes réservées aux URL), jamais des mots de chemin ordinaires comme `announce`. Un infohash placé dans une URL est masqué par la règle des 16 caractères (sans dommage : il n'est pas secret) ; seul, hors d'une URL, il reste affiché. Le masquage est en temps linéaire et une seconde passe ne change rien.
+Limites acceptées : une passkey de moins de 16 caractères dans un chemin, ni après un nom de passkey ni valeur de `trackers`, reste visible ; une passkey en base64 standard (`+`, `/`) est coupée en morceaux de moins de 16 caractères et n'est masquée que si c'est un secret connu ; une URL sans `scheme://` n'est pas reconnue ; une URL coupée par une espace ou un saut de ligne n'est traitée que jusqu'à la coupure. Hors d'une URL, une passkey nue n'est masquée que si c'est un secret connu (8 caractères au moins) ; quand Seed lit l'annonce d'un `.torrent` d'indexeur, sa passkey rejoint les secrets connus le temps de l'étape : seules des valeurs y entrent (8 octets au moins pour le remplacement partout, plus courtes réservées aux URL), jamais des mots de chemin ordinaires comme `announce`. Un infohash placé dans une URL est masqué par la règle des 16 caractères (sans dommage : il n'est pas secret) ; seul, hors d'une URL, il reste affiché. Le masquage est en temps linéaire et une seconde passe ne change rien.
 
 ## Reprise après coupure
 

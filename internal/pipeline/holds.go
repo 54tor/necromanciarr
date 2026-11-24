@@ -2,8 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/store"
@@ -24,9 +22,9 @@ func (deps Deps) aboveCap(kind store.ProposalKind, details ProposalDetails) bool
 }
 
 func holdVerdict(ctx context.Context, deps Deps, candidateID int64, kind store.ProposalKind, warnings []i18n.Message, details ProposalDetails) error {
-	encoded, err := json.Marshal(details)
+	encoded, err := encodeStoredDetails(details)
 	if err != nil {
-		return fmt.Errorf("encode held details: %w", err)
+		return err
 	}
 	hold := store.CandidateHold{
 		CandidateID: candidateID, Reason: ReasonMissingPiecesAboveCap, Kind: kind, Warnings: warnings, Details: encoded,

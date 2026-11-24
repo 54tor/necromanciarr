@@ -11,6 +11,7 @@ import (
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 )
 
@@ -62,11 +63,13 @@ func (filter ProposalFilter) keeps(view Proposal) bool {
 	return !rejectedByDecision && !rejectedByKind && !rejectedByGroup && !rejectedAsStale
 }
 
-// snapshot est l'état lu une fois par action : propositions, chaque candidat (tout état) et étapes d'application.
+// snapshot est l'état lu une fois par action : propositions, chaque candidat (tout état), étapes d'application et
+// résolution des annonces d'après la configuration courante.
 type snapshot struct {
 	proposals  []store.Proposal
 	candidates map[int64]store.Candidate
 	progress   map[int64]store.ProposalProgress
+	announces  sources.Resolver
 }
 
 func (svc *service) loadSnapshot(ctx context.Context) (snapshot, error) {
@@ -78,6 +81,10 @@ func (svc *service) loadSnapshot(ctx context.Context) (snapshot, error) {
 	if err != nil {
 		return snapshot{}, err
 	}
+	announces := svc.announces()
+	if err := clearCoveredSealed(ctx, svc.deps.Store, announces, candidates); err != nil {
+		return snapshot{}, err
+	}
 	progress, err := svc.deps.Store.ListProposalProgress(ctx)
 	if err != nil {
 		return snapshot{}, err
@@ -86,7 +93,7 @@ func (svc *service) loadSnapshot(ctx context.Context) (snapshot, error) {
 	for _, candidate := range candidates {
 		byID[candidate.ID] = candidate
 	}
-	return snapshot{proposals: proposals, candidates: byID, progress: progress}, nil
+	return snapshot{proposals: proposals, candidates: byID, progress: progress, announces: announces}, nil
 }
 
 func (state snapshot) proposal(proposalID int64) (store.Proposal, error) {
@@ -128,7 +135,7 @@ func (state snapshot) view(translator i18n.Translator, proposal store.Proposal) 
 	for position := range view.Details.ExcludedFiles {
 		view.Details.ExcludedFiles[position].Label = translator.ReasonLabel(view.Details.ExcludedFiles[position].Reason)
 	}
-	return view
+	return state.withAnnounce(translator, view)
 }
 
 // labelledMaintenance ajoute le libellé traduit du motif au détail dedupe ou repair ; un détail illisible reste tel quel.

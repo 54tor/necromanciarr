@@ -135,6 +135,7 @@ type Store interface {
 	RecordFingerprint(ctx context.Context, entry store.CachedFingerprint) error
 	LoadMountCapabilities(ctx context.Context, mountPath string) (store.MountCapabilities, bool, error)
 	SaveMountCapabilities(ctx context.Context, capabilities store.MountCapabilities) error
+	SealedClearer
 }
 
 // Resumer démarre un torrent du client ; *qbit.Client convient.
@@ -203,6 +204,7 @@ func (svc *service) RunStage(ctx context.Context, stage pipeline.Stage) (pipelin
 		return pipeline.Result{Stage: stage}, err
 	}
 	stages := svc.deps.Stages
+	stages.Announces = svc.announces()
 	resolution := svc.crossSeed(ctx)
 	stages.CrossSeed, stages.CrossSeedWarnings, stages.Notifier = resolution.Behavior, resolution.Warnings, resolution.Notifier
 	result, err := pipeline.Run(ctx, stage, stages)

@@ -11,8 +11,8 @@ Five stages run in this order, each through its own command (`scan`, `match`, `v
 | Scan | `libraryRoots`, Radarr, Sonarr | inventory (path, size, date, TMDB/TVDB) | `libraryRoots`; `radarr`/`sonarr` for the identifiers |
 | Match | inventory, provider | `matched` candidates and their files | `libraryApi` + `LIBRARY_PROVIDER_TOKEN` |
 | Verify | candidates, `.torrent`, `.nfo`, local files | verifications, proven associations, annexes, proposals | `libraryApi` |
-| Link | accepted proposals | torrent folder under `linkDirs`, links, annexes, `linked` step | `linkDirs` |
-| Seed | `linked` proposals | torrent added to the client, `applied` decision, final step | `torrentClients` |
+| Link | accepted proposals with an announce | torrent folder under `linkDirs`, links, annexes, `linked` step | `linkDirs` |
+| Seed | `linked` proposals | torrent added to the client with its announce injected in memory, `applied` decision, final step | `torrentClients`; `trackers` or sealed `.torrent` |
 
 A missing component gives `not_configured` (Match, Verify, Seed) or the failure `pipeline: no link directory configured` (Link).
 
@@ -111,7 +111,9 @@ The database clears the sealed blob in the very statement that writes one of the
 
 - the candidate becomes `failed` or `stale`, with or without proposals (a retry downloads the `.torrent` again);
 - a proposal of the candidate becomes `applied`, `rejected` or `superseded` and the candidate has no other `pending`, `accepted` or `failed` proposal left apart from `conflict` (a conflict is never seeded): a rejected conflict does not clear it while the same candidate's `full` stays open;
-- a tracker that a `trackers` entry now covers (tracker compared byte for byte with the stored value).
+- a tracker that a `trackers` entry now covers (tracker compared byte for byte with the stored value): at service startup and at every read of the proposals.
+
+A proposal whose candidate has neither a `trackers` entry nor a sealed blob is `no_announce`: Verify counts it under this reason, every read marks it `seedable: false`, and Link refuses it before creating anything ([03-seed-safety.md](03-seed-safety.md)).
 
 A `pending` or `failed` proposal that is never decided keeps the blob, since Seed needs it; so that nothing stays forever, every Verify first clears any blob whose candidate has not been updated for 30 days.
 

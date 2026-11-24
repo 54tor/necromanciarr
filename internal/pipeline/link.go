@@ -14,6 +14,7 @@ import (
 	"necromanciarr/internal/dedupe"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/matcher"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
 )
@@ -53,7 +54,8 @@ const maxFolderNameBytes = 255
 const temporaryMarker = ".necromanciarr-tmp-"
 
 // runLink reconstitue, une proposition acceptée à la fois, l'arborescence de chaque torrent par des liens vers
-// l'association prouvée, puis écrit ses annexes vérifiées ; rien n'est jamais écrit dans la bibliothèque.
+// l'association prouvée, puis écrit ses annexes vérifiées ; rien n'est jamais écrit dans la bibliothèque. Une
+// proposition sans annonce (no_announce) est refusée avant toute écriture.
 func runLink(ctx context.Context, deps Deps) (Result, error) {
 	var result Result
 	if len(deps.LinkDirs) == 0 {
@@ -130,6 +132,10 @@ type linkRun struct {
 // linkProposal ne renvoie une erreur que pour arrêter l'étape (store, annulation) ; un refus passe la proposition à
 // failed avec sa raison. recordedRoot est le dossier déjà enregistré pour la proposition (vide s'il n'y en a pas).
 func (run linkRun) linkProposal(ctx context.Context, proposal store.Proposal, candidate store.Candidate, recordedRoot string) error {
+	// Sans annonce, Seed refuserait : rien n'est sondé ni créé, pour ne laisser aucun dossier de liens orphelin.
+	if AnnounceSourceOf(run.deps.Announces, candidate) == sources.AnnounceNone {
+		return failProposal(ctx, run.deps, run.result, proposal.ID, ReasonNoAnnounce)
+	}
 	proven, reason, err := loadProven(ctx, run.deps, proposal, candidate)
 	switch {
 	case err != nil:

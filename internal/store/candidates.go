@@ -58,11 +58,14 @@ type Candidate struct {
 	TotalSize    int64
 	ProviderJSON string
 	Source       string
-	State        CandidateState
-	GroupID      int64
-	Generation   int64
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// HasSealed dit si le candidat a un .torrent d'indexeur scellé (lu, jamais écrit par SaveCandidate) ; le bloc
+	// lui-même ne passe que par CandidateSealed.
+	HasSealed  bool
+	State      CandidateState
+	GroupID    int64
+	Generation int64
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // CandidateFile associe un fichier du torrent (FileIndex) à un fichier de la bibliothèque ; MediaFileID vaut 0 si aucun
@@ -367,8 +370,8 @@ FROM candidate_files WHERE candidate_id = ? ORDER BY file_index, media_file_id`,
 
 // ListCandidatesByState renvoie chaque candidat dans l'un des états donnés (tous si aucun), triés par identifiant.
 func (openedStore *Store) ListCandidatesByState(ctx context.Context, states ...CandidateState) ([]Candidate, error) {
-	query := `SELECT id, infohash, tracker, name, total_size, provider_json, source, state, group_id, generation, created_at,
-	updated_at FROM torrent_candidates`
+	query := `SELECT id, infohash, tracker, name, total_size, provider_json, source, torrent_sealed IS NOT NULL, state, group_id,
+	generation, created_at, updated_at FROM torrent_candidates`
 	arguments := make([]any, 0, len(states))
 	if len(states) > 0 {
 		query += ` WHERE state IN (?` + strings.Repeat(", ?", len(states)-1) + `)`
@@ -388,7 +391,7 @@ func (openedStore *Store) ListCandidatesByState(ctx context.Context, states ...C
 		var groupID sql.NullInt64
 		var createdAt, updatedAt int64
 		if err := rows.Scan(&candidate.ID, &candidate.Infohash, &candidate.Tracker, &candidate.Name, &candidate.TotalSize,
-			&candidate.ProviderJSON, &candidate.Source, &state, &groupID, &candidate.Generation, &createdAt, &updatedAt); err != nil {
+			&candidate.ProviderJSON, &candidate.Source, &candidate.HasSealed, &state, &groupID, &candidate.Generation, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan candidate: %w", err)
 		}
 		candidate.State, candidate.GroupID = CandidateState(state), groupID.Int64

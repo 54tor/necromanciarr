@@ -17,8 +17,10 @@ import (
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 
+	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/libraryprovider"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
 )
@@ -71,6 +73,10 @@ func encodeTestTorrent(t *testing.T, info metainfo.Info) []byte {
 
 func buildTestTorrent(t *testing.T, name string, entries []torrentEntry) []byte {
 	t.Helper()
+	return encodeTestTorrent(t, testTorrentInfo(name, entries))
+}
+
+func testTorrentInfo(name string, entries []torrentEntry) metainfo.Info {
 	var concatenated []byte
 	info := metainfo.Info{Name: name, PieceLength: verifyPieceLength}
 	for _, entry := range entries {
@@ -82,7 +88,7 @@ func buildTestTorrent(t *testing.T, name string, entries []torrentEntry) []byte 
 		info.Files = append(info.Files, fileInfo)
 	}
 	info.Pieces = concatenatedPieceHashes(concatenated)
-	return encodeTestTorrent(t, info)
+	return info
 }
 
 // fakeFetcher sert des .torrent et des .nfo par infohash et compte les appels.
@@ -181,13 +187,38 @@ type verifyFixture struct {
 	partialCap *float64
 	// productionOpener laisse Deps.OpenLocal nil : l'étape ouvre alors avec openReadOnly.
 	productionOpener bool
+	// trackers est la section trackers vue par les étapes (testTrackers par défaut) ; sealer déscelle les .torrent
+	// d'indexeur (nil : aucune clé).
+	trackers []config.Tracker
+	sealer   *sources.Sealer
+}
+
+// testTracker remplace le tracker vide d'un candidat de test : une entrée trackers le couvre, comme un candidat réel
+// qui a une annonce ; les tests de no_announce prennent un tracker qu'aucune entrée ne couvre.
+const testTracker = "tracker-test"
+
+// Annonces de test : passkeys factices et distinctes, recherchées en clair dans les octets remis au client.
+const (
+	testAnnounce     = "https://tracker-test.example.com/fake-passkey-test/announce"
+	trackerAAnnounce = "https://tracker-a.example.com/announce?passkey=fake-passkey-aaaa"
+	trackerBAnnounce = "udp://tracker-b.example.com:6969/fake-passkey-bbbb/announce"
+	trackerCAnnounce = "https://tracker-c.example.com/fake-passkey-cccc/announce"
+)
+
+func testTrackers() []config.Tracker {
+	return []config.Tracker{
+		{Key: testTracker, Announce: []string{testAnnounce}},
+		{Key: "tracker-a", Announce: []string{trackerAAnnounce}},
+		{Key: "tracker-b", Announce: []string{trackerBAnnounce}},
+		{Key: "tracker-c", Announce: []string{trackerCAnnounce}},
+	}
 }
 
 func newVerifyFixture(t *testing.T) *verifyFixture {
 	t.Helper()
 	return &verifyFixture{
 		t: t, store: openTestStore(t), root: t.TempDir(), fetcher: newFakeFetcher(), opener: &countingOpener{},
-		crossSeed: crossseed.Delegate,
+		crossSeed: crossseed.Delegate, trackers: testTrackers(),
 	}
 }
 
@@ -221,6 +252,9 @@ func (fixture *verifyFixture) addCandidate(name, tracker string, entries []torre
 func (fixture *verifyFixture) addCandidateWithTorrent(name, tracker string, entries []torrentEntry, raw []byte) store.Candidate {
 	fixture.t.Helper()
 	infohash := infohashOf(fixture.t, raw)
+	if tracker == "" {
+		tracker = testTracker
+	}
 	var files []store.CandidateFile
 	var total int64
 	for fileIndex, entry := range entries {
@@ -284,6 +318,7 @@ func (fixture *verifyFixture) deps() Deps {
 		Store: fixture.store, Fetcher: fixture.fetcher, OpenLocal: fixture.opener.open, CrossSeed: fixture.crossSeed,
 		ReadLimiter: fixture.limiter, ReadBudget: fixture.readBudget, ProgressEvery: 1,
 		PartialMaxMissingPercent: fixture.partialCap, Now: func() time.Time { return fixedNow },
+		Announces: sources.NewResolver(fixture.trackers), Sealer: fixture.sealer,
 	}
 	if fixture.productionOpener {
 		deps.OpenLocal = nil

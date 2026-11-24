@@ -20,6 +20,7 @@ import (
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/qbit"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 )
 
@@ -45,6 +46,9 @@ func NewFromConfig(ctx context.Context, settings config.Config) (Service, io.Clo
 	if err != nil {
 		return nil, nil, errors.Join(err, openedStore.Close())
 	}
+	if err := clearSealedAtStart(ctx, openedStore, settings); err != nil {
+		return nil, nil, errors.Join(err, openedStore.Close())
+	}
 	return New(deps), openedStore, nil
 }
 
@@ -65,6 +69,9 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 	if err := wireProvider(settings, &stages); err != nil {
 		return Deps{}, err
 	}
+	if err := wireSealer(settings, &stages); err != nil {
+		return Deps{}, err
+	}
 	deps := Deps{Store: openedStore, Config: settings, Translator: i18n.New(settings.Language, func(text string) string {
 		return config.RedactText(text, settings.KnownSecrets()...)
 	})}
@@ -81,6 +88,33 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 	deps.Stages, deps.HashSources = stages, registry
 	deps.DoctorDeps.SealedProbe = openStoreProbe{store: openedStore}
 	return deps, nil
+}
+
+// wireSealer pose le déscellement des .torrent d'indexeur quand NECROMANCIARR_SECRET_KEY est définie ; sans elle, Seed
+// refuse un candidat scellé (secret_key_missing). L'annonce (Deps.Announces) est posée par RunStage, depuis la
+// configuration courante.
+func wireSealer(settings config.Config, stages *pipeline.Deps) error {
+	if len(settings.SecretKey) == 0 {
+		return nil
+	}
+	sealer, err := sources.NewSealer(settings.SecretKey)
+	if err != nil {
+		return fmt.Errorf("app: secret key: %w", err)
+	}
+	stages.Sealer = sealer
+	return nil
+}
+
+// clearSealedAtStart efface, quand le service s'ouvre, les .torrent scellés qu'une entrée trackers couvre désormais.
+func clearSealedAtStart(ctx context.Context, openedStore *store.Store, settings config.Config) error {
+	candidates, err := openedStore.ListCandidatesByState(ctx)
+	if err != nil {
+		return fmt.Errorf("app: sealed torrents: %w", err)
+	}
+	if err := clearCoveredSealed(ctx, openedStore, sources.NewResolver(settings.Trackers), candidates); err != nil {
+		return fmt.Errorf("app: sealed torrents: %w", err)
+	}
+	return nil
 }
 
 // linkKindByName relie linkType (cross-seed : une seule sorte, sans repli implicite) à la sorte du linker.

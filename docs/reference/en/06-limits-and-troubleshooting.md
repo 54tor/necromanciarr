@@ -192,6 +192,9 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `link_changed`, `annex_changed` | Seed | torrent folder modified since Link: re-accept and rerun `link` |
 | `client_path_invalid` | Seed | client path with a forbidden character on Windows |
 | `crossseed_notify_failed` | Seed | daemon refuses or unreachable: warning only |
+| `no_announce` | Verify, Link, Seed | neither a `trackers` entry nor a sealed indexer `.torrent`: add the `trackers` entry, then accept again (no re-verification) |
+| `sealed_torrent_unreadable`, `secret_key_missing` | Seed | sealed `.torrent` unreadable (key changed) or key missing: restore `NECROMANCIARR_SECRET_KEY`, or run Verify again on the candidate |
+| `infohash_changed_after_inject` | Seed | the built `.torrent` no longer has the candidate's infohash: nothing is added, run Verify again |
 
 ### By error code
 

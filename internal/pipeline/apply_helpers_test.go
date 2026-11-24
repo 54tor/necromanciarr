@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"os"
@@ -158,6 +159,10 @@ type fakeTorrentClient struct {
 	reportedState string
 	// removed liste les torrents retirés du client (données gardées).
 	removed []string
+	// received garde le tampon même que Seed a passé à Add, sans copie : Seed doit l'effacer après l'ajout.
+	received [][]byte
+	// addErrorFor fait échouer Add avec une erreur construite sur les octets reçus (client qui recopie le corps).
+	addErrorFor func(torrent []byte) error
 }
 
 func (client *fakeTorrentClient) RemoveKeepingData(_ context.Context, infoHash string) error {
@@ -184,8 +189,14 @@ func (client *fakeTorrentClient) Add(_ context.Context, torrent []byte, savePath
 	if client.addErr != nil {
 		return client.addErr
 	}
+	if client.addErrorFor != nil {
+		client.received = append(client.received, torrent)
+		return client.addErrorFor(torrent)
+	}
 	infohash := torrentInfohash(torrent)
-	client.added[infohash] = fakeAdd{savePath: savePath, options: options, torrent: torrent}
+	// Copie, comme le corps multipart du vrai client : Seed efface son tampon après l'ajout.
+	client.added[infohash] = fakeAdd{savePath: savePath, options: options, torrent: bytes.Clone(torrent)}
+	client.received = append(client.received, torrent)
 	if _, chosen := client.progress[infohash]; !chosen && options.SkipChecking {
 		client.progress[infohash] = 1
 	}

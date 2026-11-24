@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"maps"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -711,5 +712,25 @@ func TestStore_sealedColumnNeverHoldsPlaintextAnnounce(t *testing.T) {
 				t.Fatalf("gotValue stored %q (err %v), expectedValue nothing", stored, err)
 			}
 		})
+	}
+}
+
+func TestListCandidatesByState_reportsWhetherASealedTorrentIsStored(t *testing.T) {
+	openedStore := openTestStore(t)
+	candidateIDs := saveSealedCandidates(t, openedStore, strings.Repeat("a", 40), strings.Repeat("b", 40))
+	sealTestCandidate(t, openedStore, candidateIDs[0])
+
+	candidates, err := openedStore.ListCandidatesByState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotValue := map[int64]bool{}
+	for _, candidate := range candidates {
+		gotValue[candidate.ID] = candidate.HasSealed
+	}
+	expectedValue := map[int64]bool{candidateIDs[0]: true, candidateIDs[1]: false}
+	if !maps.Equal(gotValue, expectedValue) {
+		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
 	}
 }

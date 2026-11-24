@@ -157,7 +157,7 @@ func TestApp_neverWritesLibraryFiles(t *testing.T) {
 	}
 	raw, infohash := singleFileTorrent(t, "movie.mkv", content)
 	candidateFile := store.CandidateFile{Path: "movie.mkv", Size: info.Size(), MediaFileID: mediaFiles[0].ID, MediaSize: info.Size(), MediaModTime: info.ModTime()}
-	if _, _, err := openedStore.SaveCandidate(ctx, store.Candidate{Infohash: infohash, Name: "movie.mkv", TotalSize: info.Size()}, []store.CandidateFile{candidateFile}, fixedNow); err != nil {
+	if _, _, err := openedStore.SaveCandidate(ctx, store.Candidate{Infohash: infohash, Tracker: trackerAEntry.Key, Name: "movie.mkv", TotalSize: info.Size()}, []store.CandidateFile{candidateFile}, fixedNow); err != nil {
 		t.Fatal(err)
 	}
 	if err := openedStore.RegroupCandidates(ctx); err != nil {
@@ -167,7 +167,7 @@ func TestApp_neverWritesLibraryFiles(t *testing.T) {
 	torrentRoot := t.TempDir()
 	writeAgedFile(t, filepath.Join(torrentRoot, "Copy", "movie.mkv"), content, info.ModTime())
 	settings := config.Config{
-		LibraryRoots: []string{libraryDir}, LinkDirs: []string{linkDir},
+		LibraryRoots: []string{libraryDir}, LinkDirs: []string{linkDir}, Trackers: []config.Tracker{trackerAEntry},
 		Dedupe: config.Dedupe{TorrentRoots: []string{torrentRoot}, Kinds: []string{"symlink"}, RelativeSymlinks: true, Verify: "full"},
 	}
 	service := New(Deps{Store: openedStore, Client: client, Config: settings, Stages: pipeline.Deps{

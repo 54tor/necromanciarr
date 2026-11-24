@@ -16,6 +16,12 @@ func listedWarnings(t *testing.T, fixture *decisionFixture, language i18n.Langua
 	t.Helper()
 	service := New(Deps{Store: fixture.store, Translator: i18n.New(language, nil)})
 	proposals, err := service.ListProposals(t.Context(), ProposalFilter{})
+	// Aucun candidat de ce fixture n'a de tracker : l'avertissement no_announce, calculé, est testé à part.
+	for position := range proposals {
+		proposals[position].Warnings = slices.DeleteFunc(proposals[position].Warnings, func(warning Warning) bool {
+			return warning.Code == string(i18n.KeyWarningNoAnnounce)
+		})
+	}
 	if err != nil || len(proposals) != 1 {
 		t.Fatalf("language %s: gotValue %+v %v, expectedValue one proposal", language, proposals, err)
 	}

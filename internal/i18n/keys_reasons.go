@@ -74,6 +74,11 @@ const (
 	KeyReasonNoLinkKind           Key = "reason.no_link_kind"
 	KeyReasonLinkKindUnsupported  Key = "reason.link_kind_unsupported"
 	KeyReasonLinkProbeFailed      Key = "reason.link_probe_failed"
+
+	KeyReasonNoAnnounce                 Key = "reason.no_announce"
+	KeyReasonSealedTorrentUnreadable    Key = "reason.sealed_torrent_unreadable"
+	KeyReasonSecretKeyMissing           Key = "reason.secret_key_missing"
+	KeyReasonInfohashChangedAfterInject Key = "reason.infohash_changed_after_inject"
 )
 
 var reasonKeys = []Key{
@@ -97,4 +102,5 @@ var reasonKeys = []Key{
 	KeyReasonLinkNotCompared, KeyReasonLinkReplaced, KeyReasonLinkResized, KeyReasonLinkTargetUnreadable,
 	KeyReasonLinkInspectionFailed, KeyReasonHashUnavailable, KeyReasonNoLinkKind, KeyReasonLinkKindUnsupported,
 	KeyReasonLinkProbeFailed,
+	KeyReasonNoAnnounce, KeyReasonSealedTorrentUnreadable, KeyReasonSecretKeyMissing, KeyReasonInfohashChangedAfterInject,
 }

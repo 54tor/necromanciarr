@@ -189,7 +189,7 @@ Avec Prowlarr, donner le flux Torznab de chaque indexeur (`/<id>/api`, `<id>` é
 
 ## Annonces des trackers (`trackers`)
 
-Le `.torrent` du fournisseur de bibliothèque n'a pas d'annonce ; pour seeder un torrent privé, qBittorrent a besoin de l'annonce du tracker, qui porte la passkey de l'opérateur. La section `trackers` la donne, pour chaque tracker, afin de l'injecter au seed (hors du dictionnaire `info` : l'infohash ne change pas). À ce stade `config.json` l'accepte et la masque ; Seed ne l'injecte pas encore.
+Le `.torrent` du fournisseur de bibliothèque n'a pas d'annonce ; pour seeder un torrent privé, qBittorrent a besoin de l'annonce du tracker, qui porte la passkey de l'opérateur. La section `trackers` la donne, pour chaque tracker, afin de l'injecter au seed (hors du dictionnaire `info` : l'infohash ne change pas). Seed l'injecte en mémoire, juste avant l'ajout au client ; sans annonce, une proposition est `no_announce` ([03-seed-safety.md](03-seed-safety.md)).
 
 ```json
 "trackers": {
