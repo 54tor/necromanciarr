@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -763,5 +766,50 @@ func TestRecheckPath_resumesOnlyTorrentsThatWereRunningBefore(t *testing.T) {
 				t.Fatalf("expectedValue the paused torrent left paused, gotValue %s", gotState)
 			}
 		})
+	}
+}
+
+// echoingServer répond 500 en recopiant le corps reçu, comme un serveur ou un proxy bavard.
+func echoingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		writer.Header().Set("Content-Type", "text/plain")
+		writer.WriteHeader(http.StatusInternalServerError)
+		_, _ = writer.Write(body)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestAdd_neverLogsTorrentBytes(t *testing.T) {
+	const passkey = "fake-passkey-qbit"
+	const announceHost = "tracker-q.example.com"
+	torrent, err := bencode.Marshal(map[string]any{
+		"announce": "https://" + announceHost + "/" + passkey + "/announce",
+		"info":     map[string]any{"name": "Movie", "length": 1, "piece length": 16, "pieces": strings.Repeat("a", 20)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logged strings.Builder
+	previousOutput, previousSlog := log.Writer(), slog.Default()
+	log.SetOutput(&logged)
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() {
+		log.SetOutput(previousOutput)
+		slog.SetDefault(previousSlog)
+	})
+	client := newTestClient(t, echoingServer(t).URL, "", "")
+
+	addErr := client.Add(context.Background(), torrent, "/home/u/torrents", qbit.AddOptions{})
+
+	if !errors.Is(addErr, qbit.ErrBadResponse) {
+		t.Fatalf("gotValue %v, expectedValue ErrBadResponse", addErr)
+	}
+	for _, leaked := range []string{passkey, announceHost, "announce", "pieces"} {
+		if strings.Contains(addErr.Error(), leaked) || strings.Contains(fmt.Sprintf("%+v", addErr), leaked) || strings.Contains(logged.String(), leaked) {
+			t.Fatalf("gotValue %q in the error %q or the logs %q, expectedValue no byte of the torrent", leaked, addErr, logged.String())
+		}
 	}
 }

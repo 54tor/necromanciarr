@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -104,6 +106,8 @@ func New(baseURL, user, password string, options ...Option) (*Client, error) {
 		Password:      password,
 		Timeout:       requestTimeoutSeconds,
 		RetryAttempts: singleAttempt,
+		// Journal de la bibliothèque coupé explicitement : ses lignes de nouvelle tentative citent l'URL et l'erreur.
+		Log: log.New(io.Discard, "", 0),
 	})
 	client.library = library.WithHTTPClient(client.newHTTPClient())
 	return client, nil
