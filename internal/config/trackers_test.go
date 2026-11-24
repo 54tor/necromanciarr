@@ -274,3 +274,24 @@ func TestWithDiscoveredSecrets_ignoresValuesShorterThanEightBytes(t *testing.T) 
 		t.Fatalf("gotValue %v, expectedValue only the value of at least 8 bytes", gotValue)
 	}
 }
+
+func TestConfig_torznabTrackerMatchesTrackersWithNormalizeTracker(t *testing.T) {
+	loadedConfig, err := loadTorznabConfig(t, `{
+		"torznab": [{"url": "https://prowlarr.example.com/12/api?apikey=k1", "tracker": " Tracker A "}],
+		"trackers": {"trackera": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}", "tracker-b": {"announce": ["https://tracker-b.example.com/x"], "aliases": ["Tracker B"]}}
+	}`, trackerEnvironment())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	byIndexer, foundByIndexer := loadedConfig.TrackerFor(loadedConfig.Torznab[0].Tracker)
+	byAlias, foundByAlias := loadedConfig.TrackerFor("TRACKERB")
+	_, foundUnknown := loadedConfig.TrackerFor("tracker-c")
+
+	if !foundByIndexer || byIndexer.Key != "trackera" || !foundByAlias || byAlias.Key != "tracker-b" || foundUnknown {
+		t.Fatalf("gotValue %q/%v, %q/%v, unknown %v, expectedValue trackera, tracker-b and no match", byIndexer.Key, foundByIndexer, byAlias.Key, foundByAlias, foundUnknown)
+	}
+	if gotValue := loadedConfig.Torznab[0].Tracker; gotValue != "Tracker A" {
+		t.Fatalf("gotValue %q, expectedValue the stored spelling unchanged (trimmed)", gotValue)
+	}
+}

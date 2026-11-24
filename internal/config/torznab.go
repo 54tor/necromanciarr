@@ -48,8 +48,8 @@ var (
 type TorznabIndexer struct {
 	URL  string
 	Name string
-	// Tracker est gardé tel que saisi (rogné) ; les rapprochements ultérieurs le comparent sans casse, après rognage
-	// (strings.EqualFold sur strings.TrimSpace), jamais en changeant la valeur stockée.
+	// Tracker est gardé tel que saisi (rogné) ; tout rapprochement le compare sous NormalizeTracker (minuscules, espaces
+	// retirés, voir Config.TrackerFor), jamais en changeant la valeur stockée.
 	Tracker string
 	// Categories vide : celles des capacités de l'indexeur.
 	Categories                                                                 []int

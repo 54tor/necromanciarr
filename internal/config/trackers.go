@@ -82,6 +82,20 @@ func (loadedConfig Config) WithDiscoveredSecrets(values ...string) []string {
 	return append(loadedConfig.KnownSecrets(), passkeyForms(values)...)
 }
 
+// TrackerFor trouve l'entrée de trackers dont la clé ou un alias égale name sous NormalizeTracker : la seule règle de
+// comparaison des trackers (fournisseur, torznab[].tracker, trackers). Les valeurs stockées ne changent pas.
+func (loadedConfig Config) TrackerFor(name string) (Tracker, bool) {
+	wanted := NormalizeTracker(name)
+	for _, tracker := range loadedConfig.Trackers {
+		for _, candidate := range append([]string{tracker.Key}, tracker.Aliases...) {
+			if NormalizeTracker(candidate) == wanted {
+				return tracker, true
+			}
+		}
+	}
+	return Tracker{}, false
+}
+
 func (tracker Tracker) redacted() jsonTracker {
 	announces := make([]string, 0, len(tracker.Announce))
 	for _, announce := range tracker.Announce {

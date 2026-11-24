@@ -172,7 +172,7 @@ A Torznab indexer is a fallback source of `.torrent` files, after the library pr
 |---|---|---|
 | `torznab[].url` | required | `http(s)`, no fragment, no user credentials, `apikey` is the only query parameter (as for `radarr`); a secret, masked everywhere (`config check`, logs, `doctor`); `${NAME}` works inside |
 | `torznab[].name` | last numeric segment of the path (`12`), else the rank in the list | `[a-z0-9-]+`, unique |
-| `torznab[].tracker` | empty | tracker name as the library provider writes it; used for the `.torrent` fallback and for the uniqueness (infohash, tracker) |
+| `torznab[].tracker` | empty | tracker name as the library provider writes it; used for the `.torrent` fallback and for the uniqueness (infohash, tracker); kept as written (trimmed), compared in lower case without spaces (`Tracker A` equals `trackera`), like the `trackers` keys |
 | `torznab[].categories` | those of the indexer capabilities (films, series) | positive integers |
 | `torznab[].minInterval` | `3s` | Go duration from `1s` to `1h`: minimum delay between two requests to this indexer (the `1s` floor protects the indexer from being limited or banned) |
 | `torznab[].timeout` | `30s` | Go duration from `1s` to `5m` |
