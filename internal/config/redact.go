@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/url"
 	"regexp"
 	"slices"
@@ -81,4 +83,81 @@ func urlSecrets(rawURL string) []string {
 		}
 	}
 	return secrets
+}
+
+// RedactJSON encode value en JSON indenté, chaque chaîne (valeurs et clés) masquée par RedactText avant l'encodage :
+// un secret qui contient « & », « < », « " », « \ » ou un caractère non ASCII n'a plus la même forme une fois échappé.
+// Les formes échappées des secrets sont aussi remplacées littéralement dans le texte encodé, en défense en profondeur.
+// Les clés des objets sortent triées. Sert à la CLI (--json) et à l'API web.
+func RedactJSON(value any, knownSecrets ...string) ([]byte, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var tree any
+	if err := decoder.Decode(&tree); err != nil {
+		return nil, err
+	}
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(redactTree(tree, knownSecrets)); err != nil {
+		return nil, err
+	}
+	return []byte(replaceSecretsLiterally(encoded.String(), knownSecrets)), nil
+}
+
+// replaceSecretsLiterally ne fait que des remplacements littéraux, les plus longs d'abord : les expressions de la
+// redaction (URL, « clé=valeur ») mangeraient une barre oblique d'échappement et casseraient le JSON.
+func replaceSecretsLiterally(encoded string, knownSecrets []string) string {
+	forms := escapedSecrets(knownSecrets)
+	slices.SortStableFunc(forms, func(first, second string) int { return len(second) - len(first) })
+	for _, form := range forms {
+		if form != "" {
+			encoded = strings.ReplaceAll(encoded, form, redactedMark)
+		}
+	}
+	return encoded
+}
+
+// redactTree masque chaque chaîne (valeurs et clés) d'un arbre JSON décodé.
+func redactTree(node any, knownSecrets []string) any {
+	switch typed := node.(type) {
+	case string:
+		return RedactText(typed, knownSecrets...)
+	case []any:
+		for index, element := range typed {
+			typed[index] = redactTree(element, knownSecrets)
+		}
+		return typed
+	case map[string]any:
+		redacted := make(map[string]any, len(typed))
+		for key, element := range typed {
+			redacted[RedactText(key, knownSecrets...)] = redactTree(element, knownSecrets)
+		}
+		return redacted
+	}
+	return node
+}
+
+// escapedSecrets donne chaque secret tel quel et sous ses formes échappées par JSON (avec et sans échappement HTML).
+func escapedSecrets(knownSecrets []string) []string {
+	forms := slices.Clone(knownSecrets)
+	for _, secret := range knownSecrets {
+		if secret == "" {
+			continue
+		}
+		var plain bytes.Buffer
+		encoder := json.NewEncoder(&plain)
+		encoder.SetEscapeHTML(false)
+		_ = encoder.Encode(secret)
+		htmlEscaped, _ := json.Marshal(secret)
+		for _, quoted := range []string{strings.TrimSpace(plain.String()), string(htmlEscaped)} {
+			forms = append(forms, strings.TrimSuffix(strings.TrimPrefix(quoted, `"`), `"`))
+		}
+	}
+	return forms
 }

@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,10 +11,6 @@ import (
 
 	"necromanciarr/internal/app"
 	"necromanciarr/internal/config"
-	"necromanciarr/internal/dedupe"
-	"necromanciarr/internal/pipeline"
-	"necromanciarr/internal/repair"
-	"necromanciarr/internal/store"
 )
 
 // Codes de sortie : 0 réussi (avertissements compris, une ligne « warning: » chacun), 1 échec, 2 usage, 3 proposition
@@ -27,28 +21,26 @@ const (
 	refusedExitCode = 4
 )
 
-// Codes d'erreur stables de la sortie JSON {"error": {"code", "message"}}.
+// Codes d'erreur stables de la sortie JSON {"error": {"code", "message"}} ; la table vient d'app.Classify (même table
+// que le web), seule la confirmation manquante est propre à la CLI.
 const (
-	errorCodeUsage                = "usage"
+	errorCodeUsage                = app.ErrorCodeUsage
 	errorCodeConfirmationRequired = "confirmation_required"
-	errorCodeStale                = "stale_proposal"
-	errorCodeRefused              = "refused"
-	errorCodeNotFound             = "not_found"
-	errorCodeNotConfigured        = "not_configured"
-	errorCodeStageRunning         = "stage_running"
-	errorCodeFailure              = "failure"
+	errorCodeStale                = app.ErrorCodeStale
+	errorCodeRefused              = app.ErrorCodeRefused
+	errorCodeNotFound             = app.ErrorCodeNotFound
+	errorCodeFailure              = app.ErrorCodeFailure
 )
 
 // errConfirmationRequired : une action risquée demande --yes.
 var errConfirmationRequired = errors.New("confirmation required: rerun with --yes")
 
-// refusals sont les refus typés des règles métier : la ligne de commande est valide, l'action ne l'est pas.
-var refusals = []error{
-	app.ErrConflictNeedsChoose, app.ErrPartialPackNeedsForce, app.ErrNotATorrentProposal, app.ErrCandidateAlreadyAccepted,
-	app.ErrOneTorrentPerFile, app.ErrNotFull, app.ErrNotForceable, app.ErrNoPrimary, app.ErrForceNotAllowed,
-	app.ErrNotAccepted, app.ErrNotActionable, app.ErrWrongProposalKind, app.ErrDirectoryInLibrary,
-	store.ErrInvalidTransition, pipeline.ErrGroupInconsistent, pipeline.ErrClientReadOnly,
-	dedupe.ErrTorrentRootOverlapsLibrary, repair.ErrOutsideRoots,
+// exitCodeByErrorCode donne le code de sortie de chaque code d'erreur ; un code absent vaut un échec.
+var exitCodeByErrorCode = map[string]int{
+	errorCodeUsage:                usageExitCode,
+	errorCodeConfirmationRequired: usageExitCode,
+	errorCodeStale:                staleExitCode,
+	errorCodeRefused:              refusedExitCode,
 }
 
 type errorClass struct {
@@ -57,23 +49,15 @@ type errorClass struct {
 }
 
 func classify(err error) errorClass {
-	switch {
-	case errors.Is(err, config.ErrUsage), errors.Is(err, app.ErrUnknownCheck):
-		return errorClass{errorCodeUsage, usageExitCode}
-	case errors.Is(err, errConfirmationRequired):
-		return errorClass{errorCodeConfirmationRequired, usageExitCode}
-	case errors.Is(err, app.ErrStaleProposal):
-		return errorClass{errorCodeStale, staleExitCode}
-	case slices.ContainsFunc(refusals, func(refusal error) bool { return errors.Is(err, refusal) }):
-		return errorClass{errorCodeRefused, refusedExitCode}
-	case errors.Is(err, store.ErrProposalNotFound), errors.Is(err, app.ErrGroupNotFound):
-		return errorClass{errorCodeNotFound, failureExitCode}
-	case errors.Is(err, app.ErrNotConfigured):
-		return errorClass{errorCodeNotConfigured, failureExitCode}
-	case errors.Is(err, pipeline.ErrStageRunning):
-		return errorClass{errorCodeStageRunning, failureExitCode}
+	code := errorCodeConfirmationRequired
+	if !errors.Is(err, errConfirmationRequired) {
+		code, _ = app.Classify(err)
 	}
-	return errorClass{errorCodeFailure, failureExitCode}
+	exitCode, known := exitCodeByErrorCode[code]
+	if !known {
+		exitCode = failureExitCode
+	}
+	return errorClass{code, exitCode}
 }
 
 // errorMessage donne le texte montré à l'opérateur ; une proposition périmée a son message dédié.
@@ -170,9 +154,6 @@ type errorBody struct {
 	Message string `json:"message"`
 }
 
-// redactedMark remplace un secret dans la passe littérale sur le JSON encodé (même marque que la configuration).
-const redactedMark = "***"
-
 // printer écrit toutes les sorties, masquées par la redaction de la configuration (aucun secret, même dans une
 // erreur venue d'un service).
 type printer struct {
@@ -206,81 +187,13 @@ func (out printer) warn(warnings []string) {
 	}
 }
 
-// writeJSON masque chaque chaîne avant l'encodage : un secret qui contient « & », « < », « " », « \ » ou un
-// caractère non ASCII n'a plus la même forme une fois échappé en JSON. Les formes échappées des secrets sont aussi
-// remplacées littéralement dans le texte encodé, en défense en profondeur. Les clés des objets sortent triées.
 func (out printer) writeJSON(value any) error {
-	raw, err := json.Marshal(value)
+	encoded, err := config.RedactJSON(value, out.secrets...)
 	if err != nil {
 		return err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var tree any
-	if err := decoder.Decode(&tree); err != nil {
-		return err
-	}
-	var encoded bytes.Buffer
-	encoder := json.NewEncoder(&encoded)
-	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(out.redactTree(tree)); err != nil {
-		return err
-	}
-	_, _ = io.WriteString(out.stdout, out.replaceSecretsLiterally(encoded.String()))
+	_, _ = out.stdout.Write(encoded)
 	return nil
-}
-
-// replaceSecretsLiterally ne fait que des remplacements littéraux, les plus longs d'abord : les expressions de la
-// redaction (URL, « clé=valeur ») mangeraient une barre oblique d'échappement et casseraient le JSON.
-func (out printer) replaceSecretsLiterally(encoded string) string {
-	forms := out.escapedSecrets()
-	slices.SortStableFunc(forms, func(first, second string) int { return len(second) - len(first) })
-	for _, form := range forms {
-		if form != "" {
-			encoded = strings.ReplaceAll(encoded, form, redactedMark)
-		}
-	}
-	return encoded
-}
-
-// redactTree masque chaque chaîne (valeurs et clés) d'un arbre JSON décodé.
-func (out printer) redactTree(node any) any {
-	switch typed := node.(type) {
-	case string:
-		return out.redact(typed)
-	case []any:
-		for index, element := range typed {
-			typed[index] = out.redactTree(element)
-		}
-		return typed
-	case map[string]any:
-		redacted := make(map[string]any, len(typed))
-		for key, element := range typed {
-			redacted[out.redact(key)] = out.redactTree(element)
-		}
-		return redacted
-	}
-	return node
-}
-
-// escapedSecrets donne chaque secret tel quel et sous ses formes échappées par JSON (avec et sans échappement HTML).
-func (out printer) escapedSecrets() []string {
-	forms := slices.Clone(out.secrets)
-	for _, secret := range out.secrets {
-		if secret == "" {
-			continue
-		}
-		var plain bytes.Buffer
-		encoder := json.NewEncoder(&plain)
-		encoder.SetEscapeHTML(false)
-		_ = encoder.Encode(secret)
-		htmlEscaped, _ := json.Marshal(secret)
-		for _, quoted := range []string{strings.TrimSpace(plain.String()), string(htmlEscaped)} {
-			forms = append(forms, strings.TrimSuffix(strings.TrimPrefix(quoted, `"`), `"`))
-		}
-	}
-	return forms
 }
 
 // failure affiche l'erreur (JSON sur stdout avec --json, sinon sur stderr) et renvoie son code de sortie ; une erreur
