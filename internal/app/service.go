@@ -71,11 +71,12 @@ type Service interface {
 	// DedupePlan reprend les remplacements interrompus puis propose de remplacer, côté torrent, les copies de fichiers
 	// de la bibliothèque par des liens (propositions en attente, jamais appliquées d'office).
 	DedupePlan(ctx context.Context) ([]DedupeProposal, error)
-	// DedupeAccept applique une proposition dedupe déjà acceptée (DryRun : vérifie sans rien créer).
+	// DedupeAccept applique une proposition dedupe acceptée (AcceptPending : l'accepte d'abord si elle attend ; DryRun :
+	// vérifie sans rien créer ni décider).
 	DedupeAccept(ctx context.Context, proposalID int64, options ...DecisionOption) (MaintenanceResult, error)
 	// RepairScan cherche les liens cassés (enregistrés, ou inconnus sous directory) et propose leur nouvelle cible.
 	RepairScan(ctx context.Context, directory string) ([]RepairProposal, error)
-	// RepairAccept applique une proposition repair déjà acceptée (DryRun : vérifie sans rien créer).
+	// RepairAccept applique une proposition repair acceptée (mêmes options que DedupeAccept).
 	RepairAccept(ctx context.Context, proposalID int64, options ...DecisionOption) (MaintenanceResult, error)
 	// Actions renvoie le registre des actions (parité CLI et web).
 	Actions() []Action
@@ -89,6 +90,8 @@ const (
 	AllowPartialPack DecisionOption = iota + 1
 	// DryRun fait toutes les vérifications d'une application dedupe ou repair sans rien créer ni décider.
 	DryRun
+	// AcceptPending accepte d'abord une proposition dedupe ou repair en attente, après le contrôle de sa nature.
+	AcceptPending
 )
 
 // ForceResult rend compte d'un Force : Warnings rappelle toujours les avertissements de la proposition.

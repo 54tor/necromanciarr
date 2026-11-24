@@ -455,3 +455,99 @@ func (blockingPinger) Ping(ctx context.Context) error {
 	<-ctx.Done()
 	return ctx.Err()
 }
+
+func TestApp_applyWithAcceptPendingChecksKindAndDecisionBeforeAccepting(t *testing.T) {
+	fixture := newMaintenanceFixture(t)
+	service := fixture.service()
+	ctx := context.Background()
+	dedupeProposal := fixture.planOne(service)
+	repairDetails, err := json.Marshal(RepairDetails{Status: RepairStatusRepairable, LinkPath: "/home/u/links/a.mkv", Actionable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repairID, err := fixture.store.CreateProposal(ctx, store.Proposal{Kind: store.ProposalRepair, Details: repairDetails}, fixedNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.DedupeAccept(ctx, repairID, AcceptPending); !errors.Is(err, ErrWrongProposalKind) || fixture.decisionOf(repairID) != store.ProposalPending {
+		t.Fatalf("wrong kind: gotValue %v (%s), expectedValue ErrWrongProposalKind and the proposal untouched", err, fixture.decisionOf(repairID))
+	}
+	if _, err := service.RepairAccept(ctx, dedupeProposal.ID, AcceptPending); !errors.Is(err, ErrWrongProposalKind) || fixture.decisionOf(dedupeProposal.ID) != store.ProposalPending {
+		t.Fatalf("wrong kind: gotValue %v, expectedValue ErrWrongProposalKind and the proposal untouched", err)
+	}
+	if err := service.Reject(ctx, repairID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RepairAccept(ctx, repairID, AcceptPending); !errors.Is(err, ErrNotAccepted) || fixture.decisionOf(repairID) != store.ProposalRejected {
+		t.Fatalf("rejected: gotValue %v (%s), expectedValue ErrNotAccepted and still rejected", err, fixture.decisionOf(repairID))
+	}
+
+	applied, err := service.DedupeAccept(ctx, dedupeProposal.ID, AcceptPending)
+
+	if err != nil || !applied.Applied || fixture.decisionOf(dedupeProposal.ID) != store.ProposalApplied {
+		t.Fatalf("gotValue %+v %v, expectedValue the pending proposal accepted then applied", applied, err)
+	}
+}
+
+func TestApp_dedupeApplyOfAFileChangedSincePlanIsStale(t *testing.T) {
+	fixture := newMaintenanceFixture(t)
+	service := fixture.service()
+	ctx := context.Background()
+	proposal := fixture.planOne(service)
+	if err := service.Accept(ctx, proposal.ID); err != nil {
+		t.Fatal(err)
+	}
+	changedModTime := agedModTime.Add(-time.Minute)
+	if err := os.Chtimes(fixture.copyPath, changedModTime, changedModTime); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := service.DedupeAccept(ctx, proposal.ID)
+
+	if !errors.Is(err, ErrStaleProposal) || fixture.decisionOf(proposal.ID) != store.ProposalSuperseded || !isRegularFile(t, fixture.copyPath) {
+		t.Fatalf("gotValue %v (%s), expectedValue ErrStaleProposal, superseded and no link", err, fixture.decisionOf(proposal.ID))
+	}
+}
+
+func TestApp_rejectedDedupeProposalStaysRejectedOnAnIdenticalRerun(t *testing.T) {
+	fixture := newMaintenanceFixture(t)
+	service := fixture.service()
+	proposal := fixture.planOne(service)
+	if err := service.Reject(context.Background(), proposal.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	rerun := fixture.planOne(service)
+
+	if rerun.ID != proposal.ID || rerun.Decision != store.ProposalRejected || len(fixture.proposalsOfKind(store.ProposalDedupe)) != 1 {
+		t.Fatalf("gotValue %+v, expectedValue the same rejected proposal and no new one", rerun)
+	}
+}
+
+func TestApp_repairScanWithoutDirKeepsProposalsOfAnEarlierDirScan(t *testing.T) {
+	fixture := newMaintenanceFixture(t)
+	scanDir := t.TempDir()
+	unknownLink := filepath.Join(scanDir, "Show", "episode.mkv")
+	if err := os.MkdirAll(filepath.Dir(unknownLink), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(fixture.libraryDir, "gone.mkv"), unknownLink); err != nil {
+		t.Fatal(err)
+	}
+	service := fixture.service()
+	ctx := context.Background()
+
+	fromDir, err := service.RepairScan(ctx, scanDir+string(filepath.Separator)+".")
+	found := repairByLink(fromDir, unknownLink)
+	if err != nil || found.ID == 0 || found.Details.ScanDirectory != scanDir {
+		t.Fatalf("gotValue %+v %v, expectedValue the unknown link listed with its cleaned absolute scan directory", fromDir, err)
+	}
+	if _, err := service.RepairScan(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if fixture.decisionOf(found.ID) != store.ProposalPending {
+		t.Fatalf("gotValue %s, expectedValue the --dir proposal left open by a plain scan", fixture.decisionOf(found.ID))
+	}
+}

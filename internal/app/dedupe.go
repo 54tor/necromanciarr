@@ -91,6 +91,9 @@ func (details DedupeDetails) replacement() dedupe.Replacement {
 
 func dedupeWarnings(details DedupeDetails) []string { return details.Warnings }
 
+// neverOutOfScope : un plan dedupe parcourt toujours toutes les racines configurées.
+func neverOutOfScope(DedupeDetails) bool { return false }
+
 func (svc *service) DedupePlan(ctx context.Context) ([]DedupeProposal, error) {
 	var proposals []DedupeProposal
 	err := svc.locked(ctx, lockNameDedupe, func(ctx context.Context) error {
@@ -102,7 +105,7 @@ func (svc *service) DedupePlan(ctx context.Context) ([]DedupeProposal, error) {
 		for _, replacement := range replacements {
 			entries = append(entries, dedupeDetailsOf(replacement))
 		}
-		persisted, err := persistMaintenance(ctx, svc, store.ProposalDedupe, entries, dedupeWarnings)
+		persisted, err := persistMaintenance(ctx, svc, store.ProposalDedupe, entries, dedupeWarnings, neverOutOfScope)
 		for _, stored := range persisted {
 			proposals = append(proposals, DedupeProposal{
 				ID: stored.proposal.ID, Decision: stored.proposal.Decision, Warnings: stored.proposal.Warnings, Details: stored.details,
@@ -151,7 +154,7 @@ func (svc *service) dedupeOptions() dedupe.Options {
 func (svc *service) DedupeAccept(ctx context.Context, proposalID int64, options ...DecisionOption) (MaintenanceResult, error) {
 	result := MaintenanceResult{ProposalID: proposalID, DryRun: slices.Contains(options, DryRun)}
 	err := svc.locked(ctx, lockNameDedupe, func(ctx context.Context) error {
-		details, err := loadAcceptedMaintenance(ctx, svc, proposalID, store.ProposalDedupe, dedupeActionable)
+		details, err := loadAcceptedMaintenance(ctx, svc, proposalID, store.ProposalDedupe, dedupeActionable, options)
 		if err != nil {
 			return err
 		}
@@ -181,7 +184,9 @@ func (svc *service) applyDedupe(ctx context.Context, details DedupeDetails, resu
 	if outcome.Done {
 		result.Warnings = dedupeOutcomeWarnings(outcome)
 	}
-	return svc.finishMaintenance(ctx, result, outcome.Done, outcome.Err, dedupe.ErrChangedSincePlan)
+	finishCtx, cancel := bookkeeping(ctx)
+	defer cancel()
+	return svc.finishMaintenance(finishCtx, result, outcome.Done, outcome.Err, dedupe.ErrChangedSincePlan)
 }
 
 // dedupeOutcomeWarnings : un torrent incomplet après recontrôle reste en pause (le client le garde ainsi), jamais

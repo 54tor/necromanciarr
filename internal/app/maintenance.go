@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"time"
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/pipeline"
@@ -79,7 +81,9 @@ type storedMaintenance[Details maintenanceDetails] struct {
 // persistMaintenance enregistre une proposition par entrée, sans doublon : une proposition non close de même clé et de
 // même signature est reprise telle quelle (y compris rejetée) ; une proposition ouverte dont les fichiers ont changé,
 // ou absente de cette exécution, passe à superseded. Le résultat suit l'ordre des entrées.
-func persistMaintenance[Details maintenanceDetails](ctx context.Context, svc *service, kind store.ProposalKind, entries []Details, warningsOf func(Details) []string) ([]storedMaintenance[Details], error) {
+// outOfScope dit qu'une proposition connue n'était pas examinable par cette exécution (repair : dossier d'un autre
+// scan) : absente, elle n'est pas close pour autant.
+func persistMaintenance[Details maintenanceDetails](ctx context.Context, svc *service, kind store.ProposalKind, entries []Details, warningsOf func(Details) []string, outOfScope func(Details) bool) ([]storedMaintenance[Details], error) {
 	existing, err := loadMaintenanceOfKind[Details](ctx, svc, kind)
 	if err != nil {
 		return nil, err
@@ -112,7 +116,7 @@ func persistMaintenance[Details maintenanceDetails](ctx context.Context, svc *se
 		persisted = append(persisted, storedMaintenance[Details]{proposal: created, details: entry})
 	}
 	for key, known := range latestByKey {
-		if !seenKeys[key] {
+		if !seenKeys[key] && !outOfScope(known.details) {
 			if err := svc.supersedeIfOpen(ctx, known.proposal); err != nil {
 				return nil, err
 			}
@@ -158,21 +162,22 @@ func (svc *service) createMaintenance(ctx context.Context, kind store.ProposalKi
 	return proposal, err
 }
 
-// loadAcceptedMaintenance renvoie la proposition de la nature attendue, acceptée et applicable, avec son détail.
-func loadAcceptedMaintenance[Details maintenanceDetails](ctx context.Context, svc *service, proposalID int64, kind store.ProposalKind, actionable func(Details) bool) (Details, error) {
+// loadAcceptedMaintenance renvoie le détail de la proposition, de la nature attendue et applicable, contrôlés avant
+// toute écriture. Elle doit être acceptée ; avec acceptPending, une proposition en attente est d'abord acceptée (une
+// transaction du store, qui refuse aussi une décision changée entre-temps) ; avec dryRun, en attente suffit et rien
+// n'est décidé.
+func loadAcceptedMaintenance[Details maintenanceDetails](ctx context.Context, svc *service, proposalID int64, kind store.ProposalKind, actionable func(Details) bool, options []DecisionOption) (Details, error) {
 	var details Details
 	state, err := svc.loadSnapshot(ctx)
 	if err != nil {
 		return details, err
 	}
 	proposal, err := state.proposal(proposalID)
-	switch {
-	case err != nil:
+	if err != nil {
 		return details, err
-	case proposal.Kind != kind:
+	}
+	if proposal.Kind != kind {
 		return details, fmt.Errorf("%w: proposal %d is %s, not %s", ErrWrongProposalKind, proposalID, proposal.Kind, kind)
-	case proposal.Decision != store.ProposalAccepted:
-		return details, fmt.Errorf("%w: proposal %d is %s", ErrNotAccepted, proposalID, proposal.Decision)
 	}
 	if err := json.Unmarshal(proposal.Details, &details); err != nil {
 		return details, fmt.Errorf("app: proposal %d details: %w", proposalID, err)
@@ -180,7 +185,14 @@ func loadAcceptedMaintenance[Details maintenanceDetails](ctx context.Context, sv
 	if !actionable(details) {
 		return details, ErrNotActionable
 	}
-	return details, nil
+	isPending := proposal.Decision == store.ProposalPending
+	switch {
+	case proposal.Decision == store.ProposalAccepted, isPending && slices.Contains(options, DryRun):
+		return details, nil
+	case isPending && slices.Contains(options, AcceptPending):
+		return details, svc.accept(ctx, proposal)
+	}
+	return details, fmt.Errorf("%w: proposal %d is %s", ErrNotAccepted, proposalID, proposal.Decision)
 }
 
 // acceptMaintenance accepte une proposition dedupe ou repair applicable ; une proposition failed est remise en jeu.
@@ -216,6 +228,15 @@ func (svc *service) finishMaintenance(ctx context.Context, result *MaintenanceRe
 		return errors.Join(cause, err)
 	}
 	return errors.Join(cause, svc.deps.Store.AddProposalWarning(ctx, result.ProposalID, applicationFailedPrefix+cause.Error()))
+}
+
+// bookkeepingTimeout borne l'écriture en base qui suit un renommage déjà fait, même après une annulation.
+const bookkeepingTimeout = 30 * time.Second
+
+// bookkeeping : après un remplacement irréversible sur disque, la décision doit être écrite même si l'opérateur a
+// interrompu l'action, sinon la base ne refléterait plus le disque.
+func bookkeeping(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), bookkeepingTimeout)
 }
 
 func (svc *service) addWarnings(ctx context.Context, proposalID int64, warnings []string) error {

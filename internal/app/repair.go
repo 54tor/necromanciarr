@@ -2,12 +2,15 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"necromanciarr/internal/hashsource"
+	"necromanciarr/internal/linker"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/repair"
 	"necromanciarr/internal/store"
@@ -47,7 +50,7 @@ type RepairProposal struct {
 
 func (details RepairDetails) identity() (key, signature string) {
 	signature = fmt.Sprint(details.Status, "\x00", details.OldTarget, "\x00", details.NewTarget, "\x00", details.Size, "\x00",
-		strings.Join(details.Candidates, "\x00"))
+		strings.Join(details.Candidates, "\x00"), "\x00", details.ScanDirectory)
 	return details.LinkPath, signature
 }
 
@@ -64,12 +67,20 @@ func (details RepairDetails) repair() repair.Repair {
 
 func (svc *service) RepairScan(ctx context.Context, directory string) ([]RepairProposal, error) {
 	var proposals []RepairProposal
-	err := svc.locked(ctx, lockNameRepair, func(ctx context.Context) error {
+	directory, err := absoluteDirectory(directory)
+	if err != nil {
+		return nil, err
+	}
+	// Un lien trouvé lors d'un scan d'un autre dossier n'était pas examinable ici : il reste ouvert.
+	otherScan := func(details RepairDetails) bool {
+		return details.ScanDirectory != "" && details.ScanDirectory != directory
+	}
+	err = svc.locked(ctx, lockNameRepair, func(ctx context.Context) error {
 		entries, err := svc.scanRepairs(ctx, directory)
 		if err != nil {
 			return err
 		}
-		persisted, err := persistMaintenance(ctx, svc, store.ProposalRepair, entries, noRepairWarnings)
+		persisted, err := persistMaintenance(ctx, svc, store.ProposalRepair, entries, noRepairWarnings, otherScan)
 		for _, stored := range persisted {
 			proposals = append(proposals, RepairProposal{
 				ID: stored.proposal.ID, Decision: stored.proposal.Decision, Warnings: stored.proposal.Warnings, Details: stored.details,
@@ -112,20 +123,44 @@ func (svc *service) scanRepairs(ctx context.Context, directory string) ([]Repair
 	return repairEntries(repairs, report, directory), nil
 }
 
+// absoluteDirectory nettoie et rend absolu le dossier indiqué, pour comparer les scans entre eux ; vide reste vide.
+func absoluteDirectory(directory string) (string, error) {
+	if directory == "" {
+		return "", nil
+	}
+	return filepath.Abs(directory)
+}
+
+// scanDirectoryOf ne rattache au dossier du scan que les liens qui s'y trouvent (un lien enregistré d'un dossier de
+// liens n'en dépend pas).
+func scanDirectoryOf(linkPath, directory string) string {
+	if directory == "" {
+		return ""
+	}
+	relative, err := filepath.Rel(directory, linkPath)
+	if err != nil || !filepath.IsLocal(relative) {
+		return ""
+	}
+	return directory
+}
+
 func repairEntries(repairs []repair.Repair, report repair.Report, directory string) []RepairDetails {
 	entries := make([]RepairDetails, 0, len(repairs)+len(report.Ambiguous)+len(report.Lost))
 	for _, found := range repairs {
 		entries = append(entries, RepairDetails{
 			Status: RepairStatusRepairable, LinkPath: found.LinkPath, OldTarget: found.OldTarget, NewTarget: found.NewTarget,
 			Size: found.Size, Method: string(found.Method), Candidates: found.Candidates, Relative: found.Relative,
-			Actionable: true, ScanDirectory: directory,
+			Actionable: true, ScanDirectory: scanDirectoryOf(found.LinkPath, directory),
 		})
 	}
 	for _, ambiguous := range report.Ambiguous {
-		entries = append(entries, RepairDetails{Status: RepairStatusAmbiguous, LinkPath: ambiguous.LinkPath, Candidates: ambiguous.Candidates})
+		entries = append(entries, RepairDetails{
+			Status: RepairStatusAmbiguous, LinkPath: ambiguous.LinkPath, Candidates: ambiguous.Candidates,
+			ScanDirectory: scanDirectoryOf(ambiguous.LinkPath, directory),
+		})
 	}
 	for _, lostPath := range report.Lost {
-		entries = append(entries, RepairDetails{Status: RepairStatusLost, LinkPath: lostPath})
+		entries = append(entries, RepairDetails{Status: RepairStatusLost, LinkPath: lostPath, ScanDirectory: scanDirectoryOf(lostPath, directory)})
 	}
 	return entries
 }
@@ -133,7 +168,7 @@ func repairEntries(repairs []repair.Repair, report repair.Report, directory stri
 func (svc *service) RepairAccept(ctx context.Context, proposalID int64, options ...DecisionOption) (MaintenanceResult, error) {
 	result := MaintenanceResult{ProposalID: proposalID, DryRun: slices.Contains(options, DryRun)}
 	err := svc.locked(ctx, lockNameRepair, func(ctx context.Context) error {
-		details, err := loadAcceptedMaintenance(ctx, svc, proposalID, store.ProposalRepair, repairActionable)
+		details, err := loadAcceptedMaintenance(ctx, svc, proposalID, store.ProposalRepair, repairActionable, options)
 		if err != nil {
 			return err
 		}
@@ -166,7 +201,9 @@ func (svc *service) applyRepair(ctx context.Context, details RepairDetails, resu
 	if outcome.Done && outcome.Err != nil {
 		result.Warnings = []string{WarningLinkNotRecorded}
 	}
-	return svc.finishMaintenance(ctx, result, outcome.Done, outcome.Err, repair.ErrChangedSinceScan, repair.ErrTargetInvalid)
+	finishCtx, cancel := bookkeeping(ctx)
+	defer cancel()
+	return svc.finishMaintenance(finishCtx, result, outcome.Done, outcome.Err, repair.ErrChangedSinceScan, repair.ErrTargetInvalid)
 }
 
 // MaintenanceClient est la part du client torrent utilisée par dedupe (recontrôle) et repair (torrent d'un lien) ;
@@ -176,7 +213,7 @@ type MaintenanceClient interface {
 	TorrentForPath(ctx context.Context, path string) (repair.TorrentRef, bool, error)
 }
 
-// clientView traduit les chemins de ce processus vers la vue du client (mapper nil : mêmes chemins).
+// clientView traduit les chemins de ce processus vers la vue du client (mapper nil ou sans règle : mêmes chemins).
 type clientView struct {
 	client MaintenanceClient
 	mapper pipeline.ClientPathMapper
@@ -186,7 +223,11 @@ func (view clientView) clientPath(path string) (string, error) {
 	if view.mapper == nil {
 		return path, nil
 	}
-	return view.mapper.Translate(path)
+	clientPath, err := view.mapper.Translate(path)
+	if errors.Is(err, linker.ErrNoRule) {
+		return path, nil
+	}
+	return clientPath, err
 }
 
 func (view clientView) RecheckPath(ctx context.Context, path string) error {
