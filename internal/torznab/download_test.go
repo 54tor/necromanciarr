@@ -93,12 +93,14 @@ func itemFor(link, infoHash string) Item {
 type recordingTransport struct {
 	mutex     sync.Mutex
 	requested []string
+	hosts     []string
 	respond   func(request *http.Request) *http.Response
 }
 
 func (transport *recordingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
 	transport.mutex.Lock()
 	transport.requested = append(transport.requested, request.URL.String())
+	transport.hosts = append(transport.hosts, request.Host)
 	transport.mutex.Unlock()
 	return transport.respond(request), nil
 }
@@ -218,9 +220,17 @@ var originCases = []originCase{
 	{"IDN link in punycode", "http://bücher.example", "http://xn--bcher-kva.example/dl/1", true},
 	{"IDN base in punycode", "http://xn--bcher-kva.example", "http://BÜCHER.example/dl/1", true},
 	{"IPv6 same address other spelling", "http://[::1]:9696", "http://[0:0::1]:9696/dl/1", true},
+	{"docker service name", "http://prowlarr_app:9696", "http://prowlarr_app:9696/1/download", true},
+	{"docker service name relative", "http://prowlarr_app:9696", "/1/download", true},
+	{"docker service name case", "http://prowlarr_app:9696", "http://Prowlarr_App:9696/1/download", true},
+	{"label starting with a hyphen", "http://-indexer.example.com", "http://-INDEXER.example.com/dl/1", true},
 
 	{"empty link", "http://indexer.example.com", "", false},
 	{"other host", "http://indexer.example.com", "http://other.example.com/dl/1", false},
+	{"underscore host on another base", "http://indexer.example.com", "http://indexer_example.com/dl/1", false},
+	{"other docker service", "http://prowlarr_app:9696", "http://jackett_app:9696/dl/1", false},
+	{"empty label", "http://indexer.example.com", "http://indexer..example.com/dl/1", false},
+	{"empty label on both sides", "http://indexer..example.com", "http://indexer..example.com/dl/1", false},
 	{"host as a prefix", "http://indexer.example.com", "http://indexer.example.com.other.example.com/dl/1", false},
 	{"host as a suffix", "http://indexer.example.com", "http://evilindexer.example.com/dl/1", false},
 	{"other port", "http://indexer.example.com", "http://indexer.example.com:8080/dl/1", false},
@@ -312,6 +322,11 @@ func TestDownload_requestsTheCanonicalHost(t *testing.T) {
 			expectedValue := canonical.expectedValue + "?apikey=" + testAPIKey
 			if gotValue := transport.requests(); len(gotValue) != 1 || gotValue[0] != expectedValue {
 				t.Fatalf("expectedValue %q, gotValue %q", expectedValue, gotValue)
+			}
+			// L'en-tête Host envoyé est l'hôte comparé, pas celui du lien brut.
+			expectedHost := strings.TrimPrefix(strings.SplitN(canonical.expectedValue, "/dl/", 2)[0], "http://")
+			if gotHost := transport.hosts; len(gotHost) != 1 || gotHost[0] != expectedHost {
+				t.Fatalf("expectedValue Host %q, gotValue %q", expectedHost, gotHost)
 			}
 		})
 	}
@@ -585,6 +600,43 @@ func closedServerCaps(t *testing.T) error {
 	return err
 }
 
+// oversizedBody répète la clé et la passkey au-delà du plafond XML et du plafond .torrent.
+func oversizedBody(contentType string) http.HandlerFunc {
+	chunk := []byte(strings.Repeat("Invalid key "+testAPIKey+" passkey "+downloadPasskey+" ", 1024))
+	return func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", contentType)
+		for written := 0; written <= maxTorrentBytes; written += len(chunk) {
+			if _, err := writer.Write(chunk); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func closedServerSearch(t *testing.T) error {
+	t.Helper()
+	indexer := newFakeIndexer(t, xmlResponse(rssWithItems()))
+	client, _, _ := newTestClient(t, indexer.server.URL)
+	indexer.server.Close()
+	_, err := client.Search(context.Background(), Query{Mode: "search", Text: "invented"})
+	return err
+}
+
+// cancelledDownload attend le limiteur avec un contexte annulé : l'erreur du limiteur ne cite pas le lien.
+func cancelledDownload(t *testing.T) error {
+	t.Helper()
+	indexer := newFakeIndexer(t, xmlResponse(rssWithItems()))
+	client, _, _ := newTestClient(t, indexer.server.URL)
+	client.wait = sleepContext
+	if _, err := client.Search(context.Background(), Query{Mode: "search", Text: "invented"}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := client.Download(ctx, itemFor(secretLink(indexer.server.URL), ""))
+	return err
+}
+
 func foreignDownload(t *testing.T) error {
 	t.Helper()
 	client := clientWithTransport(t, "http://indexer.example.com", torrentTransport(nil))
@@ -618,6 +670,16 @@ func TestErrors_neverContainAPIKey(t *testing.T) {
 		"download invalid torrent":  downloadPath(torrentResponse(invalid, torrentContentType), ""),
 		"download v2-only torrent":  downloadPath(torrentResponse(v2Only, torrentContentType), ""),
 		"download infohash differs": downloadPath(torrentResponse(valid, torrentContentType), strings.Repeat("ab", 20)),
+		"download http 429":         downloadPath(echoBody(http.StatusTooManyRequests, "text/plain"), ""),
+		"download http 503":         downloadPath(echoBody(http.StatusServiceUnavailable, "text/plain"), ""),
+		"download oversized body":   downloadPath(oversizedBody(torrentContentType), ""),
+		"download cancelled":        cancelledDownload,
+		"caps wrong type":           capsPath(echoBody(http.StatusOK, "text/html")),
+		"caps oversized body":       capsPath(oversizedBody("application/xml")),
+		"caps redirect":             capsPath(redirect),
+		"search wrong type":         searchPath(echoBody(http.StatusOK, "text/html")),
+		"search oversized body":     searchPath(oversizedBody("application/xml")),
+		"search transport error":    closedServerSearch,
 	}
 	for name, path := range paths {
 		t.Run(name, func(t *testing.T) {

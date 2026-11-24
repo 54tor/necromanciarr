@@ -629,3 +629,35 @@ func TestSearch_capsGzipBomb(t *testing.T) {
 		t.Fatalf("expectedValue a bounded read, gotValue %d compressed bytes written", gotValue)
 	}
 }
+
+func TestSearch_prefersTheLinkOnTheIndexerOrigin(t *testing.T) {
+	results, err := searchAgainst(t, func(writer http.ResponseWriter, request *http.Request) {
+		sameOrigin := "http://" + request.Host + "/dl/ok"
+		item := `<item><title>Invented</title><size>100</size>` +
+			`<enclosure url="http://other.example.com/dl/hostile" length="100" type="application/x-bittorrent"/>` +
+			`<link>` + sameOrigin + `</link></item>`
+		xmlResponse(rssWithItems(item))(writer, request)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(results.Items) != 1 || !strings.HasSuffix(results.Items[0].downloadURL, "/dl/ok") {
+		t.Fatalf("expectedValue the same-origin link, gotValue %+v", results.Items)
+	}
+}
+
+func TestSearch_fallsBackToTheFirstAbsoluteLink(t *testing.T) {
+	item := `<item><title>Invented</title><size>100</size>` +
+		`<enclosure url="http://other.example.com/dl/first" length="100"/>` +
+		`<link>http://another.example.com/dl/second</link></item>`
+
+	results, err := searchAgainst(t, xmlResponse(rssWithItems(item)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(results.Items) != 1 || results.Items[0].downloadURL != "http://other.example.com/dl/first" {
+		t.Fatalf("expectedValue the first absolute link, gotValue %+v", results.Items)
+	}
+}

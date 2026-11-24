@@ -86,7 +86,7 @@ func (client *Client) Search(ctx context.Context, query Query) (Results, error) 
 	if err != nil {
 		return Results{}, err
 	}
-	reader := &searchReader{}
+	reader := &searchReader{base: client.base}
 	if err := decodeDocument(content, "rss", retryAfter, reader); err != nil {
 		return Results{}, err
 	}
@@ -135,6 +135,8 @@ type rawItem struct {
 var itemFields = map[string]bool{"title": true, "guid": true, "link": true, "size": true}
 
 type searchReader struct {
+	// base est l'URL de l'indexeur : un lien sur son origine est préféré.
+	base     *url.URL
 	results  Results
 	count    int
 	current  *rawItem
@@ -194,7 +196,7 @@ func (reader *searchReader) end(path []string) error {
 // keep valide un élément : sans lien http(s) il est écarté (compté dans MagnetOnly s'il n'offrait qu'un magnet),
 // et tout autre écart (lien, taille, infohash invalide) est compté dans Invalid.
 func (reader *searchReader) keep(raw rawItem) {
-	downloadURL, hasMagnetLink := classifyLinks([]string{raw.enclosureURL, raw.fields["link"]})
+	downloadURL, hasMagnetLink := classifyLinks([]string{raw.enclosureURL, raw.fields["link"]}, reader.base)
 	// L'attribut magneturl ne sert qu'à repérer un magnet, jamais de lien de téléchargement.
 	hasMagnet := hasMagnetLink || isMagnet(raw.attributes["magneturl"])
 	if downloadURL == "" && hasMagnet {
@@ -217,9 +219,10 @@ func (reader *searchReader) keep(raw rawItem) {
 	})
 }
 
-// classifyLinks rend le premier lien http(s) absolu et dit si un lien magnet est présent.
-func classifyLinks(links []string) (string, bool) {
-	downloadURL := ""
+// classifyLinks rend le premier lien http(s) absolu sur l'origine de l'indexeur, à défaut le premier lien http(s)
+// absolu (que Download refusera), et dit si un lien magnet est présent : un premier lien hostile ne masque pas le bon.
+func classifyLinks(links []string, base *url.URL) (string, bool) {
+	firstAbsolute, sameOrigin := "", ""
 	hasMagnet := false
 	for _, link := range links {
 		link = strings.TrimSpace(link)
@@ -227,11 +230,27 @@ func classifyLinks(links []string) (string, bool) {
 			hasMagnet = true
 			continue
 		}
-		if downloadURL == "" && isAbsoluteHTTP(link) {
-			downloadURL = link
+		if !isAbsoluteHTTP(link) {
+			continue
+		}
+		if firstAbsolute == "" {
+			firstAbsolute = link
+		}
+		if sameOrigin == "" && isOnOrigin(link, base) {
+			sameOrigin = link
 		}
 	}
-	return downloadURL, hasMagnet
+	return firstNonEmpty(sameOrigin, firstAbsolute), hasMagnet
+}
+
+func isOnOrigin(link string, base *url.URL) bool {
+	parsed, err := url.Parse(link)
+	if err != nil {
+		return false
+	}
+	linkOrigin, isLinkValid := originOf(parsed)
+	baseOrigin, isBaseValid := originOf(base)
+	return isLinkValid && isBaseValid && linkOrigin == baseOrigin
 }
 
 func isMagnet(link string) bool {

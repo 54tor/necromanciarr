@@ -226,17 +226,20 @@ func (client *Client) get(ctx context.Context, parameters url.Values) ([]byte, t
 }
 
 // send attend le limiteur de l'indexeur puis envoie un GET borné par Timeout ; cancel libère ce délai une fois le
-// corps lu. L'erreur d'un appel HTTP est reconstruite sans l'URL, qui porte la clé.
-func (client *Client) send(ctx context.Context, target, accept string) (*http.Response, context.CancelFunc, error) {
+// corps lu. La requête porte l'URL reçue elle-même, sans aller-retour par du texte. L'erreur d'un appel HTTP est
+// reconstruite sans l'URL, qui porte la clé.
+func (client *Client) send(ctx context.Context, target *url.URL, accept string) (*http.Response, context.CancelFunc, error) {
 	if err := client.throttle(ctx); err != nil {
 		return nil, nil, err
 	}
 	requestContext, cancel := context.WithTimeout(ctx, client.timeout)
-	request, err := http.NewRequestWithContext(requestContext, http.MethodGet, target, http.NoBody)
+	request, err := http.NewRequestWithContext(requestContext, http.MethodGet, "/", http.NoBody)
 	if err != nil {
 		cancel()
 		return nil, nil, fmt.Errorf("%w: invalid request", ErrBadResponse)
 	}
+	request.URL = target
+	request.Host = target.Host
 	request.Header.Set("Accept", accept)
 	response, err := client.httpClient.Do(request)
 	if err != nil {
@@ -264,11 +267,11 @@ func (client *Client) checkStatus(response *http.Response) (time.Duration, error
 	return 0, statusError(response.StatusCode, readBody, retryAfter)
 }
 
-func (client *Client) target(parameters url.Values) string {
+func (client *Client) target(parameters url.Values) *url.URL {
 	if client.apiKey != "" {
 		parameters.Set(apiKeyParameter, client.apiKey)
 	}
 	target := *client.base
 	target.RawQuery = parameters.Encode()
-	return target.String()
+	return &target
 }

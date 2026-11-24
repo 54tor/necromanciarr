@@ -58,24 +58,25 @@ func (client *Client) Download(ctx context.Context, item Item) ([]byte, error) {
 
 // downloadTarget résout le lien contre l'URL de l'indexeur et n'accepte que sa propre origine ; l'hôte demandé est
 // la forme canonique comparée, pour que le transport ne puisse pas lire le lien autrement que la comparaison.
-func (client *Client) downloadTarget(rawLink string) (string, error) {
+// L'URL rendue est celle qui part sur le réseau (send l'envoie telle quelle, sans la réanalyser).
+func (client *Client) downloadTarget(rawLink string) (*url.URL, error) {
 	if rawLink == "" || strings.ContainsFunc(rawLink, isUnsafeLinkRune) {
-		return "", ErrForeignDownloadHost
+		return nil, ErrForeignDownloadHost
 	}
 	resolved, err := client.base.Parse(rawLink)
 	if err != nil {
-		return "", ErrForeignDownloadHost
+		return nil, ErrForeignDownloadHost
 	}
 	linkOrigin, isLinkValid := originOf(resolved)
 	baseOrigin, isBaseValid := originOf(client.base)
 	if !isLinkValid || !isBaseValid || linkOrigin != baseOrigin {
-		return "", ErrForeignDownloadHost
+		return nil, ErrForeignDownloadHost
 	}
 	resolved.Scheme = linkOrigin.scheme
 	resolved.Host = linkOrigin.hostPort()
 	resolved.Fragment, resolved.RawFragment = "", ""
 	client.addAPIKey(resolved)
-	return resolved.String(), nil
+	return resolved, nil
 }
 
 // isUnsafeLinkRune refuse la barre oblique inverse (lue comme « / » par certains analyseurs), les espaces et les
@@ -84,7 +85,9 @@ func isUnsafeLinkRune(character rune) bool {
 	return character == '\\' || unicode.IsSpace(character) || unicode.IsControl(character)
 }
 
-// addAPIKey ajoute la clé de l'indexeur au lien qui n'en porte pas ; la requête d'origine est gardée telle quelle.
+// addAPIKey ajoute la clé de l'indexeur au lien qui n'a pas de paramètre apikey (nom comparé à la casse près : un
+// lien « APIKEY= » reçoit aussi la nôtre, sans risque puisque l'origine est celle de l'indexeur) ; la requête
+// d'origine est gardée telle quelle.
 func (client *Client) addAPIKey(link *url.URL) {
 	if client.apiKey == "" || link.Query().Has(apiKeyParameter) {
 		return
@@ -130,8 +133,9 @@ func originOf(parsed *url.URL) (origin, bool) {
 	return origin{scheme: scheme, host: host, port: port}, true
 }
 
-// canonicalHost rend une adresse IP sous sa forme canonique (zone IPv6 refusée), ou un nom en ASCII (punycode)
-// minuscule sans point final.
+// canonicalHost rend une adresse IP sous sa forme canonique (zone IPv6 refusée), ou un nom en ASCII minuscule sans
+// point final. Un nom ASCII ne passe pas par idna, dont les règles STD3 refusent « _ » et le « - » initial des noms
+// de service Docker ; seul un nom non ASCII est converti en punycode.
 func canonicalHost(hostname string) (string, bool) {
 	if hostname == "" {
 		return "", false
@@ -139,11 +143,34 @@ func canonicalHost(hostname string) (string, bool) {
 	if address, err := netip.ParseAddr(hostname); err == nil {
 		return address.String(), address.Zone() == ""
 	}
+	if isASCII(hostname) {
+		return asciiHostName(hostname)
+	}
 	ascii, err := idna.Lookup.ToASCII(strings.TrimSuffix(hostname, "."))
-	if err != nil || ascii == "" {
+	if err != nil {
 		return "", false
 	}
-	return ascii, true
+	return asciiHostName(ascii)
+}
+
+func isASCII(text string) bool {
+	return !strings.ContainsFunc(text, func(character rune) bool { return character > unicode.MaxASCII })
+}
+
+// asciiHostName met le nom en minuscules sans point final et n'admet que des étiquettes non vides de [a-z0-9._-].
+func asciiHostName(hostname string) (string, bool) {
+	name := strings.ToLower(strings.TrimSuffix(hostname, "."))
+	for _, label := range strings.Split(name, ".") {
+		if label == "" || strings.ContainsFunc(label, isNotHostNameRune) {
+			return "", false
+		}
+	}
+	return name, true
+}
+
+func isNotHostNameRune(character rune) bool {
+	isLetterOrDigit := (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')
+	return !isLetterOrDigit && character != '-' && character != '_'
 }
 
 func explicitPort(rawPort string, defaultPort int) (int, bool) {
@@ -156,7 +183,7 @@ func explicitPort(rawPort string, defaultPort int) (int, bool) {
 
 // fetchTorrent refuse tout statut hors 2xx et tout type inattendu avant de lire le corps, plafonné à
 // maxTorrentBytes.
-func (client *Client) fetchTorrent(ctx context.Context, target string) ([]byte, error) {
+func (client *Client) fetchTorrent(ctx context.Context, target *url.URL) ([]byte, error) {
 	response, cancel, err := client.send(ctx, target, acceptTorrent)
 	if err != nil {
 		return nil, err
@@ -179,6 +206,9 @@ func isTorrentContentType(header string) bool {
 
 // checkTorrent valide le .torrent ; le détail de torrentcheck n'est pas recopié, il peut citer un nom hostile.
 func checkTorrent(content []byte, announcedInfoHash string) error {
+	// ponytail: un .torrent hostile de 8 Mio peut coûter de l'ordre de 50 à 100 Mo en mémoire le temps de Parse
+	// (décodage bencode, liste des fichiers) ; aucun plafond du nombre de fichiers n'existe dans torrentcheck, à
+	// ajouter là si cette crête gêne.
 	parsed, err := torrentcheck.Parse(content)
 	if errors.Is(err, torrentcheck.ErrV2Only) {
 		return fmt.Errorf("%w: %w", ErrBadResponse, torrentcheck.ErrV2Only)
