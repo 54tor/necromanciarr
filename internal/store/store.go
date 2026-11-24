@@ -97,14 +97,8 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
-	if err := dropEmptyLegacyPipelineTables(database); err != nil {
-		return nil, errors.Join(fmt.Errorf("upgrade pipeline tables: %w", err), database.Close())
-	}
-	if _, err := database.Exec(schema); err != nil {
-		return nil, errors.Join(fmt.Errorf("create schema: %w", err), database.Close())
-	}
-	if err := upgradeColumns(database); err != nil {
-		return nil, errors.Join(fmt.Errorf("upgrade schema: %w", err), database.Close())
+	if err := upgradeSchema(database); err != nil {
+		return nil, errors.Join(err, database.Close())
 	}
 	return &Store{database: database}, nil
 }
@@ -162,7 +156,7 @@ var columnUpgrades = []struct{ table, column, definition string }{
 	{"mount_capabilities", "provider", "TEXT NOT NULL DEFAULT ''"},
 }
 
-func upgradeColumns(database *sql.DB) error {
+func upgradeColumns(database executor) error {
 	for _, upgrade := range columnUpgrades {
 		if err := addColumnIfMissing(database, upgrade.table, upgrade.column, upgrade.definition); err != nil {
 			return fmt.Errorf("%s.%s: %w", upgrade.table, upgrade.column, err)
@@ -173,12 +167,12 @@ func upgradeColumns(database *sql.DB) error {
 
 // addColumnIfMissing ajoute la colonne si pragma_table_info ne la voit pas ; sans effet sinon, donc rejouable.
 // Table, colonne et définition viennent de columnUpgrades, jamais d'une entrée externe.
-func addColumnIfMissing(database *sql.DB, table, column, definition string) error {
+func addColumnIfMissing(database executor, table, column, definition string) error {
 	present, err := hasColumn(database, table, column)
 	if err != nil || present {
 		return err
 	}
-	_, err = database.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition) // #nosec G202 -- constantes de columnUpgrades
+	_, err = database.ExecContext(context.Background(), "ALTER TABLE "+table+" ADD COLUMN "+column+" "+definition) // #nosec G202 -- constantes de columnUpgrades
 	return err
 }
 

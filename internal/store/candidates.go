@@ -105,7 +105,7 @@ func (openedStore *Store) DeleteMediaFile(ctx context.Context, mediaFileID int64
 }
 
 // InvalidateCandidatesForFile passe à stale chaque candidat associé au fichier (voir markStale) ; renvoie le nombre
-// de candidats touchés.
+// de lignes touchées.
 func (openedStore *Store) InvalidateCandidatesForFile(ctx context.Context, mediaFileID int64, now time.Time) (int, error) {
 	var invalidated int
 	err := openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
@@ -133,7 +133,7 @@ WHERE candidate_files.media_size IS NOT NULL AND (media_files.id IS NULL OR medi
 	OR media_files.mtime != candidate_files.media_mtime)`
 
 // MarkChangedCandidatesStale passe à stale (voir markStale) tout candidat dont un fichier local associé a disparu ou
-// changé depuis l'association ; renvoie le nombre de candidats touchés.
+// changé depuis l'association ; renvoie le nombre de lignes touchées.
 func (openedStore *Store) MarkChangedCandidatesStale(ctx context.Context, now time.Time) (int, error) {
 	var marked int
 	err := openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
@@ -147,16 +147,17 @@ func (openedStore *Store) MarkChangedCandidatesStale(ctx context.Context, now ti
 	return marked, nil
 }
 
-// markStale périme les candidats choisis par selection dans la transaction : vérification effacée, propositions
+// markStale périme chaque candidat choisi par selection dans la transaction : vérification effacée, propositions
 // ouvertes closes (superseded), groupe retiré ; les propositions appliquées restent comme historique.
 func markStale(ctx context.Context, transaction *sql.Tx, selection string, now time.Time, arguments ...any) (int, error) {
-	if _, err := transaction.ExecContext(ctx, `DELETE FROM verifications WHERE candidate_id IN (`+selection+`)`, arguments...); err != nil {
+	if _, err := transaction.ExecContext(ctx, `DELETE FROM verifications WHERE candidate_id IN (`+selection+`)`, arguments...); err != nil { // #nosec G202 -- sélection constante du paquet
 		return 0, err
 	}
 	if err := supersedeOpenProposals(ctx, transaction, selection, now, arguments...); err != nil {
 		return 0, err
 	}
 	updateArguments := append([]any{string(CandidateStale), now.UnixNano(), string(CandidateStale)}, arguments...)
+	// #nosec G202 -- sélection constante du paquet
 	result, err := transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ?, group_id = NULL
 WHERE state != ? AND id IN (`+selection+`)`, updateArguments...)
 	if err != nil {
@@ -168,6 +169,7 @@ WHERE state != ? AND id IN (`+selection+`)`, updateArguments...)
 
 func supersedeOpenProposals(ctx context.Context, transaction *sql.Tx, selection string, now time.Time, arguments ...any) error {
 	proposalArguments := append([]any{string(ProposalSuperseded), now.UnixNano(), string(ProposalPending), string(ProposalAccepted)}, arguments...)
+	// #nosec G202 -- sélection constante du paquet
 	_, err := transaction.ExecContext(ctx, `UPDATE proposals SET decision = ?, decided_at = ?
 WHERE decision IN (?, ?) AND candidate_id IN (`+selection+`)`, proposalArguments...)
 	return err
@@ -363,7 +365,7 @@ func (openedStore *Store) ListCandidatesByState(ctx context.Context, states ...C
 	return candidates, rows.Err()
 }
 
-// SetCandidateState change l'état d'un candidat selon les transitions permises : matched → fetched → verified, et
+// SetCandidateState change l'état d'un candidat selon les transitions autorisées : matched → fetched → verified, et
 // tout état → stale ou failed ; stale → matched n'est fait que par SaveCandidate. Sinon ErrInvalidTransition.
 // Passer à stale applique markStale dans la même transaction.
 func (openedStore *Store) SetCandidateState(ctx context.Context, candidateID int64, state CandidateState, now time.Time) error {

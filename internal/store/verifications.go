@@ -278,7 +278,7 @@ var proposalTransitions = map[ProposalDecision][]ProposalDecision{
 	ProposalAccepted: {ProposalApplied, ProposalFailed, ProposalSuperseded},
 }
 
-// SetProposalDecision enregistre la décision et sa date si la transition est permise ; accepted et applied exigent un
+// SetProposalDecision enregistre la décision et sa date si la transition est autorisée ; accepted et applied exigent un
 // candidat verified (une proposition sans candidat, dedupe ou repair, en est exemptée). Sinon ErrInvalidTransition.
 func (openedStore *Store) SetProposalDecision(ctx context.Context, proposalID int64, decision ProposalDecision, now time.Time) error {
 	if err := checkProposalDecision(decision); err != nil {

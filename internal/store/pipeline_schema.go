@@ -93,25 +93,44 @@ var legacyPipelineTables = []struct {
 	{"candidates", "", false},
 }
 
-// dropEmptyLegacyPipelineTables supprime les anciennes tables du pipeline si elles sont vides, et refuse sinon.
-// Détection, comptage et suppression se font dans une seule transaction BEGIN IMMEDIATE sur une seule connexion :
-// un second processus qui ouvre la base en même temps attend (busy_timeout) puis voit la forme déjà mise à niveau.
-func dropEmptyLegacyPipelineTables(database *sql.DB) error {
+// executor exécute et interroge, sur une connexion ou une transaction.
+type executor interface {
+	queryer
+	ExecContext(ctx context.Context, query string, arguments ...any) (sql.Result, error)
+}
+
+// upgradeSchema supprime les anciennes tables du pipeline si elles sont vides (refus sinon), crée les tables
+// manquantes et ajoute les colonnes manquantes, le tout dans une seule transaction BEGIN IMMEDIATE sur une seule
+// connexion : un second processus qui ouvre la base en même temps attend (busy_timeout) puis voit la forme à jour.
+func upgradeSchema(database *sql.DB) error {
 	ctx := context.Background()
 	connection, err := database.Conn(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("open store: %w", err)
 	}
 	defer func() { _ = connection.Close() }()
 	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return err
+		return fmt.Errorf("lock schema: %w", err)
 	}
-	if err := dropLegacyTables(ctx, connection); err != nil {
+	if err := upgradeInTransaction(ctx, connection); err != nil {
 		_, rollbackErr := connection.ExecContext(ctx, "ROLLBACK")
 		return errors.Join(err, rollbackErr)
 	}
 	_, err = connection.ExecContext(ctx, "COMMIT")
 	return err
+}
+
+func upgradeInTransaction(ctx context.Context, connection *sql.Conn) error {
+	if err := dropLegacyTables(ctx, connection); err != nil {
+		return fmt.Errorf("upgrade pipeline tables: %w", err)
+	}
+	if _, err := connection.ExecContext(ctx, schema); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	if err := upgradeColumns(connection); err != nil {
+		return fmt.Errorf("upgrade schema: %w", err)
+	}
+	return nil
 }
 
 func dropLegacyTables(ctx context.Context, connection *sql.Conn) error {
