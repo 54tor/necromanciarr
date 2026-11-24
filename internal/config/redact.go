@@ -237,14 +237,18 @@ func namesSecretBefore(name string, separator byte) bool {
 	}
 }
 
-func isBase64URLByte(character byte) bool {
+func isBase64URLByte(character byte) bool { return isBase64URLRune(rune(character)) }
+
+// isBase64URLRune reconnaît une lettre ASCII, un chiffre, « - » ou « _ » ; tout autre caractère, non ASCII compris, est
+// un séparateur.
+func isBase64URLRune(character rune) bool {
 	isLetter := (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
 	return isLetter || (character >= '0' && character <= '9') || character == '-' || character == '_'
 }
 
 // base64URLWords découpe un texte en suites maximales de caractères base64url.
 func base64URLWords(text string) []string {
-	return strings.FieldsFunc(text, func(character rune) bool { return character > 0x7f || !isBase64URLByte(byte(character)) })
+	return strings.FieldsFunc(text, func(character rune) bool { return !isBase64URLRune(character) })
 }
 
 // decodeRepeatedly décode les séquences « %XX » jusqu'à maxDecodeRounds fois ; une séquence invalide reste telle

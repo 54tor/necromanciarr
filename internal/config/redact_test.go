@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -317,5 +318,30 @@ func TestRedact_tokenLikeHostLabelIsMasked(t *testing.T) {
 		if gotValue := RedactText(kept); gotValue != kept {
 			t.Fatalf("gotValue %q, expectedValue %q unchanged", gotValue, kept)
 		}
+	}
+}
+
+// previousBase64URLByte recopie le prédicat d'avant le passage aux runes : la table de référence ne dépend pas du code
+// testé.
+func previousBase64URLByte(character byte) bool {
+	isLetter := (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
+	return isLetter || (character >= '0' && character <= '9') || character == '-' || character == '_'
+}
+
+func TestIsBase64URLRune_classifiesLikeTheBytePredicate(t *testing.T) {
+	for asciiValue := range 128 {
+		expectedValue := previousBase64URLByte(byte(asciiValue))
+		if gotValue := isBase64URLRune(rune(asciiValue)); gotValue != expectedValue {
+			t.Fatalf("rune %d: gotValue %v, expectedValue %v", asciiValue, gotValue, expectedValue)
+		}
+	}
+	// 0x161 et 0x1E1 tombent sur « a » une fois tronqués à un octet : ils doivent rester hors de l'alphabet.
+	for _, nonASCII := range []rune{0x80, 0xE9, 0x161, 0x1E1, 0x4E2D, 0x1F600, 0x10FFFF, -1} {
+		if isBase64URLRune(nonASCII) {
+			t.Fatalf("rune %U: gotValue true, expectedValue false outside ASCII", nonASCII)
+		}
+	}
+	if gotValue := base64URLWords("ab-0_9.été/xšy"); !slices.Equal(gotValue, []string{"ab-0_9", "t", "x", "y"}) {
+		t.Fatalf("gotValue %q, expectedValue the same words as before", gotValue)
 	}
 }
