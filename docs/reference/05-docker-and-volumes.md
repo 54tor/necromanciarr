@@ -1,0 +1,124 @@
+# Docker et volumes
+
+## L'image
+
+Construite par `make docker-build` (étape Node pour l'interface, étape Go statique, étape finale `debian:trixie-slim` sans instruction `RUN`). `make docker-buildx` produit une archive OCI pour `linux/amd64`, `linux/arm64` et `linux/riscv64` sans pousser ni émuler ; `make cross-build` produit les binaires de ces trois cibles Linux et de `windows/amd64`, `windows/arm64`.
+
+| Réglage de l'image | Valeur |
+|---|---|
+| Utilisateur | `1000:1000`, non root |
+| Point d'entrée / commande | `necromanciarr` / `serve` : tout argument remplace `serve` |
+| Variables | `CONFIG_DIR=/data`, `NECROMANCIARR_LISTEN=0.0.0.0:8787` |
+| Port | `EXPOSE 8787` |
+| Dossier de travail et volume | `/data`, propriété de `1000:1000` dans l'image |
+| Sonde de santé | `necromanciarr healthcheck` toutes les 30 s, délai 5 s, démarrage 20 s, 3 essais |
+| Contenu | base `debian:trixie-slim` (tag daté), le binaire et les certificats TLS ; fuseaux horaires embarqués dans le binaire |
+
+L'image écoute sur toutes les interfaces, donc **`NECROMANCIARR_AUTH_TOKEN` est obligatoire** : sans lui le conteneur sort en code 1 avec `listen "0.0.0.0:8787" is not loopback: set NECROMANCIARR_AUTH_TOKEN (at least 32 characters, generate one with necromanciarr api-key)`. Générer un jeton : `docker run --rm necromanciarr:dev api-key`.
+
+## Volumes
+
+| Montage | Mode | Rôle |
+|---|---|---|
+| `/data` | lecture-écriture, volume nommé | `config.json`, `.env`, `necromanciarr.db` (`dbPath` relatif, résolu depuis `CONFIG_DIR`) |
+| bibliothèque **et** dossiers de liens | lecture-écriture, **un seul montage** | fichiers média et dossiers de `linkDirs` / `dedupe.torrentRoots` |
+| dossier de cross-seed | **lecture seule**, dossier entier | `config.js` |
+
+### Un seul montage pour la bibliothèque et les liens
+
+Un hardlink ou un reflink entre deux montages distincts échoue avec `EXDEV`, même quand ils pointent le même disque de l'hôte : le noyau compare les montages, pas les disques. Monter le parent commun une seule fois et placer racines et dossiers de liens dessous :
+
+```
+/srv/storage            (hôte)  ->  /media  (conteneur, un seul montage)
+  library/movies                      libraryRoots[0]  = /media/library/movies
+  library/tv                          libraryRoots[1]  = /media/library/tv
+  links                               linkDirs[0]      = /media/links
+```
+
+`doctor` (`link-feasibility`) refuse en `fail` un hardlink ou un reflink entre volumes différents et suggère « one bind mount covering both ». Le montage est en écriture parce que les liens y sont créés ; qu'aucun fichier de la bibliothèque ne soit écrit tient aux invariants du code ([03-seed-safety.md](03-seed-safety.md)), pas au montage. Un dossier de liens ne peut pas être dans une racine de bibliothèque : le placer à côté, sous le même parent.
+
+Le client torrent doit lire le dossier du torrent. Il le voit sous son propre chemin : déclarer la règle `pathMappings` `{"from": "/media/links", "to": "<chemin vu par le client>"}`. Avec `linkType: symlink`, la cible du lien est un chemin absolu **de ce conteneur** (`/media/library/…`) : le client doit alors voir la bibliothèque au même chemin, sinon le lien est cassé de son côté. Avec un hardlink, la question ne se pose pas.
+
+### `config.js` de cross-seed
+
+Monter le **dossier** qui contient `config.js`, en lecture seule, jamais le fichier seul : un montage de fichier unique se casse quand un éditeur remplace le fichier (nouvel inode, le conteneur garde l'ancien). Puis `CROSS_SEED_CONFIG=/cross-seed/config.js` (ou `crossSeedConfig`).
+
+Chaque `process.env.NOM` que ce `config.js` référence doit aussi être fourni au conteneur Necromanciarr (variable d'environnement ou ligne de `/data/.env`) : le fichier est évalué ici, avec ces valeurs, pas avec l'environnement du conteneur de cross-seed. Le `localhost` du `config.js` désigne le conteneur de cross-seed : renseigner `crossSeed` (`http://cross-seed:2468?apikey=${CROSS_SEED_API_KEY}`) pour joindre le démon.
+
+### `/data`
+
+Nom de volume plutôt que dossier de l'hôte : un volume nommé neuf reprend le propriétaire `1000:1000` de l'image. Un dossier de l'hôte doit appartenir à l'utilisateur du conteneur. Pour y déposer `config.json` et `.env` :
+
+```
+docker run --rm --user 1000:1000 -v necromanciarr-data:/data -v "$PWD":/src:ro \
+  --entrypoint cp necromanciarr:dev /src/config.json /src/.env /data/
+```
+
+### Droits
+
+Le conteneur tourne en `1000:1000`. Pour une bibliothèque qui appartient à un autre compte, surcharger `user: "<uid>:<gid>"` avec celui qui peut lire la bibliothèque, écrire dans les dossiers de liens et dans `/data`. Le client torrent doit lire les fichiers sources par les liens : les droits de la bibliothèque s'appliquent à lui aussi (un hardlink garde le propriétaire et les droits du fichier). Les dossiers de torrent sont créés en `0755`.
+
+## Exemple
+
+```yaml
+services:
+  necromanciarr:
+    image: necromanciarr:dev
+    user: "1000:1000"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      NECROMANCIARR_AUTH_TOKEN: ${NECROMANCIARR_AUTH_TOKEN:?générer avec necromanciarr api-key}
+      CROSS_SEED_CONFIG: /cross-seed/config.js
+      # process.env.* référencés par le config.js de cross-seed
+      RADARR_API_KEY: ${RADARR_API_KEY}
+      SONARR_API_KEY: ${SONARR_API_KEY}
+      QBIT_PASSWORD: ${QBIT_PASSWORD}
+    volumes:
+      - necromanciarr-data:/data
+      - /srv/storage:/media
+      - /srv/appdata/cross-seed:/cross-seed:ro
+    cpus: 2
+    mem_limit: 2g
+volumes:
+  necromanciarr-data:
+```
+
+`/data/config.json` correspondant :
+
+```json
+{
+  "libraryApi": "https://library.example.com",
+  "libraryRoots": ["/media/library/movies", "/media/library/tv"],
+  "linkDirs": ["/media/links"],
+  "pathMappings": [{ "from": "/media/links", "to": "/downloads/links" }],
+  "radarr": ["http://radarr:7878?apikey=${RADARR_API_KEY}"],
+  "sonarr": ["http://sonarr:8989?apikey=${SONARR_API_KEY}"],
+  "torrentClients": ["qbittorrent:http://alice:${QBIT_PASSWORD}@qbittorrent:8080"],
+  "crossSeed": "http://cross-seed:2468?apikey=${CROSS_SEED_API_KEY}"
+}
+```
+
+`LIBRARY_PROVIDER_TOKEN` et `CROSS_SEED_API_KEY` vont dans `/data/.env`. Le port n'est publié que sur la boucle locale de l'hôte : l'accès distant passe par un mandataire inverse (qui garde le jeton `Bearer`) ou un tunnel.
+
+## Lancer une commande dans le conteneur
+
+Le point d'entrée est le binaire : l'argument est la sous-commande.
+
+```
+docker compose exec necromanciarr necromanciarr verify
+docker run --rm --user 1000:1000 -v necromanciarr-data:/data -v /srv/storage:/media \
+  necromanciarr:dev doctor --json
+```
+
+Une commande lancée dans un second processus partage la base et le verrou d'étape avec le serveur : si une étape tourne déjà, elle échoue avec `stage_running` (exit 1) au lieu d'entrer en concurrence. Un `docker run` jetable doit monter les mêmes volumes que le service, sinon il voit une base et des chemins vides.
+
+## Montage rclone
+
+Une bibliothèque sur un montage rclone se lit comme un dossier local. Notes pour le montage de l'hôte :
+
+- Monter avec `--vfs-links` pour que les symlinks aient une cible ; sans lui `doctor` signale « symlinks refused » avec ce conseil. Un montage rclone n'accepte en pratique ni hardlink ni reflink (la sonde de `doctor` tranche) : les dossiers de liens ne sont pas sur ce montage (voir [06-limits-and-troubleshooting.md](06-limits-and-troubleshooting.md)).
+- Si rclone est relancé sur l'hôte, le conteneur ne voit le nouveau montage que si le montage de liaison propage les montages (`bind.propagation: rslave` dans Compose) ; sinon redémarrer le conteneur.
+- Lancer le processus qui porte le montage avec `--rc --rc-addr :5572 --rc-user <utilisateur> --rc-pass <motdepasse>` et déclarer `fsProviders[].rc` vers `rclone:5572` sur un réseau privé : sans rc, aucune empreinte n'est disponible et la déduplication relit les fichiers.
+- Le cache VFS de rclone peut faire croire à une date de modification restituée par le stockage : `doctor` l'écrit en conseil.
