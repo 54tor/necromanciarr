@@ -191,15 +191,19 @@ func TestLinkStage_excludedFilesAreNotLinked(t *testing.T) {
 	// Défense en profondeur : même si l'association le contenait, un fichier écarté par Verify n'est jamais lié.
 	subtitle := mediaFilesByPath(t, fixture.store)[fixture.libraryPath("sub.srt")]
 	fixture.stageStore = &tamperedStore{Store: fixture.store, assignment: func(assignment store.VerifiedAssignment) store.VerifiedAssignment {
-		assignment.Files = append(assignment.Files, store.AssignedFile{TorrentFileIndex: 1, MediaFileID: subtitle.ID, Path: subtitle.Path,
-			Size: subtitle.Size, ModTime: subtitle.ModTime})
+		assignment.Files = append(assignment.Files, store.AssignedFile{
+			TorrentFileIndex: 1, MediaFileID: subtitle.ID, Path: subtitle.Path,
+			Size: subtitle.Size, ModTime: subtitle.ModTime,
+		})
 		return assignment
 	}}
 
 	fixture.mustRunStage(StageLink)
 
-	expectedValue := []string{"Movie.2020 [" + candidate.Infohash[:8] + "]", "Movie.2020 [" + candidate.Infohash[:8] + "]/Movie.2020",
-		"Movie.2020 [" + candidate.Infohash[:8] + "]/Movie.2020/movie.mkv"}
+	expectedValue := []string{
+		"Movie.2020 [" + candidate.Infohash[:8] + "]", "Movie.2020 [" + candidate.Infohash[:8] + "]/Movie.2020",
+		"Movie.2020 [" + candidate.Infohash[:8] + "]/Movie.2020/movie.mkv",
+	}
 	if gotValue := linkDirEntries(t, fixture.linkDir); !slices.Equal(gotValue, expectedValue) {
 		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
 	}

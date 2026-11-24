@@ -30,7 +30,7 @@ func IsTorrentProposal(kind store.ProposalKind) bool {
 	return torrentProposalKinds[kind]
 }
 
-// acceptedWork est l'entrée de Link et Seed : propositions acceptées (triées par id), candidats vérifiés et étapes.
+// acceptedWork est l'entrée de Link et Seed : propositions acceptées (triées par id), candidat vérifié par id et étapes.
 type acceptedWork struct {
 	proposals  []store.Proposal
 	candidates map[int64]store.Candidate
