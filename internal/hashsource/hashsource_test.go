@@ -24,8 +24,8 @@ const (
 )
 
 var testMounts = []Mount{
-	{LocalPath: "/home/u/mnt/mega", Remote: "mega:media"},
-	{LocalPath: "/home/u/mnt/mega/special", Remote: "other:x"},
+	{LocalPath: "/home/u/mnt/remote", Remote: "remote:media"},
+	{LocalPath: "/home/u/mnt/remote/special", Remote: "other:x"},
 }
 
 // fakeRclone est un faux binaire : il enregistre ses arguments et affiche une sortie fixe.
@@ -83,8 +83,8 @@ func TestRclone_translatesLocalPathToRemoteOnSegmentBoundary(t *testing.T) {
 	cases := []struct {
 		path, expectedRemote string
 	}{
-		{"/home/u/mnt/mega/films/a.mkv", "mega:media/films/a.mkv"},
-		{"/home/u/mnt/mega/special/b.mkv", "other:x/b.mkv"},
+		{"/home/u/mnt/remote/films/a.mkv", "remote:media/films/a.mkv"},
+		{"/home/u/mnt/remote/special/b.mkv", "other:x/b.mkv"},
 	}
 	for _, testCase := range cases {
 		fake := newFakeRclone(t, md5Value+"  "+filepath.Base(testCase.path)+"\n", 0)
@@ -104,14 +104,14 @@ func TestRclone_translatesLocalPathToRemoteOnSegmentBoundary(t *testing.T) {
 func TestRclone_neverPassesDownloadAndUsesDoubleDash(t *testing.T) {
 	fake := newFakeRclone(t, md5Value+"  --download\n", 0)
 
-	result, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/mega/--download", MD5)
+	result, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/remote/--download", MD5)
 
 	if err != nil || !result.Available {
 		t.Fatalf("%+v %v", result, err)
 	}
 	arguments := fake.arguments(t)
 	separatorIndex := slices.Index(arguments, "--")
-	if separatorIndex != 2 || arguments[3] != "mega:media/--download" || len(arguments) != 4 {
+	if separatorIndex != 2 || arguments[3] != "remote:media/--download" || len(arguments) != 4 {
 		t.Fatalf("unexpected arguments %v", arguments)
 	}
 	if slices.ContainsFunc(arguments[:separatorIndex], func(argument string) bool { return strings.Contains(argument, "download") }) {
@@ -122,7 +122,7 @@ func TestRclone_neverPassesDownloadAndUsesDoubleDash(t *testing.T) {
 func TestRclone_emptyOutputMeansUnavailableNotError(t *testing.T) {
 	fake := newFakeRclone(t, "", 0)
 
-	result, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+	result, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 
 	if err != nil || result.Available {
 		t.Fatalf("got %+v %v", result, err)
@@ -136,13 +136,13 @@ func TestRclone_rejectsUnsafeOrUnmountedPaths(t *testing.T) {
 	}{
 		{"empty", "", ErrUnsafePath},
 		{"relative", "films/a.mkv", ErrUnsafePath},
-		{"parent segment", "/home/u/mnt/mega/../../etc/passwd", ErrUnsafePath},
-		{"NUL byte", "/home/u/mnt/mega/a\x00b", ErrUnsafePath},
-		{"not cleaned", "/home/u/mnt/mega//a.mkv", ErrUnsafePath},
-		{"trailing slash", "/home/u/mnt/mega/films/", ErrUnsafePath},
+		{"parent segment", "/home/u/mnt/remote/../../etc/passwd", ErrUnsafePath},
+		{"NUL byte", "/home/u/mnt/remote/a\x00b", ErrUnsafePath},
+		{"not cleaned", "/home/u/mnt/remote//a.mkv", ErrUnsafePath},
+		{"trailing slash", "/home/u/mnt/remote/films/", ErrUnsafePath},
 		{"outside any mount", "/etc/passwd", ErrNoMountForPath},
-		{"segment boundary", "/home/u/mnt/megaX/a.mkv", ErrNoMountForPath},
-		{"mount root itself", "/home/u/mnt/mega", ErrNoMountForPath},
+		{"segment boundary", "/home/u/mnt/remoteX/a.mkv", ErrNoMountForPath},
+		{"mount root itself", "/home/u/mnt/remote", ErrNoMountForPath},
 	}
 	fake := newFakeRclone(t, md5Value+"  a.mkv\n", 0)
 	for _, testCase := range cases {
@@ -160,7 +160,7 @@ func TestRclone_rejectsUnsafeOrUnmountedPaths(t *testing.T) {
 func TestRclone_rejectsUnknownAlgorithm(t *testing.T) {
 	fake := newFakeRclone(t, "", 0)
 
-	_, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", Algorithm("md5; reboot"))
+	_, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", Algorithm("md5; reboot"))
 
 	if !errors.Is(err, ErrUnknownAlgorithm) {
 		t.Fatalf("got %v", err)
@@ -168,7 +168,7 @@ func TestRclone_rejectsUnknownAlgorithm(t *testing.T) {
 }
 
 func TestNewRcloneExec_rejectsInvalidMounts(t *testing.T) {
-	for _, mount := range []Mount{{"relative", "mega:x"}, {"/home/u/a", "noColon"}, {"/home/u/a", "-flag:x"}, {"/home/u/../a", "m:x"}} {
+	for _, mount := range []Mount{{"relative", "remote:x"}, {"/home/u/a", "noColon"}, {"/home/u/a", "-flag:x"}, {"/home/u/../a", "m:x"}} {
 		if _, err := NewRcloneExec(ExecOptions{Mounts: []Mount{mount}}); err == nil {
 			t.Fatalf("mount %+v accepted", mount)
 		}
@@ -179,7 +179,7 @@ func TestRclone_capsStdout(t *testing.T) {
 	huge := strings.Repeat(md5Value+"  other.mkv\n", 5000)
 	fake := newFakeRclone(t, huge, 0)
 
-	_, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+	_, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 
 	if !errors.Is(err, ErrRcloneFailed) {
 		t.Fatalf("got %v", err)
@@ -206,7 +206,7 @@ func TestRclone_parsesHostileOutputStrictly(t *testing.T) {
 	for _, testCase := range cases {
 		fake := newFakeRclone(t, testCase.output, 0)
 
-		result, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+		result, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 
 		if testCase.expectedFailure != errors.Is(err, ErrRcloneFailed) || result.Available != testCase.expectedAvailable {
 			t.Fatalf("%s: got %+v %v", testCase.name, result, err)
@@ -217,7 +217,7 @@ func TestRclone_parsesHostileOutputStrictly(t *testing.T) {
 func TestRclone_failureDoesNotLeakOutput(t *testing.T) {
 	fake := writeFakeRclone(t, "echo 'SECRET-TOKEN on stdout'\necho 'SECRET-TOKEN on stderr' >&2\nexit 3\n", "")
 
-	_, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+	_, err := fake.source(t, 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 
 	if !errors.Is(err, ErrRcloneFailed) || strings.Contains(err.Error(), "SECRET") {
 		t.Fatalf("got %v", err)
@@ -228,7 +228,7 @@ func TestRclone_timeoutKillsTheProcessWithoutLeakingOutput(t *testing.T) {
 	fake := writeFakeRclone(t, "echo 'SECRET-TOKEN'\nexec sleep 30\n", "")
 	started := time.Now()
 
-	_, err := fake.source(t, 300*time.Millisecond).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+	_, err := fake.source(t, 300*time.Millisecond).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 
 	if !errors.Is(err, ErrRcloneFailed) || strings.Contains(err.Error(), "SECRET") {
 		t.Fatalf("got %v", err)
@@ -260,7 +260,7 @@ func TestRclone_cancelledContextKillsTheProcess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	_, err := fake.source(t, time.Minute).Hash(ctx, "/home/u/mnt/mega/a.mkv", MD5)
+	_, err := fake.source(t, time.Minute).Hash(ctx, "/home/u/mnt/remote/a.mkv", MD5)
 
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("got %v", err)

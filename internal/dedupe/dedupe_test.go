@@ -155,7 +155,7 @@ type operatorLayout struct {
 
 func newOperatorLayout(t *testing.T) operatorLayout {
 	t.Helper()
-	volume := filepath.Join(t.TempDir(), "volumes", "mega")
+	volume := filepath.Join(t.TempDir(), "volumes", "remote")
 	layout := operatorLayout{
 		torrentRoot: filepath.Join(volume, "qBittorrent"),
 		torrentPath: filepath.Join(volume, "qBittorrent", "yuyu.mkv"),

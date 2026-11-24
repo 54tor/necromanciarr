@@ -11,12 +11,12 @@ import (
 func TestMountCapabilities_roundTrip(t *testing.T) {
 	testStore := openTestStore(t)
 	probedAt := time.Unix(1700000000, 0).UTC()
-	expectedValue := MountCapabilities{MountPath: "/home/u/mnt/mega", Hashes: []string{"MD5"}, ModTime: true, Symlinks: false, ProbedAt: probedAt}
+	expectedValue := MountCapabilities{MountPath: "/home/u/mnt/remote", Hashes: []string{"MD5"}, ModTime: true, Symlinks: false, ProbedAt: probedAt}
 
 	if err := testStore.SaveMountCapabilities(context.Background(), expectedValue); err != nil {
 		t.Fatal(err)
 	}
-	gotValue, found, err := testStore.LoadMountCapabilities(context.Background(), "/home/u/mnt/mega")
+	gotValue, found, err := testStore.LoadMountCapabilities(context.Background(), "/home/u/mnt/remote")
 
 	if err != nil || !found {
 		t.Fatalf("found %v err %v", found, err)
@@ -139,9 +139,9 @@ func TestMountCapabilities_upgradeAddsProviderColumn(t *testing.T) {
 		if loadErr != nil || !found || oldRow.Provider != "" || len(oldRow.Hashes) != 1 {
 			t.Fatalf("old row after upgrade: %+v found %v err %v", oldRow, found, loadErr)
 		}
-		saveErr := upgraded.SaveMountCapabilities(context.Background(), MountCapabilities{MountPath: "/home/u/mnt/new", Provider: "mega", ProbedAt: time.Unix(1, 0)})
+		saveErr := upgraded.SaveMountCapabilities(context.Background(), MountCapabilities{MountPath: "/home/u/mnt/new", Provider: "remote", ProbedAt: time.Unix(1, 0)})
 		newRow, _, _ := upgraded.LoadMountCapabilities(context.Background(), "/home/u/mnt/new")
-		if saveErr != nil || newRow.Provider != "mega" {
+		if saveErr != nil || newRow.Provider != "remote" {
 			t.Fatalf("new row: %+v err %v", newRow, saveErr)
 		}
 		if err := upgraded.Close(); err != nil {

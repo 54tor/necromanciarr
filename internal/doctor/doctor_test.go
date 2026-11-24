@@ -502,12 +502,12 @@ func TestChecks_dedupeAndPathMappings(t *testing.T) {
 
 func TestChecks_fsProvidersAdviceBecomesWarnWithModTimeHint(t *testing.T) {
 	deps := Deps{DescribeMounts: func(context.Context, []config.FSProvider) ([]hashsource.ProviderMountReport, error) {
-		return []hashsource.ProviderMountReport{{Provider: "mega", MountReport: hashsource.MountReport{
-			Mount: hashsource.Mount{LocalPath: "/home/u/mnt", Remote: "mega:"}, Advice: []string{"no hash"},
+		return []hashsource.ProviderMountReport{{Provider: "remote", MountReport: hashsource.MountReport{
+			Mount: hashsource.Mount{LocalPath: "/home/u/mnt", Remote: "remote:"}, Advice: []string{"no hash"},
 		}}}, nil
 	}}.withDefaults()
 
-	got := checkFSProviders(context.Background(), config.Config{FSProviders: []config.FSProvider{{Name: "mega"}}}, deps)
+	got := checkFSProviders(context.Background(), config.Config{FSProviders: []config.FSProvider{{Name: "remote"}}}, deps)
 
 	if got.Status != Warn || !strings.Contains(got.Hint, "no hash") || !strings.Contains(got.Hint, "write cache") {
 		t.Fatalf("gotValue %+v", got)

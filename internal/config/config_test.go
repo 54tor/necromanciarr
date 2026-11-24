@@ -316,7 +316,7 @@ func TestConfigExample_loadsFsProviders(t *testing.T) {
 	if len(loadedConfig.Radarr) == 0 || len(loadedConfig.Sonarr) == 0 || len(loadedConfig.TorrentClients) == 0 || len(loadedConfig.FSProviders) == 0 {
 		t.Fatalf("example config incomplete: %v", loadedConfig)
 	}
-	if provider := loadedConfig.FSProviders[0]; provider.Type != "rclone" || provider.Name != "mega" || len(provider.Mounts) != 1 {
+	if provider := loadedConfig.FSProviders[0]; provider.Type != "rclone" || provider.Name != "remote" || len(provider.Mounts) != 1 {
 		t.Fatalf("unexpected example provider %+v", provider)
 	}
 }
@@ -420,10 +420,10 @@ func TestConfig_rejectsDedupeRootsOverlappingLibraryRoots(t *testing.T) {
 		torrentRoot     string
 		expectedOverlap bool
 	}{
-		{"equal", "/volumes/mega/1080p", "/volumes/mega/1080p/", true},
-		{"torrent root is an ancestor", "/volumes/mega/1080p", "/volumes/mega", true},
-		{"torrent root is a descendant", "/volumes/mega", "/volumes/mega/qBittorrent", true},
-		{"siblings", "/volumes/mega/1080p", "/volumes/mega/qBittorrent", false},
+		{"equal", "/mnt/remote/1080p", "/mnt/remote/1080p/", true},
+		{"torrent root is an ancestor", "/mnt/remote/1080p", "/mnt/remote", true},
+		{"torrent root is a descendant", "/mnt/remote", "/mnt/remote/qBittorrent", true},
+		{"siblings", "/mnt/remote/1080p", "/mnt/remote/qBittorrent", false},
 		{"shared prefix is not a parent", "/data/tv", "/data/tvshows", false},
 	}
 	for _, testCase := range cases {
@@ -450,16 +450,16 @@ func TestConfig_rejectsLinkDirsOverlappingLibraryRoots(t *testing.T) {
 		linkDir         string
 		expectedOverlap bool
 	}{
-		"equal":       {"/volumes/mega/1080p", true},
-		"ancestor":    {"/volumes/mega", true},
-		"descendant":  {"/volumes/mega/1080p/links", true},
-		"sibling":     {"/volumes/mega/links", false},
-		"same prefix": {"/volumes/mega/1080p-links", false},
+		"equal":       {"/mnt/remote/1080p", true},
+		"ancestor":    {"/mnt/remote", true},
+		"descendant":  {"/mnt/remote/1080p/links", true},
+		"sibling":     {"/mnt/remote/links", false},
+		"same prefix": {"/mnt/remote/1080p-links", false},
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			configDir := t.TempDir()
-			writeFile(t, configDir, configFileName, fmt.Sprintf(`{"libraryRoots": ["/volumes/mega/1080p"], "linkDirs": [%q]}`, testCase.linkDir))
+			writeFile(t, configDir, configFileName, fmt.Sprintf(`{"libraryRoots": ["/mnt/remote/1080p"], "linkDirs": [%q]}`, testCase.linkDir))
 
 			_, err := Load(nil, lookupFrom(nil), configDir)
 

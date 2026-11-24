@@ -99,16 +99,16 @@ func TestCachedCapabilities_probesOnceThenReadsTheStore(t *testing.T) {
 		return ProbeCapabilities(ctx, source, sample, writable)
 	}
 
-	first, err := CachedCapabilities(context.Background(), testStore, "mega", "/home/u/mnt/mega", probe)
+	first, err := CachedCapabilities(context.Background(), testStore, "remote", "/home/u/mnt/remote", probe)
 	callsAfterFirst := source.calls
-	second, secondErr := CachedCapabilities(context.Background(), testStore, "mega", "/home/u/mnt/mega", probe)
+	second, secondErr := CachedCapabilities(context.Background(), testStore, "remote", "/home/u/mnt/remote", probe)
 
 	if err != nil || secondErr != nil || !slices.Equal(first.Hashes, second.Hashes) || second.Hashes[0] != MD5 || !second.ModTime {
 		t.Fatalf("%+v %+v %v %v", first, second, err, secondErr)
 	}
-	stored, _, _ := testStore.LoadMountCapabilities(context.Background(), "/home/u/mnt/mega")
-	if stored.Provider != "mega" {
-		t.Fatalf("stored provider %q, expectedValue mega", stored.Provider)
+	stored, _, _ := testStore.LoadMountCapabilities(context.Background(), "/home/u/mnt/remote")
+	if stored.Provider != "remote" {
+		t.Fatalf("stored provider %q, expectedValue remote", stored.Provider)
 	}
 	if source.calls != callsAfterFirst {
 		t.Fatalf("second call probed again: %d then %d calls", callsAfterFirst, source.calls)
@@ -123,10 +123,10 @@ func TestCachedCapabilities_doesNotCacheAFailedProbe(t *testing.T) {
 	t.Cleanup(func() { _ = testStore.Close() })
 	failing := func(context.Context) (Capabilities, error) { return Capabilities{}, ErrRcloneFailed }
 
-	if _, err := CachedCapabilities(context.Background(), testStore, "mega", "/home/u/mnt/mega", failing); !errors.Is(err, ErrRcloneFailed) {
+	if _, err := CachedCapabilities(context.Background(), testStore, "remote", "/home/u/mnt/remote", failing); !errors.Is(err, ErrRcloneFailed) {
 		t.Fatalf("got %v", err)
 	}
-	if _, found, _ := testStore.LoadMountCapabilities(context.Background(), "/home/u/mnt/mega"); found {
+	if _, found, _ := testStore.LoadMountCapabilities(context.Background(), "/home/u/mnt/remote"); found {
 		t.Fatal("failed probe was cached")
 	}
 }
@@ -137,11 +137,11 @@ func TestConfirmer_comparesRecordedHashWithTheCandidateBackendHash(t *testing.T)
 	link := store.Link{HashAlgo: "MD5", Hash: md5Value}
 	other := store.Link{HashAlgo: "MD5", Hash: strings.Repeat("1", 32)}
 
-	matches, known, err := confirmer.Confirm(context.Background(), link, "/home/u/mnt/mega/a.mkv")
+	matches, known, err := confirmer.Confirm(context.Background(), link, "/home/u/mnt/remote/a.mkv")
 	if err != nil || !matches || !known {
 		t.Fatalf("same hash: %v %v %v", matches, known, err)
 	}
-	matches, known, err = confirmer.Confirm(context.Background(), other, "/home/u/mnt/mega/a.mkv")
+	matches, known, err = confirmer.Confirm(context.Background(), other, "/home/u/mnt/remote/a.mkv")
 	if err != nil || matches || !known {
 		t.Fatalf("different hash must be known and not matching: %v %v %v", matches, known, err)
 	}
@@ -185,7 +185,7 @@ func TestDescribeMount_explainsMissingHash(t *testing.T) {
 	}
 	fake := newFakeRclone(t, "", 0)
 
-	report := DescribeMountWith(context.Background(), Mount{LocalPath: mountDirectory, Remote: "megas4:bucket"},
+	report := DescribeMountWith(context.Background(), Mount{LocalPath: mountDirectory, Remote: "remote:bucket"},
 		DescribeOptions{Binary: fake.binary, WritableDir: t.TempDir()})
 
 	if report.Mode != ModeBinary || !report.BinaryFound || !report.Probed || len(report.Capabilities.Hashes) != 0 || !report.SymlinksKnown {
@@ -200,7 +200,7 @@ func TestDescribeMount_explainsMissingHash(t *testing.T) {
 func TestDescribeMount_withoutRcNorBinaryTellsHowToStartRC(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 
-	report := DescribeMount(context.Background(), Mount{LocalPath: t.TempDir(), Remote: "megas4:bucket"})
+	report := DescribeMount(context.Background(), Mount{LocalPath: t.TempDir(), Remote: "remote:bucket"})
 
 	if report.Mode != ModeNone || report.BinaryFound || report.Probed || !strings.Contains(strings.Join(report.Advice, "\n"), "--rc --rc-addr") {
 		t.Fatalf("unexpected report %+v", report)
@@ -214,7 +214,7 @@ func TestDescribeMount_reportsHashesFoundThroughRC(t *testing.T) {
 	}
 	server := newRCServer(t, respondWith(`{"item":{"Name":"film.mkv","Hashes":{"md5":"`+md5Value+`"}}}`))
 
-	report := DescribeMountWith(context.Background(), Mount{LocalPath: mountDirectory, Remote: "megas4:bucket"}, DescribeOptions{RCURL: server.URL})
+	report := DescribeMountWith(context.Background(), Mount{LocalPath: mountDirectory, Remote: "remote:bucket"}, DescribeOptions{RCURL: server.URL})
 
 	if report.Mode != ModeRC || !report.Probed || !report.Capabilities.Supports(MD5) || report.Capabilities.Supports(SHA1) {
 		t.Fatalf("unexpected report %+v", report)

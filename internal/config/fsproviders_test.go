@@ -19,16 +19,16 @@ func loadFromJSON(t *testing.T, content string, environment map[string]string) (
 }
 
 func TestFsProviders_parsesRcloneEntryWithMounts(t *testing.T) {
-	content := `{"fsProviders": [{"type": "rclone", "name": "mega", "rc": "http://rcuser:${RCLONE_RC_PASS}@rclone:5572",
-		"binary": "/usr/bin/rclone", "timeout": "30s", "mounts": ["/volumes/mega=megas4:bucket/prefix", "/volumes/other=remote:"]}]}`
+	content := `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://rcuser:${RCLONE_RC_PASS}@rclone:5572",
+		"binary": "/usr/bin/rclone", "timeout": "30s", "mounts": ["/mnt/remote=remote:bucket/prefix", "/mnt/other=other:"]}]}`
 
 	loadedConfig, err := loadFromJSON(t, content, map[string]string{"RCLONE_RC_PASS": rcPasswordForTest})
 	if err != nil {
 		t.Fatal(err)
 	}
 	expectedValue := FSProvider{
-		Type: "rclone", Name: "mega", RC: "http://rcuser:" + rcPasswordForTest + "@rclone:5572", Binary: "/usr/bin/rclone",
-		Timeout: 30 * time.Second, Mounts: []FSMount{{LocalPath: "/volumes/mega", Target: "megas4:bucket/prefix"}, {LocalPath: "/volumes/other", Target: "remote:"}},
+		Type: "rclone", Name: "remote", RC: "http://rcuser:" + rcPasswordForTest + "@rclone:5572", Binary: "/usr/bin/rclone",
+		Timeout: 30 * time.Second, Mounts: []FSMount{{LocalPath: "/mnt/remote", Target: "remote:bucket/prefix"}, {LocalPath: "/mnt/other", Target: "other:"}},
 	}
 	if len(loadedConfig.FSProviders) != 1 || fmt.Sprint(loadedConfig.FSProviders[0]) != fmt.Sprint(expectedValue) {
 		t.Fatalf("gotValue %+v, expectedValue %+v", loadedConfig.FSProviders, expectedValue)
@@ -70,7 +70,7 @@ func TestFsProviders_rejectsDuplicateNameAndSharedMountPath(t *testing.T) {
 		{"shared path", `[{"type":"rclone","name":"a","mounts":["/x=r:"]},{"type":"rclone","name":"b","mounts":["/x=s:"]}]`, `local path "/x" is mounted by both "a" and "b"`},
 		{"duplicate in one", `[{"type":"rclone","name":"a","mounts":["/x=r:","/x=s:"]}]`, `local path "/x" is mounted by both "a" and "a"`},
 		{"missing name", `[{"type":"rclone"}]`, `name "" is required`},
-		{"uppercase name", `[{"type":"rclone","name":"Mega"}]`, `name "Mega"`},
+		{"uppercase name", `[{"type":"rclone","name":"Remote"}]`, `name "Remote"`},
 		{"two separators", `[{"type":"rclone","name":"a","mounts":["/a=b=c:x"]}]`, `exactly one "="`},
 		{"relative local", `[{"type":"rclone","name":"a","mounts":["a/b=r:x"]}]`, `local path "a/b" must be absolute`},
 		{"parent segment", `[{"type":"rclone","name":"a","mounts":["/a/../b=r:x"]}]`, `local path "/a/../b" must be absolute`},
@@ -102,7 +102,7 @@ func TestFsProviders_duplicateJSONKeysKeepTheLastValue(t *testing.T) {
 }
 
 func TestFSProvider_redactsRcCredentialsWhenPrintedAlone(t *testing.T) {
-	provider := FSProvider{Type: "rclone", Name: "mega", RC: "http://rcuser:" + rcPasswordForTest + "@rclone:5572"}
+	provider := FSProvider{Type: "rclone", Name: "remote", RC: "http://rcuser:" + rcPasswordForTest + "@rclone:5572"}
 	renderings := []string{
 		provider.String(), fmt.Sprintf("%v", provider), fmt.Sprintf("%+v", provider), fmt.Sprintf("%#v", provider),
 		fmt.Sprintf("%v", slog.Any("p", provider)), fmt.Sprintf("%v", &provider),
@@ -137,8 +137,8 @@ func TestFsProviders_oldRcloneKeyIsRefusedWithRenameHint(t *testing.T) {
 }
 
 func TestFsProviders_redactsRcCredentials(t *testing.T) {
-	loadedConfig, err := loadFromJSON(t, `{"fsProviders": [{"type": "rclone", "name": "mega", "rc": "http://rcuser:${RCLONE_RC_PASS}@rclone:5572",
-		"mounts": ["/volumes/mega=megas4:bucket"]}]}`, map[string]string{"RCLONE_RC_PASS": rcPasswordForTest})
+	loadedConfig, err := loadFromJSON(t, `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://rcuser:${RCLONE_RC_PASS}@rclone:5572",
+		"mounts": ["/mnt/remote=remote:bucket"]}]}`, map[string]string{"RCLONE_RC_PASS": rcPasswordForTest})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestFsProviders_redactsRcCredentials(t *testing.T) {
 			t.Fatalf("credentials leaked: %s", rendered)
 		}
 	}
-	for _, visible := range []string{"megas4:bucket", "rclone:5572", `"name": "mega"`} {
+	for _, visible := range []string{"remote:bucket", "rclone:5572", `"name": "remote"`} {
 		if !strings.Contains(string(redactedJSON), visible) {
 			t.Fatalf("%q must stay visible: %s", visible, redactedJSON)
 		}

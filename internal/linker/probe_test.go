@@ -24,7 +24,7 @@ func directoryEntries(t *testing.T, directory string) []string {
 }
 
 func TestRelativeSymlinkTarget_buildsRelativePathBetweenSiblingTrees(t *testing.T) {
-	volume := filepath.Join(t.TempDir(), "volumes", "mega")
+	volume := filepath.Join(t.TempDir(), "volumes", "remote")
 	linkPath := filepath.Join(volume, "qBittorrent", "yuyu.mkv")
 	targetPath := filepath.Join(volume, "1080p", "yuyu (1944)", "mon film.mkv")
 	writeFile(t, linkPath, []byte("x"))

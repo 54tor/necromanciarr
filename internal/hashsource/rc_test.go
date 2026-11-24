@@ -18,7 +18,7 @@ import (
 
 const rcPassword = "S3CRET-RC-PASS"
 
-var rcMounts = []Mount{{LocalPath: "/home/u/mnt/mega", Remote: "megas4:bucket/prefix"}}
+var rcMounts = []Mount{{LocalPath: "/home/u/mnt/remote", Remote: "remote:bucket/prefix"}}
 
 type recordedCall struct {
 	method, path, authorization, contentType string
@@ -68,7 +68,7 @@ func newRC(t *testing.T, url string, timeout time.Duration) HashSource {
 func TestRcloneRC_sendsStatRequestWithBasicAuthAndStrippedUserinfo(t *testing.T) {
 	server := newRCServer(t, respondWith(`{"item":{"Name":"a.mkv","IsDir":false,"Hashes":{"md5":"`+strings.ToUpper(md5Value)+`"}}}`))
 
-	result, err := newRC(t, server.withCredentials(), 0).Hash(context.Background(), "/home/u/mnt/mega/films/a.mkv", MD5)
+	result, err := newRC(t, server.withCredentials(), 0).Hash(context.Background(), "/home/u/mnt/remote/films/a.mkv", MD5)
 
 	if err != nil || !result.Available || result.Value != md5Value || result.Origin != Backend {
 		t.Fatalf("%+v %v", result, err)
@@ -79,7 +79,7 @@ func TestRcloneRC_sendsStatRequestWithBasicAuthAndStrippedUserinfo(t *testing.T)
 	if call.method != http.MethodPost || call.path != "/operations/stat" || call.authorization != request.Header.Get("Authorization") || call.contentType != "application/json" {
 		t.Fatalf("unexpected call %+v", call)
 	}
-	expectedBody := `{"fs":"megas4:bucket/prefix","opt":{"hashTypes":["md5"],"noMimeType":true,"showHash":true},"remote":"films/a.mkv"}`
+	expectedBody := `{"fs":"remote:bucket/prefix","opt":{"hashTypes":["md5"],"noMimeType":true,"showHash":true},"remote":"films/a.mkv"}`
 	gotBody, _ := json.Marshal(call.body)
 	if string(gotBody) != expectedBody {
 		t.Fatalf("got body %s, expected %s", gotBody, expectedBody)
@@ -89,7 +89,7 @@ func TestRcloneRC_sendsStatRequestWithBasicAuthAndStrippedUserinfo(t *testing.T)
 func TestRcloneRC_withoutCredentialsSendsNoAuthorization(t *testing.T) {
 	server := newRCServer(t, respondWith(`{"item":null}`))
 
-	result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+	result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 
 	if err != nil || result.Available || server.calls[0].authorization != "" {
 		t.Fatalf("%+v %v %q", result, err, server.calls[0].authorization)
@@ -101,7 +101,7 @@ func TestRcloneRC_onlyCallsAllowListedMethodAndNeverDownloads(t *testing.T) {
 	source := newRC(t, server.URL, 0)
 
 	for _, algorithm := range AllAlgorithms {
-		if _, err := source.Hash(context.Background(), "/home/u/mnt/mega/a.mkv", algorithm); err != nil && !errors.Is(err, ErrRcloneFailed) {
+		if _, err := source.Hash(context.Background(), "/home/u/mnt/remote/a.mkv", algorithm); err != nil && !errors.Is(err, ErrRcloneFailed) {
 			t.Fatal(err)
 		}
 	}
@@ -131,7 +131,7 @@ func TestRcloneRC_refusesRedirectsAndNeverSendsCredentialsElsewhere(t *testing.T
 		http.Redirect(writer, request, second.URL+"/operations/stat", http.StatusTemporaryRedirect)
 	})
 
-	_, err := newRC(t, first.withCredentials(), 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+	_, err := newRC(t, first.withCredentials(), 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 
 	if !errors.Is(err, ErrRcloneFailed) || strings.Contains(err.Error(), rcPassword) {
 		t.Fatalf("got %v", err)
@@ -144,7 +144,7 @@ func TestRcloneRC_refusesRedirectsAndNeverSendsCredentialsElsewhere(t *testing.T
 func TestRcloneRC_capsResponseSize(t *testing.T) {
 	server := newRCServer(t, respondWith(`{"item":null,"pad":"`+strings.Repeat("a", maxRCResponseBytes)+`"}`))
 
-	_, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+	_, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 
 	if !errors.Is(err, ErrRcloneFailed) {
 		t.Fatalf("got %v", err)
@@ -165,7 +165,7 @@ func TestRcloneRC_rejectsHostileResponses(t *testing.T) {
 	for name, body := range cases {
 		server := newRCServer(t, respondWith(body))
 
-		result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+		result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 
 		if !errors.Is(err, ErrRcloneFailed) || result.Available {
 			t.Fatalf("%s: got %+v %v", name, result, err)
@@ -184,7 +184,7 @@ func TestRcloneRC_itemWithoutRequestedHashIsUnavailableNotError(t *testing.T) {
 	} {
 		server := newRCServer(t, respondWith(body))
 
-		result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+		result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 
 		if err != nil || result.Available {
 			t.Fatalf("%s: got %+v %v", name, result, err)
@@ -195,10 +195,10 @@ func TestRcloneRC_itemWithoutRequestedHashIsUnavailableNotError(t *testing.T) {
 func TestRcloneRC_non2xxIsTypedErrorWithoutEchoingBody(t *testing.T) {
 	server := newRCServer(t, func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusUnauthorized)
-		_, _ = io.WriteString(writer, `{"error":"remote megas4 secret-bucket failed"}`)
+		_, _ = io.WriteString(writer, `{"error":"remote remote secret-bucket failed"}`)
 	})
 
-	_, err := newRC(t, server.withCredentials(), 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+	_, err := newRC(t, server.withCredentials(), 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 
 	if !errors.Is(err, ErrRcloneFailed) || strings.Contains(err.Error(), "secret-bucket") || strings.Contains(err.Error(), rcPassword) {
 		t.Fatalf("got %v", err)
@@ -210,13 +210,13 @@ func TestRcloneRC_timeoutAndCancellation(t *testing.T) {
 	server := newRCServer(t, func(_ http.ResponseWriter, _ *http.Request) { <-release })
 	defer close(release)
 
-	_, err := newRC(t, server.URL, 200*time.Millisecond).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+	_, err := newRC(t, server.URL, 200*time.Millisecond).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 	if !errors.Is(err, ErrRcloneFailed) {
 		t.Fatalf("timeout: got %v", err)
 	}
 	cancelled, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	if _, err := newRC(t, server.URL, time.Minute).Hash(cancelled, "/home/u/mnt/mega/a.mkv", MD5); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := newRC(t, server.URL, time.Minute).Hash(cancelled, "/home/u/mnt/remote/a.mkv", MD5); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("cancel: got %v", err)
 	}
 }
@@ -226,9 +226,9 @@ func TestRcloneRC_appliesTheSamePathRulesAsExec(t *testing.T) {
 	source := newRC(t, server.URL, 0)
 	for path, expectedError := range map[string]error{
 		"films/a.mkv":             ErrUnsafePath,
-		"/home/u/mnt/mega/../x":   ErrUnsafePath,
-		"/home/u/mnt/mega/a\x00b": ErrUnsafePath,
-		"/home/u/mnt/megaX/a.mkv": ErrNoMountForPath,
+		"/home/u/mnt/remote/../x":   ErrUnsafePath,
+		"/home/u/mnt/remote/a\x00b": ErrUnsafePath,
+		"/home/u/mnt/remoteX/a.mkv": ErrNoMountForPath,
 		"/etc/passwd":             ErrNoMountForPath,
 	} {
 		if _, err := source.Hash(context.Background(), path, MD5); !errors.Is(err, expectedError) {
@@ -272,7 +272,7 @@ func TestNewRclone_selectsRCThenBinaryThenUnavailable(t *testing.T) {
 	if _, isExec := withBinary.(*rcloneExec); !isExec {
 		t.Fatalf("binary expected, got %T", withBinary)
 	}
-	result, hashErr := nothing.Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5)
+	result, hashErr := nothing.Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5)
 	reasoned, hasReason := nothing.(interface{ Reason() string })
 	if hashErr != nil || result.Available || !hasReason || reasoned.Reason() != ReasonNoRclone {
 		t.Fatalf("fallback source: %+v %v %T", result, hashErr, nothing)
@@ -341,13 +341,13 @@ func TestRcloneRC_fallsBackToListWhenStatIsUnsupported(t *testing.T) {
 			_, _ = io.WriteString(writer, `{"list":[{"Name":"b.mkv","Hashes":{"md5":"`+strings.Repeat("1", 32)+`"}},{"Name":"a.mkv","IsDir":false,"Hashes":{"md5":"`+md5Value+`"}}]}`)
 		})
 
-		result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/mega/films/a.mkv", MD5)
+		result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/remote/films/a.mkv", MD5)
 
 		if err != nil || !result.Available || result.Value != md5Value {
 			t.Fatalf("%s: %+v %v", name, result, err)
 		}
 		listCall := server.calls[len(server.calls)-1]
-		expectedBody := `{"fs":"megas4:bucket/prefix","opt":{"filesOnly":true,"hashTypes":["md5"],"noMimeType":true,"showHash":true},"remote":"films"}`
+		expectedBody := `{"fs":"remote:bucket/prefix","opt":{"filesOnly":true,"hashTypes":["md5"],"noMimeType":true,"showHash":true},"remote":"films"}`
 		gotBody, _ := json.Marshal(listCall.body)
 		if listCall.path != "/operations/list" || string(gotBody) != expectedBody {
 			t.Fatalf("%s: unexpected list call %s %s", name, listCall.path, gotBody)
@@ -368,7 +368,7 @@ func TestRcloneRC_listFallbackIsStrict(t *testing.T) {
 			}
 			_, _ = io.WriteString(writer, listBody)
 		})
-		if result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5); err != nil || result.Available {
+		if result, err := newRC(t, server.URL, 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5); err != nil || result.Available {
 			t.Fatalf("%s: %+v %v", name, result, err)
 		}
 	}
@@ -379,7 +379,7 @@ func TestRcloneRC_listFallbackIsStrict(t *testing.T) {
 		}
 		_, _ = io.WriteString(writer, `{"list":[{"Name":"a.mkv","Hashes":{"md5":"zz"}}]}`)
 	})
-	if _, err := newRC(t, bad.URL, 0).Hash(context.Background(), "/home/u/mnt/mega/a.mkv", MD5); !errors.Is(err, ErrRcloneFailed) {
+	if _, err := newRC(t, bad.URL, 0).Hash(context.Background(), "/home/u/mnt/remote/a.mkv", MD5); !errors.Is(err, ErrRcloneFailed) {
 		t.Fatalf("got %v", err)
 	}
 }

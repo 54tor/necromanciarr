@@ -111,7 +111,8 @@ mod:
 	$(GO_RUN) mod verify
 
 # Paquets du module listés explicitement : ./... descendrait dans docs/site/node_modules.
-# -test : le binaire ne câble pas encore les paquets ; les tests servent de racines.
+# -test : les tests servent aussi de racines ; quelques options et enveloppes ne sont appelées que par les tests de
+# fonctions gardées (options de délai de qbit, Coverage, DescribeMount...), sans être du code mort.
 deadcode:
 	@out=$$($(DEADCODE_CMD) -test ./cmd/... ./internal/...) || exit 1; test -z "$$out" || { echo "$$out"; exit 1; }
 

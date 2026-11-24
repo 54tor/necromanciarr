@@ -1,6 +1,14 @@
+# Notes de travail et état local : jamais suivis.
 docs/superpowers/
+.superpowers/
 .remember/
+# Secrets et état d'exécution locaux : configuration, base SQLite et variantes de .env (seul l'exemple est suivi).
 .env
+.env.*
+!.env.example
+/config.json
+*.db
+*.db-journal
 /necromanciarr
 /dist/
 
