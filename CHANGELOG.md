@@ -25,6 +25,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - The Deduplication page is a dense table (torrent-side file, library target, kind, proof, bytes to read, decision, applicability with its reason, warnings) with a dry-run box checked by default. A real replacement, one row or all accepted proposals, is sent only after typing a confirmation word in a dialog that lists the files; a dry run never modifies anything, and bytes to read are shown before any acceptance. Non-applicable rows (ambiguous, isolated copy) stay listed with a disabled button and their reason; plan warnings follow the interface language.
 - The Links page has two tabs: recorded links (paged by the server, state filter, not-compared marker, partial-inspection notice) and repairs (dry run by default, a typed word before a real repair; ambiguous, lost and recheck-pending repairs are listed but not applicable).
 - English version of the reference documentation (`docs/reference/en/`).
+- Torznab indexers (`torznab`, Prowlarr feeds) and `sourceOrder`: URLs and keys are masked everywhere; `doctor` checks each indexer (`torznab:<name>`, capabilities only, no quota spent) and Prowlarr (`prowlarr`, indexers missing or disabled). Match does not query them yet.
 
 ### Changed
 - Web interface redesigned: sidebar navigation, page toolbars, dense sortable tables, status pills; cards only on narrow screens; fully translated (fr/en).

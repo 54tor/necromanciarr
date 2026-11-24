@@ -44,6 +44,10 @@ func (loadedConfig Config) KnownSecrets() []string {
 	if loadedConfig.CrossSeed != nil {
 		secrets = append(secrets, loadedConfig.CrossSeed.APIKey, proxyKeyOf(loadedConfig.CrossSeed.BaseURL))
 	}
+	for _, indexer := range loadedConfig.Torznab {
+		secrets = append(secrets, torznabSecrets(indexer.URL)...)
+	}
+	secrets = append(secrets, torznabSecrets(loadedConfig.Prowlarr)...)
 	for _, provider := range loadedConfig.FSProviders {
 		secrets = append(secrets, rcCredentials(provider.RC)...)
 	}

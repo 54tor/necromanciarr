@@ -69,8 +69,13 @@ type Config struct {
 	Radarr             []ArrService    `json:"radarr"`
 	Sonarr             []ArrService    `json:"sonarr"`
 	TorrentClients     []TorrentClient `json:"torrentClients"`
-	Dedupe             Dedupe          `json:"dedupe"`
-	FSProviders        []FSProvider    `json:"fsProviders"`
+	// Torznab liste les indexeurs de secours ; Prowlarr (URL de l'API native, clé comprise) ne sert qu'à doctor ;
+	// SourceOrder range les sources (provider d'abord). `Sources` désigne déjà l'origine des réglages cross-seed.
+	Torznab     []TorznabIndexer `json:"torznab"`
+	Prowlarr    string           `json:"prowlarr"`
+	SourceOrder []string         `json:"sourceOrder"`
+	Dedupe      Dedupe           `json:"dedupe"`
+	FSProviders []FSProvider     `json:"fsProviders"`
 	// LinkDirs, LinkType, SkipRecheck et LinkCategory reprennent les réglages de liens de cross-seed.
 	LinkDirs        []string         `json:"linkDirs"`
 	LinkType        string           `json:"linkType"`
@@ -107,6 +112,9 @@ type fileConfig struct {
 	Radarr             []string          `json:"radarr"`
 	Sonarr             []string          `json:"sonarr"`
 	TorrentClients     []string          `json:"torrentClients"`
+	Torznab            []json.RawMessage `json:"torznab"`
+	Prowlarr           string            `json:"prowlarr"`
+	SourceOrder        []string          `json:"sourceOrder"`
 	Dedupe             fileDedupe        `json:"dedupe"`
 	FSProviders        []json.RawMessage `json:"fsProviders"`
 	LinkDirs           []string          `json:"linkDirs"`
@@ -314,6 +322,22 @@ func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config
 		return Config{}, err
 	}
 	if loadedConfig.TorrentClients, err = parseTorrentClients(rawFile.TorrentClients); err != nil {
+		return Config{}, err
+	}
+	return withSources(loadedConfig, rawFile, lookup)
+}
+
+// withSources ajoute les indexeurs Torznab, Prowlarr et l'ordre des sources.
+func withSources(loadedConfig Config, rawFile fileConfig, lookup func(string) (string, bool)) (Config, error) {
+	var err error
+	if loadedConfig.Torznab, err = parseTorznab(rawFile.Torznab, lookup); err != nil {
+		return Config{}, err
+	}
+	if err = parseProwlarr(rawFile.Prowlarr); err != nil {
+		return Config{}, err
+	}
+	loadedConfig.Prowlarr = rawFile.Prowlarr
+	if loadedConfig.SourceOrder, err = resolveSourceOrder(rawFile.SourceOrder, loadedConfig.Torznab); err != nil {
 		return Config{}, err
 	}
 	return loadedConfig, nil
@@ -534,6 +558,7 @@ type plainConfig Config
 func (loadedConfig Config) redacted() plainConfig {
 	redactedCopy := loadedConfig
 	redactedCopy.LibraryAPI = redactURL(loadedConfig.LibraryAPI)
+	redactedCopy.Prowlarr = redactedEndpoint(loadedConfig.Prowlarr)
 	redactedCopy.FSProviders = slices.Clone(loadedConfig.FSProviders)
 	for providerIndex := range redactedCopy.FSProviders {
 		redactedCopy.FSProviders[providerIndex].RC = redactRCURL(redactedCopy.FSProviders[providerIndex].RC)

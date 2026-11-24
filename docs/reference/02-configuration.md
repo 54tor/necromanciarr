@@ -59,6 +59,9 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 | `crossSeedMode` | `auto`, `delegate`, `native`, `off` | `auto` | casse et espaces ignorés |
 | `dedupe` | objet | voir plus bas | |
 | `fsProviders` | liste d'objets | vide | voir plus bas |
+| `torznab` | liste d'URL ou d'objets | vide | voir « Indexeurs » plus bas |
+| `prowlarr` | URL | vide | voir « Indexeurs » plus bas |
+| `sourceOrder` | liste de chaînes | `provider`, puis les entrées de `torznab` | voir « Indexeurs » plus bas |
 
 ### Chemins et mappings
 
@@ -145,6 +148,39 @@ Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer 
 
 `dedupe plan` et `dedupe apply` demandent au stockage les algorithmes que ses montages fournissent : la première fois, chaque montage est sondé sur un fichier d'essai (MD5, SHA-1, SHA-256) et le résultat est gardé en base (table `mount_capabilities`, une ligne par montage) ; ensuite seule la base est lue. Une sonde en échec n'est pas gardée. Sans algorithme connu, dedupe demande MD5. Le cache ne se rafraîchit pas seul : après un changement de backend ou de `rc`, supprimer la base ou la ligne du montage. Le contrôle `rclone` de `doctor` sonde toujours de nouveau, sans écrire ce cache.
 
+## Indexeurs (`torznab`, `prowlarr`, `sourceOrder`)
+
+Un indexeur Torznab est une source de secours de `.torrent`, après le fournisseur de bibliothèque. À ce stade `config.json` les accepte et `doctor` les vérifie ; Match ne les interroge pas encore. Chaque entrée de `torznab` est une URL ou un objet :
+
+```json
+"torznab": [
+  "https://prowlarr.example.com:9696/12/api?apikey=${PROWLARR_API_KEY}",
+  {
+    "url": "https://prowlarr.example.com:9696/7/api?apikey=${PROWLARR_API_KEY}",
+    "name": "tracker-a",
+    "tracker": "tracker-a",
+    "maxDownloadsPerDay": 20
+  }
+],
+"prowlarr": "https://prowlarr.example.com:9696?apikey=${PROWLARR_API_KEY}",
+"sourceOrder": ["provider", "torznab:tracker-a", "torznab:12"]
+```
+
+| Clé | Défaut | Validation |
+|---|---|---|
+| `torznab[].url` | obligatoire | `http(s)`, sans fragment, sans identifiants, `apikey` est le seul paramètre de requête (comme `radarr`) ; secret, masqué partout (`config check`, journaux, `doctor`) ; `${NAME}` fonctionne dedans |
+| `torznab[].name` | dernier segment numérique du chemin (`12`), sinon le rang dans la liste | `[a-z0-9-]+`, unique |
+| `torznab[].tracker` | vide | nom du tracker tel que le fournisseur l'écrit ; sert au secours `.torrent` et à l'unicité (infohash, tracker) |
+| `torznab[].categories` | celles des capacités de l'indexeur (films, séries) | entiers strictement positifs |
+| `torznab[].minInterval` | `3s` | durée Go supérieure à 0 : délai minimal entre deux requêtes à cet indexeur |
+| `torznab[].timeout` | `30s` | durée Go supérieure à 0 |
+| `torznab[].maxQueriesPerRun`, `maxDownloadsPerRun` | `30`, `10` | entiers supérieurs à 0 |
+| `torznab[].maxQueriesPerDay`, `maxDownloadsPerDay` | `200`, `50` | entiers supérieurs à 0 |
+| `prowlarr` | vide | URL de l'API native de Prowlarr (`http(s)://host:9696[/base]?apikey=KEY`, mêmes règles que `torznab[].url`) ; seulement pour `doctor` (liste et état des indexeurs), jamais pour chercher |
+| `sourceOrder` | `provider`, puis les entrées de `torznab` dans l'ordre de la liste | `provider` doit rester premier (un `provider` mal placé ou absent est refusé, jamais réordonné) ; chaque source est `provider` ou `torznab:<name>` d'un indexeur configuré, citée une fois |
+
+Avec Prowlarr, donner le flux Torznab de chaque indexeur (`/<id>/api`, `<id>` étant l'identifiant de l'indexeur dans Prowlarr) et laisser son option `Redirect` désactivée (mode Proxy) : avec une redirection, les liens de téléchargement désignent le tracker d'origine et sont refusés. `doctor` avertit quand une entrée `torznab` ne correspond à aucun indexeur activé de `prowlarr`.
+
 ## Fournisseur de bibliothèque
 
 Contrat HTTP défini dans [`docs/contract/openapi.yaml`](../contract/openapi.yaml), sous la base `libraryApi` : `GET /v1/releases` (filtres `tmdb`, `imdb`, `tvdb`, `q`, `size` répétable 50 fois, `tracker`, `limit` ≤ 100, pagination par curseur), `GET /v1/releases/{infohash}`, `…/torrent`, `…/nfos`. Authentification `Authorization: Bearer <LIBRARY_PROVIDER_TOKEN>`, erreurs `application/problem+json`, `429` avec `Retry-After`. Un fournisseur qui ignore `size` fonctionne : un filtre local de défense écarte les releases sans fichier de la bonne taille, mais il télécharge beaucoup plus de candidats (`doctor` le signale).
@@ -161,6 +197,8 @@ Contrat HTTP défini dans [`docs/contract/openapi.yaml`](../contract/openapi.yam
 | `library-roots` | racine lisible, un média trouvé dans les 2000 premières entrées | racine absente, non dossier ou illisible ; `warn` si aucune racine ou aucun média trouvé |
 | `library-api` | authentification, recherche, filtre `size` | accès refusé, chemin inconnu, indisponible ; `warn` si `size` ignoré |
 | `arr:radarr:<rang>`, `arr:sonarr:<rang>` | instance joignable, clé acceptée | injoignable, clé refusée |
+| `torznab:<name>` | capacités (`t=caps`, aucune recherche ni téléchargement compté), clé acceptée, un mode de recherche film ou série | clé refusée, injoignable, réponse hostile ; `warn` si ni `movie-search` ni `tv-search` |
+| `prowlarr` | API native : liste des indexeurs | clé refusée ; `warn` pour une entrée `torznab` absente ou désactivée dans Prowlarr |
 | `qbittorrent` | connexion, liste, mode lecture seule, clients écartés | connexion ou identifiants refusés ; `warn` pour un client non pris en charge |
 | `link-feasibility` | sonde réelle des sortes de liens dans chaque dossier de liens et racine torrent ; comparaison de volume avec chaque racine de bibliothèque (sans rien écrire dans la bibliothèque) | aucune sorte voulue acceptée, hardlink ou reflink entre volumes différents ; `warn` si seul un symlink traverse |
 | `fs-providers` | mode rc/binaire, empreintes, date de modification, symlinks | fournisseur non constructible ; `warn` avec conseil |
