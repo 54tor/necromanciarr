@@ -155,7 +155,7 @@ export interface Status {
   held?: HeldCandidate[]
 }
 
-export interface HeldCandidate {
+interface HeldCandidate {
   candidate_id: number
   candidate_name: string
   tracker: string
