@@ -41,5 +41,8 @@ USER 1000:1000
 ENV CONFIG_DIR=/data
 WORKDIR /data
 VOLUME /data
+# Sonde de vivacité : la sous-commande interroge /healthz sur la boucle locale (forme exec, ni curl ni wget dans l'image).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["necromanciarr", "healthcheck"]
+# Sans argument, l'image sert l'interface web ; toute autre sous-commande remplace CMD.
 ENTRYPOINT ["/usr/local/bin/necromanciarr"]
 CMD ["serve"]
