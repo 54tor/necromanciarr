@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -107,6 +108,7 @@ type endpointFunc func(handler *Handler, request *http.Request) (any, int, error
 
 func (handler *Handler) endpoint(handle endpointFunc) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer handler.recoverPanic(writer)
 		value, status, err := handle(handler, request)
 		if err != nil {
 			handler.writeError(writer, err)
@@ -114,6 +116,20 @@ func (handler *Handler) endpoint(handle endpointFunc) http.Handler {
 		}
 		handler.writeJSON(writer, status, value)
 	})
+}
+
+// recoverPanic change la panique d'un handler synchrone en une ligne de journal codée et une réponse d'erreur interne
+// générique : ni la valeur ni la pile ne sortent. http.ErrAbortHandler reste propagée (arrêt voulu de la réponse).
+func (handler *Handler) recoverPanic(writer http.ResponseWriter) {
+	recovered := recover()
+	if recovered == nil {
+		return
+	}
+	if recovered == http.ErrAbortHandler { //nolint:errorlint // sentinelle de net/http, comparée par identité
+		panic(recovered)
+	}
+	handler.logLine(slog.LevelError, LogCodeAPIPanicked, i18n.KeyLogAPIPanicked, map[string]string{"error": fmt.Sprint(recovered)})
+	handler.writeJSON(writer, http.StatusInternalServerError, map[string]ErrorBody{"error": {Code: app.ErrorCodeFailure, Message: handler.translator.Text(i18n.KeyErrorInternal, nil)}})
 }
 
 func unknownRoute(*Handler, *http.Request) (any, int, error) {

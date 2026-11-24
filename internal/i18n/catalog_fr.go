@@ -392,5 +392,7 @@ var french = map[Key]string{
 	KeyLogHealthcheckFailed:                "healthcheck : indisponible",
 	KeyLogAPIInternalError:                 "erreur de l'API : {error}",
 	KeyLogAPIUnauthorized:                  "requête de l'API non autorisée depuis {address}",
-	KeyCLIHealthcheckOK:                    "opérationnel",
+	KeyCLIHealthcheckOK:                    "ok",
+	KeyLogAPIPanicked:                      "panique dans un handler de l'API : {error}",
+	KeyLogHTTPServerError:                  "erreur du serveur HTTP : {error}",
 }

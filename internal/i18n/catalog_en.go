@@ -393,4 +393,6 @@ var english = map[Key]string{
 	KeyLogAPIInternalError:                 "api error: {error}",
 	KeyLogAPIUnauthorized:                  "unauthorized api request from {address}",
 	KeyCLIHealthcheckOK:                    "ok",
+	KeyLogAPIPanicked:                      "panic in an api handler: {error}",
+	KeyLogHTTPServerError:                  "http server error: {error}",
 }

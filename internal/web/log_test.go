@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"necromanciarr/internal/app"
 	"necromanciarr/internal/i18n"
 )
 
@@ -100,5 +101,56 @@ func TestServerLog_everyLineCarriesACode(t *testing.T) {
 		if !strings.Contains(lines[position], expectedCode) {
 			t.Fatalf("line %d: gotValue %q, expectedValue %s", position, lines[position], expectedCode)
 		}
+	}
+}
+
+func TestJobLog_urlCredentialsAndApiKeyQueryAreMaskedWithoutAKnownSecret(t *testing.T) {
+	const leaked = "dial http://alice:hunter2pass@example.com/x?apikey=abcd1234efgh failed"
+	fake := &fakeService{language: i18n.English, errors: map[string]error{"RunStage": errors.New(leaked)}}
+	handler := newTestHandler(t, fake, loopbackSettings())
+	logged := captureLog(handler)
+
+	waitJob(t, handler, startJob(t, handler, "/api/stages/scan/run", `{}`).ID)
+
+	if line := logged.String(); strings.Contains(line, "hunter2pass") || strings.Contains(line, "abcd1234efgh") || !strings.Contains(line, "code=job_failed") {
+		t.Fatalf("gotValue %q, expectedValue the URL credentials and the apikey masked", line)
+	}
+}
+
+func TestEndpoint_panicInASynchronousHandlerIsLoggedOnceWithItsCodeAndAnswersGenerically(t *testing.T) {
+	const providerToken = "fake-provider-token-value"
+	settings := loopbackSettings()
+	settings.LibraryProviderToken = providerToken
+	handler := newTestHandler(t, &fakeService{language: i18n.English}, settings)
+	logged := captureLog(handler)
+	panicking := handler.endpoint(func(*Handler, *http.Request) (any, int, error) {
+		panic("boom near " + providerToken + " in /home/u/library")
+	})
+
+	response := serve(panicking, apiRequest(http.MethodGet, "/api/status", ""))
+
+	lines := strings.Split(strings.TrimSpace(logged.String()), "\n")
+	if len(lines) != 1 || !strings.Contains(lines[0], "code=api_panicked") || strings.Contains(lines[0], providerToken) {
+		t.Fatalf("gotValue %q, expectedValue one api_panicked line without the secret", lines)
+	}
+	body := readBody(t, response)
+	expectError(t, "panic", body, response.Code, http.StatusInternalServerError, app.ErrorCodeFailure)
+	if strings.Contains(body, "boom") || strings.Contains(body, "/home/u") || strings.Contains(body, providerToken) {
+		t.Fatalf("gotValue %q, expectedValue the generic internal-error body", body)
+	}
+}
+
+func TestServerErrorLog_goesThroughTheCodedRedactedLogger(t *testing.T) {
+	const providerToken = "fake-provider-token-value"
+	settings := loopbackSettings()
+	settings.LibraryProviderToken = providerToken
+	handler := newTestHandler(t, &fakeService{language: i18n.French}, settings)
+	logged := captureLog(handler)
+
+	NewServer(t.Context(), handler).ErrorLog.Print("http: TLS handshake error near " + providerToken + "\n")
+
+	line := logged.String()
+	if !strings.Contains(line, "code=http_server_error") || strings.Contains(line, providerToken) || strings.Count(line, "\n") != 1 || !strings.Contains(line, "erreur") {
+		t.Fatalf("gotValue %q, expectedValue one translated http_server_error line without the secret", line)
 	}
 }

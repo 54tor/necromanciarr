@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/i18n"
@@ -19,6 +20,8 @@ const (
 	LogCodeHealthcheckFailed  = "healthcheck_failed"
 	LogCodeAPIInternalError   = "api_internal_error"
 	LogCodeAPIUnauthorized    = "api_unauthorized"
+	LogCodeAPIPanicked        = "api_panicked"
+	LogCodeHTTPServerError    = "http_server_error"
 )
 
 // NewLogger écrit des lignes texte clé=valeur sur writer.
@@ -32,6 +35,15 @@ func LogLine(ctx context.Context, logger *slog.Logger, translator i18n.Translato
 		redacted[name] = config.RedactText(value, secrets...)
 	}
 	logger.LogAttrs(ctx, level, translator.Text(key, redacted), slog.String("code", code))
+}
+
+// serverErrorWriter reçoit les lignes de http.Server.ErrorLog (poignée de main TLS, panique de net/http…) et les
+// renvoie par le journal codé, masquées.
+type serverErrorWriter struct{ handler *Handler }
+
+func (writer serverErrorWriter) Write(line []byte) (int, error) {
+	writer.handler.logLine(slog.LevelError, LogCodeHTTPServerError, i18n.KeyLogHTTPServerError, map[string]string{"error": strings.TrimSpace(string(line))})
+	return len(line), nil
 }
 
 // UseLogger remplace le journal (stderr par défaut) ; à appeler avant de servir.

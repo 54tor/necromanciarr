@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -97,10 +98,14 @@ func (handler *Handler) serveHealth(writer http.ResponseWriter, request *http.Re
 
 // NewServer règle les délais et la taille des en-têtes du serveur ; ctx devient le contexte de base des requêtes.
 func NewServer(ctx context.Context, handler http.Handler) *http.Server {
-	return &http.Server{
+	server := &http.Server{
 		Handler: handler, ReadHeaderTimeout: readHeaderTimeout, ReadTimeout: readTimeout, IdleTimeout: idleTimeout,
 		MaxHeaderBytes: maxHeaderBytes, BaseContext: func(net.Listener) context.Context { return ctx },
 	}
+	if coded, isHandler := handler.(*Handler); isHandler {
+		server.ErrorLog = log.New(serverErrorWriter{handler: coded}, "", 0)
+	}
+	return server
 }
 
 // Run sert handler sur listener jusqu'à l'annulation de ctx, puis arrête le serveur proprement (requêtes en cours
