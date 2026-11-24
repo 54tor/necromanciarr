@@ -33,7 +33,7 @@ type IsolatedFile struct {
 	Kind     string `json:"kind"`
 }
 
-// IsolateStraddlingMedia prépare un partial_annex au démarrage : le client écrira chaque pièce manquante en entier,
+// IsolateStraddlingMedia prépare un partial_annex avant sa reprise : le client écrira chaque pièce manquante en entier,
 // donc aussi la part d'un média lié qui la partage. Chaque lien dur ou symbolique vers la bibliothèque qui recouvre
 // une pièce manquante est remplacé, sous linkRoot seulement, par une copie indépendante (reflink sinon copie
 // complète) ; tout est préparé avant le premier remplacement, et un seul refus laisse tout en place. Le dossier est

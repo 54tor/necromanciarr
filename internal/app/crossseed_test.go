@@ -45,12 +45,14 @@ func TestService_statusAndAcceptUseTheCurrentCrossSeedResolution(t *testing.T) {
 	fixture := newDecisionFixture(t)
 	resolutions := []CrossSeedResolution{{Behavior: crossseed.Native}, {Behavior: crossseed.Disabled, Warning: "daemon gone"}}
 	calls := 0
-	service := New(Deps{Store: fixture.store, Client: fixture.resumer, Now: func() time.Time { return fixedNow },
+	service := New(Deps{
+		Store: fixture.store, Client: fixture.resumer, Now: func() time.Time { return fixedNow },
 		ResolveCrossSeed: func(context.Context) CrossSeedResolution {
 			resolution := resolutions[min(calls, len(resolutions)-1)]
 			calls++
 			return resolution
-		}})
+		},
+	})
 	ctx := context.Background()
 
 	before, err := service.Status(ctx)

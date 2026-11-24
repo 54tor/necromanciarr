@@ -102,7 +102,7 @@ func (fileCopier copier) checkSpace(directory string, size int64) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrFreeSpaceUnknown, err)
 	}
-	required := uint64(size) + copyMarginBytes + uint64(size)/copyMarginDivisor // #nosec G115 -- taille d'un fichier existant, positive
+	required := uint64(size) + copyMarginBytes + uint64(size)/copyMarginDivisor // #nosec G115 -- taille d'un fichier ouvert, positive
 	if available < required {
 		return fmt.Errorf("%w: %d bytes free, %d needed", ErrInsufficientSpace, available, required)
 	}

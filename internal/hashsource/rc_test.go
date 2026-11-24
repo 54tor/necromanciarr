@@ -225,11 +225,11 @@ func TestRcloneRC_appliesTheSamePathRulesAsExec(t *testing.T) {
 	server := newRCServer(t, respondWith(`{"item":null}`))
 	source := newRC(t, server.URL, 0)
 	for path, expectedError := range map[string]error{
-		"films/a.mkv":             ErrUnsafePath,
+		"films/a.mkv":               ErrUnsafePath,
 		"/home/u/mnt/remote/../x":   ErrUnsafePath,
 		"/home/u/mnt/remote/a\x00b": ErrUnsafePath,
 		"/home/u/mnt/remoteX/a.mkv": ErrNoMountForPath,
-		"/etc/passwd":             ErrNoMountForPath,
+		"/etc/passwd":               ErrNoMountForPath,
 	} {
 		if _, err := source.Hash(context.Background(), path, MD5); !errors.Is(err, expectedError) {
 			t.Fatalf("%q: got %v", path, err)

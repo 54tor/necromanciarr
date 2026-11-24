@@ -150,7 +150,7 @@ func (svc *service) planDedupe(ctx context.Context) ([]dedupe.Replacement, error
 	return dedupe.Plan(ctx, torrentRoots, library, svc.dedupeOptions(ctx))
 }
 
-// dedupeOptions demande au stockage les algorithmes que ses montages fournissent, d'après le cache des capacités
+// dedupeOptions demande au stockage les empreintes que ses montages fournissent, d'après le cache des capacités
 // (une sonde par montage, la première fois seulement) ; sans réponse, dedupe garde MD5.
 func (svc *service) dedupeOptions(ctx context.Context) dedupe.Options {
 	settings := svc.deps.Config.Dedupe

@@ -645,8 +645,10 @@ func TestCli_repairScanShowsWhyARepairIsNotActionable(t *testing.T) {
 
 func TestCli_dedupePlanPrintsEachProposalWarning(t *testing.T) {
 	configDir := writeDoctorConfig(t, `{}`)
-	fake := &fakeService{dedupePlan: []app.DedupeProposal{{ID: 8, Decision: store.ProposalPending, Warnings: []string{app.WarningNoClientRecheck},
-		Details: app.DedupeDetails{TorrentPath: "/home/u/torrents/b.mkv", Actionable: true, Kind: "hardlink"}}}}
+	fake := &fakeService{dedupePlan: []app.DedupeProposal{{
+		ID: 8, Decision: store.ProposalPending, Warnings: []string{app.WarningNoClientRecheck},
+		Details: app.DedupeDetails{TorrentPath: "/home/u/torrents/b.mkv", Actionable: true, Kind: "hardlink"},
+	}}}
 	useFakeService(t, fake)
 
 	plan := runCli(t, configDir, "dedupe", "plan")
@@ -659,8 +661,7 @@ func TestCli_dedupePlanPrintsEachProposalWarning(t *testing.T) {
 func TestCli_textOutputDropsTerminalControlCharacters(t *testing.T) {
 	configDir := writeDoctorConfig(t, `{}`)
 	hostileName := "Movie\x1b]52;c;ZXZpbA==\x07.\x1b[31mred\u009b2J\x00end\ttab"
-	fake := &fakeService{proposals: []app.Proposal{{ID: 5, Kind: store.ProposalFull, Decision: store.ProposalPending, CandidateName: hostileName, Current: true}},
-		err: nil, maintenanceWarnings: nil}
+	fake := &fakeService{proposals: []app.Proposal{{ID: 5, Kind: store.ProposalFull, Decision: store.ProposalPending, CandidateName: hostileName, Current: true}}}
 	useFakeService(t, fake)
 
 	listed := runCli(t, configDir, "proposals", "list")

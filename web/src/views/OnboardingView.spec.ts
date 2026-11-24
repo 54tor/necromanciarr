@@ -53,15 +53,18 @@ describe('OnboardingView', () => {
     await wrapper.find('[data-check="qbit"] button').trigger('click')
     await flushPromises()
 
-    expect(calls.some((call) => call.method === 'POST' && call.path === '/api/doctor/checks/qbit')).toBe(
-      true,
-    )
+    expect(
+      calls.some((call) => call.method === 'POST' && call.path === '/api/doctor/checks/qbit'),
+    ).toBe(true)
     expect(wrapper.find('[data-check="qbit"]').text()).toContain('Connecté.')
     expect(wrapper.find('[data-check="config"]').text()).toContain('Configuration valide.')
   })
 
   it('OnboardingView_rerunsEverythingFromTheGlobalButton', async () => {
-    const calls = installFakeApi({ 'POST /api/doctor/run': doctorReport, 'GET /api/status': busyStatus })
+    const calls = installFakeApi({
+      'POST /api/doctor/run': doctorReport,
+      'GET /api/status': busyStatus,
+    })
     const wrapper = mount(OnboardingView)
     await flushPromises()
     const before = calls.filter((call) => call.path === '/api/doctor/run').length

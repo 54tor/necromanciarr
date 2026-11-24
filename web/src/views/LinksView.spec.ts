@@ -70,7 +70,9 @@ describe('LinksView', () => {
     await flushPromises()
 
     const card = wrapper.find('[data-testid="repair-34"]')
-    expect(card.find('[data-testid="needs-client-recheck"]').text()).toContain('sans client torrent')
+    expect(card.find('[data-testid="needs-client-recheck"]').text()).toContain(
+      'sans client torrent',
+    )
     expect(card.find('button').attributes('disabled')).toBeDefined()
   })
 

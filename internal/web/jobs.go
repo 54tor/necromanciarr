@@ -107,7 +107,7 @@ func (runner *jobRunner) finish(job *Job, work func(ctx context.Context) (any, e
 // errJobPanicked : le job a paniqué ; le serveur reste debout et le job échoue sans rien révéler.
 var errJobPanicked = errors.New("job panicked")
 
-// runRecovering exécute work et transforme une panique en échec du job ; la valeur de la panique n'est écrite que
+// runRecovering exécute work et change une panique en échec du job ; la valeur de la panique n'est écrite que
 // masquée, dans le journal du serveur.
 func runRecovering(ctx context.Context, job *Job, work func(ctx context.Context) (any, error), secrets []string) (result any, err error) {
 	defer func() {

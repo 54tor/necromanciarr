@@ -124,8 +124,8 @@ func (svc *service) scanRepairs(ctx context.Context, directory string) ([]Repair
 	return repairEntries(repairs, report, directory, svc.deps.Maintenance != nil), nil
 }
 
-// needsClientRecheck : seules les méthodes inode et torrent-pieces prouvent le contenu ; les autres attendent le
-// recontrôle du client pour être confirmées.
+// needsClientRecheck : seules les méthodes inode et torrent-pieces prouvent le contenu ; les autres ne sont confirmées
+// que par le recontrôle du client.
 func needsClientRecheck(method string) bool {
 	return method == string(repair.BySizeAndModTime) || method == string(repair.ByFingerprint)
 }

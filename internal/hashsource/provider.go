@@ -129,7 +129,7 @@ func (registry Registry) DescribeMounts(ctx context.Context) []ProviderMountRepo
 	return reports
 }
 
-// CachedHashAlgorithms renvoie, dans l'ordre d'AllAlgorithms, les algorithmes qu'au moins un montage rclone fournit :
+// CachedHashAlgorithms renvoie, dans l'ordre d'AllAlgorithms, les types d'empreinte qu'au moins un montage rclone fournit :
 // les capacités sont lues dans le cache (mount_capabilities) et un montage n'est sondé, sur un fichier d'essai, que
 // s'il n'y figure pas encore. Un montage sans fichier d'essai ou dont la sonde échoue est ignoré (rien n'est mémorisé).
 func (registry Registry) CachedHashAlgorithms(ctx context.Context, cache CapabilityCache) ([]Algorithm, error) {

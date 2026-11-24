@@ -102,7 +102,7 @@ const (
 )
 
 // ForceResult rend compte d'un Force : Warnings rappelle toujours les avertissements de la proposition ; Replaced
-// nomme les médias du dossier de liens remplacés par une copie indépendante avant le démarrage.
+// nomme les médias du dossier de liens remplacés par une copie indépendante avant la reprise.
 type ForceResult struct {
 	ProposalID int64                   `json:"proposal_id"`
 	Forced     bool                    `json:"forced"`

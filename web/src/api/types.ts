@@ -133,7 +133,7 @@ export interface GroupResult {
   accepted: number[]
 }
 
-export interface IsolatedFile {
+interface IsolatedFile {
   link_path: string
   kind: 'reflink' | 'copy'
 }
