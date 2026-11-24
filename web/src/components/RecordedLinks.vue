@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { RefreshCw, Search } from '@lucide/vue'
+import { EyeOff, RefreshCw, Search } from '@lucide/vue'
 import { onMounted, ref, watch } from 'vue'
 import { api } from '@/api/endpoints'
 import type { LinkItem, LinkPage, LinkState } from '@/api/types'
 import LinkStateBadge from '@/components/LinkStateBadge.vue'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useApi } from '@/composables/useApi'
 import { lastFinished } from '@/composables/useJobs'
@@ -19,9 +20,19 @@ const state = ref<LinkState | ''>('')
 const items = ref<LinkItem[]>([])
 const page = ref<LinkPage>()
 
+// Numéro de la dernière requête : une réponse plus ancienne (filtre changé, rechargement pendant « Charger plus »)
+// est ignorée au lieu d'écraser la liste affichée.
+let latestRequest = 0
+
+async function fetchPage(offset?: number): Promise<LinkPage | undefined> {
+  const request = ++latestRequest
+  const loaded = await call(() => api.listLinks({ state: state.value, offset }))
+  return request === latestRequest ? loaded : undefined
+}
+
 /** load recharge la première page ; more ajoute la page suivante à la liste affichée. */
 async function load(): Promise<void> {
-  const loaded = await call(() => api.listLinks({ state: state.value }))
+  const loaded = await fetchPage()
   if (!loaded) return
   page.value = loaded
   items.value = loaded.items
@@ -30,7 +41,7 @@ async function load(): Promise<void> {
 async function more(): Promise<void> {
   const offset = page.value?.next
   if (!offset) return
-  const loaded = await call(() => api.listLinks({ state: state.value, offset }))
+  const loaded = await fetchPage(offset)
   if (!loaded) return
   page.value = loaded
   items.value = [...items.value, ...loaded.items]
@@ -70,15 +81,17 @@ watch(lastFinished, () => void load())
         <span :data-testid="`count-${option}`">{{ page.counts[option] ?? 0 }}</span>
       </li>
     </ul>
-    <p
-      v-if="page?.truncated"
-      role="status"
-      class="rounded-lg border border-chart-4 p-3 text-sm"
-      data-testid="links-truncated"
-    >
-      Examen interrompu faute de temps (montage lent ou figé) : la liste et les effectifs sont
-      partiels.
-    </p>
+    <div aria-live="polite" :aria-busy="pending" class="grid gap-2" data-testid="links-live">
+      <p v-if="pending" class="text-sm text-muted-foreground">Examen des liens en cours…</p>
+      <p
+        v-if="page?.truncated"
+        class="rounded-lg border border-chart-4 p-3 text-sm"
+        data-testid="links-truncated"
+      >
+        Examen interrompu faute de temps (montage lent ou figé) : la liste et les effectifs sont
+        partiels.
+      </p>
+    </div>
 
     <p
       v-if="page && items.length === 0"
@@ -96,6 +109,13 @@ watch(lastFinished, () => void load())
       >
         <div class="flex flex-wrap items-center gap-2">
           <LinkStateBadge :state="link.state" />
+          <Badge
+            v-if="!link.compared && link.state === 'ok'"
+            variant="secondary"
+            data-testid="not-compared"
+          >
+            <EyeOff aria-hidden="true" /> Non comparé
+          </Badge>
           <span class="text-sm text-muted-foreground">{{
             labelOf(LINK_KIND_LABELS, link.kind)
           }}</span>

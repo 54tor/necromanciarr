@@ -96,6 +96,8 @@ export interface LinkItem {
   recorded_at: string
   size?: number
   reason?: string
+  /** Faux quand rien n'a été comparé (reflink ou copie sans taille enregistrée). */
+  compared: boolean
 }
 
 /** Page de `GET /api/links` : `next` est l'offset de la page suivante (absent à la fin). */

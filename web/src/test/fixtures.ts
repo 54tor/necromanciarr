@@ -152,6 +152,7 @@ export function linkItem(id: number, overrides: Partial<LinkItem> = {}): LinkIte
     state: 'ok',
     recorded_at: '2026-01-01T10:00:00Z',
     size: 1_000_000,
+    compared: true,
     ...overrides,
   }
 }

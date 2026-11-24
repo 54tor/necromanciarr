@@ -214,4 +214,55 @@ describe('LinksView', () => {
     expect(vi.mocked(toast.error)).toHaveBeenCalledWith(expect.stringContaining('examen des liens'))
     expect(wrapper.find('[data-testid="links-empty"]').exists()).toBe(false)
   })
+
+  it('LinksView_marksUncomparedLinksDistinctly', async () => {
+    installFakeApi({
+      'GET /api/proposals': [],
+      'GET /api/jobs': [],
+      'GET /api/links': linkPage([
+        linkItem(1),
+        linkItem(2, { kind: 'reflink', compared: false, reason: 'not compared' }),
+      ]),
+    })
+    const wrapper = mount(LinksView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="link-1"] [data-testid="not-compared"]').exists()).toBe(false)
+    const qualifier = wrapper.find('[data-testid="link-2"] [data-testid="not-compared"]')
+    expect(qualifier.text()).toBe('Non comparé')
+    expect(qualifier.find('svg').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="link-2"] [data-state]').text()).toBe('Conforme')
+  })
+
+  it('LinksView_ignoresAStaleResponseAfterTheFilterChanged', async () => {
+    installFakeApi({
+      'GET /api/proposals': [],
+      'GET /api/jobs': [],
+      'GET /api/links': (call) =>
+        call.query.get('state') === 'lost'
+          ? linkPage([linkItem(3, { state: 'lost' })])
+          : linkPage([linkItem(1)]),
+    })
+    const answered = globalThis.fetch
+    let releaseFirst: () => void = () => undefined
+    const firstGate = new Promise<void>((resolve) => (releaseFirst = resolve))
+    let linkRequests = 0
+    vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+      const isFirstLinksRequest = input.startsWith('/api/links') && linkRequests++ === 0
+      if (isFirstLinksRequest) await firstGate
+      return answered(input, init)
+    })
+    const wrapper = mount(LinksView)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="links-live"]').attributes('aria-busy')).toBe('true')
+
+    await wrapper.find('[data-testid="link-state-filter"]').setValue('lost')
+    await flushPromises()
+    releaseFirst()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="link-3"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="link-1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="links-live"]').attributes('aria-live')).toBe('polite')
+  })
 })

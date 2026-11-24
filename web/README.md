@@ -33,4 +33,4 @@ Disposition : chaque ligne (proposition, remplacement, lien) est une carte empil
 
 ## Limites v1
 
-L'état des liens enregistrés est recalculé à chaque affichage (Lstat et Stat seulement, 20 s au plus, liste marquée partielle au-delà). Un reflink n'est pas comparé à sa cible : il est affiché « Conforme » avec son motif, comme le fait l'analyse de réparation.
+L'état des liens enregistrés est recalculé à chaque affichage (Lstat et Stat seulement, 20 s au plus, liste marquée partielle au-delà). Un reflink ou une copie n'est comparé que par sa taille (aucun contenu lu) ; sans taille enregistrée, il est « Conforme » avec la mention « Non comparé ». Un lien symbolique repointé vers une autre cible existante n'est pas détecté (comme dans l'analyse de réparation). Après une liste partielle, « Charger plus » réexamine tout : ses pages peuvent ne pas se raccorder exactement.
