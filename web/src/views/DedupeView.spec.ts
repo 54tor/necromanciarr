@@ -149,6 +149,7 @@ describe('DedupeView', () => {
     await flushPromises()
 
     expect(document.body.textContent).toContain('2 remplacement(s)')
+    expect(document.body.textContent).toContain('écrit réellement sur le disque')
     expect(posts(calls)).toHaveLength(0)
     confirmButton()?.click()
     await flushPromises()

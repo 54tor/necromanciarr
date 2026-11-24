@@ -280,5 +280,104 @@
     "network": "Server unreachable.",
     "generic": "An error occurred. Check the server log.",
     "unknownCode": "{message} (code: {code})"
+  },
+  "proposals": {
+    "caption": "Proposals",
+    "empty": "No proposals. Run the stages to produce some.",
+    "refresh": "Refresh",
+    "primary": "Primary",
+    "stale": "Outdated",
+    "loadFailed": "Proposals could not be loaded.",
+    "filters": {
+      "label": "Filters",
+      "all": "All",
+      "kind": "Kind",
+      "decision": "Decision",
+      "source": "Source",
+      "group": "Group",
+      "currentOnly": "Current generations only",
+      "search": "Search by name"
+    },
+    "columns": {
+      "name": "Name",
+      "kind": "Kind",
+      "decision": "Decision",
+      "source": "Source",
+      "verified": "% verified",
+      "missing": "Missing pieces",
+      "group": "Group",
+      "step": "Step",
+      "warnings": "Warnings"
+    },
+    "missingOf": "{missing} of {total}",
+    "details": {
+      "show": "Show details of {name}",
+      "hide": "Hide details of {name}",
+      "missingMedia": "Missing media",
+      "ambiguous": "Ambiguous files",
+      "localFiles": "Local files: {files}",
+      "excluded": "Excluded files",
+      "members": "Group candidates",
+      "warnings": "Warnings",
+      "none": "No details to show.",
+      "member": "{name} ({tracker}, {percent})"
+    },
+    "actions": {
+      "accept": "Accept",
+      "reject": "Reject",
+      "choose": "Choose a candidate",
+      "acceptGroup": "Accept the group",
+      "force": "Force the add",
+      "acceptOf": "Accept {name}",
+      "rejectOf": "Reject {name}",
+      "chooseOf": "Choose a candidate for {name}",
+      "acceptGroupOf": "Accept the group of {name}",
+      "forceOf": "Force the add of {name}",
+      "rejectSelection": "Reject selection ({count})"
+    },
+    "reject": {
+      "title": "Reject the selection?",
+      "description": "One reject request is sent for each proposal listed below. Nothing is applied, but a rejection cannot be taken back.",
+      "summary": "Only pending proposals are rejected; none is accepted.",
+      "confirm": "Reject"
+    },
+    "group": {
+      "title": "Accept group {group}?",
+      "description": "Accepts the group's primary proposal and, in native cross-seed mode only, the other verified torrents of the same group.",
+      "summary": "The primary is marked ★. List built from the loaded proposals: the server decides on the others from the cross-seed mode.",
+      "confirm": "Accept the group"
+    },
+    "force": {
+      "title": "Force the add of the partial?",
+      "description": "The client will download the missing pieces. Each linked media file that shares one of those pieces is first replaced, in the links folder only, by an independent copy (reflink, otherwise a full copy that needs space): the library is never written. The start is refused when no copy is possible. This action cannot be undone.",
+      "summary": "Only a partial with missing annexes, already seeded paused, can be forced.",
+      "phrase": "FORCE",
+      "confirm": "Force"
+    },
+    "partial": {
+      "title": "Accept a partial pack?",
+      "description": "A partial pack is incomplete: some media of the torrent are not in the library. It is added paused and Necromanciarr can never start it.",
+      "summary": "A partial pack can never be forced.",
+      "confirm": "Accept anyway"
+    },
+    "choose": {
+      "title": "Choose a candidate",
+      "description": "The chosen torrent becomes the group's primary proposal; the others stay pending.",
+      "legend": "Group candidates",
+      "candidate": "{name} ({tracker}, {percent})",
+      "confirm": "Choose"
+    },
+    "toasts": {
+      "accepted": "Proposal accepted.",
+      "rejected": "Proposal rejected.",
+      "rejectedCount": "{count} proposal(s) rejected.",
+      "chosen": "Candidate chosen.",
+      "group": "Group accepted.",
+      "forced": "Add forced.",
+      "partial": "Partial pack accepted."
+    }
+  },
+  "dedupe": {
+    "confirmBulkSummary": "Each replacement is applied one at a time. With the simulation unchecked, files are really written."
   }
 }

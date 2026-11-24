@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { t } from '@/i18n'
 import { formatPercent } from '@/lib/format'
 
 const props = defineProps<{ proposal: Proposal | undefined }>()
@@ -46,14 +47,11 @@ function confirm(): void {
   <Dialog :open="proposal !== undefined" @update:open="(isOpen) => !isOpen && emit('close')">
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Choisir un candidat</DialogTitle>
-        <DialogDescription>
-          Le torrent choisi devient la proposition principale du groupe ; les autres restent en
-          attente.
-        </DialogDescription>
+        <DialogTitle>{{ t('proposals.choose.title') }}</DialogTitle>
+        <DialogDescription>{{ t('proposals.choose.description') }}</DialogDescription>
       </DialogHeader>
       <fieldset class="grid gap-2">
-        <legend class="sr-only">Candidats du groupe</legend>
+        <legend class="sr-only">{{ t('proposals.choose.legend') }}</legend>
         <label
           v-for="candidate in candidates"
           :key="candidate.candidate_id"
@@ -67,17 +65,20 @@ function confirm(): void {
             class="mt-1 accent-primary"
           />
           <span class="min-w-0 break-words text-sm">
-            {{ candidate.name }}
-            <span class="text-muted-foreground"
-              >({{ candidate.tracker }}, {{ formatPercent(candidate.percent) }})</span
-            >
+            {{
+              t('proposals.choose.candidate', {
+                name: candidate.name,
+                tracker: candidate.tracker,
+                percent: formatPercent(candidate.percent),
+              })
+            }}
           </span>
         </label>
       </fieldset>
       <DialogFooter>
-        <Button variant="outline" @click="emit('close')">Annuler</Button>
+        <Button variant="outline" @click="emit('close')">{{ t('dialog.cancel') }}</Button>
         <Button data-testid="choose-confirm" :disabled="selectedId === undefined" @click="confirm">
-          Choisir
+          {{ t('proposals.choose.confirm') }}
         </Button>
       </DialogFooter>
     </DialogContent>

@@ -17,7 +17,7 @@ const OpenerHost = defineComponent({
   components: { ConfirmDialog },
   setup: () => ({ open: ref(false) }),
   template: `<div><button data-testid="opener" @click="open = true">go</button>
-    <ConfirmDialog v-model:open="open" title="t" description="d" confirm-label="ok" /></div>`,
+    <ConfirmDialog v-model:open="open" title="t" description="d" confirm-label="ok" summary-key="nav.liens" /></div>`,
 })
 
 const mounted: VueWrapper[] = []
@@ -425,6 +425,7 @@ describe('ConfirmDialog content', () => {
         title: 't',
         description: 'd',
         confirmLabel: 'ok',
+        summaryKey: 'nav.liens',
         confirmPhrase: 'FORCER',
         onConfirm: confirmed,
       },

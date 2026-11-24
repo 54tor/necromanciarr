@@ -37,7 +37,7 @@ async function actionsRenderedBy(view: Component): Promise<Set<string>> {
       const kind = call.query.get('kind')
       if (kind === 'dedupe') return [maintenanceProposal(1, dedupeDetails)]
       if (kind === 'repair') return [{ ...maintenanceProposal(2, repairDetails), kind: 'repair' }]
-      return [proposal(), conflictProposal()]
+      return [proposal(), conflictProposal(), proposal({ id: 3, kind: 'partial_annex' })]
     },
   })
   const wrapper = mount(view)

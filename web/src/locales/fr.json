@@ -280,5 +280,104 @@
     "network": "Serveur injoignable.",
     "generic": "Une erreur est survenue. Consultez le journal du serveur.",
     "unknownCode": "{message} (code : {code})"
+  },
+  "proposals": {
+    "caption": "Propositions",
+    "empty": "Aucune proposition. Lancez les étapes pour en produire.",
+    "refresh": "Actualiser",
+    "primary": "Principale",
+    "stale": "Obsolète",
+    "loadFailed": "Chargement des propositions impossible.",
+    "filters": {
+      "label": "Filtres",
+      "all": "Toutes",
+      "kind": "Nature",
+      "decision": "Décision",
+      "source": "Source",
+      "group": "Groupe",
+      "currentOnly": "Générations courantes seulement",
+      "search": "Rechercher par nom"
+    },
+    "columns": {
+      "name": "Nom",
+      "kind": "Nature",
+      "decision": "Décision",
+      "source": "Source",
+      "verified": "% vérifié",
+      "missing": "Pièces manquantes",
+      "group": "Groupe",
+      "step": "Étape",
+      "warnings": "Avertissements"
+    },
+    "missingOf": "{missing} sur {total}",
+    "details": {
+      "show": "Afficher le détail de {name}",
+      "hide": "Masquer le détail de {name}",
+      "missingMedia": "Médias manquants",
+      "ambiguous": "Fichiers ambigus",
+      "localFiles": "Fichiers locaux : {files}",
+      "excluded": "Fichiers écartés",
+      "members": "Candidats du groupe",
+      "warnings": "Avertissements",
+      "none": "Aucun détail à afficher.",
+      "member": "{name} ({tracker}, {percent})"
+    },
+    "actions": {
+      "accept": "Accepter",
+      "reject": "Rejeter",
+      "choose": "Choisir un candidat",
+      "acceptGroup": "Accepter le groupe",
+      "force": "Forcer l’ajout",
+      "acceptOf": "Accepter {name}",
+      "rejectOf": "Rejeter {name}",
+      "chooseOf": "Choisir un candidat pour {name}",
+      "acceptGroupOf": "Accepter le groupe de {name}",
+      "forceOf": "Forcer l’ajout de {name}",
+      "rejectSelection": "Rejeter la sélection ({count})"
+    },
+    "reject": {
+      "title": "Rejeter la sélection ?",
+      "description": "Une requête de rejet est envoyée par proposition listée ci-dessous. Rien n’est appliqué, mais un rejet ne se reprend pas.",
+      "summary": "Seules des propositions en attente sont rejetées ; aucune n’est acceptée.",
+      "confirm": "Rejeter"
+    },
+    "group": {
+      "title": "Accepter le groupe {group} ?",
+      "description": "Accepte la proposition principale du groupe et, en mode cross-seed natif seulement, les autres torrents vérifiés du même groupe.",
+      "summary": "La principale est marquée ★. Liste établie d’après les propositions chargées : le serveur décide des autres selon le mode cross-seed.",
+      "confirm": "Accepter le groupe"
+    },
+    "force": {
+      "title": "Forcer l’ajout du partiel ?",
+      "description": "Le client va télécharger les pièces manquantes. Chaque média lié qui partage une de ces pièces est d’abord remplacé, dans le dossier de liens seulement, par une copie indépendante (reflink, sinon copie complète qui demande de la place) : la bibliothèque n’est jamais écrite. Le démarrage est refusé si aucune copie n’est possible. Cette action n’est pas annulable.",
+      "summary": "Seul un partiel à annexes manquantes, déjà ensemencé en pause, peut être forcé.",
+      "phrase": "FORCER",
+      "confirm": "Forcer"
+    },
+    "partial": {
+      "title": "Accepter un pack partiel ?",
+      "description": "Un pack partiel est incomplet : des médias du torrent ne sont pas dans la bibliothèque. Il est ajouté en pause et Necromanciarr ne peut jamais le démarrer.",
+      "summary": "Un pack partiel n’est jamais forçable.",
+      "confirm": "Accepter quand même"
+    },
+    "choose": {
+      "title": "Choisir un candidat",
+      "description": "Le torrent choisi devient la proposition principale du groupe ; les autres restent en attente.",
+      "legend": "Candidats du groupe",
+      "candidate": "{name} ({tracker}, {percent})",
+      "confirm": "Choisir"
+    },
+    "toasts": {
+      "accepted": "Proposition acceptée.",
+      "rejected": "Proposition rejetée.",
+      "rejectedCount": "{count} proposition(s) rejetée(s).",
+      "chosen": "Candidat choisi.",
+      "group": "Groupe accepté.",
+      "forced": "Ajout forcé.",
+      "partial": "Pack partiel accepté."
+    }
+  },
+  "dedupe": {
+    "confirmBulkSummary": "Chaque remplacement est appliqué un par un. Une simulation décochée écrit réellement sur le disque."
   }
 }

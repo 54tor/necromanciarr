@@ -14,6 +14,8 @@ interface AmbiguousFile {
 interface ExcludedFile {
   torrent_path: string
   reason: string
+  /** Libellé traduit de `reason`. */
+  label?: string
 }
 
 interface GroupMember {
@@ -51,6 +53,8 @@ export interface Proposal {
   generation: number
   current: boolean
   warnings: Warning[]
+  /** Origine du torrent (fournisseur ou indexeur) ; absent tant que le serveur ne l'envoie pas (tâche B14). */
+  source?: string
   details: ProposalDetails
   maintenance?: DedupeDetails | RepairDetails
 }

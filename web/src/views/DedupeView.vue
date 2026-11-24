@@ -147,6 +147,7 @@ onMounted(load)
       title="Appliquer les remplacements acceptés ?"
       :description="`${acceptedItems.length} remplacement(s) vont modifier des fichiers de la bibliothèque, un par un. Décochez la simulation uniquement si vous êtes sûr.`"
       confirm-label="Appliquer pour de bon"
+      summary-key="dedupe.confirmBulkSummary"
       @confirm="applyAccepted"
     />
   </section>

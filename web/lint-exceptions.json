@@ -4,10 +4,7 @@
   "files": [
     "src/views/DedupeView.vue",
     "src/views/LinksView.vue",
-    "src/views/ProposalsView.vue",
-    "src/components/ChooseDialog.vue",
     "src/components/MaintenanceActions.vue",
-    "src/components/ProposalCard.vue",
     "src/components/RecordedLinks.vue"
   ]
 }

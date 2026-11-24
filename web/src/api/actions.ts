@@ -75,4 +75,13 @@ export const UI_TRIGGERS: Readonly<Record<string, string>> = {
 }
 
 /** Actions dont le déclencheur existe en version par ligne. */
-export const ROW_SCOPED_ACTIONS: readonly string[] = ['dedupe apply', 'repair apply', 'doctor']
+export const ROW_SCOPED_ACTIONS: readonly string[] = [
+  'proposals accept',
+  'proposals reject',
+  'proposals choose',
+  'proposals accept-group',
+  'proposals force',
+  'dedupe apply',
+  'repair apply',
+  'doctor',
+]

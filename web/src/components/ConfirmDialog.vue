@@ -16,7 +16,7 @@ const props = defineProps<{
   description: string
   confirmLabel: string
   /** Clé de locale du résumé de l'effet, affiché sous la description. */
-  summaryKey?: string
+  summaryKey: string
   /** Éléments concernés par l'action, listés avant la confirmation. */
   items?: string[]
   /** Si fournie, la confirmation reste désactivée tant que cette phrase exacte n'est pas saisie. */
@@ -49,7 +49,7 @@ function confirm(): void {
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription>{{ description }}</DialogDescription>
       </DialogHeader>
-      <p v-if="summaryKey" data-testid="confirm-dialog-summary" class="text-sm">
+      <p data-testid="confirm-dialog-summary" class="text-sm">
         {{ t(summaryKey) }}
       </p>
       <div v-if="items?.length">
