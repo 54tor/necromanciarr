@@ -93,12 +93,12 @@ func (run seedRun) seedProposal(ctx context.Context, proposal store.Proposal, ca
 		return err
 	}
 	skipChecking := complete && run.deps.SkipRecheck
-	reason, err := run.addStopped(ctx, raw, candidate.Infohash, linkRoot, skipChecking)
-	if err != nil {
+	if err := run.addStopped(ctx, raw, candidate.Infohash, linkRoot, skipChecking); err != nil {
+		var refused refusal
+		if errors.As(err, &refused) {
+			return failProposal(ctx, run.deps, run.result, proposal.ID, string(refused))
+		}
 		return err
-	}
-	if reason != "" {
-		return failProposal(ctx, run.deps, run.result, proposal.ID, reason)
 	}
 	if !complete {
 		run.result.count(ReasonPausedIncomplete, 1)
@@ -137,25 +137,30 @@ func (run seedRun) verifiedComplete(ctx context.Context, proposal store.Proposal
 
 // addStopped ajoute le torrent arrêté s'il n'est pas déjà dans le client (reprise après un arrêt) ; le chemin envoyé est
 // celui que le client voit. Un client readonly arrête l'étape.
-func (run seedRun) addStopped(ctx context.Context, raw []byte, infohash, linkRoot string, skipChecking bool) (string, error) {
+func (run seedRun) addStopped(ctx context.Context, raw []byte, infohash, linkRoot string, skipChecking bool) error {
 	_, err := run.deps.Client.Progress(ctx, infohash)
 	if err == nil {
-		return "", nil
+		return nil
 	}
 	if !errors.Is(err, qbit.ErrNotFound) {
-		return ReasonAddFailed, nil
+		return refusal(ReasonAddFailed)
 	}
 	options := qbit.AddOptions{Category: run.deps.Category, Tags: run.deps.Tags, Start: false, SkipChecking: skipChecking}
 	err = run.deps.Client.Add(ctx, raw, run.clientPath(linkRoot), options)
 	switch {
 	case errors.Is(err, qbit.ErrReadOnly):
 		run.result.count(ReasonClientReadOnly, 1)
-		return "", ErrClientReadOnly
+		return ErrClientReadOnly
 	case err != nil:
-		return ReasonAddFailed, nil
+		return refusal(ReasonAddFailed)
 	}
-	return "", nil
+	return nil
 }
+
+// refusal est un refus nommé par sa raison : la proposition passe à failed et l'étape continue.
+type refusal string
+
+func (reason refusal) Error() string { return "pipeline: refused: " + string(reason) }
 
 // clientPath traduit le dossier du torrent vers la vue du client ; sans règle qui le couvre (linker.ErrNoRule), il
 // voit le même chemin.

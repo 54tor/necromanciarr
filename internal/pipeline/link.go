@@ -187,7 +187,8 @@ func (run linkRun) linkTorrent(ctx context.Context, proposal store.Proposal, can
 // place crée le dossier du torrent, les liens, les annexes, enregistre chaque lien puis l'étape linked. Une raison non
 // vide est un refus ; une erreur arrête l'étape. Dans les deux cas l'appelant défait ce que placement a créé.
 func (run linkRun) place(ctx context.Context, proposalID int64, candidate store.Candidate, torrent *torrentcheck.Torrent, ops []linker.Op, kinds []linker.Kind, placement *linkPlacement) (string, error) {
-	if err := placement.ensureRoot(); err != nil {
+	rootUsable := placement.ensureRoot() == nil
+	if !rootUsable {
 		return ReasonLinkRootUnusable, nil
 	}
 	pending, err := run.pendingOps(ctx, ops)
