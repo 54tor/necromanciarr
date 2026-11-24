@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"necromanciarr/internal/torrentcheck"
@@ -27,7 +28,8 @@ func TestWriteVerifiedFile_createsParentsAndWritesFileUnderRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	const expectedValue os.FileMode = 0o644
-	if gotValue := info.Mode().Perm(); gotValue != expectedValue {
+	// Windows ne porte pas les bits de permission Unix.
+	if gotValue := info.Mode().Perm(); runtime.GOOS != "windows" && gotValue != expectedValue {
 		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
 	}
 }
