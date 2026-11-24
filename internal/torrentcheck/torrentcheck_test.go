@@ -570,19 +570,37 @@ func TestParse_rejectsHugeLengthWithTooFewPieces(t *testing.T) {
 	}
 }
 
-func TestParse_acceptsMaximalPieceLengthWithoutOverflow(t *testing.T) {
-	info := multiFileInfo([]int64{math.MaxInt64}, 1)
-	info.PieceLength = math.MaxInt64
+func TestParse_rejectsHostilePieceLengths(t *testing.T) {
+	testCases := map[string]int64{
+		"maximal int64":    math.MaxInt64,
+		"just over 256MiB": MaxPieceLength + 1,
+		"zero":             0,
+		"negative":         -16,
+	}
+	for name, pieceLength := range testCases {
+		t.Run(name, func(t *testing.T) {
+			info := multiFileInfo([]int64{20}, 1)
+			info.PieceLength = pieceLength
+			raw, _ := encodeTorrent(t, info)
+
+			if _, err := Parse(raw); !errors.Is(err, ErrInvalidTorrent) {
+				t.Fatalf("gotValue %v, expectedValue ErrInvalidTorrent", err)
+			}
+		})
+	}
+}
+
+func TestParse_acceptsTheLargestAllowedPieceLength(t *testing.T) {
+	info := multiFileInfo([]int64{20}, 1)
+	info.PieceLength = MaxPieceLength
 	raw, _ := encodeTorrent(t, info)
 
 	parsed, err := Parse(raw)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	expectedValue := int64(math.MaxInt64)
-	_, gotValue := parsed.pieceBounds(0)
-	if gotValue != expectedValue {
-		t.Fatalf("expected piece end %d, got %d", expectedValue, gotValue)
+	if _, gotValue := parsed.pieceBounds(0); gotValue != 20 {
+		t.Fatalf("gotValue piece end %d, expectedValue 20", gotValue)
 	}
 }
 

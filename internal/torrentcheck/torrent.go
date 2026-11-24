@@ -46,6 +46,10 @@ type File struct {
 	Offset int64
 }
 
+// MaxPieceLength est la plus grande longueur de pièce acceptée (256 Mio) : au-delà, un .torrent est hostile ou
+// inutilisable (chaque pièce est lue en entier).
+const MaxPieceLength = 256 << 20
+
 // Parse décode et valide un .torrent v1 ; les v2 seuls sont refusés (ErrV2Only), toute incohérence donne ErrInvalidTorrent.
 func Parse(raw []byte) (*Torrent, error) {
 	metaInfo, err := metainfo.Load(bytes.NewReader(raw))
@@ -59,12 +63,16 @@ func Parse(raw []byte) (*Torrent, error) {
 	if len(info.Pieces) == 0 && info.MetaVersion == bep52MetaVersionV2Only {
 		return nil, ErrV2Only
 	}
-	if info.PieceLength <= 0 || len(info.Pieces)%pieceHashSize != 0 {
+	if info.PieceLength <= 0 || info.PieceLength > MaxPieceLength || len(info.Pieces)%pieceHashSize != 0 {
 		return nil, fmt.Errorf("%w: bad piece length or pieces field", ErrInvalidTorrent)
 	}
 	files, totalLength, err := v1Files(&info)
 	if err != nil {
 		return nil, err
+	}
+	// Garde le calcul début + longueur d'une pièce (pieceBounds) loin du débordement d'un int64.
+	if totalLength > math.MaxInt64-info.PieceLength {
+		return nil, fmt.Errorf("%w: total length too close to the int64 limit", ErrInvalidTorrent)
 	}
 	if err := checkPieceCount(len(info.Pieces)/pieceHashSize, totalLength, info.PieceLength); err != nil {
 		return nil, err

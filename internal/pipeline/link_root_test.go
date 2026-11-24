@@ -13,7 +13,6 @@ import (
 	"necromanciarr/internal/torrentcheck"
 )
 
-
 func TestLinkStage_namesTheTorrentFolderWithTheFullInfohash(t *testing.T) {
 	fixture := newApplyFixture(t)
 	candidate, proposal := fixture.linkedProposal(movieOnly(), store.ProposalFull)
