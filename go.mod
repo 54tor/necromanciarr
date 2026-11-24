@@ -7,6 +7,7 @@ require (
 	github.com/anacrolix/torrent v1.63.0
 	github.com/autobrr/go-qbittorrent v1.19.0
 	github.com/dop251/goja v0.0.0-20261122185237-35fdc4b88e39
+	github.com/getkin/kin-openapi v0.146.0
 	golang.org/x/sys v0.50.0
 	modernc.org/sqlite v1.63.0
 )
@@ -91,6 +92,8 @@ require (
 	github.com/go-critic/go-critic v0.15.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-openapi/jsonpointer v0.22.5 // indirect
+	github.com/go-openapi/swag/jsonname v0.25.5 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/go-toolsmith/astcast v1.1.0 // indirect
 	github.com/go-toolsmith/astcopy v1.1.0 // indirect
@@ -180,6 +183,8 @@ require (
 	github.com/nishanths/exhaustive v0.15.0 // indirect
 	github.com/nishanths/predeclared v0.3.0 // indirect
 	github.com/nunnatsa/ginkgolinter v0.24.0 // indirect
+	github.com/oasdiff/yaml v0.1.1 // indirect
+	github.com/oasdiff/yaml3 v0.0.14 // indirect
 	github.com/openai/openai-go/v3 v3.82.0 // indirect
 	github.com/pb33f/go-yaml v0.1.1 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect

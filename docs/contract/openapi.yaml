@@ -27,8 +27,8 @@ paths:
         - { name: imdb, in: query, schema: { type: string, pattern: '^tt[0-9]+$' } }
         - { name: tvdb, in: query, schema: { type: integer } }
         - { name: q, in: query, description: Recherche plein texte sur le titre ou le nom de release., schema: { type: string } }
-        - { name: size, in: query, description: Taille exacte d'un fichier en octets. Répétable, 50 valeurs au plus., schema: { type: array, maxItems: 50, items: { type: integer, format: int64, minimum: 0 } }, style: form, explode: true }
-        - { name: tracker, in: query, description: Filtre facultatif, ignoré par un fournisseur sans notion de tracker., schema: { type: string } }
+        - { name: size, in: query, description: "Taille exacte d'un fichier en octets. Répétable, 50 valeurs au plus.", schema: { type: array, maxItems: 50, items: { type: integer, format: int64, minimum: 0 } }, style: form, explode: true }
+        - { name: tracker, in: query, description: "Filtre facultatif, ignoré par un fournisseur sans notion de tracker.", schema: { type: string } }
         - { name: cursor, in: query, description: Curseur opaque renvoyé par `next`., schema: { type: string } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
       responses:
@@ -115,12 +115,12 @@ components:
       required: [items, next]
       properties:
         items: { type: array, items: { $ref: '#/components/schemas/Release' } }
-        next: { type: [string, 'null'], description: Curseur de la page suivante, null en fin de liste. }
+        next: { type: [string, 'null'], description: "Curseur de la page suivante, null en fin de liste." }
     Release:
       type: object
       required: [infohash, totalSize, files]
       properties:
-        tracker: { type: string, description: Tracker d'origine, absent si le fournisseur n'en a pas la notion. }
+        tracker: { type: string, description: "Tracker d'origine, absent si le fournisseur n'en a pas la notion." }
         infohash: { type: string, pattern: '^[0-9a-f]{40}$' }
         name: { type: string, description: Nom de la release. }
         totalSize: { type: integer, format: int64 }
@@ -146,9 +146,9 @@ components:
       type: object
       required: [label, data]
       properties:
-        label: { type: string, description: Origine du .nfo, par exemple un identifiant de source. }
+        label: { type: string, description: "Origine du .nfo, par exemple un identifiant de source." }
         partial: { type: boolean, default: false, description: Vrai si le contenu est tronqué ou incomplet. }
-        data: { type: string, contentEncoding: base64, description: Octets exacts du .nfo, encodés en base64. }
+        data: { type: string, contentEncoding: base64, description: "Octets exacts du .nfo, encodés en base64." }
     Probleme:
       type: object
       required: [title, status]
