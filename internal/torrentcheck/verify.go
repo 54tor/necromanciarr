@@ -35,9 +35,12 @@ type Limiter interface {
 	WaitN(ctx context.Context, n int) error
 }
 
-// Verifier vérifie les pièces ; Limiter nil signifie lecture sans plafond de débit.
+// Verifier vérifie les pièces ; Limiter nil signifie lecture sans plafond de débit. Progress, s'il est posé, est
+// appelé après chaque pièce hachée (pas pour une pièce sautée faute de fichier) ; une erreur arrête la vérification,
+// ce qui permet d'enregistrer l'avancement au fil de l'eau et de s'arrêter si cet enregistrement n'est plus permis.
 type Verifier struct {
-	Limiter Limiter
+	Limiter  Limiter
+	Progress func(pieceIndex int, verified bool) error
 }
 
 // Report résume la couverture : MissingPieces liste les pièces non vérifiées ; MediaComplete est vrai si tous les fichiers média sont présents
@@ -138,6 +141,12 @@ func (verifier Verifier) scan(ctx context.Context, torrent *Torrent, source Sour
 		if matches {
 			state.verified[pieceIndex] = struct{}{}
 			verified = append(verified, pieceIndex)
+		}
+		if verifier.Progress == nil {
+			continue
+		}
+		if err := verifier.Progress(pieceIndex, matches); err != nil {
+			return verified, err
 		}
 	}
 	return verified, nil

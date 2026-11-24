@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"maps"
 	"math"
 	"slices"
 	"sync"
@@ -582,5 +583,31 @@ func TestParse_acceptsMaximalPieceLengthWithoutOverflow(t *testing.T) {
 	_, gotValue := parsed.pieceBounds(0)
 	if gotValue != expectedValue {
 		t.Fatalf("expected piece end %d, got %d", expectedValue, gotValue)
+	}
+}
+
+func TestCoverage_reportsEachHashedPieceToProgressAndStopsOnItsError(t *testing.T) {
+	parsed := parseStandardTorrent(t)
+	source := sourceFromFiles(standardFiles())
+	delete(source.contents, indexNfo)
+	verdicts := map[int]bool{}
+	verifier := Verifier{Progress: func(pieceIndex int, verified bool) error {
+		verdicts[pieceIndex] = verified
+		return nil
+	}}
+
+	if _, err := verifier.Coverage(context.Background(), parsed, source, map[int]struct{}{0: {}}); err != nil {
+		t.Fatalf("coverage: %v", err)
+	}
+	expectedValue := map[int]bool{1: true, 3: true, 4: true}
+	if !maps.Equal(verdicts, expectedValue) {
+		t.Fatalf("gotValue %v, expectedValue %v (resumed and absence-blocked pieces are not reported)", verdicts, expectedValue)
+	}
+
+	errStop := errors.New("stop")
+	stopping := Verifier{Progress: func(int, bool) error { return errStop }}
+	report, err := stopping.Coverage(context.Background(), parsed, source, nil)
+	if !errors.Is(err, errStop) || report.VerifiedPieces != 1 {
+		t.Fatalf("gotValue %+v %v, expectedValue a stop after the first piece", report, err)
 	}
 }
