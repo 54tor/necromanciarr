@@ -30,7 +30,7 @@ var (
 	ErrVerifiedFileTooLarge     = errors.New("store: verified file exceeds 1 MiB")
 )
 
-// Verification est le résultat, éventuellement partiel, du contrôle des pièces d'un candidat. CheckedBitset marque les
+// Verification est le résultat, éventuellement incomplet, du contrôle des pièces d'un candidat. CheckedBitset marque les
 // pièces déjà contrôlées (reprise sans les relire), VerifiedBitset celles dont le SHA1 concorde ; bit i = octet i/8,
 // bit de poids faible i%8. Une pièce contrôlée et non vérifiée est manquante.
 type Verification struct {
@@ -100,7 +100,7 @@ func nonNilBytes(raw []byte) []byte {
 	return raw
 }
 
-// VerifiedFile est une annexe du torrent (un .nfo par exemple) dont le contenu a passé le SHA1 des pièces ; Size et
+// VerifiedFile est une annexe du torrent (un .nfo, typiquement) dont le contenu a passé le SHA1 des pièces ; Size et
 // SHA256 sont calculés par SaveVerifiedFile.
 type VerifiedFile struct {
 	CandidateID int64

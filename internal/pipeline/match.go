@@ -22,7 +22,7 @@ const (
 	ReasonStaleDetected = "stale_candidate"
 )
 
-// candidateKey identifie un candidat : le même infohash sur deux trackers donne deux candidats.
+// candidateKey identifie un candidat : le même infohash sur deux trackers donne deux entrées distinctes.
 type candidateKey struct {
 	infohash, tracker string
 }
@@ -33,7 +33,7 @@ type pendingCandidate struct {
 	local   map[int64]store.MediaFile
 }
 
-// runMatch périme les candidats dont un fichier a changé, puis cherche une fois par identifiant externe et enregistre
+// runMatch périme chaque candidat dont un fichier a changé, puis cherche une fois par identifiant externe et enregistre
 // chaque release dont un fichier a exactement la taille d'un fichier local ; tous les torrents sont gardés.
 func runMatch(ctx context.Context, deps Deps) (Result, error) {
 	var result Result
@@ -49,7 +49,7 @@ func runMatch(ctx context.Context, deps Deps) (Result, error) {
 		return result, err
 	}
 	searchErr := searchGroups(ctx, deps, &result, groupByExternalID(files), now)
-	// Les candidats déjà enregistrés sont regroupés même après un arrêt, pour que la revue reste cohérente.
+	// Chaque candidat déjà enregistré est regroupé même après un arrêt, pour que la revue reste cohérente.
 	regroupErr := deps.Store.RegroupCandidates(context.WithoutCancel(ctx))
 	return result, errors.Join(searchErr, regroupErr)
 }

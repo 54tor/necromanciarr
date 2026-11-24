@@ -36,15 +36,15 @@ const (
 // MaxTorrentBytes plafonne le .torrent conservé : au-delà, l'étape qui le télécharge échoue proprement.
 const MaxTorrentBytes = 8 << 20
 
-// Erreurs typées des candidats.
+// Erreurs typées liées à un candidat.
 var (
 	ErrUnknownCandidateState = errors.New("store: unknown candidate state")
 	ErrCandidateNotFound     = errors.New("store: candidate not found")
 	ErrTorrentTooLarge       = errors.New("store: torrent file exceeds 8 MiB")
 )
 
-// Candidate est une release candidate, identifiée par (Infohash, Tracker) ; GroupID regroupe les candidats qui se
-// disputent un même fichier de la bibliothèque (0 tant que RegroupCandidates n'est pas passé).
+// Candidate est une release candidate, identifiée par (Infohash, Tracker) ; GroupID regroupe chaque candidat qui se
+// dispute un même fichier de la bibliothèque (0 tant que RegroupCandidates n'est pas passé).
 type Candidate struct {
 	ID           int64
 	Infohash     string
@@ -91,7 +91,7 @@ func (openedStore *Store) SetMediaFileIDs(ctx context.Context, mediaFileID int64
 	return nil
 }
 
-// DeleteMediaFile retire un fichier disparu de l'inventaire ; ses candidats deviennent stale avant la suppression.
+// DeleteMediaFile retire un fichier disparu de l'inventaire ; chaque candidat associé devient stale avant la suppression.
 func (openedStore *Store) DeleteMediaFile(ctx context.Context, mediaFileID int64, now time.Time) error {
 	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
 		if _, err := invalidateForFile(ctx, transaction, mediaFileID, now); err != nil {
@@ -102,8 +102,8 @@ func (openedStore *Store) DeleteMediaFile(ctx context.Context, mediaFileID int64
 	})
 }
 
-// InvalidateCandidatesForFile passe à stale les candidats associés au fichier et efface leur vérification, qui ne
-// vaut plus ; renvoie le nombre de candidats touchés.
+// InvalidateCandidatesForFile passe à stale chaque candidat associé au fichier et efface sa vérification, qui ne
+// vaut plus ; renvoie le nombre de lignes touchées.
 func (openedStore *Store) InvalidateCandidatesForFile(ctx context.Context, mediaFileID int64, now time.Time) (int, error) {
 	var invalidated int
 	err := openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
@@ -129,14 +129,14 @@ WHERE state != ? AND id IN (`+candidatesOfFile+`)`, string(CandidateStale), now.
 	return int(affected), err
 }
 
-// changedCandidates sélectionne les candidats dont un fichier local associé a disparu ou a changé de taille ou de date.
+// changedCandidates sélectionne chaque candidat dont un fichier local associé a disparu ou a changé de taille ou de date.
 const changedCandidates = `SELECT candidate_files.candidate_id FROM candidate_files
 LEFT JOIN media_files ON media_files.id = candidate_files.media_file_id
 WHERE candidate_files.media_size IS NOT NULL AND (media_files.id IS NULL OR media_files.size != candidate_files.media_size
 	OR media_files.mtime != candidate_files.media_mtime)`
 
 // MarkChangedCandidatesStale passe à stale (et efface la vérification de) tout candidat dont un fichier local associé
-// a disparu ou changé depuis l'association ; renvoie le nombre de candidats touchés.
+// a disparu ou changé depuis l'association ; renvoie le nombre de lignes touchées.
 func (openedStore *Store) MarkChangedCandidatesStale(ctx context.Context, now time.Time) (int, error) {
 	var marked int
 	err := openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
@@ -311,7 +311,7 @@ FROM candidate_files WHERE candidate_id = ? ORDER BY file_index, media_file_id`,
 	return files, rows.Err()
 }
 
-// ListCandidatesByState renvoie les candidats dans l'un des états donnés (tous si aucun), triés par identifiant.
+// ListCandidatesByState renvoie chaque candidat dans l'un des états donnés (tous si aucun), triés par identifiant.
 func (openedStore *Store) ListCandidatesByState(ctx context.Context, states ...CandidateState) ([]Candidate, error) {
 	query := `SELECT id, infohash, tracker, name, total_size, provider_json, state, group_id, created_at, updated_at FROM torrent_candidates`
 	arguments := make([]any, 0, len(states))
@@ -376,8 +376,8 @@ func (openedStore *Store) CandidateTorrent(ctx context.Context, candidateID int6
 	return raw, nil
 }
 
-// RegroupCandidates donne le même GroupID (le plus petit identifiant du groupe) aux candidats non périmés qui
-// partagent un fichier de la bibliothèque, directement ou par transitivité ; un candidat seul a son propre identifiant.
+// RegroupCandidates donne le même GroupID (le plus petit identifiant du groupe) à chaque candidat non périmé qui
+// partage un fichier de la bibliothèque, directement ou par transitivité ; un candidat seul a son propre identifiant.
 func (openedStore *Store) RegroupCandidates(ctx context.Context) error {
 	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
 		groups, err := computeGroups(ctx, transaction)

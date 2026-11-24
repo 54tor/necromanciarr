@@ -28,7 +28,7 @@ type externalIDs struct {
 	tmdbID, tvdbID int
 }
 
-// runScan inventorie les racines, invalide les candidats des fichiers changés ou disparus, puis reporte les
+// runScan inventorie les racines, invalide tout candidat d'un fichier changé ou disparu, puis reporte les
 // identifiants TMDB/TVDB de Radarr et Sonarr sur les fichiers de même chemin.
 func runScan(ctx context.Context, deps Deps) (Result, error) {
 	var result Result
@@ -52,7 +52,7 @@ func runScan(ctx context.Context, deps Deps) (Result, error) {
 	return result, joinExternalIDs(ctx, deps, &result, current, idsByPath)
 }
 
-// refreshInventory invalide les candidats des fichiers changés depuis le dernier inventaire, retire les fichiers
+// refreshInventory invalide tout candidat d'un fichier changé depuis le dernier inventaire, retire les fichiers
 // disparus et renvoie l'inventaire à jour.
 func refreshInventory(ctx context.Context, deps Deps, result *Result, before []store.MediaFile) ([]store.MediaFile, error) {
 	after, err := deps.Store.ListMediaFiles(ctx)

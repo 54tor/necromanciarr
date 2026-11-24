@@ -168,7 +168,7 @@ func notImplemented(context.Context, Deps) (Result, error) {
 	return Result{}, ErrStageNotImplemented
 }
 
-// Run exécute une étape sous le verrou exclusif du store ; le Result partiel est renvoyé même en cas d'erreur.
+// Run exécute une étape sous le verrou exclusif du store ; le Result incomplet est renvoyé même en cas d'erreur.
 func Run(ctx context.Context, stage Stage, deps Deps) (Result, error) {
 	runner, known := stageRunners[stage]
 	if !known {
