@@ -5,8 +5,9 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
-  // Chemins relatifs : le binaire Go sert les ressources depuis n'importe quel préfixe.
-  base: './',
+  // Chemins absolus : le serveur Go renvoie index.html pour toute route du client (/proposals/12) ; des chemins
+  // relatifs y chercheraient /proposals/assets/... L'interface est servie à la racine.
+  base: '/',
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },

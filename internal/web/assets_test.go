@@ -84,3 +84,20 @@ func TestServer_assetsNoTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestServer_nestedClientRouteServesAnIndexWithAbsoluteAssetURLs(t *testing.T) {
+	const viteIndex = `<!doctype html><script type="module" src="/assets/index-abc.js"></script>` +
+		`<link rel="stylesheet" href="/assets/index-abc.css">`
+	assets := fstest.MapFS{"index.html": {Data: []byte(viteIndex)}, "assets/index-abc.js": {Data: []byte(assetBody)}}
+	handler := newTestHandlerWith(t, &fakeService{}, &fakeHealth{}, loopbackSettings(), assets)
+
+	response := serve(handler, apiRequest(http.MethodGet, "/proposals/12", ""))
+
+	body := readBody(t, response)
+	if response.Code != http.StatusOK || body != viteIndex || strings.Contains(body, `"./assets`) {
+		t.Fatalf("gotValue %d %q, expectedValue the index with absolute asset urls", response.Code, body)
+	}
+	if gotValue := serve(handler, apiRequest(http.MethodGet, "/assets/index-abc.js", "")).Code; gotValue != http.StatusOK {
+		t.Fatalf("gotValue %d, expectedValue the asset served at its absolute url", gotValue)
+	}
+}
