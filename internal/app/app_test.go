@@ -36,7 +36,7 @@ func (resumer *fakeResumer) Resume(_ context.Context, infoHash string) error {
 	return nil
 }
 
-// decisionFixture construit des candidats vérifiés et leurs propositions directement par le store.
+// decisionFixture construit chaque candidat vérifié et ses propositions directement par le store.
 type decisionFixture struct {
 	t       *testing.T
 	store   *store.Store

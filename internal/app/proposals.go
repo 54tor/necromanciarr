@@ -47,7 +47,7 @@ func (filter ProposalFilter) keeps(view Proposal) bool {
 	return !rejectedByDecision && !rejectedByKind && !rejectedByGroup && !rejectedAsStale
 }
 
-// snapshot est l'état lu une fois par action : propositions, candidats (tous états) et étapes d'application.
+// snapshot est l'état lu une fois par action : propositions, chaque candidat (tout état) et étapes d'application.
 type snapshot struct {
 	proposals  []store.Proposal
 	candidates map[int64]store.Candidate
@@ -278,8 +278,8 @@ func (svc *service) AcceptGroup(ctx context.Context, groupID int64) ([]int64, er
 	return accepted, nil
 }
 
-// groupMembers renvoie, triées par id, les propositions ouvertes de la génération courante des candidats vérifiés du
-// groupe ; une proposition ouverte rattachée à un autre groupe que son candidat refuse tout.
+// groupMembers renvoie, triées par id, les propositions ouvertes de la génération courante de chaque candidat vérifié
+// du groupe ; une proposition ouverte rattachée à un autre groupe que son candidat refuse tout.
 func (state snapshot) groupMembers(groupID int64) ([]store.Proposal, error) {
 	var members []store.Proposal
 	groupKnown := false

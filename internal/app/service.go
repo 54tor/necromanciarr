@@ -45,7 +45,7 @@ var (
 type Service interface {
 	// RunStage exécute une étape du pipeline sous son verrou.
 	RunStage(ctx context.Context, stage pipeline.Stage) (pipeline.Result, error)
-	// Status résume l'état des candidats, des propositions et du mode cross-seed.
+	// Status résume l'état des torrents, des propositions et du mode cross-seed.
 	Status(ctx context.Context) (Status, error)
 	// ListProposals liste les propositions qui passent le filtre, avec leurs détails.
 	ListProposals(ctx context.Context, filter ProposalFilter) ([]Proposal, error)

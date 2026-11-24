@@ -7,7 +7,7 @@ import (
 	"necromanciarr/internal/store"
 )
 
-// Status résume l'état persisté : candidats par état, propositions par décision, propositions appliquées par étape,
+// Status résume l'état persisté : torrents par état, propositions par décision, propositions appliquées par étape,
 // mode cross-seed effectif et son avertissement éventuel.
 type Status struct {
 	Candidates    map[store.CandidateState]int   `json:"candidates"`

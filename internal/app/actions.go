@@ -28,22 +28,36 @@ const (
 )
 
 var registry = []Action{
-	{Name: "run", Method: "RunStage", Description: "run one pipeline stage (scan, match, verify, link, seed)", Mutating: true,
-		Arguments: []string{ArgumentStage}},
+	{
+		Name: "run", Method: "RunStage", Description: "run one pipeline stage (scan, match, verify, link, seed)", Mutating: true,
+		Arguments: []string{ArgumentStage},
+	},
 	{Name: "status", Method: "Status", Description: "summarize candidates, proposals and the cross-seed mode"},
-	{Name: actionNameProposalPrefix + "list", Method: "ListProposals", Description: "list proposals with their details",
-		Options: []string{OptionDecision, OptionKind, OptionGroup, OptionCurrentOnly}},
-	{Name: actionNameProposalPrefix + "accept", Method: "Accept", Description: "accept a torrent proposal of the current generation",
-		Mutating: true, Arguments: []string{ArgumentProposalID}, Options: []string{OptionAllowPartialPack}},
-	{Name: actionNameProposalPrefix + "reject", Method: "Reject", Description: "reject a proposal", Mutating: true,
-		Arguments: []string{ArgumentProposalID}},
-	{Name: actionNameProposalPrefix + "choose", Method: "Choose", Description: "make a full proposal the primary of its group",
-		Mutating: true, Arguments: []string{ArgumentProposalID}},
-	{Name: actionNameProposalPrefix + "force", Method: "Force", Description: "start a linked partial_annex left paused by seed",
-		Mutating: true, Arguments: []string{ArgumentProposalID}, Options: []string{OptionAllowPartialPack}},
-	{Name: actionNameProposalPrefix + "accept-group", Method: "AcceptGroup",
+	{
+		Name: actionNameProposalPrefix + "list", Method: "ListProposals", Description: "list proposals with their details",
+		Options: []string{OptionDecision, OptionKind, OptionGroup, OptionCurrentOnly},
+	},
+	{
+		Name: actionNameProposalPrefix + "accept", Method: "Accept", Description: "accept a torrent proposal of the current generation",
+		Mutating: true, Arguments: []string{ArgumentProposalID}, Options: []string{OptionAllowPartialPack},
+	},
+	{
+		Name: actionNameProposalPrefix + "reject", Method: "Reject", Description: "reject a proposal", Mutating: true,
+		Arguments: []string{ArgumentProposalID},
+	},
+	{
+		Name: actionNameProposalPrefix + "choose", Method: "Choose", Description: "make a full proposal the primary of its group",
+		Mutating: true, Arguments: []string{ArgumentProposalID},
+	},
+	{
+		Name: actionNameProposalPrefix + "force", Method: "Force", Description: "start a linked partial_annex left paused by seed",
+		Mutating: true, Arguments: []string{ArgumentProposalID}, Options: []string{OptionAllowPartialPack},
+	},
+	{
+		Name: actionNameProposalPrefix + "accept-group", Method: "AcceptGroup",
 		Description: "accept the primary of a group, and the other verified torrents in native cross-seed mode", Mutating: true,
-		Arguments: []string{ArgumentGroupID}},
+		Arguments: []string{ArgumentGroupID},
+	},
 }
 
 // Actions renvoie une copie du registre, dans l'ordre d'affichage.
