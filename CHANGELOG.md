@@ -30,6 +30,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - Web interface redesigned: sidebar navigation, page toolbars, dense sortable tables, status pills; cards only on narrow screens; fully translated (fr/en).
 - Server log lines are translated and carry a stable `code` attribute (`job_failed`, `server_listening`, ...); the `serve` startup line is now a structured log line (`code=server_listening`) and follows `language`, as do the other `serve` messages; Go HTTP server errors and handler panics are logged through the same coded, redacted log.
 - `links list` returns a stable `reason` code with a translated `label` instead of an English sentence; dedupe reasons are stable codes too, and `warnings` of `status`, stage results and `dedupe apply`/`repair apply` are `{code, text}` objects; mount advice and cross-seed mode warnings are translated.
+- The page shown when the binary is built without the web interface follows `language` (title, `make ui` hint, `<html lang>`).
 - `doctor` results carry a stable `code` and are rendered in the configured language.
 - Proposal warnings are stored as translatable messages and returned as `{code, text}`; reasons come with translated labels (`reason_labels`, `label`). Warnings stored by earlier versions are still shown as they were saved.
 - Proposal warnings are now stored as structured messages; a database written by this version cannot be read by an older binary.

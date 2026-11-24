@@ -395,4 +395,7 @@ var english = map[Key]string{
 	KeyCLIHealthcheckOK:                    "ok",
 	KeyLogAPIPanicked:                      "panic in an api handler: {error}",
 	KeyLogHTTPServerError:                  "http server error: {error}",
+	KeyWebUINotBuiltTitle:                  "Necromanciarr: interface not built",
+	KeyWebUINotBuiltHeading:                "Interface not built",
+	KeyWebUINotBuiltBody:                   "This binary was built without the web interface. Run {command}, then rebuild. The API remains available under /api.",
 }

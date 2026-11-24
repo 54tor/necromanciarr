@@ -395,4 +395,7 @@ var french = map[Key]string{
 	KeyCLIHealthcheckOK:                    "ok",
 	KeyLogAPIPanicked:                      "panique dans un handler de l'API : {error}",
 	KeyLogHTTPServerError:                  "erreur du serveur HTTP : {error}",
+	KeyWebUINotBuiltTitle:                  "Necromanciarr : interface non construite",
+	KeyWebUINotBuiltHeading:                "Interface non construite",
+	KeyWebUINotBuiltBody:                   "Ce binaire a été compilé sans l'interface web. Lancez {command} puis recompilez. L'API reste disponible sous /api.",
 }

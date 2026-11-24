@@ -125,7 +125,7 @@ Body `{"error": {"code", "message"}}`. The message is that of the recognized typ
 
 ## Interface
 
-Vue application embedded in the binary, a single anthracite dark theme, fragment routing (`#/…`): the server never sees the tab. Any path without an extension serves `index.html`. Without a built interface (`make ui` not run), a page "Interface non construite" is served and the API stays available.
+Vue application embedded in the binary, a single anthracite dark theme, fragment routing (`#/…`): the server never sees the tab. Any path without an extension serves `index.html`. Without a built interface (`make ui` not run), a page "Interface not built" ("Interface non construite" in French, following `language`, with a matching `<html lang>`) is served and the API stays available.
 
 | Tab | Fragment | CLI equivalent |
 |---|---|---|

@@ -125,7 +125,7 @@ Corps `{"error": {"code", "message"}}`. Le message est celui de l'erreur typée 
 
 ## Interface
 
-Application Vue embarquée dans le binaire, un seul thème sombre anthracite, routage par fragment (`#/…`) : le serveur ne voit jamais l'onglet. Tout chemin sans extension sert `index.html`. Sans interface construite (`make ui` non lancé), une page « Interface non construite » est servie et l'API reste disponible.
+Application Vue embarquée dans le binaire, un seul thème sombre anthracite, routage par fragment (`#/…`) : le serveur ne voit jamais l'onglet. Tout chemin sans extension sert `index.html`. Sans interface construite (`make ui` non lancé), une page « Interface non construite » (« Interface not built » en anglais, selon `language`, avec `<html lang>` assorti) est servie et l'API reste disponible.
 
 | Onglet | Fragment | Équivalent CLI |
 |---|---|---|

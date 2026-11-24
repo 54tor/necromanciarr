@@ -69,7 +69,7 @@ func NewHandlerWithAssets(ctx context.Context, service app.Service, health Healt
 		handler.mux.Handle(path, handler.protect(handler.endpoint(methodNotAllowed(methods))))
 	}
 	handler.mux.Handle("/api/", handler.protect(handler.endpoint(unknownRoute)))
-	handler.mux.Handle("/", assetsHandler(assets))
+	handler.mux.Handle("/", assetsHandler(assets, handler.translator))
 	return handler
 }
 

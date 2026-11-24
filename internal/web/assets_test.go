@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+
+	"necromanciarr/internal/i18n"
 )
 
 func TestServer_fallsBackToIndexForClientRoutes(t *testing.T) {
@@ -38,22 +40,37 @@ func TestServer_fallsBackToIndexForClientRoutes(t *testing.T) {
 
 func TestServer_fallbackPageWhenUiNotBuilt(t *testing.T) {
 	placeholderOnly := fstest.MapFS{placeholderTag: {Data: []byte("placeholder")}}
-	handler := newTestHandlerWith(t, &fakeService{}, &fakeHealth{}, loopbackSettings(), placeholderOnly)
-
-	for _, target := range []string{"/", "/proposals"} {
-		response := serve(handler, apiRequest(http.MethodGet, target, ""))
-
-		body := readBody(t, response)
-		if response.Code != http.StatusOK || !strings.Contains(body, "Interface non construite") || !strings.Contains(body, "make ui") {
-			t.Fatalf("%s: gotValue %d %q, expectedValue the built-in page", target, response.Code, body)
-		}
-		if strings.Contains(body, "http") || strings.Contains(body, "<script") || strings.Contains(body, "style") {
-			t.Fatalf("%s: gotValue %q, expectedValue no external resource, script nor inline style", target, body)
-		}
-		if response.Header().Get("Content-Security-Policy") != contentSecurityPolicy {
-			t.Fatalf("%s: gotValue no CSP, expectedValue the security headers", target)
-		}
+	cases := []struct {
+		language        i18n.Language
+		expectedTitle   string
+		expectedHTMLTag string
+	}{
+		{i18n.French, "Interface non construite", `<html lang="fr">`},
+		{i18n.English, "Interface not built", `<html lang="en">`},
 	}
+	for _, testCase := range cases {
+		t.Run(string(testCase.language), func(t *testing.T) {
+			handler := newTestHandlerWith(t, &fakeService{language: testCase.language}, &fakeHealth{}, loopbackSettings(), placeholderOnly)
+			for _, target := range []string{"/", "/proposals"} {
+				response := serve(handler, apiRequest(http.MethodGet, target, ""))
+
+				body := readBody(t, response)
+				if response.Code != http.StatusOK || !strings.Contains(body, testCase.expectedTitle) || !strings.Contains(body, "make ui") {
+					t.Fatalf("%s: gotValue %d %q, expectedValue the built-in page titled %q", target, response.Code, body, testCase.expectedTitle)
+				}
+				if !strings.Contains(body, testCase.expectedHTMLTag) {
+					t.Fatalf("%s: gotValue %q, expectedValue %s", target, body, testCase.expectedHTMLTag)
+				}
+				if strings.Contains(body, "http") || strings.Contains(body, "<script") || strings.Contains(body, "style") {
+					t.Fatalf("%s: gotValue %q, expectedValue no external resource, script nor inline style", target, body)
+				}
+				if response.Header().Get("Content-Security-Policy") != contentSecurityPolicy {
+					t.Fatalf("%s: gotValue no CSP, expectedValue the security headers", target)
+				}
+			}
+		})
+	}
+	handler := newTestHandlerWith(t, &fakeService{}, &fakeHealth{}, loopbackSettings(), placeholderOnly)
 	if gotValue := serve(handler, apiRequest(http.MethodGet, "/assets/app.js", "")).Code; gotValue != http.StatusNotFound {
 		t.Fatalf("gotValue %d, expectedValue 404 for an asset of an unbuilt interface", gotValue)
 	}
