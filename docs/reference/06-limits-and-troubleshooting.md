@@ -60,7 +60,7 @@
 ### Base et plateformes
 
 - **Journal SQLite** : la base garde le mode de journal par défaut (`DELETE`), sans WAL. Le mode WAL exige une mémoire partagée (`-shm`) que les volumes réseau (NFS, SMB, montages rclone) ne garantissent pas, et la base vit souvent sur un tel volume en Docker ; les transactions prennent le verrou d'écriture dès `BEGIN` (`_txlock=immediate`) avec une attente de 5 secondes (`busy_timeout`).
-- **Windows** : les binaires `windows/amd64` et `windows/arm64` sont construits ; la CI n'exécute sur Windows que les tests des paquets `internal/linker`, `internal/config` et `internal/pipeline` (job `windows-tests`), sur `amd64`.
+- **Windows** : les binaires `windows/amd64` et `windows/arm64` sont construits ; la CI n'exécute sur Windows que les tests des paquets `internal/linker`, `internal/config` et `internal/pipeline` (job `windows-tests`, non bloquant tant que son premier passage n'est pas trié), sur `amd64`.
 
 ### Risques acceptés (relecture de la v1)
 
