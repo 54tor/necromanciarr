@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Button } from '@/components/ui/button'
 import type { Decision } from '@/api/types'
+import { t } from '@/i18n'
 
 defineProps<{ action: string; decision: Decision; applicable: boolean; busy: boolean }>()
 const emit = defineEmits<{ apply: [] }>()
@@ -15,7 +16,7 @@ const emit = defineEmits<{ apply: [] }>()
       :disabled="!applicable || busy"
       @click="emit('apply')"
     >
-      {{ decision === 'accepted' ? 'Appliquer' : 'Accepter et appliquer' }}
+      {{ t(decision === 'accepted' ? 'maintenance.apply' : 'maintenance.acceptAndApply') }}
     </Button>
   </div>
 </template>

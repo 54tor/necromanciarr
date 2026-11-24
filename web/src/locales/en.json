@@ -383,6 +383,69 @@
     "rejectItem": "{name} ({kind})"
   },
   "dedupe": {
-    "confirmBulkSummary": "Each replacement is applied one at a time. With the simulation unchecked, files are really written."
+    "caption": "Proposed replacements",
+    "empty": "No replacement proposed. Compute the plan.",
+    "loadFailed": "Could not load the replacements.",
+    "plan": "Compute the plan",
+    "dryRun": "Dry run (no file modified)",
+    "applyAccepted": "Apply accepted ({count})",
+    "kindUndefined": "not defined",
+    "columns": {
+      "torrentFile": "Torrent-side file",
+      "libraryTarget": "Library target",
+      "kind": "Kind",
+      "proof": "Proof",
+      "bytesToRead": "Bytes to read",
+      "decision": "Decision",
+      "applicable": "Applicable",
+      "warnings": "Warnings"
+    },
+    "applicable": {
+      "yes": "Applicable",
+      "no": "Not applicable",
+      "ambiguous": "Ambiguous: {count} file(s)",
+      "ambiguousFiles": "Ambiguous files"
+    },
+    "warningsCount": "{count} warning(s)",
+    "actions": {
+      "simulate": "Simulate",
+      "apply": "Apply",
+      "acceptAndApply": "Accept and apply",
+      "reject": "Reject",
+      "simulateOf": "Simulate the replacement of {name}",
+      "applyOf": "Apply the replacement of {name}",
+      "acceptAndApplyOf": "Accept and apply the replacement of {name}",
+      "rejectOf": "Reject the replacement of {name}"
+    },
+    "toasts": {
+      "rejected": "Proposal rejected."
+    },
+    "confirm": {
+      "item": "{file} → {target}",
+      "noTarget": "no target",
+      "phrase": "APPLY",
+      "bulkTitle": "Apply {count} accepted replacement(s)?",
+      "rowTitle": "Apply this replacement?",
+      "descriptionDry": "Dry run: every check runs, no file is modified.",
+      "descriptionReal": "Each listed torrent-side file is replaced by a link to the identical library file; the library is never written.",
+      "summaryDry": "Dry run: nothing is created or replaced. Proposals are checked one by one, nothing is accepted.",
+      "summaryReal": "Each torrent-side file is replaced by a link, one at a time, after a torrent client recheck when one is configured. The run stops at the first error.",
+      "summaryRealPending": "This proposal is pending: it is accepted then applied. The torrent-side file is replaced by a link to the library.",
+      "confirmDry": "Run the dry run",
+      "confirmReal": "Apply for real"
+    }
+  },
+  "warning": {
+    "no_client_recheck": "no client recheck: a running torrent could write through the replacement link",
+    "dedupe": {
+      "unreliable_inode": "unreliable inode",
+      "full_network_read": "full read of a network mount",
+      "sampled_verify": "sampled verification, weaker than the full comparison",
+      "rename_not_atomic": "rename is not atomic on this volume"
+    }
+  },
+  "maintenance": {
+    "apply": "Apply",
+    "acceptAndApply": "Accept and apply"
   }
 }

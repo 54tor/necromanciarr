@@ -13,6 +13,16 @@ const DECISION_RANKS: Readonly<Record<Decision, number>> = {
   superseded: 5,
 }
 
+/** Teinte de la pastille de décision, commune aux vues Propositions et Déduplication. */
+export const DECISION_TONES = {
+  pending: 'info',
+  accepted: 'info',
+  applied: 'ok',
+  failed: 'fail',
+  rejected: 'muted',
+  superseded: 'muted',
+} as const satisfies Record<Decision, 'ok' | 'warn' | 'fail' | 'info' | 'muted'>
+
 const GROUP_ACCEPTED_KINDS: readonly Proposal['kind'][] = ['cross_seed', 'full']
 
 export function decisionRank(decision: Decision): number {

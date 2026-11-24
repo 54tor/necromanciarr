@@ -1,18 +1,29 @@
 import { currentLanguage } from '@/i18n'
 
-const BYTE_UNITS = ['o', 'Kio', 'Mio', 'Gio', 'Tio'] as const
+const BYTE_UNITS = {
+  fr: ['o', 'Kio', 'Mio', 'Gio', 'Tio'],
+  en: ['B', 'KiB', 'MiB', 'GiB', 'TiB'],
+} as const
 const BYTES_PER_UNIT = 1024
 
-/** formatBytes écrit une taille en octets avec une unité binaire française (1 536 -> « 1,5 Kio »). */
+/** formatBytes écrit une taille en octets avec une unité binaire de la langue active (1 536 -> « 1,5 Kio » / "1.5 KiB"). */
 export function formatBytes(bytes: number): string {
+  const language = currentLanguage()
+  const units = BYTE_UNITS[language]
   let value = bytes
   let unitIndex = 0
-  while (value >= BYTES_PER_UNIT && unitIndex < BYTE_UNITS.length - 1) {
+  while (value >= BYTES_PER_UNIT && unitIndex < units.length - 1) {
     value /= BYTES_PER_UNIT
     unitIndex += 1
   }
   const digits = unitIndex === 0 || value >= 100 ? 0 : 1
-  return `${value.toLocaleString('fr-FR', { maximumFractionDigits: digits })} ${BYTE_UNITS[unitIndex]}`
+  return `${value.toLocaleString(language, { maximumFractionDigits: digits })} ${units[unitIndex]}`
+}
+
+/** formatExactBytes écrit le nombre d'octets sans arrondi (« 1 000 000 o »), pour l'infobulle d'une taille humanisée. */
+export function formatExactBytes(bytes: number): string {
+  const language = currentLanguage()
+  return `${bytes.toLocaleString(language)} ${BYTE_UNITS[language][0]}`
 }
 
 /** formatPercent arrondit un pourcentage à une décimale (« 99,9 % »). */

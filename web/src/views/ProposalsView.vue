@@ -32,6 +32,7 @@ import {
   canChoose,
   canForce,
   canReject,
+  DECISION_TONES,
   decisionRank,
   groupTargets,
   hasSourceField,
@@ -55,14 +56,6 @@ const filters = reactive({
 
 const EMPTY_CELL = '—'
 const PRIMARY_MARK = '★'
-const DECISION_TONES = {
-  pending: 'info',
-  accepted: 'info',
-  applied: 'ok',
-  failed: 'fail',
-  rejected: 'muted',
-  superseded: 'muted',
-} as const
 /** Entrée vide d'un filtre : « Nature : Toutes ». */
 function allOf(filterKey: string): string {
   return t('common.labelValue', { label: t(filterKey), value: t('proposals.filters.all') })

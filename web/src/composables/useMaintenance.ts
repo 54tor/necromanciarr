@@ -19,9 +19,14 @@ export function useMaintenance<Details extends { actionable: boolean }>(
   const items = ref([]) as Ref<MaintenanceProposal<Details>[]>
   // Simulation activée par défaut : l'opérateur doit décocher pour modifier des fichiers.
   const dryRun = ref(true)
+  const loading = ref(false)
+  const loadFailed = ref(false)
 
   async function load(): Promise<void> {
+    loading.value = true
     const list = await call(() => api.listProposals({ kind }))
+    loading.value = false
+    loadFailed.value = list === undefined
     if (!list) return
     items.value = list.map((proposal: Proposal) => ({
       id: proposal.id,
@@ -46,10 +51,15 @@ export function useMaintenance<Details extends { actionable: boolean }>(
     items.value.filter((candidate) => candidate.decision === 'accepted' && canApply(candidate)),
   )
 
-  /** applyAccepted applique à la suite les propositions acceptées ; le mode simulation est figé au départ de la chaîne. */
-  async function applyAccepted(): Promise<void> {
-    const dryRunAtStart = dryRun.value
-    for (const item of [...acceptedItems.value]) {
+  /**
+   * applyAccepted applique à la suite les propositions données (par défaut les acceptées) ; le mode simulation est figé
+   * au départ de la chaîne, ou imposé par l'appelant quand une confirmation l'a déjà présenté à l'opérateur.
+   */
+  async function applyAccepted(
+    dryRunAtStart = dryRun.value,
+    targets: MaintenanceProposal<Details>[] = acceptedItems.value,
+  ): Promise<void> {
+    for (const item of [...targets]) {
       const job = await applyOne(item, dryRunAtStart)
       if (!job) return
       const finished = await jobsState.waitFor(job)
@@ -63,6 +73,8 @@ export function useMaintenance<Details extends { actionable: boolean }>(
     items,
     acceptedItems,
     dryRun,
+    loading,
+    loadFailed,
     pending,
     busy: jobsState.busy,
     load,

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { setLanguage } from '@/i18n'
-import { formatBytes, formatDateTime, formatPercent, formatRelative } from './format'
+import {
+  formatBytes,
+  formatDateTime,
+  formatExactBytes,
+  formatPercent,
+  formatRelative,
+} from './format'
 
 describe('format', () => {
   it('formatBytes_humanisesWithBinaryUnits', () => {
@@ -14,6 +20,16 @@ describe('format', () => {
       const gotValue = formatBytes(bytes).replace(/\s/g, ' ')
       expect(gotValue).toBe(expectedValue)
     }
+  })
+
+  it('formatBytes_followsTheActiveLanguage', () => {
+    setLanguage('en')
+    const gotValue = [formatBytes(1536), formatExactBytes(1_000_000)]
+    setLanguage('fr')
+    const gotFrench = formatExactBytes(1_000_000).replace(/\s/g, ' ')
+
+    expect(gotValue).toEqual(['1.5 KiB', '1,000,000 B'])
+    expect(gotFrench).toBe('1 000 000 o')
   })
 
   it('formatPercent_keepsOneDecimal', () => {

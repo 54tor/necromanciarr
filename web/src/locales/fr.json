@@ -383,6 +383,69 @@
     "rejectItem": "{name} ({kind})"
   },
   "dedupe": {
-    "confirmBulkSummary": "Chaque remplacement est appliqué un par un. Une simulation décochée écrit réellement sur le disque."
+    "caption": "Remplacements proposés",
+    "empty": "Aucun remplacement proposé. Calculez le plan.",
+    "loadFailed": "Impossible de charger les remplacements.",
+    "plan": "Calculer le plan",
+    "dryRun": "Simulation (aucun fichier modifié)",
+    "applyAccepted": "Appliquer les acceptées ({count})",
+    "kindUndefined": "non défini",
+    "columns": {
+      "torrentFile": "Fichier côté torrent",
+      "libraryTarget": "Cible bibliothèque",
+      "kind": "Sorte",
+      "proof": "Preuve",
+      "bytesToRead": "Octets à lire",
+      "decision": "Décision",
+      "applicable": "Applicable",
+      "warnings": "Avertissements"
+    },
+    "applicable": {
+      "yes": "Applicable",
+      "no": "Non applicable",
+      "ambiguous": "Ambigu : {count} fichier(s)",
+      "ambiguousFiles": "Fichiers ambigus"
+    },
+    "warningsCount": "{count} avertissement(s)",
+    "actions": {
+      "simulate": "Simuler",
+      "apply": "Appliquer",
+      "acceptAndApply": "Accepter et appliquer",
+      "reject": "Rejeter",
+      "simulateOf": "Simuler le remplacement de {name}",
+      "applyOf": "Appliquer le remplacement de {name}",
+      "acceptAndApplyOf": "Accepter et appliquer le remplacement de {name}",
+      "rejectOf": "Rejeter le remplacement de {name}"
+    },
+    "toasts": {
+      "rejected": "Proposition rejetée."
+    },
+    "confirm": {
+      "item": "{file} → {target}",
+      "noTarget": "aucune cible",
+      "phrase": "APPLIQUER",
+      "bulkTitle": "Appliquer {count} remplacement(s) accepté(s) ?",
+      "rowTitle": "Appliquer ce remplacement ?",
+      "descriptionDry": "Simulation : tous les contrôles tournent, aucun fichier n'est modifié.",
+      "descriptionReal": "Chaque fichier côté torrent listé est remplacé par un lien vers le fichier identique de la bibliothèque ; la bibliothèque n'est jamais écrite.",
+      "summaryDry": "Simulation : rien n'est créé ni remplacé. Les propositions sont contrôlées une par une, sans rien accepter.",
+      "summaryReal": "Chaque fichier côté torrent est remplacé par un lien, un par un, après un recontrôle du client torrent quand il est configuré. L'opération s'arrête à la première erreur.",
+      "summaryRealPending": "Cette proposition est en attente : elle est acceptée puis appliquée. Le fichier côté torrent est remplacé par un lien vers la bibliothèque.",
+      "confirmDry": "Lancer la simulation",
+      "confirmReal": "Appliquer pour de bon"
+    }
+  },
+  "warning": {
+    "no_client_recheck": "aucun recontrôle du client : un torrent actif pourrait écrire à travers le lien de remplacement",
+    "dedupe": {
+      "unreliable_inode": "inode non fiable",
+      "full_network_read": "lecture complète d'un montage réseau",
+      "sampled_verify": "vérification par échantillons, plus faible que la comparaison complète",
+      "rename_not_atomic": "renommage non atomique sur ce volume"
+    }
+  },
+  "maintenance": {
+    "apply": "Appliquer",
+    "acceptAndApply": "Accepter et appliquer"
   }
 }

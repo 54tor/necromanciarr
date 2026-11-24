@@ -1,10 +1,5 @@
 {
   "owner": "D3d",
   "since": "2026-11-24",
-  "files": [
-    "src/views/DedupeView.vue",
-    "src/views/LinksView.vue",
-    "src/components/MaintenanceActions.vue",
-    "src/components/RecordedLinks.vue"
-  ]
+  "files": ["src/views/LinksView.vue", "src/components/RecordedLinks.vue"]
 }

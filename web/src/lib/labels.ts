@@ -43,7 +43,6 @@ export const REPAIR_METHOD_LABELS = labelTable('reason', [
   'fingerprint',
   'torrent-pieces',
 ])
-export const DEDUPE_METHOD_LABELS = labelTable('reason', ['hash', 'full', 'sampled'])
 export const LINK_KIND_LABELS = labelTable('kind', ['hardlink', 'reflink', 'symlink'])
 export const REPAIR_STATUS_LABELS = labelTable('reason', ['repairable', 'ambiguous', 'lost'])
 export const LINK_STATE_LABELS = labelTable('state', ['ok', 'diverged', 'lost', 'unreadable'])
