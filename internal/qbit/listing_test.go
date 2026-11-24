@@ -2,13 +2,10 @@ package qbit_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"testing"
-
-	"necromanciarr/internal/qbit"
 )
 
 // bulkyNameLength rend chaque entrée de torrents/info assez lourde pour dépasser l'ancien plafond de 8 Mio.
@@ -39,34 +36,6 @@ func TestFindTorrent_asksOnlyForTheWantedHashInALargeClient(t *testing.T) {
 	}
 	if _, present, err := client.FindTorrent(context.Background(), hashPack); err != nil || present {
 		t.Fatalf("absent: gotValue %v %v, expectedValue not present without error", present, err)
-	}
-}
-
-func TestRecheckPath_worksWithSixThousandTorrentsInTheClient(t *testing.T) {
-	fake := newFakeQbit(webAPIVersion4)
-	addForeignTorrents(fake, 6000)
-	fake.torrents[hashMovie] = movieTorrent(1)
-	server := fake.start(t)
-	client := newTestClient(t, server.URL, "", "")
-
-	if err := client.RecheckPath(context.Background(), moviePath); err != nil {
-		t.Fatalf("RecheckPath: %v", err)
-	}
-	if gotState, _ := fake.torrentState(hashMovie); gotState != "uploading" {
-		t.Fatalf("expectedValue the movie rechecked and resumed, gotValue %s", gotState)
-	}
-}
-
-func TestTorrents_namesAnOversizedListingWithATypedError(t *testing.T) {
-	fake := newFakeQbit(webAPIVersion4)
-	addForeignTorrents(fake, 34000)
-	server := fake.start(t)
-	client := newTestClient(t, server.URL, "", "")
-
-	_, err := client.Torrents(context.Background())
-
-	if !errors.Is(err, qbit.ErrResponseTooLarge) {
-		t.Fatalf("gotValue %v, expectedValue ErrResponseTooLarge", err)
 	}
 }
 

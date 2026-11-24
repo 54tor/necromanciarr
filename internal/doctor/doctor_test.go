@@ -446,8 +446,8 @@ func (client fakeTorrentClient) Version(context.Context) (string, error) {
 	return client.version, client.err
 }
 
-func (client fakeTorrentClient) Torrents(context.Context) ([]qbit.TorrentInfo, error) {
-	return make([]qbit.TorrentInfo, client.count), nil
+func (client fakeTorrentClient) CountTorrents(context.Context) (int, bool, error) {
+	return min(client.count, qbit.TorrentPageSize), client.count >= qbit.TorrentPageSize, nil
 }
 
 func TestChecks_arrAndQbittorrentReportServiceState(t *testing.T) {
@@ -710,5 +710,18 @@ func TestChecks_configWarnsWhenTheWorkingDirectoryDotEnvWasRead(t *testing.T) {
 
 	if got.Status != Warn || !strings.Contains(got.Detail+got.Hint, ".env") {
 		t.Fatalf("gotValue %+v, expectedValue a warning about the working directory .env", got)
+	}
+}
+
+func TestChecks_qbittorrentCountsFromASinglePage(t *testing.T) {
+	settings := config.Config{TorrentClients: []config.TorrentClient{{Type: "qbittorrent", BaseURL: "http://example.com"}}}
+	deps := Deps{NewTorrentClient: func(config.TorrentClient) (TorrentClient, error) {
+		return fakeTorrentClient{version: "v5.1.0", count: 60_000}, nil
+	}}.withDefaults()
+
+	got := checkQbittorrent(context.Background(), settings, deps)
+
+	if got.Status != OK || !strings.Contains(got.Detail, "at least 500 torrents") {
+		t.Fatalf("gotValue %+v, expectedValue a count bounded by one page", got)
 	}
 }

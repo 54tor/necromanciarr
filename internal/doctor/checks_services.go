@@ -70,11 +70,15 @@ func inspectTorrentClient(ctx context.Context, clientIndex int, client config.To
 	if err != nil {
 		return Fail, label + ": " + describeQbitError(err), "check the URL, user and password"
 	}
-	torrents, err := torrentClient.Torrents(ctx)
+	count, atLeast, err := torrentClient.CountTorrents(ctx)
 	if err != nil {
 		return Fail, label + ": login ok but listing torrents failed: " + describeQbitError(err), ""
 	}
-	detail := fmt.Sprintf("%s: API %s, %d torrents", label, version, len(torrents))
+	countText := fmt.Sprintf("%d torrents", count)
+	if atLeast {
+		countText = fmt.Sprintf("at least %d torrents", count)
+	}
+	detail := fmt.Sprintf("%s: API %s, %s", label, version, countText)
 	if client.ReadOnly {
 		detail += ", read-only (no torrent will be added)"
 	}

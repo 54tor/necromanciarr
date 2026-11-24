@@ -222,33 +222,44 @@ func isRunning(state string) bool {
 	return !isStopped && !slices.Contains(notRunningStates, state)
 }
 
-// torrentsCovering trie par hash pour un ordre stable ; un torrent disparu entre la liste et ses fichiers est
-// ignoré, toute autre erreur arrête tout avant la moindre pause.
+// torrentsCovering lit la liste page par page et ne garde de chaque page que les torrents dont le dossier contient
+// le fichier ; trié par hash pour un ordre stable. Une liste qui bouge pendant la lecture est relue (eachTorrentPage). Un torrent disparu entre la liste et ses fichiers est ignoré,
+// toute autre erreur (page illisible, trop grosse, contexte) arrête tout avant la moindre pause.
 func (client *Client) torrentsCovering(ctx context.Context, filePath string) ([]coveringTorrent, error) {
 	target := normalizePath(filePath)
-	torrents, err := client.Torrents(ctx)
+	var covering []coveringTorrent
+	err := client.eachTorrentPage(ctx, func() { covering = nil }, func(page []TorrentInfo) error {
+		for _, torrent := range page {
+			match, found, err := client.coveringMatch(ctx, torrent, target)
+			if err != nil {
+				return err
+			}
+			if found {
+				covering = append(covering, match)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	var covering []coveringTorrent
-	for _, torrent := range torrents {
-		relativeName, isUnderSavePath := strings.CutPrefix(target, strings.TrimSuffix(normalizePath(torrent.SavePath), "/")+"/")
-		if !isUnderSavePath {
-			continue
-		}
-		hasFile, err := client.torrentHasFile(ctx, torrent.Hash, relativeName)
-		if errors.Is(err, ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if hasFile {
-			covering = append(covering, coveringTorrent{hash: strings.ToLower(torrent.Hash), relativeName: relativeName, state: torrent.State})
-		}
-	}
 	sort.Slice(covering, func(left, right int) bool { return covering[left].hash < covering[right].hash })
 	return covering, nil
+}
+
+func (client *Client) coveringMatch(ctx context.Context, torrent TorrentInfo, target string) (coveringTorrent, bool, error) {
+	relativeName, isUnderSavePath := strings.CutPrefix(target, strings.TrimSuffix(normalizePath(torrent.SavePath), "/")+"/")
+	if !isUnderSavePath {
+		return coveringTorrent{}, false, nil
+	}
+	hasFile, err := client.torrentHasFile(ctx, torrent.Hash, relativeName)
+	if errors.Is(err, ErrNotFound) || (err == nil && !hasFile) {
+		return coveringTorrent{}, false, nil
+	}
+	if err != nil {
+		return coveringTorrent{}, false, err
+	}
+	return coveringTorrent{hash: strings.ToLower(torrent.Hash), relativeName: relativeName, state: torrent.State}, true, nil
 }
 
 func (client *Client) torrentHasFile(ctx context.Context, infoHash, relativeName string) (bool, error) {

@@ -8,6 +8,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -78,6 +81,13 @@ type fakeQbit struct {
 	loginsRejected bool
 	sessionExpired bool
 	addRejected    bool
+	// infoQueries garde la requête de chaque appel à torrents/info ; maxServed le plus grand nombre d'entrées servies
+	// en une réponse ; failInfoAt fait échouer (HTTP 500) l'appel de ce rang (1 = premier) ; onInfo est appelé à
+	// chaque appel avec son rang.
+	infoQueries []string
+	maxServed   int
+	failInfoAt  int
+	onInfo      func(call int)
 }
 
 func newFakeQbit(version string) *fakeQbit {
@@ -223,21 +233,49 @@ type fakeInfo struct {
 	Size        int64   `json:"size"`
 }
 
-// info fait avancer la machine à états du recontrôle d'un pas par interrogation.
+// info fait avancer la machine à états du recontrôle d'un pas par interrogation ; limit, offset et sort=hash
+// découpent la liste comme qBittorrent.
 func (fake *fakeQbit) info(writer http.ResponseWriter, request *http.Request) {
-	wanted := request.URL.Query().Get("hashes")
-	list := []fakeInfo{}
-	for hash, torrent := range fake.torrents {
-		if wanted != "" && wanted != hash {
-			continue
+	query := request.URL.Query()
+	fake.infoQueries = append(fake.infoQueries, request.URL.RawQuery)
+	call := len(fake.infoQueries)
+	if fake.onInfo != nil {
+		fake.onInfo(call)
+	}
+	if call == fake.failInfoAt {
+		writer.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	wanted := query.Get("hashes")
+	hashes := make([]string, 0, len(fake.torrents))
+	for hash := range fake.torrents {
+		if wanted == "" || wanted == hash {
+			hashes = append(hashes, hash)
 		}
+	}
+	slices.Sort(hashes)
+	hashes = pageOf(hashes, query)
+	list := make([]fakeInfo, 0, len(hashes))
+	for _, hash := range hashes {
+		torrent := fake.torrents[hash]
 		fake.advanceCheck(torrent)
 		list = append(list, fakeInfo{
 			Hash: hash, Name: torrent.Name, SavePath: torrent.SavePath, ContentPath: torrent.ContentPath,
 			Category: torrent.Category, Tags: torrent.Tags, State: torrent.State, Progress: torrent.Progress, Size: torrent.Size,
 		})
 	}
+	fake.maxServed = max(fake.maxServed, len(list))
 	writeJSON(writer, list)
+}
+
+func pageOf(hashes []string, query url.Values) []string {
+	offset, _ := strconv.Atoi(query.Get("offset"))
+	limit, err := strconv.Atoi(query.Get("limit"))
+	start := min(max(offset, 0), len(hashes))
+	if err != nil || limit <= 0 {
+		return hashes[start:]
+	}
+	return hashes[start:min(start+limit, len(hashes))]
 }
 
 func (fake *fakeQbit) advanceCheck(torrent *fakeTorrent) {

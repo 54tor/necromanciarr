@@ -10,10 +10,8 @@ import (
 )
 
 const (
-	// maxTorrentListBytes borne torrents/info : sans filtre, la liste entière d'un gros client (environ 30 000
-	// torrents) doit tenir. maxListBytes borne les fichiers d'un torrent et l'export d'un .torrent ; maxSmallBytes
-	// borne les autres réponses.
-	maxTorrentListBytes = 64 << 20
+	// maxListBytes borne une page de torrents/info (500 torrents), les fichiers d'un torrent et l'export d'un
+	// .torrent ; maxSmallBytes borne les autres réponses.
 	maxListBytes        = 8 << 20
 	maxSmallBytes       = 64 << 10
 	loginRejectedBody   = "Fails."
@@ -90,9 +88,7 @@ func (transport *guardTransport) RoundTrip(request *http.Request) (*http.Respons
 
 func responseLimit(path string) int64 {
 	switch {
-	case strings.HasSuffix(path, pathSuffixInfo):
-		return maxTorrentListBytes
-	case strings.HasSuffix(path, pathSuffixFiles), strings.HasSuffix(path, pathSuffixExport):
+	case strings.HasSuffix(path, pathSuffixInfo), strings.HasSuffix(path, pathSuffixFiles), strings.HasSuffix(path, pathSuffixExport):
 		return maxListBytes
 	default:
 		return maxSmallBytes

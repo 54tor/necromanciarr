@@ -148,7 +148,77 @@ func (client *Client) hashAction(ctx context.Context, verb, infoHash string, act
 	return err
 }
 
-// Torrents liste tous les torrents du client.
+// TorrentPageSize est la taille d'une page de torrents/info lue par les parcours complets (recontrôle, repair).
+const TorrentPageSize = 500
+
+// maxListedTorrents borne un parcours complet : au-delà, la liste est tenue pour anormale et le parcours refusé.
+const maxListedTorrents = 200_000
+
+// sortByHash garde l'ordre des pages stable d'une requête à l'autre (qBittorrent n'a pas d'instantané).
+const sortByHash = "hash"
+
+// ErrTooManyTorrents : le client liste plus de maxListedTorrents torrents ; le parcours s'arrête sans résultat.
+var ErrTooManyTorrents = errors.New("qbit: more torrents than the listing bound")
+
+// ErrListingUnstable : la liste a bougé pendant chaque lecture (ajout ou retrait entre deux pages) ; rien n'est rendu.
+var ErrListingUnstable = errors.New("qbit: the torrent list kept changing while it was read")
+
+// maxListingAttempts : une liste qui bouge est relue en entier, au plus ce nombre de fois.
+const maxListingAttempts = 3
+
+// errListingShifted signale, en interne, deux pages qui ne se raccordent plus.
+var errListingShifted = errors.New("qbit: torrent list shifted between pages")
+
+// eachTorrentPage lit torrents/info page par page (tri par hash) et passe chaque page à visit avant de lire la
+// suivante : une seule page est décodée à la fois. Les pages se chevauchent d'un torrent : si le dernier hash d'une
+// page n'ouvre pas la suivante, la liste a bougé (qBittorrent n'a pas d'instantané) et elle est relue en entier
+// après restart. Une page courte termine la liste.
+func (client *Client) eachTorrentPage(ctx context.Context, restart func(), visit func(page []TorrentInfo) error) error {
+	for attempt := range maxListingAttempts {
+		if attempt > 0 {
+			restart()
+		}
+		err := client.readTorrentPages(ctx, visit)
+		if !errors.Is(err, errListingShifted) {
+			return err
+		}
+	}
+	return ErrListingUnstable
+}
+
+func (client *Client) readTorrentPages(ctx context.Context, visit func(page []TorrentInfo) error) error {
+	previousLast := ""
+	for offset := 0; ; offset += TorrentPageSize - 1 {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("qbit: list torrents: %w", err)
+		}
+		if offset >= maxListedTorrents {
+			return fmt.Errorf("%w (%d)", ErrTooManyTorrents, maxListedTorrents)
+		}
+		filter := qbittorrent.TorrentFilterOptions{Sort: sortByHash, Limit: TorrentPageSize, Offset: offset}
+		page, err := client.listTorrents(ctx, fmt.Sprintf("list torrents from %d", offset), filter)
+		if err != nil {
+			return err
+		}
+		fresh := page
+		if previousLast != "" {
+			if len(page) == 0 || !strings.EqualFold(page[0].Hash, previousLast) {
+				return errListingShifted
+			}
+			fresh = page[1:]
+		}
+		if err := visit(fresh); err != nil {
+			return err
+		}
+		if len(page) < TorrentPageSize {
+			return nil
+		}
+		previousLast = page[len(page)-1].Hash
+	}
+}
+
+// Torrents liste les torrents du client en une seule requête, plafonnée à 8 Mio (petits clients et tests) ; les
+// parcours complets passent par eachTorrentPage.
 func (client *Client) Torrents(ctx context.Context) ([]TorrentInfo, error) {
 	return client.listTorrents(ctx, "list torrents", qbittorrent.TorrentFilterOptions{})
 }
@@ -164,6 +234,17 @@ func (client *Client) FindTorrent(ctx context.Context, infoHash string) (Torrent
 		return TorrentInfo{}, false, err
 	}
 	return torrent, true, nil
+}
+
+// CountTorrents lit une seule page : count vaut le nombre de torrents s'il est inférieur à TorrentPageSize, sinon
+// atLeast est vrai et count vaut TorrentPageSize (le diagnostic n'a pas besoin du total).
+func (client *Client) CountTorrents(ctx context.Context) (count int, atLeast bool, err error) {
+	filter := qbittorrent.TorrentFilterOptions{Sort: sortByHash, Limit: TorrentPageSize}
+	page, err := client.listTorrents(ctx, "count torrents", filter)
+	if err != nil {
+		return 0, false, err
+	}
+	return len(page), len(page) >= TorrentPageSize, nil
 }
 
 // Progress renvoie l'avancement (0 à 1) d'un torrent ; ErrNotFound s'il est inconnu.

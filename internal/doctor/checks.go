@@ -45,7 +45,8 @@ type Searcher interface {
 // TorrentClient est la partie d'un client torrent que le diagnostic utilise.
 type TorrentClient interface {
 	Version(ctx context.Context) (string, error)
-	Torrents(ctx context.Context) ([]qbit.TorrentInfo, error)
+	// CountTorrents lit une seule page : atLeast dit que le client en a au moins count.
+	CountTorrents(ctx context.Context) (count int, atLeast bool, err error)
 }
 
 // Deps permet de remplacer chaque accès extérieur ; un champ nil prend la valeur de production.
