@@ -8,13 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/anacrolix/torrent/metainfo"
 
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/store"
 )
@@ -179,7 +179,7 @@ func TestVerifyStage_createsPartialAnnexProposalWithWarning(t *testing.T) {
 
 	proposal := singleProposalOfKind(t, fixture.proposalsOf(candidate.ID), store.ProposalPartialAnnex)
 	details := decodeDetails(t, proposal)
-	hasPausedWarning := len(proposal.Warnings) == 1 && strings.Contains(proposal.Warnings[0], "paused")
+	hasPausedWarning := len(proposal.Warnings) == 1 && proposal.Warnings[0].Key == i18n.KeyWarningAnnexPiecesNotProven
 	if !hasPausedWarning || details.MissingPieces != 1 || math.Abs(details.Percent-200.0/3) > 1e-9 || proposal.Primary {
 		t.Fatalf("gotValue %+v details %+v, expectedValue a paused warning, 1 missing piece, the percentage and no primary", proposal, details)
 	}

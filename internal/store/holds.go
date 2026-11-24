@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"necromanciarr/internal/i18n"
 )
 
 // CandidateHold est un verdict de Verify mis de côté au lieu de devenir une proposition (pièces manquantes au-delà
@@ -14,7 +16,7 @@ type CandidateHold struct {
 	Generation  int64
 	Reason      string
 	Kind        ProposalKind
-	Warnings    []string
+	Warnings    []i18n.Message
 	Details     json.RawMessage
 	UpdatedAt   time.Time
 }
@@ -60,7 +62,7 @@ WHERE torrent_candidates.state = ? AND torrent_candidates.generation = holds.gen
 		if err := rows.Scan(&hold.CandidateID, &hold.Generation, &hold.Reason, &kind, &warnings, &details, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan candidate hold: %w", err)
 		}
-		if err := json.Unmarshal([]byte(warnings), &hold.Warnings); err != nil {
+		if hold.Warnings, err = i18n.DecodeMessages([]byte(warnings)); err != nil {
 			return nil, fmt.Errorf("decode candidate hold warnings: %w", err)
 		}
 		hold.Kind, hold.Details, hold.UpdatedAt = ProposalKind(kind), json.RawMessage(details), time.Unix(0, updatedAt).UTC()

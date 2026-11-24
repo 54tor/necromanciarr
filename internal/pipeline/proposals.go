@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/matcher"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
@@ -33,6 +35,8 @@ const ExclusionAnnexHashFailed = "annex_hash_failed"
 type ExcludedFile struct {
 	TorrentPath string `json:"torrent_path"`
 	Reason      string `json:"reason"`
+	// Label est le libellé traduit de Reason, rempli à l'affichage par la couche applicative.
+	Label string `json:"label,omitempty"`
 }
 
 // AmbiguousFile est un fichier du torrent que le hash n'a pas pu attribuer à un seul fichier local.
@@ -56,7 +60,7 @@ type GroupMember struct {
 // nomme la raison qui rend le candidat failed ; excluded liste les index de fichiers du torrent écartés de l'association.
 type verdict struct {
 	kind       store.ProposalKind
-	warnings   []string
+	warnings   []i18n.Message
 	details    ProposalDetails
 	ineligible string
 	excluded   map[int]bool
@@ -81,10 +85,14 @@ func classify(torrent *torrentcheck.Torrent, assignment matcher.Assignment, sour
 			ExcludedFile{TorrentPath: torrent.Files[fileIndex].Path, Reason: ExclusionAnnexHashFailed})
 	}
 	if len(suspects) > 0 && decided.kind != "" {
-		decided.warnings = append(decided.warnings, fmt.Sprintf("%d annex file(s) in the library failed the piece hash: "+
-			"they are excluded from linking and the client will download them", len(suspects)))
+		decided.warnings = append(decided.warnings, countMessage(i18n.KeyWarningAnnexHashFailed, len(suspects)))
 	}
 	return decided
+}
+
+// countMessage construit un avertissement dont le seul paramètre est un compte.
+func countMessage(key i18n.Key, count int) i18n.Message {
+	return i18n.Message{Key: key, Params: map[string]string{"count": strconv.Itoa(count)}}
 }
 
 // suspectFiles liste, triés, les fichiers présents qui recouvrent une pièce au SHA1 faux : le hash ne dit pas lequel est
@@ -113,17 +121,15 @@ func baseVerdict(torrent *torrentcheck.Torrent, assignment matcher.Assignment, r
 	}
 	if missing := missingMediaFiles(torrent, assignment); len(missing) > 0 {
 		details.MissingMediaFiles = missing
-		warning := fmt.Sprintf("%d media file(s) of this pack are absent from the library: ignored by default", len(missing))
-		return verdict{kind: store.ProposalPartialPack, warnings: []string{warning}, details: details}
+		warning := countMessage(i18n.KeyWarningPackMediaAbsent, len(missing))
+		return verdict{kind: store.ProposalPartialPack, warnings: []i18n.Message{warning}, details: details}
 	}
 	if report.TotalPieces > 0 && len(report.MissingPieces) == 0 {
 		return verdict{kind: store.ProposalFull, details: details}
 	}
 	if report.MediaComplete {
-		warning := fmt.Sprintf("will be added paused: %d piece(s) overlap annex files not proven from the library and the "+
-			"client writes whole pieces; an explicit Force first replaces each linked media sharing such a piece by an "+
-			"independent copy in the link folder, then starts it", len(report.MissingPieces))
-		return verdict{kind: store.ProposalPartialAnnex, warnings: []string{warning}, details: details}
+		warning := countMessage(i18n.KeyWarningAnnexPiecesNotProven, len(report.MissingPieces))
+		return verdict{kind: store.ProposalPartialAnnex, warnings: []i18n.Message{warning}, details: details}
 	}
 	return verdict{}
 }

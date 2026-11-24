@@ -300,7 +300,7 @@ func runForce(ctx context.Context, call *invocation) (output, error) {
 	if err != nil {
 		return output{}, err
 	}
-	return output{jsonValue: result, warnings: result.Warnings, text: func(writer io.Writer) {
+	return output{jsonValue: result, warnings: warningTexts(result.Warnings), text: func(writer io.Writer) {
 		for _, replaced := range result.Replaced {
 			_, _ = fmt.Fprintln(writer, call.translator.Text(i18n.KeyCLIForceReplaced, textParams("kind", replaced.Kind, "path", replaced.LinkPath)))
 		}
@@ -394,6 +394,15 @@ func worseExitCode(current, candidate int) int {
 		return staleExitCode
 	}
 	return failureExitCode
+}
+
+// warningTexts garde le texte rendu de chaque avertissement.
+func warningTexts(warnings []app.Warning) []string {
+	texts := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		texts = append(texts, warning.Text)
+	}
+	return texts
 }
 
 func itemWarnings(translator i18n.Translator, items []applyItem) []string {

@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"time"
+
+	"necromanciarr/internal/i18n"
 )
 
 // ProposalStep est l'avancement de l'application d'une proposition acceptée : liée, puis ajoutée au client.
@@ -111,7 +114,7 @@ func (openedStore *Store) ListProposalProgress(ctx context.Context) (map[int64]P
 
 // AddProposalWarning ajoute un avertissement à la proposition s'il n'y figure pas déjà (échec de notification, garde
 // incomplète) ; ErrProposalNotFound si elle n'existe pas.
-func (openedStore *Store) AddProposalWarning(ctx context.Context, proposalID int64, warning string) error {
+func (openedStore *Store) AddProposalWarning(ctx context.Context, proposalID int64, warning i18n.Message) error {
 	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
 		var encoded string
 		err := transaction.QueryRowContext(ctx, `SELECT warnings FROM proposals WHERE id = ?`, proposalID).Scan(&encoded)
@@ -121,11 +124,11 @@ func (openedStore *Store) AddProposalWarning(ctx context.Context, proposalID int
 		if err != nil {
 			return fmt.Errorf("load proposal warnings: %w", err)
 		}
-		var warnings []string
-		if err := json.Unmarshal([]byte(encoded), &warnings); err != nil {
+		warnings, err := i18n.DecodeMessages([]byte(encoded))
+		if err != nil {
 			return fmt.Errorf("decode proposal warnings: %w", err)
 		}
-		if slices.Contains(warnings, warning) {
+		if slices.ContainsFunc(warnings, func(existing i18n.Message) bool { return reflect.DeepEqual(existing, warning) }) {
 			return nil
 		}
 		updated, err := json.Marshal(append(warnings, warning))

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/qbit"
 	"necromanciarr/internal/store"
 )
@@ -21,7 +22,7 @@ func TestSeedStage_sourceReplacedAfterLinkMarksTheCandidateStaleAndAddsNothing(t
 	if len(fixture.client.added) != 0 || result.Reasons[ReasonChangedFile] != 1 {
 		t.Fatalf("gotValue %+v added=%v, expectedValue nothing added", result, fixture.client.added)
 	}
-	if fixture.candidate(candidate.Infohash).State != store.CandidateStale || !slices.Contains(fixture.warningsOf(proposal.ID), warningSourcesChanged) {
+	if fixture.candidate(candidate.Infohash).State != store.CandidateStale || !slices.Contains(fixture.warningsOf(proposal.ID), i18n.KeyWarningSourcesChanged) {
 		t.Fatal("expectedValue a stale candidate and the sources-changed warning")
 	}
 }

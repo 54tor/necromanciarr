@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/qbit"
 	"necromanciarr/internal/store"
 )
@@ -35,11 +36,12 @@ func (fixture *applyFixture) linkedProposal(entries []torrentEntry, kind store.P
 	return candidate, proposal
 }
 
-func (fixture *applyFixture) warningsOf(proposalID int64) []string {
+// warningsOf renvoie les clés des avertissements de la proposition.
+func (fixture *applyFixture) warningsOf(proposalID int64) []i18n.Key {
 	fixture.t.Helper()
 	for _, proposal := range fixture.proposals() {
 		if proposal.ID == proposalID {
-			return proposal.Warnings
+			return warningKeys(proposal.Warnings)
 		}
 	}
 	return nil
@@ -105,7 +107,7 @@ func TestSeedStage_partialAnnexStaysPausedAndIsNeverResumed(t *testing.T) {
 		t.Fatalf("gotValue %+v resumed=%v step=%s, expectedValue a paused partial_annex never resumed", added, fixture.client.resumed,
 			fixture.progressOf(proposal.ID).Step)
 	}
-	if !slices.ContainsFunc(fixture.warningsOf(proposal.ID), func(warning string) bool { return strings.Contains(warning, "paused") }) {
+	if !slices.Contains(fixture.warningsOf(proposal.ID), i18n.KeyWarningAnnexPiecesNotProven) {
 		t.Fatalf("gotValue %v, expectedValue the paused warning kept", fixture.warningsOf(proposal.ID))
 	}
 }
@@ -165,7 +167,7 @@ func TestSeedStage_notifierFailureIsAWarningNotAFailure(t *testing.T) {
 	if !isSeeded || result.Failed != 0 || result.Reasons[ReasonCrossSeedNotifyFailed] != 1 {
 		t.Fatalf("gotValue %+v step=%s, expectedValue a seeded proposal with a notification reason", result, fixture.progressOf(proposal.ID).Step)
 	}
-	if !slices.Contains(fixture.warningsOf(proposal.ID), warningCrossSeedNotifyFailed) {
+	if !slices.Contains(fixture.warningsOf(proposal.ID), i18n.KeyWarningCrossSeedNotifyFailed) {
 		t.Fatalf("gotValue %v, expectedValue the notification warning", fixture.warningsOf(proposal.ID))
 	}
 }
@@ -240,4 +242,12 @@ func TestSeedStage_incompleteTorrentRunningAfterAddFailsTheProposal(t *testing.T
 			}
 		})
 	}
+}
+
+func warningKeys(warnings []i18n.Message) []i18n.Key {
+	keys := make([]i18n.Key, 0, len(warnings))
+	for _, warning := range warnings {
+		keys = append(keys, warning.Key)
+	}
+	return keys
 }

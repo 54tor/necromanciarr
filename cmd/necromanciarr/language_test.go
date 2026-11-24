@@ -183,7 +183,7 @@ func TestText_stageResultAndStatusFollowTheLanguage(t *testing.T) {
 	if !strings.Contains(english.stdout, "scan: processed 2") || !strings.Contains(french.stdout, "scan : 2 traités") {
 		t.Fatalf("gotValue en %q fr %q, expectedValue the summary in each language", english.stdout, french.stdout)
 	}
-	if !strings.Contains(english.stdout, "reason no_exact_size: 1") || !strings.Contains(french.stdout, "motif no_exact_size : 1") {
+	if !strings.Contains(english.stdout, "reason no_exact_size (no torrent of exactly this size): 1") || !strings.Contains(french.stdout, "motif no_exact_size (aucun torrent de cette taille exacte) : 1") {
 		t.Fatalf("gotValue en %q fr %q, expectedValue the reason line with the code unchanged", english.stdout, french.stdout)
 	}
 }

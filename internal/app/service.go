@@ -108,7 +108,7 @@ const (
 type ForceResult struct {
 	ProposalID int64                   `json:"proposal_id"`
 	Forced     bool                    `json:"forced"`
-	Warnings   []string                `json:"warnings"`
+	Warnings   []Warning               `json:"warnings"`
 	Replaced   []pipeline.IsolatedFile `json:"replaced,omitempty"`
 }
 
@@ -125,7 +125,7 @@ type Store interface {
 	SetCandidateState(ctx context.Context, candidateID int64, state store.CandidateState, now time.Time) error
 	SetGroupPrimary(ctx context.Context, groupID, proposalID int64, source store.PrimarySource) error
 	CreateProposal(ctx context.Context, proposal store.Proposal, now time.Time) (int64, error)
-	AddProposalWarning(ctx context.Context, proposalID int64, warning string) error
+	AddProposalWarning(ctx context.Context, proposalID int64, warning i18n.Message) error
 	ListMediaFiles(ctx context.Context) ([]store.MediaFile, error)
 	ListLinks(ctx context.Context, state store.LinkState) ([]store.Link, error)
 	RecordLink(ctx context.Context, link store.Link) error
@@ -199,7 +199,8 @@ func (svc *service) RunStage(ctx context.Context, stage pipeline.Stage) (pipelin
 	stages := svc.deps.Stages
 	resolution := svc.crossSeed(ctx)
 	stages.CrossSeed, stages.CrossSeedWarning, stages.Notifier = resolution.Behavior, resolution.Warning, resolution.Notifier
-	return pipeline.Run(ctx, stage, stages)
+	result, err := pipeline.Run(ctx, stage, stages)
+	return withReasonLabels(svc.deps.Translator, result), err
 }
 
 // checkStageDeps refuse proprement une étape dont un composant manque, au lieu d'échouer au milieu.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/store"
 )
 
@@ -22,7 +23,7 @@ func (deps Deps) aboveCap(kind store.ProposalKind, details ProposalDetails) bool
 	return missingPercent > *deps.PartialMaxMissingPercent
 }
 
-func holdVerdict(ctx context.Context, deps Deps, candidateID int64, kind store.ProposalKind, warnings []string, details ProposalDetails) error {
+func holdVerdict(ctx context.Context, deps Deps, candidateID int64, kind store.ProposalKind, warnings []i18n.Message, details ProposalDetails) error {
 	encoded, err := json.Marshal(details)
 	if err != nil {
 		return fmt.Errorf("encode held details: %w", err)

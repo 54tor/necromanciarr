@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"necromanciarr/internal/i18n"
 )
 
 // legacyPipelineSchema reproduit les tables de la tâche 1, jamais écrites par aucun code.
@@ -211,7 +213,7 @@ func TestProposals_createListAndDecide(t *testing.T) {
 	ctx := context.Background()
 	openedStore := openTestStore(t)
 	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
-	proposalID, err := openedStore.CreateProposal(ctx, Proposal{CandidateID: candidateID, GroupID: candidateID, Kind: ProposalFull, Warnings: []string{"w"}}, testNow)
+	proposalID, err := openedStore.CreateProposal(ctx, Proposal{CandidateID: candidateID, GroupID: candidateID, Kind: ProposalFull, Warnings: []i18n.Message{{Key: "w"}}}, testNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +226,7 @@ func TestProposals_createListAndDecide(t *testing.T) {
 	}
 
 	gotProposals, err := openedStore.ListProposals(ctx, ProposalAccepted)
-	if err != nil || len(gotProposals) != 1 || gotProposals[0].Warnings[0] != "w" || gotProposals[0].DecidedAt.IsZero() {
+	if err != nil || len(gotProposals) != 1 || gotProposals[0].Warnings[0].Key != "w" || gotProposals[0].DecidedAt.IsZero() {
 		t.Fatalf("gotValue %+v %v", gotProposals, err)
 	}
 	if _, err := openedStore.CreateProposal(ctx, Proposal{CandidateID: candidateID, Kind: "bogus"}, testNow); !errors.Is(err, ErrUnknownProposalKind) {
@@ -722,13 +724,13 @@ func TestUpsertProposal_isIdempotentPerCandidateAndKindAndKeepsDecidedOnes(t *te
 		t.Fatalf("gotValue created=%v err=%v, expectedValue a new proposal", created, err)
 	}
 	updated := first
-	updated.Details, updated.Warnings = json.RawMessage(`{"percent":100}`), []string{"w"}
+	updated.Details, updated.Warnings = json.RawMessage(`{"percent":100}`), []i18n.Message{{Key: "w"}}
 	secondID, created, err := openedStore.UpsertProposal(ctx, updated, testNow)
 	if err != nil || created || secondID != firstID {
 		t.Fatalf("gotValue id=%d created=%v err=%v, expectedValue the same pending proposal", secondID, created, err)
 	}
 	gotProposals, err := openedStore.ListProposals(ctx, "")
-	if err != nil || len(gotProposals) != 1 || string(gotProposals[0].Details) != `{"percent":100}` || gotProposals[0].Warnings[0] != "w" {
+	if err != nil || len(gotProposals) != 1 || string(gotProposals[0].Details) != `{"percent":100}` || gotProposals[0].Warnings[0].Key != "w" {
 		t.Fatalf("gotValue %+v %v, expectedValue one updated proposal", gotProposals, err)
 	}
 	if err := openedStore.SetProposalDecision(ctx, firstID, ProposalRejected, testNow); err != nil {

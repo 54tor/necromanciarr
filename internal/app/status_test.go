@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/store"
 )
 
@@ -21,7 +22,7 @@ func TestStatus_listsTheVerdictsHeldAboveTheMissingPiecesCap(t *testing.T) {
 	}
 	expectedValue := HeldCandidate{
 		CandidateID: candidate.ID, CandidateName: candidate.Name, Tracker: candidate.Tracker, Kind: store.ProposalPartialPack,
-		Reason: "missing_pieces_above_cap", Percent: 40, MissingPieces: 6, TotalPieces: 10,
+		Reason: "missing_pieces_above_cap", Label: i18n.New(i18n.French, nil).ReasonLabel("missing_pieces_above_cap"), Percent: 40, MissingPieces: 6, TotalPieces: 10,
 	}
 
 	status, err := fixture.service(crossseed.Delegate).Status(context.Background())

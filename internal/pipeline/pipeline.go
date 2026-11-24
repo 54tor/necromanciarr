@@ -13,6 +13,7 @@ import (
 
 	"necromanciarr/internal/arr"
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/library"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/linker"
@@ -89,7 +90,7 @@ type Store interface {
 	ListProposalProgress(ctx context.Context) (map[int64]store.ProposalProgress, error)
 	SaveProposalProgress(ctx context.Context, progress store.ProposalProgress, now time.Time) error
 	ApplyProposal(ctx context.Context, proposalID int64, step store.ProposalStep, linkRoot string, now time.Time) error
-	AddProposalWarning(ctx context.Context, proposalID int64, warning string) error
+	AddProposalWarning(ctx context.Context, proposalID int64, warning i18n.Message) error
 	ClearProposalStep(ctx context.Context, proposalID int64, now time.Time) error
 	AcquireRunLock(ctx context.Context, holder, stage string, now, expiresAt time.Time) error
 	RefreshRunLock(ctx context.Context, holder string, expiresAt time.Time) error
@@ -203,17 +204,19 @@ func (deps Deps) lockTTL() time.Duration {
 // Result résume une exécution : Reasons compte les éléments ignorés ou en échec par nom de raison (jamais de chemin
 // complet ni de secret) ; UnidentifiedSamples donne les premiers noms de fichiers sans identifiant externe.
 type Result struct {
-	Stage               Stage          `json:"stage"`
-	Processed           int            `json:"processed"`
-	Skipped             int            `json:"skipped"`
-	Failed              int            `json:"failed"`
-	Reasons             map[string]int `json:"reasons,omitempty"`
-	UnidentifiedFiles   int            `json:"unidentified_files"`
-	UnidentifiedSamples []string       `json:"unidentified_samples,omitempty"`
-	CandidatesCreated   int            `json:"candidates_created"`
-	CandidatesUpdated   int            `json:"candidates_updated"`
-	CandidatesUnchanged int            `json:"candidates_unchanged"`
-	CandidatesStale     int            `json:"candidates_stale"`
+	Stage     Stage          `json:"stage"`
+	Processed int            `json:"processed"`
+	Skipped   int            `json:"skipped"`
+	Failed    int            `json:"failed"`
+	Reasons   map[string]int `json:"reasons,omitempty"`
+	// ReasonLabels donne le libellé traduit de chaque motif de Reasons ; la couche applicative le remplit, le paquet jamais.
+	ReasonLabels        map[string]string `json:"reason_labels,omitempty"`
+	UnidentifiedFiles   int               `json:"unidentified_files"`
+	UnidentifiedSamples []string          `json:"unidentified_samples,omitempty"`
+	CandidatesCreated   int               `json:"candidates_created"`
+	CandidatesUpdated   int               `json:"candidates_updated"`
+	CandidatesUnchanged int               `json:"candidates_unchanged"`
+	CandidatesStale     int               `json:"candidates_stale"`
 	// Totaux de Verify : candidat vérifié, classé partial_annex ou partial_pack, proposition de litige créée,
 	// vérification reprise, et proposition créée (toute nature).
 	Verified         int `json:"verified"`

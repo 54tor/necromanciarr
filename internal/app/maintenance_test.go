@@ -17,6 +17,7 @@ import (
 	"necromanciarr/internal/dedupe"
 	"necromanciarr/internal/doctor"
 	"necromanciarr/internal/hashsource"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/qbit"
@@ -292,7 +293,7 @@ func TestApp_dedupeRechecksThroughClientViewPathAndKeepsIncompleteTorrentsPaused
 		t.Fatalf("gotValue %+v %v %v, expectedValue one recheck of %s", result, err, fixture.client.recheckedPaths, expectedPath)
 	}
 	stored := fixture.proposalsOfKind(store.ProposalDedupe)[0]
-	if !slices.Contains(result.Warnings, WarningPausedIncompleteAfterRecheck) || !slices.Contains(stored.Warnings, WarningPausedIncompleteAfterRecheck) ||
+	if !slices.Contains(result.Warnings, WarningPausedIncompleteAfterRecheck) || !hasStoredWarning(stored.Warnings, i18n.KeyWarningPausedIncompleteAfterRecheck) ||
 		len(fixture.resumer.resumed) != 0 {
 		t.Fatalf("gotValue %+v and stored %v, resumed %v, expectedValue the paused warning and no resume", result, stored.Warnings, fixture.resumer.resumed)
 	}
@@ -630,7 +631,7 @@ func TestApp_dedupePlanWarnsWhenNoClientWillRecheckALinkToTheLibrary(t *testing.
 
 			proposal := fixture.planOne(fixture.service())
 
-			gotWarning := slices.Contains(proposal.Warnings, WarningNoClientRecheck)
+			gotWarning := hasWarning(proposal.Warnings, i18n.KeyWarningNoClientRecheck)
 			if gotWarning != testCase.expectedWarning {
 				t.Fatalf("gotValue %v, expectedValue warning %v", proposal.Warnings, testCase.expectedWarning)
 			}
@@ -675,7 +676,7 @@ func TestApp_aReadOnlyClientCountsAsNoRecheck(t *testing.T) {
 	}
 	dedupeFixture := newMaintenanceFixture(t)
 	dedupeFixture.client.readOnly = true
-	if planned := dedupeFixture.planOne(dedupeFixture.service()); !slices.Contains(planned.Warnings, WarningNoClientRecheck) {
+	if planned := dedupeFixture.planOne(dedupeFixture.service()); !hasWarning(planned.Warnings, i18n.KeyWarningNoClientRecheck) {
 		t.Fatalf("dedupe: gotValue %v, expectedValue the no_client_recheck warning", planned.Warnings)
 	}
 }
@@ -724,4 +725,12 @@ func TestApp_dedupeNeverRelinksAnIsolatedCopy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func hasWarning(warnings []Warning, key i18n.Key) bool {
+	return slices.ContainsFunc(warnings, func(warning Warning) bool { return warning.Code == string(key) })
+}
+
+func hasStoredWarning(warnings []i18n.Message, key i18n.Key) bool {
+	return slices.ContainsFunc(warnings, func(warning i18n.Message) bool { return warning.Key == key })
 }

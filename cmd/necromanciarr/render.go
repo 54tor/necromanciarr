@@ -102,7 +102,7 @@ func writeStageResult(writer io.Writer, translator i18n.Translator, result pipel
 	}
 	for _, reason := range slices.Sorted(maps.Keys(result.Reasons)) {
 		_, _ = fmt.Fprintln(writer, "  "+translator.Text(i18n.KeyCLIStageReason, textParams(
-			"reason", reason, "count", strconv.Itoa(result.Reasons[reason]))))
+			"reason", reason, "label", translator.ReasonLabel(reason), "count", strconv.Itoa(result.Reasons[reason]))))
 	}
 	if len(result.UnidentifiedSamples) > 0 {
 		_, _ = fmt.Fprintln(writer, "  "+translator.Text(i18n.KeyCLIStageSamples, textParams("samples", strings.Join(result.UnidentifiedSamples, ", "))))
@@ -128,7 +128,7 @@ func writeStatus(writer io.Writer, translator i18n.Translator, status app.Status
 	_, _ = fmt.Fprintln(writer, translator.Text(i18n.KeyCLIStatusCrossSeedMode, textParams("mode", status.CrossSeedMode)))
 	for _, held := range status.Held {
 		_, _ = fmt.Fprintln(writer, translator.Text(i18n.KeyCLIStatusHeld, textParams(
-			"id", strconv.FormatInt(held.CandidateID, 10), "name", held.CandidateName, "kind", string(held.Kind), "reason", held.Reason,
+			"id", strconv.FormatInt(held.CandidateID, 10), "name", held.CandidateName, "kind", string(held.Kind), "reason", held.Reason, "label", translator.ReasonLabel(held.Reason),
 			"missing", strconv.Itoa(held.MissingPieces), "total", strconv.Itoa(held.TotalPieces))))
 	}
 }
@@ -202,7 +202,7 @@ func writeDedupeProposals(writer io.Writer, translator i18n.Translator, proposal
 		writeRow(writer, dedupeColumns, fmt.Sprint(proposal.ID), string(proposal.Decision), kind, humanBytes(details.SavedBytes),
 			humanBytes(details.BytesToRead), details.Method, details.TorrentPath)
 		for _, warning := range proposal.Warnings {
-			_, _ = fmt.Fprintln(writer, fitText("       warning: "+warning, tableWidth))
+			_, _ = fmt.Fprintln(writer, fitText("       warning: "+warning.Text, tableWidth))
 		}
 		if isOpenForApply(proposal) {
 			totalRead += details.BytesToRead

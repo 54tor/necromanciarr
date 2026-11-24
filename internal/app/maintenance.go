@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
 )
@@ -42,8 +43,7 @@ const (
 	// recontrôle du client (aucun client configuré, ou recheckAfter faux) ; un torrent qui tourne pourrait y écrire.
 	WarningNoClientRecheck = "no_client_recheck"
 	// WarningLinkNotRecorded : le lien est posé mais la base ne l'a pas enregistré.
-	WarningLinkNotRecorded  = "link_not_recorded"
-	applicationFailedPrefix = "application failed: "
+	WarningLinkNotRecorded = "link_not_recorded"
 )
 
 // lockNameDedupe et lockNameRepair nomment le verrou des étapes tenu par ces actions.
@@ -115,7 +115,7 @@ func persistMaintenance[Details maintenanceDetails](ctx context.Context, svc *se
 				return nil, err
 			}
 		}
-		created, err := svc.createMaintenance(ctx, kind, entry, warningsOf(entry))
+		created, err := svc.createMaintenance(ctx, kind, entry, messagesOfCodes(warningsOf(entry)))
 		if err != nil {
 			return nil, err
 		}
@@ -158,7 +158,7 @@ func (svc *service) supersedeIfOpen(ctx context.Context, proposal store.Proposal
 	return svc.deps.Store.SetProposalDecision(ctx, proposal.ID, store.ProposalSuperseded, svc.now())
 }
 
-func (svc *service) createMaintenance(ctx context.Context, kind store.ProposalKind, details any, warnings []string) (store.Proposal, error) {
+func (svc *service) createMaintenance(ctx context.Context, kind store.ProposalKind, details any, warnings []i18n.Message) (store.Proposal, error) {
 	encoded, err := json.Marshal(details)
 	if err != nil {
 		return store.Proposal{}, err
@@ -233,7 +233,7 @@ func (svc *service) finishMaintenance(ctx context.Context, result *MaintenanceRe
 	if err := svc.deps.Store.SetProposalDecision(ctx, result.ProposalID, store.ProposalFailed, svc.now()); err != nil {
 		return errors.Join(cause, err)
 	}
-	return errors.Join(cause, svc.deps.Store.AddProposalWarning(ctx, result.ProposalID, applicationFailedPrefix+cause.Error()))
+	return errors.Join(cause, svc.deps.Store.AddProposalWarning(ctx, result.ProposalID, i18n.Message{Key: i18n.KeyWarningApplicationFailedDetail, Params: map[string]string{"detail": cause.Error()}}))
 }
 
 // bookkeepingTimeout borne l'écriture en base qui suit un renommage déjà fait, même après une annulation.
@@ -246,7 +246,7 @@ func bookkeeping(ctx context.Context) (context.Context, context.CancelFunc) {
 }
 
 func (svc *service) addWarnings(ctx context.Context, proposalID int64, warnings []string) error {
-	for _, warning := range warnings {
+	for _, warning := range messagesOfCodes(warnings) {
 		if err := svc.deps.Store.AddProposalWarning(ctx, proposalID, warning); err != nil {
 			return err
 		}

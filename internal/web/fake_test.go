@@ -116,7 +116,7 @@ func (fake *fakeService) Force(_ context.Context, proposalID int64) (app.ForceRe
 	if err := fake.forceErrors[proposalID]; err != nil {
 		return app.ForceResult{ProposalID: proposalID}, err
 	}
-	return app.ForceResult{ProposalID: proposalID, Forced: true, Warnings: []string{"pieces will be rewritten"}}, nil
+	return app.ForceResult{ProposalID: proposalID, Forced: true, Warnings: []app.Warning{{Code: "warning.test", Text: "pieces will be rewritten"}}}, nil
 }
 
 func (fake *fakeService) AcceptGroup(_ context.Context, groupID int64) ([]int64, error) {

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"necromanciarr/internal/i18n"
 )
 
 // VerificationState est l'avancement de la vérification des pièces d'un candidat.
@@ -215,7 +217,7 @@ type Proposal struct {
 	GroupID       int64
 	Kind          ProposalKind
 	Decision      ProposalDecision
-	Warnings      []string
+	Warnings      []i18n.Message
 	Primary       bool
 	PrimarySource PrimarySource
 	Generation    int64
@@ -260,7 +262,7 @@ func encodeProposal(proposal Proposal) (encodedProposal, error) {
 	if err := checkProposalKind(proposal.Kind); err != nil {
 		return encodedProposal{}, err
 	}
-	warnings, err := json.Marshal(nonNilStrings(proposal.Warnings))
+	warnings, err := json.Marshal(nonNilMessages(proposal.Warnings))
 	if err != nil {
 		return encodedProposal{}, fmt.Errorf("encode proposal warnings: %w", err)
 	}
@@ -445,7 +447,8 @@ func scanProposal(rows *sql.Rows) (Proposal, error) {
 		&proposal.Generation, &details, &createdAt, &decidedAt); err != nil {
 		return Proposal{}, fmt.Errorf("scan proposal: %w", err)
 	}
-	if err := json.Unmarshal([]byte(warnings), &proposal.Warnings); err != nil {
+	var err error
+	if proposal.Warnings, err = i18n.DecodeMessages([]byte(warnings)); err != nil {
 		return Proposal{}, fmt.Errorf("decode proposal warnings: %w", err)
 	}
 	proposal.Details, proposal.PrimarySource = json.RawMessage(details), PrimarySource(primarySource)
@@ -594,9 +597,9 @@ func nullableID(identifier int64) sql.NullInt64 {
 	return sql.NullInt64{Int64: identifier, Valid: identifier != 0}
 }
 
-func nonNilStrings(values []string) []string {
+func nonNilMessages(values []i18n.Message) []i18n.Message {
 	if values == nil {
-		return []string{}
+		return []i18n.Message{}
 	}
 	return values
 }

@@ -119,7 +119,7 @@ func (fixture *decisionFixture) proposal(candidate store.Candidate, kind store.P
 	fixture.t.Helper()
 	proposalID, _, err := fixture.store.UpsertProposal(context.Background(), store.Proposal{
 		CandidateID: candidate.ID, GroupID: pipeline.GroupOf(fixture.candidate(candidate.ID)), Kind: kind,
-		Warnings: []string{"warning of " + string(kind)},
+		Warnings: []i18n.Message{{Key: "warning.test", Params: map[string]string{"kind": string(kind)}}},
 	}, fixedNow)
 	if err != nil {
 		fixture.t.Fatal(err)

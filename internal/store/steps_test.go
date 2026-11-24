@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"errors"
-	"slices"
+	"reflect"
 	"testing"
+
+	"necromanciarr/internal/i18n"
 )
 
 func acceptedTestProposal(t *testing.T, openedStore *Store) (candidateID, proposalID int64) {
@@ -80,7 +82,7 @@ func TestAddProposalWarning_appendsEachWarningOnce(t *testing.T) {
 	openedStore := openTestStore(t)
 	_, proposalID := acceptedTestProposal(t, openedStore)
 	for range 2 {
-		if err := openedStore.AddProposalWarning(ctx, proposalID, "cross-seed notification failed"); err != nil {
+		if err := openedStore.AddProposalWarning(ctx, proposalID, i18n.Message{Key: "warning.test", Params: map[string]string{"name": "a"}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -88,11 +90,11 @@ func TestAddProposalWarning_appendsEachWarningOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedValue := []string{"cross-seed notification failed"}
-	if gotValue := proposals[0].Warnings; !slices.Equal(gotValue, expectedValue) {
+	expectedValue := []i18n.Message{{Key: "warning.test", Params: map[string]string{"name": "a"}}}
+	if gotValue := proposals[0].Warnings; !reflect.DeepEqual(gotValue, expectedValue) {
 		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
 	}
-	if err := openedStore.AddProposalWarning(ctx, proposalID+100, "x"); !errors.Is(err, ErrProposalNotFound) {
+	if err := openedStore.AddProposalWarning(ctx, proposalID+100, i18n.Message{Key: "warning.test"}); !errors.Is(err, ErrProposalNotFound) {
 		t.Fatalf("gotValue %v, expectedValue ErrProposalNotFound", err)
 	}
 }
@@ -133,5 +135,81 @@ func TestClearProposalStep_removesTheStepButKeepsTheLinkRoot(t *testing.T) {
 	progress, err := openedStore.ListProposalProgress(ctx)
 	if gotValue := progress[proposalID]; err != nil || gotValue.Step != "" || gotValue.LinkRoot != expectedRoot {
 		t.Fatalf("gotValue %+v %v, expectedValue no step and the link root kept", gotValue, err)
+	}
+}
+
+func TestProposalWarnings_roundTripMessages(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, _ := acceptedTestProposal(t, openedStore)
+	expectedValue := []i18n.Message{
+		{Key: "warning.test", Params: map[string]string{"count": "2"}},
+		{Key: "warning.other"},
+	}
+
+	proposalID, err := openedStore.CreateProposal(ctx, Proposal{CandidateID: candidateID, GroupID: candidateID, Kind: ProposalFull, Warnings: expectedValue}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposals, err := openedStore.ListProposals(ctx, ProposalPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotValue []i18n.Message
+	for _, proposal := range proposals {
+		if proposal.ID == proposalID {
+			gotValue = proposal.Warnings
+		}
+	}
+	if !reflect.DeepEqual(gotValue, expectedValue) {
+		t.Fatalf("gotValue %+v, expectedValue %+v", gotValue, expectedValue)
+	}
+}
+
+func TestProposalWarnings_legacyStringRowsStillRender(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	_, proposalID := acceptedTestProposal(t, openedStore)
+	if _, err := openedStore.database.ExecContext(ctx, `UPDATE proposals SET warnings = ? WHERE id = ?`, `["old text"]`, proposalID); err != nil {
+		t.Fatal(err)
+	}
+	expectedValue := []i18n.Message{{Key: i18n.KeyLegacyText, Params: map[string]string{"text": "old text"}}}
+
+	proposals, err := openedStore.ListProposals(ctx, ProposalAccepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotValue := proposals[0].Warnings; !reflect.DeepEqual(gotValue, expectedValue) {
+		t.Fatalf("gotValue %+v, expectedValue %+v", gotValue, expectedValue)
+	}
+	for _, language := range []i18n.Language{i18n.French, i18n.English} {
+		if gotValue := i18n.New(language, nil).Render(proposals[0].Warnings[0]); gotValue != "old text" {
+			t.Fatalf("language %s: gotValue %q, expectedValue the legacy text", language, gotValue)
+		}
+	}
+}
+
+func TestAddProposalWarning_appendsToALegacyRowWithoutLosingIt(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	_, proposalID := acceptedTestProposal(t, openedStore)
+	if _, err := openedStore.database.ExecContext(ctx, `UPDATE proposals SET warnings = ? WHERE id = ?`, `["old text"]`, proposalID); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := openedStore.AddProposalWarning(ctx, proposalID, i18n.Message{Key: "warning.test"}); err != nil {
+		t.Fatal(err)
+	}
+	proposals, err := openedStore.ListProposals(ctx, ProposalAccepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedValue := []i18n.Message{
+		{Key: i18n.KeyLegacyText, Params: map[string]string{"text": "old text"}},
+		{Key: "warning.test"},
+	}
+	if gotValue := proposals[0].Warnings; !reflect.DeepEqual(gotValue, expectedValue) {
+		t.Fatalf("gotValue %+v, expectedValue %+v", gotValue, expectedValue)
 	}
 }

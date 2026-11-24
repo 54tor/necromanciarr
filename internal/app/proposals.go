@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
 )
@@ -29,7 +30,7 @@ type Proposal struct {
 	Primary       bool                     `json:"primary"`
 	Generation    int64                    `json:"generation"`
 	Current       bool                     `json:"current"`
-	Warnings      []string                 `json:"warnings"`
+	Warnings      []Warning                `json:"warnings"`
 	Details       pipeline.ProposalDetails `json:"details"`
 	// Maintenance porte le détail d'une proposition dedupe (DedupeDetails) ou repair (RepairDetails).
 	Maintenance json.RawMessage `json:"maintenance,omitempty"`
@@ -107,19 +108,22 @@ func isOpenTorrentDecision(proposal store.Proposal) bool {
 	return isTaken && pipeline.IsTorrentProposal(proposal.Kind)
 }
 
-func (state snapshot) view(proposal store.Proposal) Proposal {
+func (state snapshot) view(translator i18n.Translator, proposal store.Proposal) Proposal {
 	candidate := state.candidates[proposal.CandidateID]
 	view := Proposal{
 		ID: proposal.ID, CandidateID: proposal.CandidateID, CandidateName: candidate.Name, CandidateSize: candidate.TotalSize,
 		Tracker: candidate.Tracker, GroupID: proposal.GroupID, Kind: proposal.Kind, Decision: proposal.Decision,
 		Step: state.progress[proposal.ID].Step, Primary: proposal.Primary, Generation: proposal.Generation,
-		Current: state.current(proposal), Warnings: proposal.Warnings,
+		Current: state.current(proposal), Warnings: warningViews(translator, proposal.Warnings),
 	}
 	if isMaintenanceKind(proposal.Kind) {
 		view.Current, view.Maintenance = true, proposal.Details
 		return view
 	}
 	_ = json.Unmarshal(proposal.Details, &view.Details)
+	for position := range view.Details.ExcludedFiles {
+		view.Details.ExcludedFiles[position].Label = translator.ReasonLabel(view.Details.ExcludedFiles[position].Reason)
+	}
 	return view
 }
 
@@ -130,7 +134,7 @@ func (svc *service) ListProposals(ctx context.Context, filter ProposalFilter) ([
 	}
 	var views []Proposal
 	for _, proposal := range state.proposals {
-		if view := state.view(proposal); filter.keeps(view) {
+		if view := state.view(svc.deps.Translator, proposal); filter.keeps(view) {
 			views = append(views, view)
 		}
 	}
@@ -261,7 +265,7 @@ func (svc *service) force(ctx context.Context, proposalID int64) (ForceResult, e
 	if err != nil {
 		return ForceResult{}, err
 	}
-	result := ForceResult{ProposalID: proposalID, Warnings: proposal.Warnings}
+	result := ForceResult{ProposalID: proposalID, Warnings: warningViews(svc.deps.Translator, proposal.Warnings)}
 	progress := state.progress[proposal.ID]
 	isPausedBySeed := proposal.Decision == store.ProposalApplied && progress.Step == store.StepSeededPausedIncomplete
 	switch {

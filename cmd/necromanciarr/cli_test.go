@@ -326,7 +326,7 @@ func TestCli_stageCommandsPrintTextAndJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(jsonRun.stdout), &decoded); err != nil || decoded["stage"] != "verify" || decoded["processed"] != 2.0 {
 		t.Fatalf("gotValue %q %v, expectedValue the verify result with stable field names", jsonRun.stdout, err)
 	}
-	if text.exitCode != 0 || !strings.Contains(text.stdout, "scan: processed 2") || !strings.Contains(text.stdout, "reason no_exact_size: 1") {
+	if text.exitCode != 0 || !strings.Contains(text.stdout, "scan: processed 2") || !strings.Contains(text.stdout, "reason no_exact_size (no torrent of exactly this size): 1") {
 		t.Fatalf("gotValue %+v, expectedValue a readable summary", text)
 	}
 	if strings.Contains(text.stdout+text.stderr+jsonRun.stdout, "\x1b[") {
@@ -657,14 +657,14 @@ func TestCli_repairScanShowsWhyARepairIsNotActionable(t *testing.T) {
 func TestCli_dedupePlanPrintsEachProposalWarning(t *testing.T) {
 	configDir := writeDoctorConfig(t, `{}`)
 	fake := &fakeService{dedupePlan: []app.DedupeProposal{{
-		ID: 8, Decision: store.ProposalPending, Warnings: []string{app.WarningNoClientRecheck},
+		ID: 8, Decision: store.ProposalPending, Warnings: []app.Warning{{Code: "warning.no_client_recheck", Text: "no client recheck"}},
 		Details: app.DedupeDetails{TorrentPath: "/home/u/torrents/b.mkv", Actionable: true, Kind: "hardlink"},
 	}}}
 	useFakeService(t, fake)
 
 	plan := runCli(t, configDir, "dedupe", "plan")
 
-	if plan.exitCode != 0 || !strings.Contains(plan.stdout, "warning: "+app.WarningNoClientRecheck) {
+	if plan.exitCode != 0 || !strings.Contains(plan.stdout, "warning: no client recheck") {
 		t.Fatalf("gotValue %+v, expectedValue the warning printed under the proposal", plan)
 	}
 }
@@ -694,7 +694,7 @@ func TestCli_statusListsTheHeldTorrentsWithTheirReason(t *testing.T) {
 		MissingPieces: 6, TotalPieces: 10,
 	}}}}
 	useFakeService(t, fake)
-	expectedValue := "held: 7 Show.S01 partial_pack missing_pieces_above_cap (6/10 pieces missing)"
+	expectedValue := "held: 7 Show.S01 partial_pack missing_pieces_above_cap (too many missing pieces, the verdict is held; 6/10 pieces missing)"
 
 	gotValue := runCli(t, configDir, "status").stdout
 

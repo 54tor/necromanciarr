@@ -117,7 +117,7 @@ func sampleProposals() []app.Proposal {
 		{
 			ID: 4, CandidateID: 40, CandidateName: "Film.2001.1080p", CandidateSize: 4096, Tracker: "tracker.example.com",
 			GroupID: 9, Kind: store.ProposalPartialAnnex, Decision: store.ProposalPending, Generation: 2, Current: true,
-			Warnings: []string{"2 pieces cover a missing .nfo"},
+			Warnings: []app.Warning{{Code: "warning.annex_pieces_not_proven", Text: "2 pieces cover a missing .nfo"}},
 			Details: pipeline.ProposalDetails{
 				Percent: 99.5, VerifiedPieces: 398, MissingPieces: 2, TotalPieces: 400,
 				Candidates: []pipeline.GroupMember{{CandidateID: 40, Name: "Film.2001.1080p", ProposalID: 4, Percent: 99.5}},
@@ -125,7 +125,7 @@ func sampleProposals() []app.Proposal {
 		},
 		{
 			ID: 5, CandidateID: 50, GroupID: 9, Kind: store.ProposalConflict, Decision: store.ProposalPending, Current: false,
-			Warnings: []string{},
+			Warnings: []app.Warning{},
 			Details: pipeline.ProposalDetails{Candidates: []pipeline.GroupMember{
 				{CandidateID: 11, Name: "first", ProposalID: 21, Percent: 100},
 				{CandidateID: 12, Name: "second", ProposalID: 22, Percent: 100},

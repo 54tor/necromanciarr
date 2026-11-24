@@ -10,6 +10,7 @@ import (
 
 	"necromanciarr/internal/dedupe"
 	"necromanciarr/internal/hashsource"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
 	"necromanciarr/internal/store"
@@ -32,6 +33,7 @@ type DedupeDetails struct {
 	Warnings           []string  `json:"warnings,omitempty"`
 	Ambiguous          []string  `json:"ambiguous,omitempty"`
 	Reason             string    `json:"reason,omitempty"`
+	Label              string    `json:"label,omitempty"`
 	Actionable         bool      `json:"actionable"`
 	Fingerprint        string    `json:"fingerprint"`
 	LibraryFingerprint string    `json:"library_fingerprint,omitempty"`
@@ -50,7 +52,7 @@ const DedupeReasonIsolatedCopy = "isolated_copy"
 type DedupeProposal struct {
 	ID       int64                  `json:"id"`
 	Decision store.ProposalDecision `json:"decision"`
-	Warnings []string               `json:"warnings"`
+	Warnings []Warning              `json:"warnings"`
 	Details  DedupeDetails          `json:"details"`
 }
 
@@ -60,6 +62,14 @@ func (details DedupeDetails) identity() (key, signature string) {
 		details.LibraryFingerprint, details.Kind, details.LibraryInode, strings.Join(details.Ambiguous, "\x00"), details.Actionable,
 		slices.Contains(details.Warnings, WarningNoClientRecheck))
 	return key, signature
+}
+
+// labelled renvoie le détail avec le libellé traduit du motif ; un motif qui n'est pas un code connu reste tel quel.
+func (details DedupeDetails) labelled(translator i18n.Translator) DedupeDetails {
+	if details.Reason != "" {
+		details.Label = translator.ReasonLabel(details.Reason)
+	}
+	return details
 }
 
 func dedupeActionable(details DedupeDetails) bool { return details.Actionable }
@@ -124,7 +134,7 @@ func (svc *service) DedupePlan(ctx context.Context) ([]DedupeProposal, error) {
 		persisted, err := persistMaintenance(ctx, svc, store.ProposalDedupe, entries, dedupeWarnings, neverOutOfScope)
 		for _, stored := range persisted {
 			proposals = append(proposals, DedupeProposal{
-				ID: stored.proposal.ID, Decision: stored.proposal.Decision, Warnings: stored.proposal.Warnings, Details: stored.details,
+				ID: stored.proposal.ID, Decision: stored.proposal.Decision, Warnings: warningViews(svc.deps.Translator, stored.proposal.Warnings), Details: stored.details.labelled(svc.deps.Translator),
 			})
 		}
 		return err

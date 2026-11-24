@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"slices"
+	"reflect"
 	"testing"
+
+	"necromanciarr/internal/i18n"
 )
 
 func saveVerifiedHoldCandidate(t *testing.T, openedStore *Store) int64 {
@@ -21,7 +23,7 @@ func TestCandidateHolds_saveListAndDeleteTheHeldVerdict(t *testing.T) {
 	candidateID := saveVerifiedHoldCandidate(t, openedStore)
 	expectedValue := CandidateHold{
 		CandidateID: candidateID, Reason: "missing_pieces_above_cap", Kind: ProposalPartialAnnex,
-		Warnings: []string{"paused"}, Details: json.RawMessage(`{"missing_pieces":3}`),
+		Warnings: []i18n.Message{{Key: "warning.test", Params: map[string]string{"count": "3"}}}, Details: json.RawMessage(`{"missing_pieces":3}`),
 	}
 
 	if err := openedStore.SaveCandidateHold(ctx, expectedValue, testNow); err != nil {
@@ -33,7 +35,7 @@ func TestCandidateHolds_saveListAndDeleteTheHeldVerdict(t *testing.T) {
 	}
 
 	isExpected := len(gotValue) == 1 && gotValue[0].CandidateID == candidateID && gotValue[0].Reason == expectedValue.Reason &&
-		gotValue[0].Kind == expectedValue.Kind && slices.Equal(gotValue[0].Warnings, expectedValue.Warnings) &&
+		gotValue[0].Kind == expectedValue.Kind && reflect.DeepEqual(gotValue[0].Warnings, expectedValue.Warnings) &&
 		string(gotValue[0].Details) == string(expectedValue.Details)
 	if !isExpected {
 		t.Fatalf("gotValue %+v, expectedValue %+v", gotValue, expectedValue)
@@ -72,5 +74,27 @@ func TestCandidateHolds_refusesAnUnknownKind(t *testing.T) {
 
 	if err == nil {
 		t.Fatal("gotValue nil, expectedValue an unknown kind error")
+	}
+}
+
+func TestHoldWarnings_legacyStringRowsStillRender(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID := saveVerifiedHoldCandidate(t, openedStore)
+	if err := openedStore.SaveCandidateHold(ctx, CandidateHold{CandidateID: candidateID, Reason: "missing_pieces_above_cap", Kind: ProposalPartialAnnex}, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openedStore.database.ExecContext(ctx, `UPDATE candidate_holds SET warnings = ?`, `["old hold text"]`); err != nil {
+		t.Fatal(err)
+	}
+
+	holds, err := openedStore.ListCandidateHolds(ctx)
+	if err != nil || len(holds) != 1 || len(holds[0].Warnings) != 1 {
+		t.Fatalf("gotValue %+v %v, expectedValue one hold with one warning", holds, err)
+	}
+	for _, language := range []i18n.Language{i18n.French, i18n.English} {
+		if gotValue := i18n.New(language, nil).Render(holds[0].Warnings[0]); gotValue != "old hold text" {
+			t.Fatalf("language %s: gotValue %q, expectedValue the legacy text", language, gotValue)
+		}
 	}
 }

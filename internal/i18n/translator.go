@@ -54,6 +54,16 @@ func (translator Translator) Text(key Key, params map[string]string) string {
 	})
 }
 
+// ReasonLabel rend le libellé d'un code de motif (« reason.<code> ») ; un code sans libellé est rendu tel quel, jamais
+// vide. La clé est construite ici parce que les codes viennent des paquets métier, qui ne connaissent pas le catalogue.
+func (translator Translator) ReasonLabel(code string) string {
+	key := Key("reason." + code)
+	if _, found := translator.catalog[key]; !found {
+		return code
+	}
+	return translator.Text(key, nil)
+}
+
 // Render rend un message stocké.
 func (translator Translator) Render(message Message) string {
 	return translator.Text(message.Key, message.Params)
@@ -85,5 +95,7 @@ func Keys() []Key {
 	keys = append(keys, errorKeys...)
 	keys = append(keys, cliKeys...)
 	keys = append(keys, actionKeys...)
-	return append(keys, doctorKeys...)
+	keys = append(keys, doctorKeys...)
+	keys = append(keys, reasonKeys...)
+	return append(keys, warningKeys...)
 }

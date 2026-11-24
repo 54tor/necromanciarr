@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"necromanciarr/internal/hashsource"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/repair"
@@ -38,6 +39,7 @@ type RepairDetails struct {
 	Relative      bool     `json:"relative"`
 	Actionable    bool     `json:"actionable"`
 	Reason        string   `json:"reason,omitempty"`
+	Label         string   `json:"label,omitempty"`
 	ScanDirectory string   `json:"scan_directory,omitempty"`
 }
 
@@ -45,7 +47,7 @@ type RepairDetails struct {
 type RepairProposal struct {
 	ID       int64                  `json:"id"`
 	Decision store.ProposalDecision `json:"decision"`
-	Warnings []string               `json:"warnings"`
+	Warnings []Warning              `json:"warnings"`
 	Details  RepairDetails          `json:"details"`
 }
 
@@ -53,6 +55,14 @@ func (details RepairDetails) identity() (key, signature string) {
 	signature = fmt.Sprint(details.Status, "\x00", details.OldTarget, "\x00", details.NewTarget, "\x00", details.Size, "\x00",
 		strings.Join(details.Candidates, "\x00"), "\x00", details.ScanDirectory, "\x00", details.Reason)
 	return details.LinkPath, signature
+}
+
+// labelled renvoie le détail avec le libellé traduit du motif.
+func (details RepairDetails) labelled(translator i18n.Translator) RepairDetails {
+	if details.Reason != "" {
+		details.Label = translator.ReasonLabel(details.Reason)
+	}
+	return details
 }
 
 func repairActionable(details RepairDetails) bool { return details.Actionable }
@@ -84,7 +94,7 @@ func (svc *service) RepairScan(ctx context.Context, directory string) ([]RepairP
 		persisted, err := persistMaintenance(ctx, svc, store.ProposalRepair, entries, noRepairWarnings, otherScan)
 		for _, stored := range persisted {
 			proposals = append(proposals, RepairProposal{
-				ID: stored.proposal.ID, Decision: stored.proposal.Decision, Warnings: stored.proposal.Warnings, Details: stored.details,
+				ID: stored.proposal.ID, Decision: stored.proposal.Decision, Warnings: warningViews(svc.deps.Translator, stored.proposal.Warnings), Details: stored.details.labelled(svc.deps.Translator),
 			})
 		}
 		return err

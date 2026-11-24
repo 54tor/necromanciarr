@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
 	"necromanciarr/internal/store"
@@ -38,11 +39,11 @@ const (
 	ReasonNotPausedAfterAdd      = "not_paused_after_add"
 )
 
-// Avertissements consignés sur la proposition (texte fixe, sans URL ni secret).
-const (
-	warningIncompleteAfterRecheck = "left paused: the client did not reach 100% after its recheck"
-	warningCrossSeedNotifyFailed  = "cross-seed notification failed: the daemon will not search for this torrent"
-	warningSourcesChanged         = "not seeded: a library file changed since it was linked, verify again"
+// Avertissements consignés sur la proposition (message fixe, sans URL ni secret).
+var (
+	warningIncompleteAfterRecheck = i18n.Message{Key: i18n.KeyWarningIncompleteAfterRecheck}
+	warningCrossSeedNotifyFailed  = i18n.Message{Key: i18n.KeyWarningCrossSeedNotifyFailed}
+	warningSourcesChanged         = i18n.Message{Key: i18n.KeyWarningSourcesChanged}
 )
 
 // defaultSeedRecheckTimeout couvre le recontrôle d'un gros torrent sur disque lent ; au-delà, il reste en pause.

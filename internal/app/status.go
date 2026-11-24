@@ -30,6 +30,7 @@ type HeldCandidate struct {
 	Tracker       string             `json:"tracker"`
 	Kind          store.ProposalKind `json:"kind"`
 	Reason        string             `json:"reason"`
+	Label         string             `json:"label"`
 	Percent       float64            `json:"percent"`
 	MissingPieces int                `json:"missing_pieces"`
 	TotalPieces   int                `json:"total_pieces"`
@@ -82,7 +83,7 @@ func (svc *service) heldCandidates(ctx context.Context, state snapshot) ([]HeldC
 		_ = json.Unmarshal(hold.Details, &details)
 		held = append(held, HeldCandidate{
 			CandidateID: hold.CandidateID, CandidateName: candidate.Name, Tracker: candidate.Tracker, Kind: hold.Kind,
-			Reason: hold.Reason, Percent: details.Percent, MissingPieces: details.MissingPieces, TotalPieces: details.TotalPieces,
+			Reason: hold.Reason, Label: svc.deps.Translator.ReasonLabel(hold.Reason), Percent: details.Percent, MissingPieces: details.MissingPieces, TotalPieces: details.TotalPieces,
 		})
 	}
 	return held, nil
