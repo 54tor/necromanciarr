@@ -64,6 +64,8 @@ type Deps struct {
 	// indexeurs de Prowlarr (URL de l'API native, clé comprise).
 	NewCapsReader    func(indexer config.TorznabIndexer) (CapsReader, error)
 	NewIndexerLister func(rawURL string) (IndexerLister, error)
+	// CapsCache réutilise le résultat des capacités d'un indexeur (nil : une requête à chaque diagnostic).
+	CapsCache *CapsCache
 }
 
 func (deps Deps) withDefaults() Deps {

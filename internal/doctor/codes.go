@@ -85,6 +85,7 @@ const (
 	CodeTorznabHostileResponse           = "torznab_hostile_response"
 	CodeTorznabBadResponse               = "torznab_bad_response"
 	CodeTorznabNoMediaMode               = "torznab_no_media_mode"
+	CodeTorznabNotInSourceOrder          = "torznab_not_in_source_order"
 	CodeProwlarrOK                       = "prowlarr_ok"
 	CodeProwlarrAccessDenied             = "prowlarr_access_denied"
 	CodeProwlarrUnreachable              = "prowlarr_unreachable"

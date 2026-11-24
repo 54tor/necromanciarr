@@ -158,6 +158,7 @@
       "torznab_hostile_response": "Torznab indexer: hostile response",
       "torznab_bad_response": "Torznab indexer: invalid response",
       "torznab_no_media_mode": "Torznab indexer without movie or series search",
+      "torznab_not_in_source_order": "Torznab indexer missing from sourceOrder",
       "prowlarr_ok": "Prowlarr operational",
       "prowlarr_access_denied": "Prowlarr: key rejected",
       "prowlarr_unreachable": "Prowlarr unreachable",

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,6 +64,9 @@ func modesOf(modes ...string) torznab.Caps {
 
 func runCheck(t *testing.T, settings config.Config, deps Deps, checkID string) Outcome {
 	t.Helper()
+	if deps.NewCapsReader == nil && checkID != "torznab:12" {
+		deps.NewCapsReader = func(config.TorznabIndexer) (CapsReader, error) { return fakeCaps{caps: modesOf("movie")}, nil }
+	}
 	return resultOf(t, Run(context.Background(), Build(settings, deps)), checkID)
 }
 
@@ -181,7 +185,7 @@ func containsID(identifiers []string, wanted string) bool {
 }
 
 func TestDoctor_prowlarrWarnsForMissingOrDisabledIndexers(t *testing.T) {
-	settings := sourceSettings("http://example.com/12/api?apikey=fake-key-value", "http://example.com/13/api?apikey=fake-key-value", "http://example.com/14/api?apikey=fake-key-value")
+	settings := sourceSettings("http://example.com:9696/12/api?apikey=fake-key-value", "http://example.com:9696/13/api?apikey=fake-key-value", "http://example.com:9696/14/api?apikey=fake-key-value")
 	settings.Prowlarr = "http://example.com:9696?apikey=" + fakeProwlarrKey
 	lister := fakeLister{indexers: []prowlarr.Indexer{{ID: 12, Name: "Tracker A", Enabled: true}, {ID: 13, Name: "Tracker B", Enabled: false}}}
 	deps := Deps{NewIndexerLister: func(string) (IndexerLister, error) { return lister, nil }}
@@ -203,7 +207,7 @@ func TestDoctor_prowlarrWarnsForMissingOrDisabledIndexers(t *testing.T) {
 }
 
 func TestDoctor_prowlarrIsOKWhenEveryConfiguredIndexerIsEnabled(t *testing.T) {
-	settings := sourceSettings("http://example.com/12/api?apikey=fake-key-value", "http://other.example.com/api?apikey=fake-key-value")
+	settings := sourceSettings("http://example.com:9696/12/api?apikey=fake-key-value", "http://other.example.com/api?apikey=fake-key-value")
 	settings.Prowlarr = "http://example.com:9696?apikey=" + fakeProwlarrKey
 	lister := fakeLister{indexers: []prowlarr.Indexer{{ID: 12, Enabled: true}, {ID: 40, Enabled: false}}}
 	deps := Deps{NewIndexerLister: func(string) (IndexerLister, error) { return lister, nil }}
@@ -283,4 +287,111 @@ func renderedJSON(t *testing.T, report Report, translator i18n.Translator) strin
 		t.Fatal(err)
 	}
 	return string(raw)
+}
+
+func TestDoctor_prowlarrOnlyEvaluatesFeedsServedByItsOwnHost(t *testing.T) {
+	scenarios := []struct {
+		name           string
+		prowlarrURL    string
+		indexerURL     string
+		expectedStatus Status
+	}{
+		{"foreign host with a numeric segment is ignored", "http://example.com:9696?apikey=x-key", "http://jackett.example.com:9696/99/api?apikey=x-key", OK},
+		{"same host other port is ignored", "http://example.com:9696?apikey=x-key", "http://example.com:9797/99/api?apikey=x-key", OK},
+		{"other scheme is ignored", "http://example.com:9696?apikey=x-key", "https://example.com:9696/99/api?apikey=x-key", OK},
+		{"same host and missing id is warned", "http://example.com:9696?apikey=x-key", "http://example.com:9696/99/api?apikey=x-key", Warn},
+		{"host case and trailing dot do not matter", "http://EXAMPLE.com:9696?apikey=x-key", "http://example.com.:9696/99/api?apikey=x-key", Warn},
+		{"default port is explicit", "https://example.com?apikey=x-key", "https://example.com:443/99/api?apikey=x-key", Warn},
+		{"docker service name with an underscore", "http://my_prowlarr:9696?apikey=x-key", "http://MY_PROWLARR:9696/99/api?apikey=x-key", Warn},
+		{"under the url base", "http://example.com:9696/prowlarr?apikey=x-key", "http://example.com:9696/prowlarr/99/api?apikey=x-key", Warn},
+		{"outside the url base is ignored", "http://example.com:9696/prowlarr?apikey=x-key", "http://example.com:9696/other/99/api?apikey=x-key", OK},
+		{"sibling prefix is not under the url base", "http://example.com:9696/prowlarr?apikey=x-key", "http://example.com:9696/prowlarr2/99/api?apikey=x-key", OK},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			settings := sourceSettings(scenario.indexerURL)
+			settings.Prowlarr = scenario.prowlarrURL
+			deps := Deps{NewIndexerLister: func(string) (IndexerLister, error) {
+				return fakeLister{indexers: []prowlarr.Indexer{{ID: 12, Enabled: true}}}, nil
+			}}
+
+			outcome := runCheck(t, settings, deps, "prowlarr")
+
+			if outcome.Result.Status != scenario.expectedStatus {
+				t.Fatalf("gotValue %s (%+v), expectedValue %s", outcome.Result.Status, outcome.Result, scenario.expectedStatus)
+			}
+		})
+	}
+}
+
+func TestDoctor_torznabWarnsForAnIndexerOmittedFromSourceOrder(t *testing.T) {
+	deps := capsDeps(fakeCaps{caps: modesOf("movie")}, nil)
+	scenarios := []struct {
+		name           string
+		sourceOrder    []string
+		expectedStatus Status
+		expectedCode   string
+	}{
+		{"listed", []string{"provider", "torznab:12"}, OK, CodeTorznabOK},
+		{"omitted", []string{"provider"}, Warn, CodeTorznabNotInSourceOrder},
+		{"order not loaded by Load", nil, OK, CodeTorznabOK},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			settings := sourceSettings("http://example.com/12/api?apikey=fake-key-value")
+			settings.SourceOrder = scenario.sourceOrder
+
+			outcome := runCheck(t, settings, deps, "torznab:12")
+
+			if outcome.Result.Status != scenario.expectedStatus || outcome.Result.Code != scenario.expectedCode {
+				t.Fatalf("gotValue %+v, expectedValue %s with %s", outcome.Result, scenario.expectedStatus, scenario.expectedCode)
+			}
+			if scenario.expectedStatus == Warn && !strings.Contains(hintOf(outcome.Result), "torznab:12") {
+				t.Fatalf("gotValue hint %q, expectedValue it to name torznab:12", hintOf(outcome.Result))
+			}
+		})
+	}
+}
+
+func TestDoctor_torznabCachesTheCapsOutcomeForFiveMinutes(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusInternalServerError} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			var requests atomic.Int64
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				if status != http.StatusOK {
+					writer.WriteHeader(status)
+					return
+				}
+				content, _ := os.ReadFile(filepath.Join("..", "torznab", "testdata", "caps.xml"))
+				writer.Header().Set("Content-Type", "application/xml")
+				_, _ = writer.Write(content)
+			}))
+			defer server.Close()
+			now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+			cache := NewCapsCache(DefaultCapsCacheTTL, func() time.Time { return now })
+			settings := sourceSettings(server.URL + "/12/api?apikey=" + fakeIndexerKey)
+			run := func(runSettings config.Config) Outcome {
+				return runCheck(t, runSettings, Deps{CapsCache: cache}, "torznab:12")
+			}
+
+			first := run(settings)
+			now = now.Add(4 * time.Minute)
+			second := run(settings)
+			gotAfterSecondRun := requests.Load()
+			now = now.Add(2 * time.Minute)
+			run(settings)
+			gotAfterExpiry := requests.Load()
+			changed := settings
+			changed.Torznab = []config.TorznabIndexer{{URL: server.URL + "/12/api?apikey=" + fakeIndexerKey + "x", Name: "12"}}
+			run(changed)
+
+			if gotAfterSecondRun != 1 || gotAfterExpiry != 2 || requests.Load() != 3 {
+				t.Fatalf("gotValue requests %d, %d, %d, expectedValue 1 (cached), 2 (expired), 3 (config changed)", gotAfterSecondRun, gotAfterExpiry, requests.Load())
+			}
+			if first.Result.Code != second.Result.Code {
+				t.Fatalf("gotValue %s then %s, expectedValue the same outcome", first.Result.Code, second.Result.Code)
+			}
+		})
+	}
 }

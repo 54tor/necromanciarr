@@ -115,6 +115,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `torznab:12` | `torznab_unreachable` | `fail` | URL, indexer or Prowlarr started; quota reached (HTTP 429 or 503, Torznab errors 429, 500, 501, 503, 900, 910) |
 | `torznab:12` | `torznab_hostile_response` | `fail` | response refused (`DOCTYPE` or `ENTITY`, nesting too deep, more than 500 items): the URL is not a trusted feed |
 | `torznab:12` | `torznab_bad_response` | `fail` | not a Torznab feed: wrong path (Prowlarr: `/<id>/api`) |
+| `torznab:12` | `torznab_not_in_source_order` | `warn` | the indexer is missing from `sourceOrder`: it is never queried; add it or remove it from `torznab` |
 | `torznab:12` | `torznab_no_media_mode` | `warn` | neither `movie-search` nor `tv-search`: the indexer will give no candidate |
 | `prowlarr` | `prowlarr_ok` | `ok` | indexer list read, every `torznab` entry that comes from Prowlarr is enabled there |
 | `prowlarr` | `prowlarr_access_denied` | `fail` | the `?apikey=` of `prowlarr` (Settings > General > API Key) |

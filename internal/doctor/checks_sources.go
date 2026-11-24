@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"errors"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -47,7 +48,7 @@ func sourceChecks(settings config.Config, deps Deps) []Check {
 			ID:          torznabCheckPrefix + indexer.Name,
 			TitleKey:    i18n.KeyDoctorTitleTorznab,
 			TitleParams: map[string]string{"name": indexer.Name},
-			Run:         func(ctx context.Context) Result { return checkTorznab(ctx, indexer, deps) },
+			Run:         func(ctx context.Context) Result { return checkTorznab(ctx, indexer, settings.SourceOrder, deps) },
 		})
 	}
 	if settings.Prowlarr != "" {
@@ -57,23 +58,29 @@ func sourceChecks(settings config.Config, deps Deps) []Check {
 	return checks
 }
 
-func checkTorznab(ctx context.Context, indexer config.TorznabIndexer, deps Deps) Result {
+// checkTorznab ne lit que les capacités. Un indexeur absent de sourceOrder (vide : configuration non chargée par Load)
+// ne sera jamais interrogé : avertissement, pas un état vert.
+func checkTorznab(ctx context.Context, indexer config.TorznabIndexer, sourceOrder []string, deps Deps) Result {
 	reader, err := deps.NewCapsReader(indexer)
 	if err != nil {
 		return Result{Status: Fail, Code: CodeConfigInvalid, Detail: message(i18n.KeyDoctorTorznabBuildFailed, "error", err.Error())}
 	}
-	caps, err := reader.Caps(ctx)
+	caps, err := deps.CapsCache.caps(ctx, indexer, reader)
 	if err != nil {
 		return torznabFailure(err)
 	}
-	modes := modesText(caps)
-	if !hasMediaMode(caps) {
-		return Result{
-			Status: Warn, Code: CodeTorznabNoMediaMode,
-			Detail: message(i18n.KeyDoctorTorznabNoMediaMode, "modes", modes), Hint: message(i18n.KeyDoctorTorznabNoMediaModeHint),
-		}
+	var collected findings
+	if hasMediaMode(caps) {
+		collected.add(OK, CodeTorznabOK, message(i18n.KeyDoctorTorznabOK, "modes", modesText(caps)), i18n.Message{})
+	} else {
+		collected.add(Warn, CodeTorznabNoMediaMode, message(i18n.KeyDoctorTorznabNoMediaMode, "modes", modesText(caps)),
+			message(i18n.KeyDoctorTorznabNoMediaModeHint))
 	}
-	return Result{Status: OK, Code: CodeTorznabOK, Detail: message(i18n.KeyDoctorTorznabOK, "modes", modes)}
+	if len(sourceOrder) > 0 && !slices.Contains(sourceOrder, config.SourceTorznabPrefix+indexer.Name) {
+		collected.add(Warn, CodeTorznabNotInSourceOrder, message(i18n.KeyDoctorTorznabNotInSourceOrder, "name", indexer.Name),
+			message(i18n.KeyDoctorTorznabNotInSourceOrderHint, "name", indexer.Name))
+	}
+	return collected.result()
 }
 
 // torznabFailure traduit une erreur du client ; les erreurs du client ne contiennent ni URL ni clé.
@@ -122,7 +129,7 @@ func modesText(caps torznab.Caps) string {
 func checkProwlarr(ctx context.Context, settings config.Config, deps Deps) Result {
 	lister, err := deps.NewIndexerLister(settings.Prowlarr)
 	if err != nil {
-		return Result{Status: Fail, Code: CodeConfigInvalid, Detail: message(i18n.KeyDoctorTorznabBuildFailed, "error", err.Error())}
+		return Result{Status: Fail, Code: CodeConfigInvalid, Detail: message(i18n.KeyDoctorProwlarrBuildFailed, "error", err.Error())}
 	}
 	indexers, err := lister.Indexers(ctx)
 	if err != nil {
@@ -131,7 +138,7 @@ func checkProwlarr(ctx context.Context, settings config.Config, deps Deps) Resul
 	var collected findings
 	for _, configured := range settings.Torznab {
 		identifier, hasIdentifier := configured.ProwlarrID()
-		if !hasIdentifier {
+		if !hasIdentifier || !servedByProwlarr(configured.URL, settings.Prowlarr) {
 			continue
 		}
 		if detail, faulty := indexerProblem(configured.Name, identifier, indexers); faulty {
@@ -185,4 +192,17 @@ func prowlarrFailure(err error) Result {
 		Status: Fail, Code: CodeProwlarrUnreachable,
 		Detail: message(i18n.KeyDoctorProwlarrUnreachable, "error", err.Error()), Hint: message(i18n.KeyDoctorProwlarrURLHint),
 	}
+}
+
+// servedByProwlarr dit si le flux vient de l'instance Prowlarr configurée : même origine et, sous sa base d'URL, un
+// chemin qui la prolonge. Un flux d'un autre hôte (Jackett, autre Prowlarr) n'est pas évalué : son identifiant ne
+// désigne rien dans cette liste.
+func servedByProwlarr(indexerURL, prowlarrURL string) bool {
+	indexerParsed, indexerErr := url.Parse(indexerURL)
+	prowlarrParsed, prowlarrErr := url.Parse(prowlarrURL)
+	if indexerErr != nil || prowlarrErr != nil || !torznab.SameOrigin(indexerParsed, prowlarrParsed) {
+		return false
+	}
+	basePath := strings.TrimSuffix(prowlarrParsed.Path, "/")
+	return basePath == "" || indexerParsed.Path == basePath || strings.HasPrefix(indexerParsed.Path, basePath+"/")
 }

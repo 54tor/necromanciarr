@@ -115,6 +115,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `torznab:12` | `torznab_unreachable` | `fail` | URL, indexeur ou Prowlarr démarré ; quota atteint (HTTP 429 ou 503, erreurs Torznab 429, 500, 501, 503, 900, 910) |
 | `torznab:12` | `torznab_hostile_response` | `fail` | réponse refusée (`DOCTYPE` ou `ENTITY`, imbrication trop profonde, plus de 500 éléments) : l'URL ne désigne pas un flux de confiance |
 | `torznab:12` | `torznab_bad_response` | `fail` | pas un flux Torznab : chemin erroné (Prowlarr : `/<id>/api`) |
+| `torznab:12` | `torznab_not_in_source_order` | `warn` | l'indexeur manque dans `sourceOrder` : il n'est jamais interrogé ; l'y ajouter ou le retirer de `torznab` |
 | `torznab:12` | `torznab_no_media_mode` | `warn` | ni `movie-search` ni `tv-search` : l'indexeur ne donnera aucun candidat |
 | `prowlarr` | `prowlarr_ok` | `ok` | liste des indexeurs lue, chaque entrée `torznab` de Prowlarr y est activée |
 | `prowlarr` | `prowlarr_access_denied` | `fail` | `?apikey=` de `prowlarr` (Settings > General > API Key) |

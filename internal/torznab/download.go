@@ -222,3 +222,11 @@ func checkTorrent(content []byte, announcedInfoHash string) error {
 	}
 	return nil
 }
+
+// SameOrigin dit si deux URL ont le même schéma, le même hôte canonique (casse, point final, noms de service Docker
+// compris) et le même port, effectif ou par défaut ; une URL à identifiants ou opaque n'a pas d'origine.
+func SameOrigin(first, second *url.URL) bool {
+	firstOrigin, isFirstValid := originOf(first)
+	secondOrigin, isSecondValid := originOf(second)
+	return isFirstValid && isSecondValid && firstOrigin == secondOrigin
+}

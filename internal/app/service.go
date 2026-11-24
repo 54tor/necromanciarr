@@ -180,6 +180,9 @@ func New(deps Deps) Service {
 	if deps.Translator.Language() == "" {
 		deps.Translator = i18n.New(i18n.French, nil)
 	}
+	if deps.DoctorDeps.CapsCache == nil {
+		deps.DoctorDeps.CapsCache = doctor.NewCapsCache(doctor.DefaultCapsCacheTTL, deps.Now)
+	}
 	return &service{deps: deps}
 }
 
