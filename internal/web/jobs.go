@@ -4,15 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"slices"
 	"sync"
 	"time"
 
 	"necromanciarr/internal/i18n"
-
-	"necromanciarr/internal/config"
 )
 
 // maxJobHistory borne l'historique en mémoire : les jobs ne sont pas persistés, le résultat durable est en base.
@@ -44,6 +42,7 @@ type Job struct {
 // réponse) : un arrêt du serveur annule le job en cours.
 type jobRunner struct {
 	describe func(error) (int, ErrorBody)
+	logLine  func(level slog.Level, code string, key i18n.Key, params map[string]string)
 	ctx      context.Context
 	mutex    sync.Mutex
 	history  []*Job
@@ -53,8 +52,8 @@ type jobRunner struct {
 	group    sync.WaitGroup
 }
 
-func newJobRunner(ctx context.Context, describe func(error) (int, ErrorBody)) *jobRunner {
-	return &jobRunner{ctx: ctx, describe: describe}
+func newJobRunner(ctx context.Context, describe func(error) (int, ErrorBody), logLine func(slog.Level, string, i18n.Key, map[string]string)) *jobRunner {
+	return &jobRunner{ctx: ctx, describe: describe, logLine: logLine}
 }
 
 // errJobRunning : un job tourne déjà ; même code que le verrou d'étape du Service.
@@ -66,14 +65,14 @@ var errShuttingDown = newAPIError(http.StatusServiceUnavailable, errorCodeShutti
 // startJob lance work en arrière-plan et répond 202 avec le job ; le résultat et l'erreur sont masqués à la lecture
 // (writeJSON), comme toute réponse.
 func (handler *Handler) startJob(action string, work func(ctx context.Context) (any, error)) (any, int, error) {
-	job, err := handler.jobs.start(action, work, handler.secrets())
+	job, err := handler.jobs.start(action, work)
 	if err != nil {
 		return nil, 0, err
 	}
 	return job, http.StatusAccepted, nil
 }
 
-func (runner *jobRunner) start(action string, work func(ctx context.Context) (any, error), secrets []string) (Job, error) {
+func (runner *jobRunner) start(action string, work func(ctx context.Context) (any, error)) (Job, error) {
 	runner.mutex.Lock()
 	defer runner.mutex.Unlock()
 	if runner.closed || runner.ctx.Err() != nil {
@@ -89,12 +88,12 @@ func (runner *jobRunner) start(action string, work func(ctx context.Context) (an
 		runner.history = slices.Delete(runner.history, 0, len(runner.history)-maxJobHistory)
 	}
 	runner.running = true
-	runner.group.Go(func() { runner.finish(job, work, secrets) })
+	runner.group.Go(func() { runner.finish(job, work) })
 	return *job, nil
 }
 
-func (runner *jobRunner) finish(job *Job, work func(ctx context.Context) (any, error), secrets []string) {
-	result, err := runRecovering(runner.ctx, job, work, secrets)
+func (runner *jobRunner) finish(job *Job, work func(ctx context.Context) (any, error)) {
+	result, err := runner.runRecovering(job, work)
 	runner.mutex.Lock()
 	defer runner.mutex.Unlock()
 	finishedAt := time.Now().UTC()
@@ -102,7 +101,7 @@ func (runner *jobRunner) finish(job *Job, work func(ctx context.Context) (any, e
 	if err != nil {
 		status, body := runner.describe(err)
 		if status == http.StatusInternalServerError {
-			log.Printf("job %d (%s): %s", job.ID, job.Action, config.RedactText(err.Error(), secrets...))
+			runner.logLine(slog.LevelError, LogCodeJobFailed, i18n.KeyLogJobFailed, jobParams(job, err.Error()))
 		}
 		job.State, job.Result, job.Error = JobFailed, nil, &body
 	}
@@ -114,14 +113,14 @@ var errJobPanicked = errors.New("job panicked")
 
 // runRecovering exécute work et change une panique en échec du job ; la valeur de la panique n'est écrite que
 // masquée, dans le journal du serveur.
-func runRecovering(ctx context.Context, job *Job, work func(ctx context.Context) (any, error), secrets []string) (result any, err error) {
+func (runner *jobRunner) runRecovering(job *Job, work func(ctx context.Context) (any, error)) (result any, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			log.Printf("job %d (%s): panic: %s", job.ID, job.Action, config.RedactText(fmt.Sprint(recovered), secrets...))
+			runner.logLine(slog.LevelError, LogCodeJobPanicked, i18n.KeyLogJobPanicked, jobParams(job, fmt.Sprint(recovered)))
 			result, err = nil, errJobPanicked
 		}
 	}()
-	return work(ctx)
+	return work(runner.ctx)
 }
 
 // list renvoie une copie de l'historique, le plus récent d'abord.

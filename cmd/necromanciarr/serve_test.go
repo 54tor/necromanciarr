@@ -95,7 +95,7 @@ func TestServe_startsAndStopsOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	outcome := startServe(ctx, []string{"--config-dir", t.TempDir()})
+	outcome := startServe(ctx, []string{"--config-dir", t.TempDir(), "--language", "en"})
 	address := <-harness.addresses
 	gotStatus, gotBody := probe(t, address)
 	cancel()
@@ -104,7 +104,7 @@ func TestServe_startsAndStopsOnContextCancel(t *testing.T) {
 	if gotStatus != http.StatusOK || gotBody != "ok" {
 		t.Fatalf("gotValue %d %q, expectedValue 200 ok while serving", gotStatus, gotBody)
 	}
-	if result.exitCode != successExitCode || !strings.Contains(result.stdout, "listening on http://"+address) || result.stderr != "" {
+	if result.exitCode != successExitCode || !strings.Contains(result.stdout, "listening on http://"+address) || !strings.Contains(result.stdout, "code=server_listening") || result.stderr != "" {
 		t.Fatalf("gotValue %+v, expectedValue exit 0 with the listening address and no warning", result)
 	}
 	if !harness.closer.closed.Load() {
@@ -126,12 +126,12 @@ func TestServe_warnsWhenListeningOutsideLoopbackWithoutPrintingTheToken(t *testi
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	outcome := startServe(ctx, []string{"--config-dir", t.TempDir(), "--listen", "0.0.0.0:8787"})
+	outcome := startServe(ctx, []string{"--config-dir", t.TempDir(), "--listen", "0.0.0.0:8787", "--language", "en"})
 	<-harness.addresses
 	cancel()
 	result := waitOutcome(t, outcome)
 
-	if result.exitCode != successExitCode || !strings.Contains(result.stderr, nonLoopbackWarning) {
+	if result.exitCode != successExitCode || !strings.Contains(result.stderr, "code=non_loopback_warning") || !strings.Contains(result.stderr, "outside loopback") {
 		t.Fatalf("gotValue %+v, expectedValue exit 0 and the non-loopback warning", result)
 	}
 	if strings.Contains(result.stdout+result.stderr, token) {
@@ -204,7 +204,41 @@ func TestHealthcheck_exitsZeroOnlyWhenHealthzAnswers200(t *testing.T) {
 		}
 	}
 	unreachable := runCli(t, t.TempDir(), "healthcheck", "--listen", "127.0.0.1:1")
-	if unreachable.exitCode != failureExitCode || unreachable.stderr != healthcheckFailure+"\n" {
+	if unreachable.exitCode != failureExitCode || !strings.Contains(unreachable.stderr, "code=healthcheck_failed") || strings.Count(unreachable.stderr, "\n") != 1 {
 		t.Fatalf("gotValue %+v, expectedValue exit 1 with only the failure line", unreachable)
+	}
+}
+
+func TestServe_startupLinesFollowTheLanguageAndKeepTheirCode(t *testing.T) {
+	expectedText := map[string]string{"fr": "écoute sur http://", "en": "listening on http://"}
+	for language, expectedValue := range expectedText {
+		harness := useServeHarness(t)
+		ctx, cancel := context.WithCancel(context.Background())
+		outcome := startServe(ctx, []string{"--config-dir", t.TempDir(), "--language", language})
+		address := <-harness.addresses
+		cancel()
+		result := waitOutcome(t, outcome)
+
+		if !strings.Contains(result.stdout, expectedValue+address) || !strings.Contains(result.stdout, "code=server_listening") {
+			t.Fatalf("language %s: gotValue %q, expectedValue %q and the stable code", language, result.stdout, expectedValue+address)
+		}
+	}
+}
+
+func TestHealthcheck_outputFollowsTheLanguage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { writer.WriteHeader(http.StatusOK) }))
+	defer server.Close()
+	address := strings.TrimPrefix(server.URL, "http://")
+	expectedText := map[string]string{"fr": "opérationnel", "en": "ok"}
+	for language, expectedValue := range expectedText {
+		gotValue := runCli(t, t.TempDir(), "healthcheck", "--listen", address, "--language", language)
+
+		if gotValue.exitCode != successExitCode || strings.TrimSpace(gotValue.stdout) != expectedValue {
+			t.Fatalf("language %s: gotValue %+v, expectedValue %q", language, gotValue, expectedValue)
+		}
+	}
+	unreachable := runCli(t, t.TempDir(), "healthcheck", "--listen", "127.0.0.1:1", "--language", "fr")
+	if !strings.Contains(unreachable.stderr, "indisponible") || !strings.Contains(unreachable.stderr, "code=healthcheck_failed") {
+		t.Fatalf("gotValue %+v, expectedValue the translated failure with its code", unreachable)
 	}
 }

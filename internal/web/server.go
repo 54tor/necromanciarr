@@ -6,8 +6,10 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"necromanciarr/internal/app"
@@ -40,6 +42,7 @@ type Handler struct {
 	settings   config.Config
 	translator i18n.Translator
 	jobs       *jobRunner
+	logger     *slog.Logger
 	hosts      allowedHosts
 }
 
@@ -54,9 +57,9 @@ func NewHandler(ctx context.Context, service app.Service, health HealthChecker, 
 func NewHandlerWithAssets(ctx context.Context, service app.Service, health HealthChecker, settings config.Config, assets fs.FS) *Handler {
 	handler := &Handler{
 		mux: http.NewServeMux(), service: service, health: health, settings: settings,
-		translator: service.Translator(), hosts: hostsFor(settings.ListenAddr),
+		translator: service.Translator(), hosts: hostsFor(settings.ListenAddr), logger: NewLogger(os.Stderr),
 	}
-	handler.jobs = newJobRunner(ctx, handler.describe)
+	handler.jobs = newJobRunner(ctx, handler.describe, handler.logLine)
 	handler.mux.HandleFunc("GET /healthz", handler.serveHealth)
 	for _, apiRoute := range apiRoutes {
 		handler.mux.Handle(apiRoute.pattern(), handler.protect(handler.endpoint(apiRoute.handle)))

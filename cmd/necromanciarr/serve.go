@@ -5,20 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/httpsafe"
+	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/web"
 )
 
 const (
 	// healthcheckTimeout borne la sonde du conteneur (HEALTHCHECK --timeout=5s laisse de la marge).
 	healthcheckTimeout  = 3 * time.Second
-	healthcheckFailure  = "healthcheck: unavailable"
-	nonLoopbackWarning  = "warning: listening outside loopback, every api request needs the bearer token"
 	healthcheckPath     = "/healthz"
 	loopbackForWildcard = "127.0.0.1"
 )
@@ -53,11 +53,15 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	if err != nil {
 		return out.failure(err)
 	}
-	_, _ = fmt.Fprintf(stdout, "listening on http://%s\n", listener.Addr())
+	web.LogLine(ctx, web.NewLogger(stdout), out.translator, slog.LevelInfo, web.LogCodeServerListening, i18n.KeyLogServerListening,
+		map[string]string{"url": "http://" + listener.Addr().String()}, out.secrets...)
+	errorLog := web.NewLogger(stderr)
 	if !config.IsLoopbackAddress(settings.ListenAddr) {
-		_, _ = fmt.Fprintln(stderr, nonLoopbackWarning)
+		web.LogLine(ctx, errorLog, out.translator, slog.LevelWarn, web.LogCodeNonLoopbackWarning, i18n.KeyLogNonLoopbackWarning, nil)
 	}
-	if err := web.Run(ctx, listener, web.NewHandler(ctx, service, health, settings)); err != nil {
+	handler := web.NewHandler(ctx, service, health, settings)
+	handler.UseLogger(errorLog)
+	if err := web.Run(ctx, listener, handler); err != nil {
 		return out.failure(err)
 	}
 	return successExitCode
@@ -66,18 +70,24 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 // runHealthcheck interroge /healthz sur la boucle locale ; code 0 seulement sur un 200. Aucun détail n'est affiché
 // (la sortie d'une sonde Docker est visible par docker inspect).
 func runHealthcheck(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	out := newPrinter(stdout, stderr, args)
 	settings, err := config.Load(args, lookupEnv, defaultConfigDir())
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, healthcheckFailure)
-		return failureExitCode
+		return out.healthcheckFailed(ctx)
 	}
+	out.useSettings(settings)
 	probeURL, err := healthcheckURL(settings.ListenAddr)
 	if err != nil || !healthzAnswers(ctx, probeURL) {
-		_, _ = fmt.Fprintln(stderr, healthcheckFailure)
-		return failureExitCode
+		return out.healthcheckFailed(ctx)
 	}
-	_, _ = fmt.Fprintln(stdout, "ok")
+	_, _ = fmt.Fprintln(stdout, out.translator.Text(i18n.KeyCLIHealthcheckOK, nil))
 	return successExitCode
+}
+
+// healthcheckFailed écrit l'unique ligne d'échec, sans détail, avec son code stable.
+func (out printer) healthcheckFailed(ctx context.Context) int {
+	web.LogLine(ctx, web.NewLogger(out.stderr), out.translator, slog.LevelError, web.LogCodeHealthcheckFailed, i18n.KeyLogHealthcheckFailed, nil)
+	return failureExitCode
 }
 
 // healthcheckURL vise l'hôte d'écoute ; une écoute sur toutes les interfaces (0.0.0.0, [::], hôte vide) est sondée

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 
 	"necromanciarr/internal/app"
@@ -83,7 +83,7 @@ func (handler *Handler) secrets() []string { return handler.settings.KnownSecret
 func (handler *Handler) writeError(writer http.ResponseWriter, err error) {
 	status, body := handler.describe(err)
 	if status == http.StatusInternalServerError {
-		log.Printf("api: %s", config.RedactText(err.Error(), handler.secrets()...))
+		handler.logLine(slog.LevelError, LogCodeAPIInternalError, i18n.KeyLogAPIInternalError, map[string]string{"error": err.Error()})
 	}
 	if failure, isAPIError := errors.AsType[*apiError](err); isAPIError && failure.allow != "" {
 		writer.Header().Set("Allow", failure.allow)

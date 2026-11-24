@@ -3,9 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -146,16 +144,14 @@ func TestJobs_aPanickingJobFailsWithAnInternalErrorAndTheServerStaysUp(t *testin
 	settings := loopbackSettings()
 	settings.LibraryProviderToken = providerToken
 	handler := newTestHandler(t, fake, settings)
-	var logged strings.Builder
-	log.SetOutput(&logged)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	logged := captureLog(handler)
 
 	failed := waitJob(t, handler, startJob(t, handler, "/api/stages/scan/run", `{}`).ID)
 
 	if failed.State != JobFailed || failed.Error == nil || failed.Error.Message != fake.Translator().Text(i18n.KeyErrorInternal, nil) {
 		t.Fatalf("gotValue %+v, expectedValue a failed job with an internal error", failed)
 	}
-	if strings.Contains(logged.String(), providerToken) || !strings.Contains(logged.String(), "panic") {
+	if strings.Contains(logged.String(), providerToken) || !strings.Contains(logged.String(), "code=job_panicked") {
 		t.Fatalf("gotValue log %q, expectedValue the panic logged without the secret", logged.String())
 	}
 	fake.panicValue = nil

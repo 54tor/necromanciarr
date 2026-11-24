@@ -3,7 +3,7 @@ package web
 import (
 	"crypto/sha256"
 	"crypto/subtle"
-	"log"
+	"log/slog"
 	"mime"
 	"net"
 	"net/http"
@@ -96,7 +96,7 @@ func (handler *Handler) protect(next http.Handler) http.Handler {
 		}
 		if !handler.authorized(request) {
 			// Une ligne par échec, sans limite de débit (risque accepté en v1) ; ni jeton ni en-tête n'y figurent.
-			log.Printf("api: unauthorized request from %s", remoteAddress(request)) // #nosec G706 -- adresse analysée par netip, sans texte libre
+			handler.logLine(slog.LevelWarn, LogCodeAPIUnauthorized, i18n.KeyLogAPIUnauthorized, map[string]string{"address": remoteAddress(request)})
 			writer.Header().Set("WWW-Authenticate", bearerScheme)
 			handler.writeError(writer, newAPIError(http.StatusUnauthorized, errorCodeUnauthorized, i18n.Message{Key: i18n.KeyErrorWebBearerToken}))
 			return
