@@ -105,8 +105,9 @@ func WithTimeout(timeout time.Duration) Option {
 }
 
 // Run exécute les contrôles dans l'ordre donné. Un contrôle qui dépasse son délai ou panique devient Fail sans
-// gêner les suivants ; si ctx est annulé, les contrôles restants sont notés Skipped. Détail et conseil sont
-// masqués par la redaction de la configuration.
+// gêner les suivants ; si ctx est annulé, le contrôle en cours et les suivants sont notés Skipped. Détail et conseil
+// sont masqués par la redaction de la configuration.
+// Limite : un contrôle bloqué qui ignore son contexte est abandonné, pas arrêté : sa goroutine fuit jusqu'à son retour.
 func Run(ctx context.Context, checks []Check, options ...Option) Report {
 	settings := runSettings{timeout: DefaultTimeout}
 	for _, option := range options {
@@ -140,7 +141,7 @@ func runOne(ctx context.Context, check Check, timeout time.Duration) Result {
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				resultChannel <- Result{Status: Fail, Detail: fmt.Sprintf("check panicked: %v", recovered)}
+				resultChannel <- panicResult(recovered)
 			}
 		}()
 		resultChannel <- check.Run(checkCtx)
@@ -149,6 +150,9 @@ func runOne(ctx context.Context, check Check, timeout time.Duration) Result {
 	case result := <-resultChannel:
 		return result
 	case <-checkCtx.Done():
+		if ctx.Err() != nil {
+			return Result{Status: Skipped, Detail: "annulé"}
+		}
 		return Result{
 			Status: Fail, Detail: "check did not finish: " + checkCtx.Err().Error(),
 			Hint: fmt.Sprintf("the check is limited to %s", timeout),
@@ -167,4 +171,16 @@ func ExitCode(report Report) int {
 // MarshalJSONReport sérialise le rapport en JSON indenté (champs stables, aucun secret).
 func MarshalJSONReport(report Report) ([]byte, error) {
 	return json.MarshalIndent(report, "", "  ")
+}
+
+const maxPanicMessageRunes = 200
+
+// panicResult résume une panique sans jamais l'afficher brute : type de la valeur et message tronqué à 200 caractères.
+// Le message passe ensuite par la redaction du rapport.
+func panicResult(recovered any) Result {
+	message := []rune(fmt.Sprint(recovered))
+	if len(message) > maxPanicMessageRunes {
+		message = message[:maxPanicMessageRunes]
+	}
+	return Result{Status: Fail, Detail: fmt.Sprintf("check panicked (%T): %s", recovered, string(message))}
 }

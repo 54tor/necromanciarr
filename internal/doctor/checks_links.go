@@ -54,9 +54,13 @@ func checkLinkFeasibility(settings config.Config, deps Deps) Result {
 	kinds := allowedKinds(settings)
 	var collected findings
 	for _, directory := range directories {
-		if root, inside := overlappingRoot(directory, settings.LibraryRoots); inside {
-			collected.add(Warn, fmt.Sprintf("%s: overlaps library root %s, not probed (the library is never written)", directory, root),
-				"use a link directory outside the library")
+		if _, resolveErr := filepath.EvalSymlinks(directory); resolveErr != nil {
+			collected.add(Fail, directory+": le dossier ne peut pas être résolu, aucune sonde lancée", "créer le dossier ou corriger son chemin")
+			continue
+		}
+		if root, inside := insideLibraryRoot(directory, settings.LibraryRoots); inside {
+			collected.add(Fail, fmt.Sprintf("%s: le dossier de liens est dans une racine de bibliothèque (%s), aucune sonde lancée", directory, root),
+				"choisir un dossier de liens hors de la bibliothèque : elle n'est jamais écrite")
 			continue
 		}
 		collected.add(probeDirectory(directory, kinds, deps))

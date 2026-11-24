@@ -35,20 +35,28 @@ func checkLibraryRoots(ctx context.Context, settings config.Config) Result {
 }
 
 func inspectLibraryRoot(ctx context.Context, root string) (Status, string, string) {
-	info, err := os.Stat(root)
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return Fail, root + ": not found or not accessible", "check the path and the mount"
+	}
+	info, err := os.Stat(resolvedRoot)
 	switch {
 	case err != nil:
 		return Fail, root + ": not found or not accessible", "check the path and the mount"
 	case !info.IsDir():
 		return Fail, root + ": not a directory", ""
-	case !isReadable(root):
+	case !isReadable(resolvedRoot):
 		return Fail, root + ": not readable", "check permissions of the user running necromanciarr"
 	}
-	found, entries := findMediaFile(ctx, root)
-	if found {
-		return OK, root + ": readable, media file found", ""
+	walk := findMediaFile(ctx, resolvedRoot)
+	note := ""
+	if walk.unreadable > 0 {
+		note = fmt.Sprintf(" (%d unreadable subdirectories skipped)", walk.unreadable)
 	}
-	return Warn, fmt.Sprintf("%s: no media file in the first %d entries", root, entries),
+	if walk.found {
+		return OK, root + ": readable, media file found" + note, ""
+	}
+	return Warn, fmt.Sprintf("%s: no media file in the first %d entries%s", root, walk.entries, note),
 		"the root may be empty or not mounted yet"
 }
 
@@ -62,20 +70,36 @@ func isReadable(directory string) bool {
 	return err == nil || errors.Is(err, io.EOF)
 }
 
-// findMediaFile parcourt au plus maxWalkEntries entrées et s'arrête au premier fichier média.
-func findMediaFile(ctx context.Context, root string) (found bool, entries int) {
+type mediaWalk struct {
+	found      bool
+	entries    int
+	unreadable int
+}
+
+// findMediaFile parcourt au plus maxWalkEntries entrées sans ouvrir aucun fichier ; un lien symbolique dont
+// l'extension est média compte, un sous-dossier illisible est sauté et dénombré.
+func findMediaFile(ctx context.Context, root string) mediaWalk {
+	var walk mediaWalk
 	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		entries++
-		if err != nil || ctx.Err() != nil || entries > maxWalkEntries {
+		walk.entries++
+		if ctx.Err() != nil || walk.entries > maxWalkEntries {
 			return fs.SkipAll
 		}
-		if entry.Type().IsRegular() && slices.Contains(mediaExtensions, strings.ToLower(filepath.Ext(path))) {
-			found = true
+		if err != nil {
+			walk.unreadable++
+			if entry != nil && entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		isFileLike := entry.Type().IsRegular() || entry.Type()&fs.ModeSymlink != 0
+		if isFileLike && slices.Contains(mediaExtensions, strings.ToLower(filepath.Ext(path))) {
+			walk.found = true
 			return fs.SkipAll
 		}
 		return nil
 	})
-	return found, entries
+	return walk
 }
 
 func checkLibraryAPI(ctx context.Context, settings config.Config, deps Deps) Result {
@@ -96,19 +120,28 @@ func checkLibraryAPI(ctx context.Context, settings config.Config, deps Deps) Res
 	return checkSizeFilter(ctx, searcher)
 }
 
-// checkSizeFilter : un fournisseur qui ignore le filtre size renvoie des releases sans fichier de cette taille.
+// checkSizeFilter : un fournisseur qui ignore le filtre size renvoie des releases dont aucun fichier n'a cette taille.
+// Les releases sans liste de fichiers ne prouvent rien : sans release exploitable, le filtre n'est pas vérifiable.
 func checkSizeFilter(ctx context.Context, searcher Searcher) Result {
 	releases, err := searcher.Search(ctx, libraryprovider.Query{Sizes: []int64{probeSizeFilter}, Limit: 1, MaxPages: 1})
 	if err != nil {
 		return Result{Status: Fail, Detail: "size filter search failed: " + describeProviderError(err), Hint: hintForProviderError(err)}
 	}
+	usable := 0
 	for _, release := range releases {
+		if len(release.Files) == 0 {
+			continue
+		}
+		usable++
 		if !hasFileOfSize(release, probeSizeFilter) {
 			return Result{
 				Status: Warn, Detail: "authentication accepted, but the provider ignores the size filter",
 				Hint: "matching by size will download far more candidates than needed; update the provider",
 			}
 		}
+	}
+	if usable == 0 {
+		return Result{Status: OK, Detail: "authentication accepted, search answers; filtre size non vérifiable (aucun résultat exploitable)"}
 	}
 	return Result{Status: OK, Detail: "authentication accepted, search answers, size filter honored"}
 }

@@ -2,12 +2,21 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"necromanciarr/internal/config"
+	"necromanciarr/internal/doctor"
 )
+
+type failingPinger struct{ err error }
+
+func (pinger failingPinger) Ping(context.Context) error { return pinger.err }
 
 func writeDoctorConfig(t *testing.T, content string) string {
 	t.Helper()
@@ -69,7 +78,11 @@ func TestCli_unknownCheckIsUsageError(t *testing.T) {
 }
 
 func TestCli_jsonOutputIsStableAndRedacted(t *testing.T) {
-	configDir := writeDoctorConfig(t, `{"radarr": ["http://127.0.0.1:1?apikey=ARRSECRETKEY"]}`)
+	configDir := writeDoctorConfig(t, `{"radarr": ["http://example.com:7878?apikey=ARRSECRETKEY"]}`)
+	doctorDeps = doctor.Deps{NewPinger: func(config.ArrService) doctor.Pinger {
+		return failingPinger{err: errors.New("request to http://example.com/x?apikey=ARRSECRETKEY failed, key ARRSECRETKEY")}
+	}}
+	t.Cleanup(func() { doctorDeps = doctor.Deps{} })
 	var stdout, stderr bytes.Buffer
 
 	exitCode := run([]string{"doctor", "--json", "--config-dir", configDir, "--check", "arr:radarr:0", "--check=config"}, &stdout, &stderr)
@@ -105,5 +118,16 @@ func TestCli_invalidConfigReportsFailedConfigCheck(t *testing.T) {
 
 	if exitCode != 1 || !strings.Contains(stdout.String(), "✗ Configuration") {
 		t.Fatalf("exit %d, stdout %q", exitCode, stdout.String())
+	}
+}
+
+func TestCli_checkWithInvalidConfigReturnsConfigFailure(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{"bogus": 1}`)
+	var stdout, stderr bytes.Buffer
+
+	exitCode := run([]string{"doctor", "--config-dir", configDir, "--check", "library-roots"}, &stdout, &stderr)
+
+	if exitCode != 1 || !strings.Contains(stdout.String(), "✗ Configuration") {
+		t.Fatalf("exit %d, stdout %q, stderr %q", exitCode, stdout.String(), stderr.String())
 	}
 }

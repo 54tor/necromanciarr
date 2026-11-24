@@ -3,6 +3,9 @@ package doctor
 import (
 	"errors"
 	"os"
+	"path/filepath"
+
+	"necromanciarr/internal/config"
 
 	"necromanciarr/internal/linker"
 )
@@ -33,4 +36,20 @@ func sameVolume(firstPath, secondPath string) (bool, error) {
 func isOnlyDifferentDevice(err error) bool {
 	joined, isJoined := err.(interface{ Unwrap() []error })
 	return errors.Is(err, linker.ErrNoLinkDirOnSameDevice) && isJoined && len(joined.Unwrap()) == 1
+}
+
+// insideLibraryRoot résout les liens symboliques des deux côtés avant de comparer : un lien ou un montage ne doit pas
+// masquer un dossier situé dans la bibliothèque. Un dossier introuvable est jugé dehors (l'appelant le signale).
+func insideLibraryRoot(directory string, roots []string) (string, bool) {
+	resolvedDirectory, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		return "", false
+	}
+	for _, root := range roots {
+		resolvedRoot, err := filepath.EvalSymlinks(root)
+		if err == nil && config.PathsOverlap(resolvedDirectory, resolvedRoot) {
+			return root, true
+		}
+	}
+	return "", false
 }

@@ -12,6 +12,9 @@ import (
 	"necromanciarr/internal/doctor"
 )
 
+// doctorDeps permet aux tests de remplacer les accès extérieurs ; vide en production.
+var doctorDeps doctor.Deps
+
 var statusMarks = map[doctor.Status]string{doctor.OK: "✓", doctor.Warn: "!", doctor.Fail: "✗", doctor.Skipped: "-"}
 
 // doctorOptions sont les options propres à doctor ; les autres vont à config.Load.
@@ -54,13 +57,13 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		return reportError(stderr, err)
 	}
 	checks := configLoadFailure(err)
+	selected := checks
 	if err == nil {
-		checks = doctor.Build(loadedConfig, doctor.Deps{})
-	}
-	selected, err := selectChecks(checks, options.checkIDs)
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, err)
-		return usageExitCode
+		checks = doctor.Build(loadedConfig, doctorDeps)
+		if selected, err = selectChecks(checks, options.checkIDs); err != nil {
+			_, _ = fmt.Fprintln(stderr, err)
+			return usageExitCode
+		}
 	}
 	report := doctor.Run(context.Background(), selected)
 	return printReport(report, options.jsonOutput, stdout, stderr)

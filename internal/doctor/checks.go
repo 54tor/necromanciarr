@@ -120,8 +120,15 @@ func Build(settings config.Config, deps Deps) []Check {
 }
 
 func redactingRun(run func(context.Context) Result, secrets []string) func(context.Context) Result {
-	return func(ctx context.Context) Result {
-		result := run(ctx)
+	return func(ctx context.Context) (result Result) {
+		// La panique est récupérée ici pour que les secrets connus soient masqués dans son message.
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				result = panicResult(recovered)
+				result.Detail = config.RedactText(result.Detail, secrets...)
+			}
+		}()
+		result = run(ctx)
 		result.Detail, result.Hint = config.RedactText(result.Detail, secrets...), config.RedactText(result.Hint, secrets...)
 		return result
 	}
@@ -165,9 +172,12 @@ func checkConfigDir(settings config.Config, deps Deps) Result {
 			Hint: "create it or pass --config-dir",
 		}
 	}
-	databasePath := settings.DBPath
-	if !filepath.IsAbs(databasePath) {
-		databasePath = filepath.Join(settings.ConfigDir, databasePath)
+	databasePath := config.ResolveDBPath(settings)
+	if root, inside := insideLibraryRoot(filepath.Dir(databasePath), settings.LibraryRoots); inside {
+		return Result{
+			Status: Fail, Detail: "la base de données est dans la racine de bibliothèque " + root,
+			Hint: "placer dbPath hors de la bibliothèque : elle n'est jamais écrite",
+		}
 	}
 	database, err := deps.OpenStore(databasePath)
 	if err != nil {

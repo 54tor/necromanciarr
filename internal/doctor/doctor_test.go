@@ -81,7 +81,7 @@ func TestRun_checkPanicIsReportedAsFail(t *testing.T) {
 	report := Run(context.Background(), []Check{panicking, fixedCheck("next", OK)})
 
 	boom := resultOf(t, report, "boom")
-	if boom.Status != Fail || !strings.Contains(boom.Detail, "kaboom") || resultOf(t, report, "next").Status != OK {
+	if boom.Status != Fail || !strings.Contains(boom.Detail, "(string)") || resultOf(t, report, "next").Status != OK {
 		t.Fatalf("gotValue %+v", report)
 	}
 }
@@ -166,6 +166,9 @@ func TestChecks_linkFeasibilityNamesSameVolumeFixOnCrossDevice(t *testing.T) {
 
 func TestChecks_linkFeasibilityDoesNotProbeInsideLibraryRoot(t *testing.T) {
 	libraryRoot, outside := t.TempDir(), t.TempDir()
+	if err := os.Mkdir(filepath.Join(libraryRoot, "links"), 0o750); err != nil {
+		t.Fatal(err)
+	}
 	var probed []string
 	deps := Deps{
 		Probe: func(directory string) (linker.Capabilities, error) {
@@ -185,8 +188,152 @@ func TestChecks_linkFeasibilityDoesNotProbeInsideLibraryRoot(t *testing.T) {
 	if !reflect.DeepEqual(probed, []string{outside}) {
 		t.Fatalf("expectedValue [%s], gotValue %v", outside, probed)
 	}
-	if got.Status != Warn {
+	if got.Status != Fail || !strings.Contains(got.Detail, "dans une racine de bibliothèque") {
 		t.Fatalf("gotValue %+v", got)
+	}
+}
+
+func TestChecks_linkFeasibilityNeverProbesThroughSymlinkIntoLibraryRoot(t *testing.T) {
+	libraryRoot, outside := t.TempDir(), t.TempDir()
+	linksInsideLibrary := filepath.Join(libraryRoot, "links")
+	if err := os.Mkdir(linksInsideLibrary, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	symlinkedDirectory := filepath.Join(outside, "innocent")
+	if err := os.Symlink(linksInsideLibrary, symlinkedDirectory); err != nil {
+		t.Fatal(err)
+	}
+	deps := Deps{
+		Probe: func(directory string) (linker.Capabilities, error) {
+			t.Errorf("Probe must not be called, got %s", directory)
+			return linker.Capabilities{}, nil
+		},
+		SameVolume: func(string, string) (bool, error) { return true, nil },
+	}.withDefaults()
+	settings := config.Config{LibraryRoots: []string{libraryRoot}, LinkDirs: []string{symlinkedDirectory}, LinkType: "hardlink"}
+
+	got := checkLinkFeasibility(settings, deps)
+
+	if got.Status != Fail || !strings.Contains(got.Detail, "dans une racine de bibliothèque") {
+		t.Fatalf("gotValue %+v", got)
+	}
+}
+
+func TestChecks_linkFeasibilityReportsMissingDirectoryWithoutProbing(t *testing.T) {
+	deps := Deps{Probe: func(string) (linker.Capabilities, error) {
+		t.Error("Probe must not be called")
+		return linker.Capabilities{}, nil
+	}}.withDefaults()
+
+	got := checkLinkFeasibility(config.Config{LinkDirs: []string{"/home/u/absent-links"}, LinkType: "hardlink"}, deps)
+
+	if got.Status != Fail || !strings.Contains(got.Detail, "résolu") {
+		t.Fatalf("gotValue %+v", got)
+	}
+}
+
+func TestChecks_configDirRefusesDatabaseInsideLibraryRoot(t *testing.T) {
+	libraryRoot := t.TempDir()
+	opened := false
+	deps := Deps{OpenStore: func(string) (io.Closer, error) {
+		opened = true
+		return nil, errors.New("must not open")
+	}}.withDefaults()
+	settings := config.Config{ConfigDir: t.TempDir(), DBPath: filepath.Join(libraryRoot, "db.sqlite"), LibraryRoots: []string{libraryRoot}}
+
+	got := checkConfigDir(settings, deps)
+
+	if got.Status != Fail || opened || got.Hint == "" {
+		t.Fatalf("opened %v, gotValue %+v", opened, got)
+	}
+}
+
+func TestChecks_libraryRootsFollowSymlinksAndSkipUnreadableSubdirectories(t *testing.T) {
+	realRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(realRoot, "film.mkv"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	symlinkedRoot := filepath.Join(t.TempDir(), "root-link")
+	if err := os.Symlink(realRoot, symlinkedRoot); err != nil {
+		t.Fatal(err)
+	}
+	mediaTarget := filepath.Join(t.TempDir(), "target.bin")
+	if err := os.WriteFile(mediaTarget, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkedMediaRoot := t.TempDir()
+	if err := os.Symlink(mediaTarget, filepath.Join(linkedMediaRoot, "episode.mkv")); err != nil {
+		t.Fatal(err)
+	}
+	unreadableRoot := t.TempDir()
+	lockedDirectory := filepath.Join(unreadableRoot, "locked")
+	if err := os.Mkdir(lockedDirectory, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unreadableRoot, "z-film.mkv"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(lockedDirectory, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(lockedDirectory, 0o750) })
+
+	for name, root := range map[string]string{"symlinked root": symlinkedRoot, "symlinked media file": linkedMediaRoot} {
+		if got := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{root}}); got.Status != OK {
+			t.Fatalf("%s: gotValue %+v", name, got)
+		}
+	}
+	got := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{unreadableRoot}})
+	isRoot := os.Geteuid() == 0
+	if got.Status != OK || (!isRoot && !strings.Contains(got.Detail, "1 unreadable subdirectories skipped")) {
+		t.Fatalf("unreadable subdirectory: gotValue %+v", got)
+	}
+}
+
+func TestChecks_libraryApiSizeFilterIsNotVerifiableWithoutUsableResults(t *testing.T) {
+	testCases := map[string][]libraryprovider.Release{
+		"no result":      nil,
+		"only file-less": {{Infohash: "a"}},
+	}
+	for name, releases := range testCases {
+		t.Run(name, func(t *testing.T) {
+			searcher := fakeSearcher{search: func(libraryprovider.Query) ([]libraryprovider.Release, error) { return releases, nil }}
+
+			got := checkLibraryAPI(context.Background(), config.Config{LibraryAPI: "http://example.com"}, depsWithSearcher(searcher).withDefaults())
+
+			if got.Status != OK || !strings.Contains(got.Detail, "non vérifiable") {
+				t.Fatalf("gotValue %+v", got)
+			}
+		})
+	}
+}
+
+func TestRun_panicMessageNeverLeaksABareSecret(t *testing.T) {
+	const bareSecret = "BAREPANICTOKEN9"
+	settings := config.Config{AuthToken: bareSecret, ListenAddr: "127.0.0.1:1", Radarr: []config.ArrService{{Kind: "radarr", BaseURL: "http://example.com", APIKey: "LONGARRKEY1"}}}
+	deps := Deps{NewPinger: func(config.ArrService) Pinger { panic("boom " + bareSecret) }}
+
+	report := Run(context.Background(), Build(settings, deps))
+
+	arrResult := resultOf(t, report, "arr:radarr:0")
+	rendered, _ := MarshalJSONReport(report)
+	if arrResult.Status != Fail || strings.Contains(string(rendered), bareSecret) || !strings.Contains(arrResult.Detail, "check panicked") {
+		t.Fatalf("gotValue %s", rendered)
+	}
+}
+
+func TestRun_parentCancellationDuringCheckIsSkipped(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	blocking := Check{ID: "slow", Title: "slow", Run: func(checkCtx context.Context) Result {
+		cancel()
+		<-checkCtx.Done()
+		return Result{Status: OK}
+	}}
+
+	report := Run(ctx, []Check{blocking})
+
+	if resultOf(t, report, "slow").Status != Skipped || ExitCode(report) != 0 {
+		t.Fatalf("gotValue %+v", report)
 	}
 }
 

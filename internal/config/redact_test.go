@@ -32,3 +32,32 @@ func TestKnownSecrets_listsProxyKeyAndPasswords(t *testing.T) {
 		}
 	}
 }
+
+func TestRedactText_masksLongestSecretFirst(t *testing.T) {
+	gotValue := RedactText("value ABCDEF end", "ABC", "ABCDEF")
+
+	if strings.Contains(gotValue, "DEF") {
+		t.Fatalf("gotValue %q", gotValue)
+	}
+}
+
+func TestKnownSecrets_includesLibraryApiCredentials(t *testing.T) {
+	settings := Config{LibraryAPI: "http://u:apipw@example.com/proxy/APIKEY/v1?token=QUERYTOKEN"}
+
+	gotValue := strings.Join(settings.KnownSecrets(), "|")
+
+	for _, expectedFragment := range []string{"apipw", "APIKEY", "QUERYTOKEN"} {
+		if !strings.Contains(gotValue, expectedFragment) {
+			t.Fatalf("expectedValue %q in %q", expectedFragment, gotValue)
+		}
+	}
+}
+
+func TestResolveDBPath_relativePathReadsFromConfigDir(t *testing.T) {
+	if gotValue := ResolveDBPath(Config{ConfigDir: "/home/u/cfg", DBPath: "a.db"}); gotValue != "/home/u/cfg/a.db" {
+		t.Fatalf("gotValue %q", gotValue)
+	}
+	if gotValue := ResolveDBPath(Config{ConfigDir: "/home/u/cfg", DBPath: "/var/a.db"}); gotValue != "/var/a.db" {
+		t.Fatalf("gotValue %q", gotValue)
+	}
+}

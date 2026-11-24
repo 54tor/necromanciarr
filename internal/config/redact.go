@@ -2,7 +2,9 @@ package config
 
 import (
 	"net/url"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -14,7 +16,10 @@ var (
 // RedactText masque dans un texte libre les secrets connus, les identifiants d'URL, les valeurs de requête sensibles,
 // le segment « /proxy/<clé> » et les affectations « apikey=… » ; sert aux rapports destinés à l'affichage.
 func RedactText(text string, knownSecrets ...string) string {
-	for _, secret := range knownSecrets {
+	// Les plus longs d'abord : un secret court inclus dans un long ne doit pas en laisser un reste.
+	ordered := slices.Clone(knownSecrets)
+	slices.SortStableFunc(ordered, func(first, second string) int { return len(second) - len(first) })
+	for _, secret := range ordered {
 		if secret != "" {
 			text = strings.ReplaceAll(text, secret, redactedMark)
 		}
@@ -28,7 +33,7 @@ func RedactText(text string, knownSecrets ...string) string {
 // KnownSecrets liste les valeurs secrètes de la configuration (jetons, clés, mots de passe, clé de proxy qui suit
 // « /proxy/ », identifiants rc) pour que RedactText les masque même hors d'une URL.
 func (loadedConfig Config) KnownSecrets() []string {
-	secrets := []string{loadedConfig.AuthToken, loadedConfig.LibraryProviderToken}
+	secrets := append([]string{loadedConfig.AuthToken, loadedConfig.LibraryProviderToken}, urlSecrets(loadedConfig.LibraryAPI)...)
 	for _, service := range append(append([]ArrService{}, loadedConfig.Radarr...), loadedConfig.Sonarr...) {
 		secrets = append(secrets, service.APIKey, service.Password, proxyKeyOf(service.BaseURL))
 	}
@@ -65,3 +70,25 @@ func rcCredentials(rawURL string) []string {
 
 // IsLoopbackAddress dit si une adresse d'écoute host:port désigne la boucle locale.
 func IsLoopbackAddress(listenAddr string) bool { return isLoopbackAddress(listenAddr) }
+
+// urlSecrets extrait d'une URL le mot de passe, la clé de proxy et les valeurs de requête à nom sensible.
+func urlSecrets(rawURL string) []string {
+	secrets := append(rcCredentials(rawURL), proxyKeyOf(rawURL))
+	if parsedURL, err := url.Parse(rawURL); err == nil {
+		for parameterName, values := range parsedURL.Query() {
+			if looksLikeSecretName(parameterName) {
+				secrets = append(secrets, values...)
+			}
+		}
+	}
+	return secrets
+}
+
+// ResolveDBPath donne le chemin effectif de la base : un chemin relatif se lit depuis le dossier de configuration.
+// Doctor et le service doivent passer par cette fonction pour viser le même fichier.
+func ResolveDBPath(settings Config) string {
+	if filepath.IsAbs(settings.DBPath) {
+		return settings.DBPath
+	}
+	return filepath.Join(settings.ConfigDir, settings.DBPath)
+}
