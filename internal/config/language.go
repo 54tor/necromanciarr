@@ -11,6 +11,9 @@ const (
 	languageSourceDefault = "default"
 	languageSourceFile    = configFileName
 	languageSourceFlag    = "--language"
+	// maxEchoedLanguageRunes borne la valeur renvoyée dans l'erreur : elle vient de l'opérateur mais peut être collée en
+	// masse (même borne que crossSeedMode).
+	maxEchoedLanguageRunes = 20
 )
 
 // resolveLanguage applique la priorité option > environnement > config.json > fr et retient la source retenue.
@@ -31,8 +34,16 @@ func resolveLanguage(target *Config, fileValue string, options commandLine, look
 	}
 	language, err := i18n.ParseLanguage(rawValue)
 	if err != nil {
-		return fmt.Errorf("%w: unknown language %q (%s): allowed values are fr, en", ErrUsage, rawValue, source)
+		return fmt.Errorf("%w: unknown language %q (%s): allowed values are fr, en", ErrUsage, truncateRunes(rawValue, maxEchoedLanguageRunes), source)
 	}
 	target.Language, target.LanguageSource = language, source
 	return nil
+}
+
+func truncateRunes(text string, limit int) string {
+	runes := []rune(text)
+	if len(runes) <= limit {
+		return text
+	}
+	return string(runes[:limit])
 }

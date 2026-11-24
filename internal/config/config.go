@@ -89,7 +89,7 @@ type Config struct {
 	// Language est la langue d'affichage (fr par défaut) ; LanguageSource dit d'où elle vient (default, config.json,
 	// NECROMANCIARR_LANGUAGE ou --language) pour `config check`.
 	Language       i18n.Language `json:"language"`
-	LanguageSource string        `json:"languageSource"`
+	LanguageSource string        `json:"-"`
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`

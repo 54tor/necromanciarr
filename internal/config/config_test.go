@@ -577,3 +577,23 @@ func TestLanguage_unknownValueIsUsageError(t *testing.T) {
 		t.Fatalf("gotValue %v, expectedValue the value named", err)
 	}
 }
+
+func TestLanguage_unknownValueEchoesAtMostTwentyCharacters(t *testing.T) {
+	longValue := strings.Repeat("x", 60)
+
+	_, err := Load([]string{"--language", longValue}, lookupFrom(nil), t.TempDir())
+
+	if !errors.Is(err, ErrUsage) || strings.Contains(err.Error(), longValue) || !strings.Contains(err.Error(), `"`+strings.Repeat("x", 20)+`"`) {
+		t.Fatalf("gotValue %v, expectedValue the value cut to 20 characters", err)
+	}
+}
+
+func TestLanguage_sourceIsNotPartOfTheConfigurationJSON(t *testing.T) {
+	loadedConfig := mustLoad(t, []string{"--language", "en"}, nil, t.TempDir())
+
+	encoded, err := loadedConfig.RedactedJSON()
+
+	if err != nil || strings.Contains(string(encoded), "languageSource") || !strings.Contains(string(encoded), `"language": "en"`) {
+		t.Fatalf("gotValue %q (%v), expectedValue the language without its source", encoded, err)
+	}
+}
