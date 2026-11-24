@@ -217,11 +217,11 @@ func (out *printer) useSettings(settings config.Config) {
 	out.translator = i18n.New(settings.Language, func(text string) string { return config.RedactText(text, secrets...) })
 }
 
-// redact masque les secrets puis retire les caractères de contrôle (ESC, OSC, C1...) d'un texte destiné au terminal :
-// un nom de torrent ou une réponse de service ne doit jamais piloter le terminal. Seuls saut de ligne et tabulation
-// restent.
+// redact retire les caractères de contrôle (ESC, OSC, C1...) d'un texte destiné au terminal, puis masque les secrets :
+// un nom de torrent ou une réponse de service ne doit jamais piloter le terminal, et un octet de contrôle glissé dans
+// un secret ne doit pas le soustraire au masquage. Seuls saut de ligne et tabulation restent.
 func (out printer) redact(text string) string {
-	return stripControlCharacters(config.RedactText(text, out.secrets...))
+	return config.RedactText(stripControlCharacters(text), out.secrets...)
 }
 
 func stripControlCharacters(text string) string {

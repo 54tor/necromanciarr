@@ -86,7 +86,7 @@ func findCommand(args []string) (command, []string, bool) {
 // reportError affiche l'erreur ; une ligne de commande invalide affiche l'usage et donne le code 2.
 func reportError(stderr io.Writer, args []string, err error) int {
 	translator := i18n.New(languageFromArguments(args), nil)
-	_, _ = fmt.Fprintln(stderr, "error:", stripControlCharacters(config.RedactText(errorMessage(translator, err))))
+	_, _ = fmt.Fprintln(stderr, "error:", config.RedactText(stripControlCharacters(errorMessage(translator, err))))
 	if errors.Is(err, config.ErrUsage) {
 		_, _ = fmt.Fprint(stderr, usageText(translator))
 		return usageExitCode

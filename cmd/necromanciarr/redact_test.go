@@ -160,3 +160,13 @@ func TestConfigCheck_namesATrackerValueTooShortToMask(t *testing.T) {
 		t.Fatalf("gotValue %q, expectedValue ordinary text (the language source) untouched by the short value", result.stderr)
 	}
 }
+
+func TestPrinter_controlByteCannotSplitASecretPastTheRedaction(t *testing.T) {
+	out := printer{secrets: []string{"fake-known-secret-value"}}
+
+	gotValue := out.redact("refused fake-known\x07-secret\x1b-value at https://tracker-a.example.com/0000aaaa\x000000aaaa0000aaaa0000aaaa/x")
+
+	if strings.Contains(gotValue, "fake-known-secret-value") || strings.Contains(gotValue, "0000aaaa0000") {
+		t.Fatalf("gotValue %q, expectedValue the secret and the passkey masked once the control bytes are gone", gotValue)
+	}
+}
