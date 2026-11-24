@@ -16,21 +16,8 @@ import { formatPercent } from '@/lib/format'
 const props = defineProps<{ proposal: Proposal | undefined }>()
 const emit = defineEmits<{ choose: [proposal: Proposal, candidateId: number]; close: [] }>()
 
-// Seuls les candidats de la proposition sont proposés : ceux de son litige, sinon son propre candidat.
-const candidates = computed(() => {
-  const proposal = props.proposal
-  if (!proposal) return []
-  const members = proposal.details.candidates ?? []
-  if (members.length > 0) return members
-  return [
-    {
-      candidate_id: proposal.candidate_id,
-      name: proposal.candidate_name,
-      tracker: proposal.tracker,
-      percent: proposal.details.percent,
-    },
-  ]
-})
+// Seuls les membres du litige sont proposés : sans eux, aucun choix n'est offert.
+const candidates = computed(() => props.proposal?.details.candidates ?? [])
 const selectedId = ref<number | undefined>(undefined)
 watch(
   () => props.proposal,
@@ -50,7 +37,10 @@ function confirm(): void {
         <DialogTitle>{{ t('proposals.choose.title') }}</DialogTitle>
         <DialogDescription>{{ t('proposals.choose.description') }}</DialogDescription>
       </DialogHeader>
-      <fieldset class="grid gap-2">
+      <p v-if="candidates.length === 0" class="text-sm text-muted-foreground">
+        {{ t('proposals.choose.empty') }}
+      </p>
+      <fieldset v-else class="grid gap-2">
         <legend class="sr-only">{{ t('proposals.choose.legend') }}</legend>
         <label
           v-for="candidate in candidates"

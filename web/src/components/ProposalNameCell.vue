@@ -32,8 +32,8 @@ const emit = defineEmits<{ toggle: [] }>()
         >{{ proposal.candidate_name }}</span
       >
     </div>
-    <div v-if="expanded" :id="`proposal-detail-${proposal.id}`" class="pl-5">
-      <ProposalDetail :proposal="proposal" />
+    <div :id="`proposal-detail-${proposal.id}`" :hidden="!expanded" class="pl-5">
+      <ProposalDetail v-if="expanded" :proposal="proposal" />
     </div>
   </div>
 </template>

@@ -7,7 +7,7 @@ import {
   canForce,
   canReject,
   decisionRank,
-  groupMembers,
+  groupTargets,
   hasSourceField,
   isSelectable,
 } from './proposalRules'
@@ -38,10 +38,13 @@ describe('proposalRules', () => {
     expect(canChoose(proposal({ kind: 'full' }))).toBe(false)
   })
 
-  it('accepts a group only from an open primary', () => {
+  it('accepts a group only from a pending or accepted full primary, like the server', () => {
     expect(canAcceptGroup(proposal({ primary: true }))).toBe(true)
+    expect(canAcceptGroup(proposal({ primary: true, decision: 'accepted' }))).toBe(true)
     expect(canAcceptGroup(proposal({ primary: false }))).toBe(false)
     expect(canAcceptGroup(proposal({ primary: true, decision: 'applied' }))).toBe(false)
+    expect(canAcceptGroup(proposal({ primary: true, decision: 'failed' }))).toBe(false)
+    expect(canAcceptGroup(proposal({ primary: true, kind: 'partial_annex' }))).toBe(false)
   })
 
   it('forces only an applied partial annex seeded paused and current', () => {
@@ -58,18 +61,45 @@ describe('proposalRules', () => {
     expect(canForce({ ...allowed, current: false })).toBe(false)
   })
 
-  it('lists the open torrent proposals of one group, primary first', () => {
-    const primary = proposal({ id: 1, group_id: 5, primary: true })
-    const member = proposal({ id: 2, group_id: 5, primary: false })
-    const otherGroup = proposal({ id: 3, group_id: 6 })
-    const conflict = proposal({ id: 4, group_id: 5, kind: 'conflict', primary: false })
-    const closed = proposal({ id: 5, group_id: 5, decision: 'rejected', primary: false })
+  describe('groupTargets', () => {
+    const primary = proposal({ id: 1, candidate_id: 10, primary: true })
+    const crossSeed = proposal({ id: 2, candidate_id: 11, kind: 'cross_seed', primary: false })
+    const fullOfSame = proposal({ id: 3, candidate_id: 11, kind: 'full', primary: false })
+    const fullOfOther = proposal({ id: 4, candidate_id: 12, kind: 'full', primary: false })
+    const failedMember = proposal({ id: 5, candidate_id: 13, decision: 'failed', primary: false })
+    const conflict = proposal({ id: 6, candidate_id: 14, kind: 'conflict', primary: false })
 
-    const gotIds = groupMembers([member, otherGroup, conflict, closed, primary], 5).map(
-      (row) => row.id,
-    )
+    it('accepts only the primary when cross-seed is not native', () => {
+      const gotIds = groupTargets([crossSeed, primary, fullOfOther], false).map((row) => row.id)
 
-    expect(gotIds).toEqual([1, 2])
+      expect(gotIds).toEqual([1])
+    })
+
+    it('adds one pending proposal per other candidate in native mode, cross_seed first', () => {
+      const gotIds = groupTargets([fullOfSame, crossSeed, primary, fullOfOther], true).map(
+        (row) => row.id,
+      )
+
+      expect(gotIds).toEqual([1, 2, 4])
+    })
+
+    it('never lists a failed member or a conflict', () => {
+      const gotIds = groupTargets([primary, failedMember, conflict], true).map((row) => row.id)
+
+      expect(gotIds).toEqual([1])
+    })
+
+    it('skips a candidate whose torrent is already accepted', () => {
+      const taken = proposal({ id: 7, candidate_id: 11, decision: 'accepted', primary: false })
+
+      const gotIds = groupTargets([primary, taken, crossSeed], true).map((row) => row.id)
+
+      expect(gotIds).toEqual([1])
+    })
+
+    it('has no target without an open full primary', () => {
+      expect(groupTargets([crossSeed, fullOfOther], true)).toEqual([])
+    })
   })
 
   it('ranks the decisions that wait for an action first', () => {

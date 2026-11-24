@@ -271,6 +271,7 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
                 v-if="isSelectable(row.original)"
                 type="checkbox"
                 class="size-4 accent-primary"
+                :checked="selectedKeys.includes(row.id)"
                 :aria-label="t('table.selectRow', { row: offset + position + 1 })"
                 @change="onCheckboxChange($event, row.id)"
               />
@@ -312,6 +313,7 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
               v-if="hasSelection && isSelectable(row.original)"
               type="checkbox"
               class="mb-2 size-4 accent-primary"
+              :checked="selectedKeys.includes(row.id)"
               :aria-label="t('table.selectRow', { row: offset + position + 1 })"
               @change="onCheckboxChange($event, row.id)"
             />

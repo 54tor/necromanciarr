@@ -325,6 +325,33 @@ describe('DataTable focus and selection robustness', () => {
     expect(gotChecked).toEqual([true, false])
   })
 
+  it('keeps the selection visibly checked when the layout switches between table and cards', async () => {
+    const resize = stubViewport(1280)
+    const wrapper = mount(DataTable<FixtureRow>, {
+      props: {
+        captionKey: 'nav.liens',
+        columns: fixtureColumns,
+        rows: fixtureRows,
+        rowKey: fixtureRowKey,
+        emptyKey: 'nav.etapes',
+        selectable: () => true,
+      },
+      attachTo: document.body,
+    })
+    mounted.push(wrapper as VueWrapper)
+    await wrapper.findAll('tbody input')[0]!.setValue(true)
+
+    resize(360)
+    await nextTick()
+
+    const cardBoxes = wrapper.findAll('[data-testid="table-card"] input[type="checkbox"]')
+    expect((cardBoxes[0]!.element as HTMLInputElement).checked).toBe(true)
+    expect((cardBoxes[1]!.element as HTMLInputElement).checked).toBe(false)
+    resize(1280)
+    await nextTick()
+    expect((wrapper.findAll('tbody input')[0]!.element as HTMLInputElement).checked).toBe(true)
+  })
+
   it('drops the selection when paging away', async () => {
     const rows = Array.from({ length: 4 }, (_, index) => ({
       id: `r${index}`,
@@ -415,6 +442,25 @@ describe('ConfirmDialog content', () => {
         (item) => item.textContent,
       ),
     ).toEqual(['un', 'deux'])
+  })
+
+  it('lists duplicate items one by one', async () => {
+    mount(ConfirmDialog, {
+      props: {
+        open: true,
+        title: 't',
+        description: 'd',
+        confirmLabel: 'ok',
+        summaryKey: 'nav.liens',
+        items: ['same', 'same'],
+      },
+      attachTo: document.body,
+    })
+    await nextTick()
+
+    expect(document.body.querySelectorAll('[data-testid="confirm-dialog-items"] li')).toHaveLength(
+      2,
+    )
   })
 
   it('keeps the confirm button disabled until the phrase is typed', async () => {

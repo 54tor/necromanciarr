@@ -13,7 +13,7 @@ const DECISION_RANKS: Readonly<Record<Decision, number>> = {
   superseded: 5,
 }
 
-const GROUP_ACCEPTED_KINDS: readonly Proposal['kind'][] = ['full', 'cross_seed']
+const GROUP_ACCEPTED_KINDS: readonly Proposal['kind'][] = ['cross_seed', 'full']
 
 export function decisionRank(decision: Decision): number {
   return DECISION_RANKS[decision]
@@ -30,7 +30,8 @@ export const canReject = (proposal: Proposal) => proposal.current && proposal.de
 
 export const canChoose = (proposal: Proposal) => isOpen(proposal) && proposal.kind === 'conflict'
 
-export const canAcceptGroup = (proposal: Proposal) => isOpen(proposal) && proposal.primary
+/** Le serveur n'accepte un groupe que depuis une principale `full` en attente ou déjà acceptée. */
+export const canAcceptGroup = (proposal: Proposal) => isGroupPrimary(proposal)
 
 /** Seule case à cocher permise : rejeter une proposition en attente et courante (jamais accepter en masse). */
 export const isSelectable = (proposal: Proposal) => canReject(proposal)
@@ -45,14 +46,40 @@ export const canForce = (proposal: Proposal) =>
   proposal.decision === 'applied' &&
   proposal.step === 'seeded_paused_incomplete'
 
-/** Une proposition de torrent du groupe que « accepter le groupe » peut accepter, d'après la liste chargée. */
-export function groupMembers(proposals: Proposal[], groupId: number): Proposal[] {
-  return proposals
-    .filter(
-      (member) =>
-        member.group_id === groupId && GROUP_ACCEPTED_KINDS.includes(member.kind) && isOpen(member),
-    )
-    .sort((first, second) => Number(second.primary) - Number(first.primary))
+const isGroupPrimary = (proposal: Proposal) =>
+  proposal.current &&
+  proposal.primary &&
+  proposal.kind === 'full' &&
+  (proposal.decision === 'pending' || proposal.decision === 'accepted')
+
+/** Un torrent déjà accepté ou appliqué occupe son candidat (les conflits ne sont pas des torrents). */
+const isTakenTorrent = (proposal: Proposal) =>
+  (proposal.decision === 'accepted' || proposal.decision === 'applied') &&
+  proposal.kind !== 'conflict'
+
+/**
+ * Propositions que « accepter le groupe » accepte (miroir de `groupTargets` côté serveur) : la principale, puis, en
+ * cross-seed natif seulement, une proposition en attente par autre candidat, `cross_seed` avant `full`.
+ */
+export function groupTargets(members: Proposal[], isNative: boolean): Proposal[] {
+  const primary = members.find(isGroupPrimary)
+  if (!primary) return []
+  if (!isNative) return [primary]
+  const takenCandidates = new Set<number>([primary.candidate_id])
+  for (const member of members) if (isTakenTorrent(member)) takenCandidates.add(member.candidate_id)
+  const targets = [primary]
+  for (const kind of GROUP_ACCEPTED_KINDS) {
+    for (const member of members) {
+      const isTarget =
+        member.kind === kind &&
+        member.decision === 'pending' &&
+        !takenCandidates.has(member.candidate_id)
+      if (!isTarget) continue
+      targets.push(member)
+      takenCandidates.add(member.candidate_id)
+    }
+  }
+  return targets
 }
 
 /** La colonne et le filtre Source n'existent que si le serveur envoie le champ (ajouté par la tâche B14). */

@@ -17,6 +17,8 @@ const props = defineProps<{
   confirmLabel: string
   /** Clé de locale du résumé de l'effet, affiché sous la description. */
   summaryKey: string
+  /** Paramètres du résumé (ex. mode cross-seed). */
+  summaryParams?: Record<string, string>
   /** Éléments concernés par l'action, listés avant la confirmation. */
   items?: string[]
   /** Si fournie, la confirmation reste désactivée tant que cette phrase exacte n'est pas saisie. */
@@ -50,7 +52,7 @@ function confirm(): void {
         <DialogDescription>{{ description }}</DialogDescription>
       </DialogHeader>
       <p data-testid="confirm-dialog-summary" class="text-sm">
-        {{ t(summaryKey) }}
+        {{ t(summaryKey, summaryParams ?? {}) }}
       </p>
       <div v-if="items?.length">
         <p class="text-sm font-medium">{{ t('dialog.items', { count: items.length }) }}</p>
@@ -58,7 +60,7 @@ function confirm(): void {
           data-testid="confirm-dialog-items"
           class="mt-1 max-h-40 list-disc overflow-y-auto pl-5 text-sm"
         >
-          <li v-for="item in items" :key="item">{{ item }}</li>
+          <li v-for="(item, position) in items" :key="position">{{ item }}</li>
         </ul>
       </div>
       <label v-if="confirmPhrase !== undefined" class="flex flex-col gap-1 text-sm">

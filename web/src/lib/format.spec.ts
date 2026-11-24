@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, formatDateTime, formatPercent } from './format'
+import { setLanguage } from '@/i18n'
+import { formatBytes, formatDateTime, formatPercent, formatRelative } from './format'
 
 describe('format', () => {
   it('formatBytes_humanisesWithBinaryUnits', () => {
@@ -22,5 +23,16 @@ describe('format', () => {
   it('formatDateTime_keepsUnreadableValuesAsTheyAre', () => {
     expect(formatDateTime('pas une date')).toBe('pas une date')
     expect(formatDateTime('2026-01-01T10:00:00Z')).toContain('2026')
+  })
+
+  it('formatRelative_followsTheActiveLanguage', () => {
+    const now = new Date('2026-03-10T10:00:00Z')
+
+    expect(formatRelative('2026-03-07T10:00:00Z', now)).toBe('il y a 3 jours')
+    setLanguage('en')
+    expect(formatRelative('2026-03-07T10:00:00Z', now)).toBe('3 days ago')
+    expect(formatRelative('2026-03-10T09:30:00Z', now)).toBe('30 minutes ago')
+    expect(formatRelative('not a date', now)).toBe('not a date')
+    setLanguage('fr')
   })
 })

@@ -23,6 +23,7 @@ export function proposal(overrides: Partial<Proposal> = {}): Proposal {
     generation: 1,
     current: true,
     warnings: [],
+    updated_at: '2026-01-01T10:00:00Z',
     details: { percent: 99.5, verified_pieces: 199, missing_pieces: 1, total_pieces: 200 },
     ...overrides,
   }

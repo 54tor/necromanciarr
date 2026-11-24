@@ -53,6 +53,8 @@ export interface Proposal {
   generation: number
   current: boolean
   warnings: Warning[]
+  /** Dernière activité de la proposition (RFC 3339 UTC) ; vide si inconnue. */
+  updated_at: string
   /** Origine du torrent (fournisseur ou indexeur) ; absent tant que le serveur ne l'envoie pas (tâche B14). */
   source?: string
   details: ProposalDetails

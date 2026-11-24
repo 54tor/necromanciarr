@@ -26,3 +26,24 @@ export function formatDateTime(iso: string): string {
   if (Number.isNaN(date.getTime())) return iso
   return date.toLocaleString(currentLanguage(), { dateStyle: 'short', timeStyle: 'medium' })
 }
+
+const RELATIVE_UNITS: readonly [Intl.RelativeTimeFormatUnit, number][] = [
+  ['year', 31_536_000],
+  ['month', 2_592_000],
+  ['day', 86_400],
+  ['hour', 3_600],
+  ['minute', 60],
+]
+
+/** formatRelative écrit un instant par rapport à `now` (« il y a 3 jours »), dans la langue active ; illisible : tel quel. */
+export function formatRelative(iso: string, now: Date = new Date()): string {
+  const instant = new Date(iso)
+  if (Number.isNaN(instant.getTime())) return iso
+  const seconds = Math.round((instant.getTime() - now.getTime()) / 1000)
+  const formatter = new Intl.RelativeTimeFormat(currentLanguage(), { numeric: 'auto' })
+  const [unit, size] = RELATIVE_UNITS.find(([, unitSize]) => Math.abs(seconds) >= unitSize) ?? [
+    'second',
+    1,
+  ]
+  return formatter.format(Math.round(seconds / size), unit)
+}

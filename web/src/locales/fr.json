@@ -307,7 +307,8 @@
       "missing": "Pièces manquantes",
       "group": "Groupe",
       "step": "Étape",
-      "warnings": "Avertissements"
+      "warnings": "Avertissements",
+      "updated": "Mis à jour"
     },
     "missingOf": "{missing} sur {total}",
     "details": {
@@ -327,12 +328,12 @@
       "reject": "Rejeter",
       "choose": "Choisir un candidat",
       "acceptGroup": "Accepter le groupe",
-      "force": "Forcer l’ajout",
+      "force": "Forcer le démarrage",
       "acceptOf": "Accepter {name}",
       "rejectOf": "Rejeter {name}",
       "chooseOf": "Choisir un candidat pour {name}",
       "acceptGroupOf": "Accepter le groupe de {name}",
-      "forceOf": "Forcer l’ajout de {name}",
+      "forceOf": "Forcer le démarrage de {name}",
       "rejectSelection": "Rejeter la sélection ({count})"
     },
     "reject": {
@@ -344,12 +345,14 @@
     "group": {
       "title": "Accepter le groupe {group} ?",
       "description": "Accepte la proposition principale du groupe et, en mode cross-seed natif seulement, les autres torrents vérifiés du même groupe.",
-      "summary": "La principale est marquée ★. Liste établie d’après les propositions chargées : le serveur décide des autres selon le mode cross-seed.",
-      "confirm": "Accepter le groupe"
+      "confirm": "Accepter le groupe",
+      "summaryNative": "Mode cross-seed natif : la principale (★) et une proposition en attente par autre torrent vérifié seront acceptées.",
+      "summaryOther": "Mode cross-seed {mode} : seule la principale (★) est acceptée.",
+      "nativeOnly": "{name} (cross-seed natif)"
     },
     "force": {
-      "title": "Forcer l’ajout du partiel ?",
-      "description": "Le client va télécharger les pièces manquantes. Chaque média lié qui partage une de ces pièces est d’abord remplacé, dans le dossier de liens seulement, par une copie indépendante (reflink, sinon copie complète qui demande de la place) : la bibliothèque n’est jamais écrite. Le démarrage est refusé si aucune copie n’est possible. Cette action n’est pas annulable.",
+      "title": "Forcer le démarrage du partiel ?",
+      "description": "Le client va télécharger les pièces manquantes. Chaque média lié qui partage une de ces pièces est d’abord remplacé, dans le dossier de liens seulement, par une copie indépendante (reflink, sinon copie complète qui demande de la place) : la bibliothèque n’est jamais écrite. Le démarrage est refusé si aucune copie n’est possible. Cette action n’est pas annulable. Si une source a changé depuis la vérification, la proposition devient obsolète et l’action est refusée.",
       "summary": "Seul un partiel à annexes manquantes, déjà ensemencé en pause, peut être forcé.",
       "phrase": "FORCER",
       "confirm": "Forcer"
@@ -365,17 +368,19 @@
       "description": "Le torrent choisi devient la proposition principale du groupe ; les autres restent en attente.",
       "legend": "Candidats du groupe",
       "candidate": "{name} ({tracker}, {percent})",
-      "confirm": "Choisir"
+      "confirm": "Choisir",
+      "empty": "Aucun candidat à choisir : le litige ne liste pas de torrent."
     },
     "toasts": {
       "accepted": "Proposition acceptée.",
       "rejected": "Proposition rejetée.",
       "rejectedCount": "{count} proposition(s) rejetée(s).",
       "chosen": "Candidat choisi.",
-      "group": "Groupe accepté.",
-      "forced": "Ajout forcé.",
-      "partial": "Pack partiel accepté."
-    }
+      "forced": "Démarrage forcé.",
+      "partial": "Pack partiel accepté.",
+      "groupCount": "{count} proposition(s) acceptée(s)."
+    },
+    "rejectItem": "{name} ({kind})"
   },
   "dedupe": {
     "confirmBulkSummary": "Chaque remplacement est appliqué un par un. Une simulation décochée écrit réellement sur le disque."

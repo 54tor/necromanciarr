@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button'
 import { useApi } from '@/composables/useApi'
 import { codeLabel, t } from '@/i18n'
 import type { DataColumn } from '@/lib/dataTable'
-import { formatPercent } from '@/lib/format'
+import { formatDateTime, formatPercent, formatRelative } from '@/lib/format'
 import { DECISION_LABELS, KIND_LABELS, REVIEW_KINDS } from '@/lib/labels'
 import {
   canAccept,
@@ -33,7 +33,7 @@ import {
   canForce,
   canReject,
   decisionRank,
-  groupMembers,
+  groupTargets,
   hasSourceField,
   isSelectable,
 } from '@/lib/proposalRules'
@@ -97,7 +97,7 @@ const columns = computed<DataColumn<Proposal>[]>(() => {
   const list: DataColumn<Proposal>[] = [
     {
       id: 'name',
-      meta: { className: 'w-[20%] whitespace-normal' },
+      meta: { className: 'w-[15%] whitespace-normal' },
       header: t('proposals.columns.name'),
       accessorFn: (row) => row.candidate_name,
       sortFn: 'text',
@@ -189,6 +189,22 @@ const columns = computed<DataColumn<Proposal>[]>(() => {
       cell: (context) => h('span', { class: 'whitespace-normal' }, context.getValue<string>()),
     },
     {
+      id: 'updated',
+      meta: { className: 'w-[9%] whitespace-normal' },
+      header: t('proposals.columns.updated'),
+      accessorFn: (row) => Date.parse(row.updated_at) || 0,
+      sortFn: 'basic',
+      cell: (context) => {
+        const updatedAt = context.row.original.updated_at
+        if (!updatedAt) return EMPTY_CELL
+        return h(
+          'time',
+          { datetime: updatedAt, title: formatDateTime(updatedAt) },
+          formatRelative(updatedAt),
+        )
+      },
+    },
+    {
       id: 'warnings',
       meta: { className: 'w-[6%] whitespace-normal' },
       header: () =>
@@ -242,6 +258,13 @@ const selectedRows = computed(() =>
 const rejectTargets = ref<Proposal[]>([])
 const rejectOpen = ref(false)
 
+function rejectLine(target: Proposal): string {
+  return t('proposals.rejectItem', {
+    name: target.candidate_name,
+    kind: codeLabel('kind', target.kind),
+  })
+}
+
 function askReject(): void {
   rejectTargets.value = selectedRows.value
   rejectOpen.value = true
@@ -282,14 +305,37 @@ function askForce(row: Proposal): void {
 
 const groupTarget = ref<Proposal>()
 const groupItems = ref<string[]>([])
+const groupSummaryKey = ref('proposals.group.summaryOther')
+const groupMode = ref('')
 const groupOpen = ref(false)
 
-function askGroup(row: Proposal): void {
+// Le consentement montre ce que le serveur acceptera : les membres du groupe sont relus sans les filtres de la vue.
+async function askGroup(row: Proposal): Promise<void> {
+  const members = await call(() => api.listProposals({ group: row.group_id, current_only: true }))
+  const status = await call(() => api.status())
+  if (members === undefined || status === undefined) return
+  const isNative = status.cross_seed_mode === 'native'
   groupTarget.value = row
-  groupItems.value = groupMembers(proposals.value, row.group_id).map((member) =>
-    member.primary ? `${PRIMARY_MARK} ${member.candidate_name}` : member.candidate_name,
-  )
+  groupMode.value = status.cross_seed_mode
+  groupSummaryKey.value = isNative
+    ? 'proposals.group.summaryNative'
+    : 'proposals.group.summaryOther'
+  groupItems.value = groupTargets(members, isNative).map((member) => {
+    if (member.primary) return `${PRIMARY_MARK} ${member.candidate_name}`
+    return member.kind === 'cross_seed'
+      ? t('proposals.group.nativeOnly', { name: member.candidate_name })
+      : member.candidate_name
+  })
   groupOpen.value = true
+}
+
+async function acceptGroup(): Promise<void> {
+  const target = groupTarget.value
+  if (!target) return
+  const result = await call(() => api.acceptGroup(target.group_id))
+  if (result !== undefined)
+    toast.success(t('proposals.toasts.groupCount', { count: result.accepted.length }))
+  await load()
 }
 
 const chooseTarget = ref<Proposal>()
@@ -446,6 +492,16 @@ onMounted(load)
           <dd>{{ row.group_id }}{{ row.primary ? ` ${PRIMARY_MARK}` : '' }}</dd>
           <dt class="text-muted-foreground">{{ t('proposals.columns.step') }}</dt>
           <dd>{{ row.step ? codeLabel('state', row.step) : EMPTY_CELL }}</dd>
+          <dt class="text-muted-foreground">{{ t('proposals.columns.updated') }}</dt>
+          <dd>
+            <time
+              v-if="row.updated_at"
+              :datetime="row.updated_at"
+              :title="formatDateTime(row.updated_at)"
+              >{{ formatRelative(row.updated_at) }}</time
+            >
+            <template v-else>{{ EMPTY_CELL }}</template>
+          </dd>
           <dt class="text-muted-foreground">{{ t('proposals.columns.warnings') }}</dt>
           <dd>{{ row.warnings.length }}</dd>
         </dl>
@@ -515,7 +571,7 @@ onMounted(load)
       :description="t('proposals.reject.description')"
       :confirm-label="t('proposals.reject.confirm')"
       summary-key="proposals.reject.summary"
-      :items="rejectTargets.map((target) => target.candidate_name)"
+      :items="rejectTargets.map(rejectLine)"
       @confirm="rejectTargetsOneByOne"
     />
     <ConfirmDialog
@@ -523,12 +579,10 @@ onMounted(load)
       :title="t('proposals.group.title', { group: groupTarget?.group_id ?? '' })"
       :description="t('proposals.group.description')"
       :confirm-label="t('proposals.group.confirm')"
-      summary-key="proposals.group.summary"
+      :summary-key="groupSummaryKey"
+      :summary-params="{ mode: groupMode }"
       :items="groupItems"
-      @confirm="
-        groupTarget &&
-        act(() => api.acceptGroup(groupTarget!.group_id), t('proposals.toasts.group'))
-      "
+      @confirm="acceptGroup"
     />
     <ConfirmDialog
       v-model:open="forceOpen"

@@ -56,6 +56,13 @@ async function mountView(rows = ALL_ROWS, extraRoutes: Record<string, unknown> =
     'POST /api/proposals/{id}/choose': { proposal_id: 8, action: 'chosen' },
     'POST /api/proposals/{id}/force': { proposal_id: 3, forced: true, warnings: [] },
     'POST /api/groups/{id}/accept': { group_id: 9, accepted: [7] },
+    'GET /api/status': {
+      candidates: {},
+      proposals: {},
+      steps: {},
+      cross_seed_mode: 'disabled',
+      language: 'fr',
+    },
     ...extraRoutes,
   })
   const wrapper = mount(ProposalsView, { attachTo: document.body })
@@ -175,6 +182,7 @@ describe('ProposalsView', () => {
       expect(posts(calls)).toHaveLength(0)
       expect(dialogText()).toContain('Film.A')
       expect(dialogText()).toContain('Film.B')
+      expect(dialogText()).not.toContain('proposals.')
       await confirmDialog()
       expect(posts(calls).map((call) => call.path)).toEqual([
         '/api/proposals/1/reject',
@@ -243,20 +251,89 @@ describe('ProposalsView', () => {
       expect(rowCheckbox(wrapper, 1).element).toHaveProperty('checked', false)
     })
 
-    it('lists group members in the accept-group dialog and accepts one group', async () => {
-      const { wrapper, calls } = await mountView()
+    describe('accept-group consent', () => {
+      const groupRows = [
+        proposal({ id: 1, candidate_id: 10, candidate_name: 'Film.A', group_id: 5, primary: true }),
+        proposal({
+          id: 2,
+          candidate_id: 11,
+          candidate_name: 'Film.CrossSeed',
+          kind: 'cross_seed',
+          group_id: 5,
+          primary: false,
+        }),
+        proposal({
+          id: 3,
+          candidate_id: 12,
+          candidate_name: 'Film.FailedMember',
+          decision: 'failed',
+          group_id: 5,
+          primary: false,
+        }),
+      ]
+      const routesFor = (mode: string, accepted = [1, 2]) => ({
+        'GET /api/proposals': (call: FakeCall) =>
+          call.query.get('group') ? groupRows : [pendingOne, ...ALL_ROWS.slice(1)],
+        'GET /api/status': {
+          candidates: {},
+          proposals: {},
+          steps: {},
+          cross_seed_mode: mode,
+          language: 'fr',
+        },
+        'POST /api/groups/{id}/accept': { group_id: 5, accepted },
+      })
 
-      await rowButton(wrapper, 1, 'proposals accept-group').trigger('click')
-      await flushPromises()
+      it('lists what the server will accept in native mode, whatever the view filters', async () => {
+        const { wrapper, calls } = await mountView(ALL_ROWS, routesFor('native'))
+        await wrapper.get('[data-testid="filter-kind"]').setValue('full')
+        await flushPromises()
 
-      expect(posts(calls)).toHaveLength(0)
-      expect(dialogText()).toContain('★ Film.A')
-      expect(dialogText()).toContain('Film.B')
-      expect(dialogText()).not.toContain('Film.Accepted')
-      await confirmDialog()
-      expect(posts(calls).map((call) => [call.path, call.body])).toEqual([
-        ['/api/groups/5/accept', {}],
-      ])
+        await rowButton(wrapper, 1, 'proposals accept-group').trigger('click')
+        await flushPromises()
+
+        expect(dialogText()).toContain('★ Film.A')
+        expect(dialogText()).toContain('Film.CrossSeed')
+        expect(dialogText()).toContain('cross-seed natif')
+        expect(dialogText()).not.toContain('Film.FailedMember')
+        const groupRequest = calls.find((call) => call.query.get('group') === '5')
+        expect(groupRequest?.query.get('kind')).toBeNull()
+        expect(groupRequest?.query.get('current_only')).toBe('true')
+        expect(posts(calls)).toHaveLength(0)
+      })
+
+      it('lists only the primary when cross-seed is not native', async () => {
+        const { wrapper } = await mountView(ALL_ROWS, routesFor('disabled'))
+
+        await rowButton(wrapper, 1, 'proposals accept-group').trigger('click')
+        await flushPromises()
+
+        expect(dialogText()).toContain('★ Film.A')
+        expect(dialogText()).not.toContain('Film.CrossSeed')
+        expect(dialogText()).toContain('seule la principale')
+      })
+
+      it('accepts one group and reports how many proposals the server accepted', async () => {
+        const { wrapper, calls } = await mountView(ALL_ROWS, routesFor('native', [1, 2]))
+        await rowButton(wrapper, 1, 'proposals accept-group').trigger('click')
+        await flushPromises()
+
+        await confirmDialog()
+
+        expect(posts(calls).map((call) => [call.path, call.body])).toEqual([
+          ['/api/groups/5/accept', {}],
+        ])
+        expect(toastSuccess).toHaveBeenCalledWith('2 proposition(s) acceptée(s).')
+      })
+
+      it('does not enable accept-group on a failed primary', async () => {
+        const failedPrimary = proposal({ id: 30, decision: 'failed', primary: true })
+        const { wrapper } = await mountView([failedPrimary])
+
+        expect(
+          rowButton(wrapper, 30, 'proposals accept-group').attributes('disabled'),
+        ).toBeDefined()
+      })
     })
 
     it('sends nothing when the accept-group dialog is cancelled', async () => {
@@ -315,6 +392,38 @@ describe('ProposalsView', () => {
       expect(posts(calls).map((call) => [call.path, call.body])).toEqual([
         ['/api/proposals/3/force', { confirm: true }],
       ])
+    })
+
+    it.each(['forcer', 'FORCER ', 'FORCE', ' FORCER', 'Forcer'])(
+      'sends nothing when the force confirmation word is %j',
+      async (typedWord) => {
+        const { wrapper, calls } = await mountView()
+        await rowButton(wrapper, 3, 'proposals force').trigger('click')
+        await flushPromises()
+
+        const phraseInput = document.body.querySelector<HTMLInputElement>(
+          '[data-testid="confirm-dialog-phrase"]',
+        )
+        phraseInput!.value = typedWord
+        phraseInput!.dispatchEvent(new Event('input'))
+        await flushPromises()
+        await confirmDialog()
+
+        expect(posts(calls)).toHaveLength(0)
+        expect(dialogButton('confirm-dialog-confirm')?.disabled).toBe(true)
+      },
+    )
+
+    it('words force as a start and warns that changed sources refuse it', async () => {
+      const { wrapper } = await mountView()
+
+      await rowButton(wrapper, 3, 'proposals force').trigger('click')
+      await flushPromises()
+
+      expect(dialogText()).toContain('Forcer le démarrage')
+      expect(dialogText()).not.toContain('proposals.')
+      expect(dialogText()).toContain('obsolète')
+      expect(dialogText()).not.toContain('Forcer l’ajout')
     })
 
     it('never offers force on a partial pack', async () => {
@@ -507,6 +616,110 @@ describe('ProposalsView', () => {
 
     expect(toastError).toHaveBeenCalledWith('Proposition périmée : relancez la vérification.')
     expect(calls.filter((call) => call.path === '/api/proposals').length).toBe(2)
+  })
+
+  it('keeps the selection visible and counted when the layout switches', async () => {
+    const resize = stubViewport(1280)
+    const { wrapper } = await mountView()
+    await select(wrapper, [1, 2])
+
+    resize(360)
+    await flushPromises()
+
+    const cardCheckboxes = wrapper.findAll('[data-testid="table-card"] input[type="checkbox"]')
+    const gotChecked = cardCheckboxes.map((box) => (box.element as HTMLInputElement).checked)
+    expect(gotChecked.filter(Boolean)).toHaveLength(2)
+    expect(wrapper.get('[data-scope="bulk"]').text()).toContain('(2)')
+    resize(1280)
+    await flushPromises()
+    expect((rowCheckbox(wrapper, 1).element as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('shows the excluded reason code visibly when its label is missing', async () => {
+    const unlabelled = proposal({
+      id: 14,
+      details: {
+        percent: 90,
+        verified_pieces: 9,
+        missing_pieces: 1,
+        total_pieces: 10,
+        excluded_files: [{ torrent_path: 'Film/odd.bin', reason: 'brand_new_reason' }],
+      },
+    })
+    const { wrapper } = await mountView([unlabelled])
+
+    await rowOf(wrapper, 14).get('button[aria-expanded]').trigger('click')
+
+    expect(rowOf(wrapper, 14).text()).toContain('brand_new_reason')
+  })
+
+  it('shows an empty state instead of guessing candidates for a conflict without members', async () => {
+    const memberless = proposal({ id: 15, kind: 'conflict', candidate_name: 'Docu.Alone' })
+    const { wrapper } = await mountView([memberless])
+
+    await rowButton(wrapper, 15, 'proposals choose').trigger('click')
+    await flushPromises()
+
+    expect(document.body.querySelectorAll('input[type="radio"]')).toHaveLength(0)
+    expect(dialogText()).toContain('Aucun candidat')
+    expect(dialogButton('choose-confirm')?.disabled).toBe(true)
+  })
+
+  it('keeps the detail container in the DOM so aria-controls never dangles', async () => {
+    const { wrapper } = await mountView()
+
+    const toggle = rowOf(wrapper, 1).get('button[aria-expanded]')
+
+    const controlled = toggle.attributes('aria-controls') ?? ''
+    expect(document.getElementById(controlled)).not.toBeNull()
+    expect(document.getElementById(controlled)?.hasAttribute('hidden')).toBe(true)
+    await toggle.trigger('click')
+    expect(document.getElementById(controlled)?.hasAttribute('hidden')).toBe(false)
+  })
+
+  it('lists name and kind in the reject dialog, even for duplicate names', async () => {
+    const twins = [
+      proposal({ id: 40, candidate_name: 'Twin', candidate_id: 40 }),
+      proposal({ id: 41, candidate_name: 'Twin', candidate_id: 41, kind: 'partial_pack' }),
+    ]
+    const { wrapper } = await mountView(twins)
+    await select(wrapper, [40, 41])
+
+    await wrapper.get('[data-scope="bulk"]').trigger('click')
+    await flushPromises()
+
+    const items = [
+      ...document.body.querySelectorAll('[data-testid="confirm-dialog-items"] li'),
+    ].map((item) => item.textContent)
+    expect(items).toEqual(['Twin (Torrent complet)', 'Twin (Pack partiel)'])
+  })
+
+  it('shows a tooltip with the label on keyboard focus of an icon-only action', async () => {
+    const { wrapper } = await mountView()
+
+    ;(rowButton(wrapper, 1, 'proposals accept').element as HTMLButtonElement).focus()
+    await flushPromises()
+
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('Accepter')
+  })
+
+  it('shows the update time in a sortable column with the full timestamp as title', async () => {
+    const older = proposal({ id: 50, updated_at: '2026-01-01T10:00:00Z' })
+    const newer = proposal({ id: 51, updated_at: '2026-03-01T10:00:00Z' })
+    const { wrapper } = await mountView([older, newer])
+
+    const headers = wrapper.findAll('th').map((header) => header.text())
+    expect(headers).toContain('Mis à jour')
+    const time = rowOf(wrapper, 50).get('time')
+    expect(time.attributes('datetime')).toBe('2026-01-01T10:00:00Z')
+    expect(time.attributes('title')).toContain('2026')
+    const updatedHeader = wrapper.findAll('th').find((header) => header.text() === 'Mis à jour')
+    await updatedHeader!.get('button').trigger('click')
+    expect(updatedHeader!.attributes('aria-sort')).toBe('ascending')
+    expect(wrapper.findAll('tbody tr').map((row) => row.attributes('data-row-key'))).toEqual([
+      '50',
+      '51',
+    ])
   })
 
   it('shows an empty state', async () => {
