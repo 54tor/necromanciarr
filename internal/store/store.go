@@ -182,14 +182,14 @@ func addColumnIfMissing(database *sql.DB, table, column, definition string) erro
 	return err
 }
 
-func hasColumn(database *sql.DB, table, column string) (bool, error) {
+func hasColumn(database queryer, table, column string) (bool, error) {
 	columns, err := tableColumns(database, table)
 	return slices.Contains(columns, column), err
 }
 
 // tableColumns renvoie les colonnes de la table, vide si elle n'existe pas.
-func tableColumns(database *sql.DB, table string) ([]string, error) {
-	rows, err := database.Query(`SELECT name FROM pragma_table_info(?)`, table)
+func tableColumns(database queryer, table string) ([]string, error) {
+	rows, err := database.QueryContext(context.Background(), `SELECT name FROM pragma_table_info(?)`, table)
 	if err != nil {
 		return nil, err
 	}

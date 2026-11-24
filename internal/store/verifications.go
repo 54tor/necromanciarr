@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -164,13 +165,16 @@ const (
 // ProposalDecision est la décision de l'opérateur sur une proposition, puis son application.
 type ProposalDecision string
 
-// Décisions d'une proposition.
+// Décisions d'une proposition : pending → accepted | rejected | superseded ; accepted → applied | failed | superseded ;
+// failed → pending seulement par RetryProposal.
 const (
 	ProposalPending  ProposalDecision = "pending"
 	ProposalAccepted ProposalDecision = "accepted"
 	ProposalRejected ProposalDecision = "rejected"
 	ProposalApplied  ProposalDecision = "applied"
 	ProposalFailed   ProposalDecision = "failed"
+	// ProposalSuperseded clôt une proposition ouverte dont le candidat a été périmé ou réassocié.
+	ProposalSuperseded ProposalDecision = "superseded"
 )
 
 // Erreurs typées des propositions.
@@ -204,7 +208,7 @@ func checkProposalKind(kind ProposalKind) error {
 
 func checkProposalDecision(decision ProposalDecision) error {
 	switch decision {
-	case ProposalPending, ProposalAccepted, ProposalRejected, ProposalApplied, ProposalFailed:
+	case ProposalPending, ProposalAccepted, ProposalRejected, ProposalApplied, ProposalFailed, ProposalSuperseded:
 		return nil
 	default:
 		return fmt.Errorf("%w: %q", ErrUnknownProposalDecision, decision)
@@ -268,14 +272,71 @@ func scanProposal(rows *sql.Rows) (Proposal, error) {
 	return proposal, nil
 }
 
-// SetProposalDecision enregistre la décision et sa date.
+// proposalTransitions liste les décisions atteignables par SetProposalDecision depuis chaque décision.
+var proposalTransitions = map[ProposalDecision][]ProposalDecision{
+	ProposalPending:  {ProposalAccepted, ProposalRejected, ProposalSuperseded},
+	ProposalAccepted: {ProposalApplied, ProposalFailed, ProposalSuperseded},
+}
+
+// SetProposalDecision enregistre la décision et sa date si la transition est permise ; accepted et applied exigent un
+// candidat verified (une proposition sans candidat, dedupe ou repair, en est exemptée). Sinon ErrInvalidTransition.
 func (openedStore *Store) SetProposalDecision(ctx context.Context, proposalID int64, decision ProposalDecision, now time.Time) error {
 	if err := checkProposalDecision(decision); err != nil {
 		return err
 	}
-	result, err := openedStore.database.ExecContext(ctx, `UPDATE proposals SET decision = ?, decided_at = ? WHERE id = ?`,
+	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
+		current, candidateState, err := proposalState(ctx, transaction, proposalID)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(proposalTransitions[current], decision) {
+			return fmt.Errorf("%w: proposal %s -> %s", ErrInvalidTransition, current, decision)
+		}
+		requiresVerified := decision == ProposalAccepted || decision == ProposalApplied
+		if requiresVerified && candidateState.Valid && CandidateState(candidateState.String) != CandidateVerified {
+			return fmt.Errorf("%w: proposal %s needs a verified candidate, got %s", ErrInvalidTransition, decision, candidateState.String)
+		}
+		return writeDecision(ctx, transaction, proposalID, decision, now)
+	})
+}
+
+// RetryProposal remet en attente une proposition dont l'application a échoué.
+func (openedStore *Store) RetryProposal(ctx context.Context, proposalID int64, now time.Time) error {
+	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
+		current, _, err := proposalState(ctx, transaction, proposalID)
+		if err != nil {
+			return err
+		}
+		if current != ProposalFailed {
+			return fmt.Errorf("%w: retry from %s", ErrInvalidTransition, current)
+		}
+		return writeDecision(ctx, transaction, proposalID, ProposalPending, now)
+	})
+}
+
+// proposalState renvoie la décision courante et l'état du candidat (non valide si la proposition n'en a pas).
+func proposalState(ctx context.Context, transaction *sql.Tx, proposalID int64) (ProposalDecision, sql.NullString, error) {
+	var decision string
+	var candidateState sql.NullString
+	err := transaction.QueryRowContext(ctx, `SELECT proposals.decision, torrent_candidates.state FROM proposals
+LEFT JOIN torrent_candidates ON torrent_candidates.id = proposals.candidate_id WHERE proposals.id = ?`, proposalID).
+		Scan(&decision, &candidateState)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", sql.NullString{}, ErrProposalNotFound
+	}
+	if err != nil {
+		return "", sql.NullString{}, fmt.Errorf("load proposal: %w", err)
+	}
+	return ProposalDecision(decision), candidateState, nil
+}
+
+func writeDecision(ctx context.Context, transaction *sql.Tx, proposalID int64, decision ProposalDecision, now time.Time) error {
+	_, err := transaction.ExecContext(ctx, `UPDATE proposals SET decision = ?, decided_at = ? WHERE id = ?`,
 		string(decision), now.UnixNano(), proposalID)
-	return requireOneRow(result, err, ErrProposalNotFound, "set proposal decision")
+	if err != nil {
+		return fmt.Errorf("set proposal decision: %w", err)
+	}
+	return nil
 }
 
 func nullableID(identifier int64) sql.NullInt64 {

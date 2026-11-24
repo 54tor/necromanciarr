@@ -41,6 +41,8 @@ var (
 	ErrUnknownCandidateState = errors.New("store: unknown candidate state")
 	ErrCandidateNotFound     = errors.New("store: candidate not found")
 	ErrTorrentTooLarge       = errors.New("store: torrent file exceeds 8 MiB")
+	// ErrInvalidTransition signale un changement d'état de candidat ou de décision de proposition interdit.
+	ErrInvalidTransition = errors.New("store: invalid state transition")
 )
 
 // Candidate est une release candidate, identifiée par (Infohash, Tracker) ; GroupID regroupe chaque candidat qui se
@@ -102,8 +104,8 @@ func (openedStore *Store) DeleteMediaFile(ctx context.Context, mediaFileID int64
 	})
 }
 
-// InvalidateCandidatesForFile passe à stale chaque candidat associé au fichier et efface sa vérification, qui ne
-// vaut plus ; renvoie le nombre de lignes touchées.
+// InvalidateCandidatesForFile passe à stale chaque candidat associé au fichier (voir markStale) ; renvoie le nombre
+// de candidats touchés.
 func (openedStore *Store) InvalidateCandidatesForFile(ctx context.Context, mediaFileID int64, now time.Time) (int, error) {
 	var invalidated int
 	err := openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
@@ -117,16 +119,11 @@ func (openedStore *Store) InvalidateCandidatesForFile(ctx context.Context, media
 const candidatesOfFile = `SELECT candidate_id FROM candidate_files WHERE media_file_id = ?`
 
 func invalidateForFile(ctx context.Context, transaction *sql.Tx, mediaFileID int64, now time.Time) (int, error) {
-	if _, err := transaction.ExecContext(ctx, `DELETE FROM verifications WHERE candidate_id IN (`+candidatesOfFile+`)`, mediaFileID); err != nil {
-		return 0, fmt.Errorf("invalidate verifications: %w", err)
-	}
-	result, err := transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ?
-WHERE state != ? AND id IN (`+candidatesOfFile+`)`, string(CandidateStale), now.UnixNano(), string(CandidateStale), mediaFileID)
+	invalidated, err := markStale(ctx, transaction, candidatesOfFile, now, mediaFileID)
 	if err != nil {
 		return 0, fmt.Errorf("invalidate candidates: %w", err)
 	}
-	affected, err := result.RowsAffected()
-	return int(affected), err
+	return invalidated, nil
 }
 
 // changedCandidates sélectionne chaque candidat dont un fichier local associé a disparu ou a changé de taille ou de date.
@@ -135,27 +132,45 @@ LEFT JOIN media_files ON media_files.id = candidate_files.media_file_id
 WHERE candidate_files.media_size IS NOT NULL AND (media_files.id IS NULL OR media_files.size != candidate_files.media_size
 	OR media_files.mtime != candidate_files.media_mtime)`
 
-// MarkChangedCandidatesStale passe à stale (et efface la vérification de) tout candidat dont un fichier local associé
-// a disparu ou changé depuis l'association ; renvoie le nombre de lignes touchées.
+// MarkChangedCandidatesStale passe à stale (voir markStale) tout candidat dont un fichier local associé a disparu ou
+// changé depuis l'association ; renvoie le nombre de candidats touchés.
 func (openedStore *Store) MarkChangedCandidatesStale(ctx context.Context, now time.Time) (int, error) {
 	var marked int
 	err := openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
-		if _, err := transaction.ExecContext(ctx, `DELETE FROM verifications WHERE candidate_id IN (`+changedCandidates+`)`); err != nil {
-			return err
-		}
-		result, err := transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ?
-WHERE state != ? AND id IN (`+changedCandidates+`)`, string(CandidateStale), now.UnixNano(), string(CandidateStale))
-		if err != nil {
-			return err
-		}
-		affected, err := result.RowsAffected()
-		marked = int(affected)
+		var err error
+		marked, err = markStale(ctx, transaction, changedCandidates, now)
 		return err
 	})
 	if err != nil {
 		return 0, fmt.Errorf("mark changed candidates stale: %w", err)
 	}
 	return marked, nil
+}
+
+// markStale périme les candidats choisis par selection dans la transaction : vérification effacée, propositions
+// ouvertes closes (superseded), groupe retiré ; les propositions appliquées restent comme historique.
+func markStale(ctx context.Context, transaction *sql.Tx, selection string, now time.Time, arguments ...any) (int, error) {
+	if _, err := transaction.ExecContext(ctx, `DELETE FROM verifications WHERE candidate_id IN (`+selection+`)`, arguments...); err != nil {
+		return 0, err
+	}
+	if err := supersedeOpenProposals(ctx, transaction, selection, now, arguments...); err != nil {
+		return 0, err
+	}
+	updateArguments := append([]any{string(CandidateStale), now.UnixNano(), string(CandidateStale)}, arguments...)
+	result, err := transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ?, group_id = NULL
+WHERE state != ? AND id IN (`+selection+`)`, updateArguments...)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	return int(affected), err
+}
+
+func supersedeOpenProposals(ctx context.Context, transaction *sql.Tx, selection string, now time.Time, arguments ...any) error {
+	proposalArguments := append([]any{string(ProposalSuperseded), now.UnixNano(), string(ProposalPending), string(ProposalAccepted)}, arguments...)
+	_, err := transaction.ExecContext(ctx, `UPDATE proposals SET decision = ?, decided_at = ?
+WHERE decision IN (?, ?) AND candidate_id IN (`+selection+`)`, proposalArguments...)
+	return err
 }
 
 // SaveCandidate crée le candidat (état matched) ou met à jour celui de même (Infohash, Tracker) ; s'il est périmé ou
@@ -220,7 +235,12 @@ func insertCandidate(ctx context.Context, transaction *sql.Tx, candidate Candida
 	return candidateID, SaveCreated, insertCandidateFiles(ctx, transaction, candidateID, files)
 }
 
+// resetCandidate remplace les associations et ramène le candidat à matched ; ses propositions ouvertes sont closes,
+// jamais ressuscitées.
 func resetCandidate(ctx context.Context, transaction *sql.Tx, candidateID int64, files []CandidateFile, now time.Time) error {
+	if err := supersedeOpenProposals(ctx, transaction, `SELECT ?`, now, candidateID); err != nil {
+		return err
+	}
 	for _, statement := range []string{`DELETE FROM verifications WHERE candidate_id = ?`, `DELETE FROM candidate_files WHERE candidate_id = ?`} {
 		if _, err := transaction.ExecContext(ctx, statement, candidateID); err != nil {
 			return err
@@ -343,14 +363,45 @@ func (openedStore *Store) ListCandidatesByState(ctx context.Context, states ...C
 	return candidates, rows.Err()
 }
 
-// SetCandidateState change l'état d'un candidat.
+// SetCandidateState change l'état d'un candidat selon les transitions permises : matched → fetched → verified, et
+// tout état → stale ou failed ; stale → matched n'est fait que par SaveCandidate. Sinon ErrInvalidTransition.
+// Passer à stale applique markStale dans la même transaction.
 func (openedStore *Store) SetCandidateState(ctx context.Context, candidateID int64, state CandidateState, now time.Time) error {
 	if err := checkCandidateState(state); err != nil {
 		return err
 	}
-	result, err := openedStore.database.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ? WHERE id = ?`,
-		string(state), now.UnixNano(), candidateID)
-	return requireOneRow(result, err, ErrCandidateNotFound, "set candidate state")
+	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
+		var current string
+		err := transaction.QueryRowContext(ctx, `SELECT state FROM torrent_candidates WHERE id = ?`, candidateID).Scan(&current)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrCandidateNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("set candidate state: %w", err)
+		}
+		if !candidateTransitionAllowed(CandidateState(current), state) {
+			return fmt.Errorf("%w: candidate %s -> %s", ErrInvalidTransition, current, state)
+		}
+		if state == CandidateStale {
+			_, err = markStale(ctx, transaction, `SELECT ?`, now, candidateID)
+			return err
+		}
+		_, err = transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ? WHERE id = ?`,
+			string(state), now.UnixNano(), candidateID)
+		return err
+	})
+}
+
+func candidateTransitionAllowed(from, to CandidateState) bool {
+	switch {
+	case to == CandidateStale || to == CandidateFailed:
+		return true
+	case from == CandidateMatched && to == CandidateFetched:
+		return true
+	case from == CandidateFetched && to == CandidateVerified:
+		return true
+	}
+	return false
 }
 
 // SaveCandidateTorrent conserve le .torrent téléchargé ; au-delà de MaxTorrentBytes, ErrTorrentTooLarge.

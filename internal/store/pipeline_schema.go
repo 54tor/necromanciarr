@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -63,7 +64,7 @@ CREATE TABLE IF NOT EXISTS verified_files (
 );
 CREATE TABLE IF NOT EXISTS proposals (
 	id INTEGER PRIMARY KEY,
-	candidate_id INTEGER REFERENCES torrent_candidates(id) ON DELETE CASCADE,
+	candidate_id INTEGER REFERENCES torrent_candidates(id) ON DELETE RESTRICT,
 	group_id INTEGER,
 	kind TEXT NOT NULL,
 	decision TEXT NOT NULL,
@@ -79,19 +80,44 @@ CREATE TABLE IF NOT EXISTS run_lock (
 	expires_at INTEGER NOT NULL
 );`
 
-// legacyPipelineTables liste, dans l'ordre de suppression (enfants d'abord), les tables de la tâche 1 et la colonne
-// qui distingue la nouvelle forme ; une colonne vide signifie que la table n'existe que dans l'ancienne forme.
-var legacyPipelineTables = []struct{ table, newShapeColumn string }{
-	{"proposals", "group_id"},
-	{"verifications", "verified_bitset"},
-	{"candidates", ""},
+// legacyPipelineTables liste, dans l'ordre de suppression (enfants d'abord), les tables de l'ancienne forme et la
+// colonne qui distingue la nouvelle ; une colonne vide signifie que la table n'existe que dans l'ancienne forme.
+// restrictCandidates marque une table dont la clé vers torrent_candidates doit être RESTRICT (une proposition
+// appliquée est un historique, jamais supprimé en cascade).
+var legacyPipelineTables = []struct {
+	table, newShapeColumn string
+	restrictCandidates    bool
+}{
+	{"proposals", "group_id", true},
+	{"verifications", "verified_bitset", false},
+	{"candidates", "", false},
 }
 
 // dropEmptyLegacyPipelineTables supprime les anciennes tables du pipeline si elles sont vides, et refuse sinon.
+// Détection, comptage et suppression se font dans une seule transaction BEGIN IMMEDIATE sur une seule connexion :
+// un second processus qui ouvre la base en même temps attend (busy_timeout) puis voit la forme déjà mise à niveau.
 func dropEmptyLegacyPipelineTables(database *sql.DB) error {
+	ctx := context.Background()
+	connection, err := database.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = connection.Close() }()
+	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+	if err := dropLegacyTables(ctx, connection); err != nil {
+		_, rollbackErr := connection.ExecContext(ctx, "ROLLBACK")
+		return errors.Join(err, rollbackErr)
+	}
+	_, err = connection.ExecContext(ctx, "COMMIT")
+	return err
+}
+
+func dropLegacyTables(ctx context.Context, connection *sql.Conn) error {
 	var legacyTables []string
 	for _, legacy := range legacyPipelineTables {
-		isLegacy, err := hasLegacyShape(database, legacy.table, legacy.newShapeColumn)
+		isLegacy, err := hasLegacyShape(ctx, connection, legacy.table, legacy.newShapeColumn, legacy.restrictCandidates)
 		if err != nil {
 			return err
 		}
@@ -100,29 +126,38 @@ func dropEmptyLegacyPipelineTables(database *sql.DB) error {
 		}
 	}
 	for _, table := range legacyTables {
-		if err := refuseIfRows(database, table); err != nil {
+		if err := refuseIfRows(ctx, connection, table); err != nil {
 			return err
 		}
 	}
 	for _, table := range legacyTables {
-		if _, err := database.Exec("DROP TABLE " + table); err != nil { // #nosec G202 -- noms de legacyPipelineTables
+		if _, err := connection.ExecContext(ctx, "DROP TABLE "+table); err != nil { // #nosec G202 -- noms de legacyPipelineTables
 			return fmt.Errorf("drop legacy %s: %w", table, err)
 		}
 	}
 	return nil
 }
 
-func hasLegacyShape(database *sql.DB, table, newShapeColumn string) (bool, error) {
-	columns, err := tableColumns(database, table)
+func hasLegacyShape(ctx context.Context, connection *sql.Conn, table, newShapeColumn string, restrictCandidates bool) (bool, error) {
+	columns, err := tableColumns(connection, table)
 	if err != nil || len(columns) == 0 {
 		return false, err
 	}
-	return newShapeColumn == "" || !slices.Contains(columns, newShapeColumn), nil
+	if newShapeColumn == "" || !slices.Contains(columns, newShapeColumn) {
+		return true, nil
+	}
+	if !restrictCandidates {
+		return false, nil
+	}
+	var cascadingKeys int
+	err = connection.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_list(?)
+WHERE "table" = 'torrent_candidates' AND on_delete != 'RESTRICT'`, table).Scan(&cascadingKeys)
+	return cascadingKeys > 0, err
 }
 
-func refuseIfRows(database *sql.DB, table string) error {
+func refuseIfRows(ctx context.Context, connection *sql.Conn, table string) error {
 	var rowCount int
-	if err := database.QueryRow("SELECT count(*) FROM " + table).Scan(&rowCount); err != nil { // #nosec G202 -- noms de legacyPipelineTables
+	if err := connection.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&rowCount); err != nil { // #nosec G202 -- noms de legacyPipelineTables
 		return fmt.Errorf("count legacy %s: %w", table, err)
 	}
 	if rowCount > 0 {

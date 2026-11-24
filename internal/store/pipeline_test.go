@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -103,9 +104,7 @@ func TestSaveCandidate_isIdempotentAndKeepsStateWhenFilesAreUnchanged(t *testing
 	openedStore := openTestStore(t)
 	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/film.mkv", 100)
 	candidateID, firstOutcome := saveTestCandidate(t, openedStore, "aa", mediaFile)
-	if err := openedStore.SetCandidateState(ctx, candidateID, CandidateVerified, testNow); err != nil {
-		t.Fatal(err)
-	}
+	markVerified(t, openedStore, candidateID)
 
 	secondID, secondOutcome := saveTestCandidate(t, openedStore, "aa", mediaFile)
 
@@ -213,6 +212,7 @@ func TestProposals_createListAndDecide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	markVerified(t, openedStore, candidateID)
 	if err := openedStore.SetProposalDecision(ctx, proposalID, ProposalAccepted, testNow); err != nil {
 		t.Fatal(err)
 	}
@@ -288,5 +288,327 @@ func TestUpsertMediaFile_keepsKnownIDsWhenScanBringsNone(t *testing.T) {
 	gotFiles, err := openedStore.ListMediaFiles(ctx)
 	if err != nil || len(gotFiles) != 1 || gotFiles[0].TMDBID != 1 || gotFiles[0].Size != 11 {
 		t.Fatalf("gotValue %+v %v", gotFiles, err)
+	}
+}
+
+func markVerified(t *testing.T, openedStore *Store, candidateID int64) {
+	t.Helper()
+	for _, state := range []CandidateState{CandidateFetched, CandidateVerified} {
+		if err := openedStore.SetCandidateState(context.Background(), candidateID, state, testNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func countRows(t *testing.T, database queryer, query string, arguments ...any) int {
+	t.Helper()
+	rows, err := database.QueryContext(context.Background(), query, arguments...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var rowCount int
+	if !rows.Next() {
+		t.Fatalf("no row for %s", query)
+	}
+	if err := rows.Scan(&rowCount); err != nil {
+		t.Fatal(err)
+	}
+	return rowCount
+}
+
+func TestStore_refusedUpgradeLeavesLegacyTablesIntact(t *testing.T) {
+	filledLegacyPath := createLegacyDatabase(t, `
+INSERT INTO media_files (path, size, mtime) VALUES ('/home/u/media/a.mkv', 1, 1);
+INSERT INTO candidates (media_file_id, tracker, infohash, state) VALUES (1, 't', 'h', 'matched');`)
+	if _, err := Open(filledLegacyPath); !errors.Is(err, ErrLegacyPipelineRows) {
+		t.Fatalf("gotValue %v, expectedValue ErrLegacyPipelineRows", err)
+	}
+
+	database, err := sql.Open("sqlite", dataSourceName(filledLegacyPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = database.Close() }()
+	for _, table := range []string{"proposals", "verifications", "candidates"} {
+		if columns, err := tableColumns(database, table); err != nil || len(columns) == 0 {
+			t.Fatalf("legacy table %s dropped by a refused upgrade (err %v)", table, err)
+		}
+	}
+	if gotValue := countRows(t, database, `SELECT count(*) FROM candidates`); gotValue != 1 {
+		t.Fatalf("gotValue %d legacy rows, expectedValue 1", gotValue)
+	}
+}
+
+func TestStore_concurrentOpenersUpgradeOnce(t *testing.T) {
+	emptyLegacyPath := createLegacyDatabase(t, "")
+	var waitGroup sync.WaitGroup
+	openErrors := make([]error, 2)
+	for openerIndex := range openErrors {
+		waitGroup.Go(func() {
+			openedStore, err := Open(emptyLegacyPath)
+			if err == nil {
+				err = openedStore.Close()
+			}
+			openErrors[openerIndex] = err
+		})
+	}
+	waitGroup.Wait()
+	for openerIndex, err := range openErrors {
+		if err != nil {
+			t.Fatalf("opener %d: %v", openerIndex, err)
+		}
+	}
+	reopened, err := Open(emptyLegacyPath)
+	if err != nil {
+		t.Fatalf("open twice: %v", err)
+	}
+	_ = reopened.Close()
+}
+
+func TestStore_upgradesCascadingProposalsKeyToRestrict(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "necromanciarr.db")
+	firstStore, err := Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := firstStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	database, err := sql.Open("sqlite", dataSourceName(databasePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.Exec(`DROP TABLE proposals;
+CREATE TABLE proposals (id INTEGER PRIMARY KEY, candidate_id INTEGER REFERENCES torrent_candidates(id) ON DELETE CASCADE,
+	group_id INTEGER, kind TEXT NOT NULL, decision TEXT NOT NULL, warnings TEXT NOT NULL DEFAULT '[]',
+	created_at INTEGER NOT NULL, decided_at INTEGER);`)
+	if closeErr := database.Close(); err != nil || closeErr != nil {
+		t.Fatal(err, closeErr)
+	}
+
+	openedStore, err := Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = openedStore.Close() }()
+	if gotValue := countRows(t, openedStore.database, `SELECT count(*) FROM pragma_foreign_key_list('proposals') WHERE on_delete = 'RESTRICT'`); gotValue != 1 {
+		t.Fatalf("gotValue %d restricting keys, expectedValue 1", gotValue)
+	}
+}
+
+func TestSetCandidateState_enforcesTransitions(t *testing.T) {
+	testCases := []struct {
+		path          []CandidateState
+		expectedValue bool
+	}{
+		{[]CandidateState{CandidateFetched, CandidateVerified}, true},
+		{[]CandidateState{CandidateVerified}, false},
+		{[]CandidateState{CandidateFailed}, true},
+		{[]CandidateState{CandidateFetched, CandidateStale}, true},
+		{[]CandidateState{CandidateStale, CandidateMatched}, false},
+		{[]CandidateState{CandidateStale, CandidateFetched}, false},
+		{[]CandidateState{CandidateFetched, CandidateMatched}, false},
+	}
+	for _, testCase := range testCases {
+		openedStore := openTestStore(t)
+		candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+		var err error
+		for _, state := range testCase.path {
+			if err = openedStore.SetCandidateState(context.Background(), candidateID, state, testNow); err != nil {
+				break
+			}
+		}
+		gotValue := err == nil
+		if gotValue != testCase.expectedValue || (err != nil && !errors.Is(err, ErrInvalidTransition)) {
+			t.Errorf("path %v: gotValue err %v, expectedValue allowed=%v", testCase.path, err, testCase.expectedValue)
+		}
+	}
+}
+
+func TestSetProposalDecision_enforcesTransitions(t *testing.T) {
+	testCases := []struct {
+		path          []ProposalDecision
+		expectedValue bool
+	}{
+		{[]ProposalDecision{ProposalAccepted, ProposalApplied}, true},
+		{[]ProposalDecision{ProposalAccepted, ProposalFailed}, true},
+		{[]ProposalDecision{ProposalRejected}, true},
+		{[]ProposalDecision{ProposalSuperseded}, true},
+		{[]ProposalDecision{ProposalApplied}, false},
+		{[]ProposalDecision{ProposalRejected, ProposalAccepted}, false},
+		{[]ProposalDecision{ProposalAccepted, ProposalApplied, ProposalSuperseded}, false},
+		{[]ProposalDecision{ProposalAccepted, ProposalFailed, ProposalPending}, false},
+		{[]ProposalDecision{ProposalPending}, false},
+	}
+	for _, testCase := range testCases {
+		openedStore := openTestStore(t)
+		candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+		markVerified(t, openedStore, candidateID)
+		proposalID, err := openedStore.CreateProposal(context.Background(), Proposal{CandidateID: candidateID, Kind: ProposalFull}, testNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decision := range testCase.path {
+			if err = openedStore.SetProposalDecision(context.Background(), proposalID, decision, testNow); err != nil {
+				break
+			}
+		}
+		gotValue := err == nil
+		if gotValue != testCase.expectedValue || (err != nil && !errors.Is(err, ErrInvalidTransition)) {
+			t.Errorf("path %v: gotValue err %v, expectedValue allowed=%v", testCase.path, err, testCase.expectedValue)
+		}
+	}
+}
+
+func TestRetryProposal_onlyFromFailed(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	markVerified(t, openedStore, candidateID)
+	proposalID, err := openedStore.CreateProposal(ctx, Proposal{CandidateID: candidateID, Kind: ProposalFull}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := openedStore.RetryProposal(ctx, proposalID, testNow); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("gotValue %v, expectedValue ErrInvalidTransition from pending", err)
+	}
+	for _, decision := range []ProposalDecision{ProposalAccepted, ProposalFailed} {
+		if err := openedStore.SetProposalDecision(ctx, proposalID, decision, testNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := openedStore.RetryProposal(ctx, proposalID, testNow); err != nil {
+		t.Fatalf("gotValue %v, expectedValue retry allowed from failed", err)
+	}
+}
+
+func TestSetProposalDecision_acceptRequiresVerifiedCandidateExceptWithoutCandidate(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	torrentProposal, err := openedStore.CreateProposal(ctx, Proposal{CandidateID: candidateID, Kind: ProposalFull}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dedupeProposal, err := openedStore.CreateProposal(ctx, Proposal{Kind: ProposalDedupe}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := openedStore.SetProposalDecision(ctx, torrentProposal, ProposalAccepted, testNow); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("gotValue %v, expectedValue ErrInvalidTransition for a matched candidate", err)
+	}
+	if err := openedStore.SetProposalDecision(ctx, dedupeProposal, ProposalAccepted, testNow); err != nil {
+		t.Fatalf("gotValue %v, expectedValue a dedupe proposal accepted without candidate", err)
+	}
+}
+
+// proposalsByDecision crée une proposition par décision donnée, pour le candidat.
+func proposalsByDecision(t *testing.T, openedStore *Store, candidateID int64, paths map[string][]ProposalDecision) map[string]int64 {
+	t.Helper()
+	identifiers := map[string]int64{}
+	for name, path := range paths {
+		proposalID, err := openedStore.CreateProposal(context.Background(), Proposal{CandidateID: candidateID, GroupID: candidateID, Kind: ProposalFull}, testNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decision := range path {
+			if err := openedStore.SetProposalDecision(context.Background(), proposalID, decision, testNow); err != nil {
+				t.Fatal(err)
+			}
+		}
+		identifiers[name] = proposalID
+	}
+	return identifiers
+}
+
+func decisionsByID(t *testing.T, openedStore *Store) map[int64]ProposalDecision {
+	t.Helper()
+	proposals, err := openedStore.ListProposals(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisions := map[int64]ProposalDecision{}
+	for _, proposal := range proposals {
+		decisions[proposal.ID] = proposal.Decision
+	}
+	return decisions
+}
+
+func TestInvalidation_supersedesOpenProposalsKeepsAppliedAndClearsGroup(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	if err := openedStore.RegroupCandidates(ctx); err != nil {
+		t.Fatal(err)
+	}
+	markVerified(t, openedStore, candidateID)
+	identifiers := proposalsByDecision(t, openedStore, candidateID, map[string][]ProposalDecision{
+		"pending": nil, "accepted": {ProposalAccepted}, "applied": {ProposalAccepted, ProposalApplied}, "rejected": {ProposalRejected},
+	})
+
+	if _, err := openedStore.InvalidateCandidatesForFile(ctx, mediaFile.ID, testNow); err != nil {
+		t.Fatal(err)
+	}
+
+	decisions := decisionsByID(t, openedStore)
+	expectedDecisions := map[string]ProposalDecision{
+		"pending": ProposalSuperseded, "accepted": ProposalSuperseded, "applied": ProposalApplied, "rejected": ProposalRejected,
+	}
+	for name, expectedValue := range expectedDecisions {
+		if gotValue := decisions[identifiers[name]]; gotValue != expectedValue {
+			t.Errorf("%s proposal: gotValue %s, expectedValue %s", name, gotValue, expectedValue)
+		}
+	}
+	stale, err := openedStore.ListCandidatesByState(ctx, CandidateStale)
+	if err != nil || len(stale) != 1 || stale[0].GroupID != 0 {
+		t.Fatalf("gotValue %+v %v, expectedValue one stale candidate without group", stale, err)
+	}
+}
+
+func TestSaveCandidate_resetSupersedesOpenProposalsAndNeverResurrectsThem(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	markVerified(t, openedStore, candidateID)
+	identifiers := proposalsByDecision(t, openedStore, candidateID, map[string][]ProposalDecision{"pending": nil})
+	if err := openedStore.SetCandidateState(ctx, candidateID, CandidateStale, testNow); err != nil {
+		t.Fatal(err)
+	}
+
+	_, outcome := saveTestCandidate(t, openedStore, "aa", mediaFile)
+
+	candidates, err := openedStore.ListCandidatesByState(ctx, CandidateMatched)
+	if err != nil || len(candidates) != 1 || outcome != SaveUpdated {
+		t.Fatalf("gotValue %+v %s %v, expectedValue the stale candidate back to matched", candidates, outcome, err)
+	}
+	if gotValue := decisionsByID(t, openedStore)[identifiers["pending"]]; gotValue != ProposalSuperseded {
+		t.Fatalf("gotValue %s, expectedValue superseded", gotValue)
+	}
+}
+
+func TestInvalidation_isAtomicWhenProposalUpdateFails(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	markVerified(t, openedStore, candidateID)
+	proposalsByDecision(t, openedStore, candidateID, map[string][]ProposalDecision{"pending": nil})
+	// Le déclencheur fait échouer la clôture des propositions au milieu de la transaction.
+	if _, err := openedStore.database.Exec(`CREATE TRIGGER fail_supersede BEFORE UPDATE ON proposals
+BEGIN SELECT RAISE(ABORT, 'injected failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := openedStore.InvalidateCandidatesForFile(ctx, mediaFile.ID, testNow); err == nil {
+		t.Fatal("expectedValue the injected failure")
+	}
+
+	verified, err := openedStore.ListCandidatesByState(ctx, CandidateVerified)
+	if err != nil || len(verified) != 1 {
+		t.Fatalf("gotValue %+v %v, expectedValue the candidate still verified after rollback", verified, err)
 	}
 }
