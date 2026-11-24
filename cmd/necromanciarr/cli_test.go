@@ -31,6 +31,7 @@ type fakeService struct {
 	applyErrors         map[int64]error
 	lastApplyOptions    []app.DecisionOption
 	dedupePlan          []app.DedupeProposal
+	linkPage            app.LinkPage
 }
 
 func (fake *fakeService) record(method string, arguments ...any) {
@@ -124,6 +125,11 @@ func (fake *fakeService) RepairScan(_ context.Context, directory string) ([]app.
 func (fake *fakeService) RepairAccept(_ context.Context, proposalID int64, options ...app.DecisionOption) (app.MaintenanceResult, error) {
 	fake.record("RepairAccept", proposalID)
 	return fake.applied(proposalID, options)
+}
+
+func (fake *fakeService) ListLinks(_ context.Context, filter app.LinkFilter) (app.LinkPage, error) {
+	fake.record("ListLinks", filter)
+	return fake.linkPage, fake.err
 }
 
 func (*fakeService) Actions() []app.Action { return app.Actions() }

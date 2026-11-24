@@ -32,6 +32,9 @@ const (
 	OptionAcceptPending      = "accept-pending"
 	OptionDirectory          = "directory"
 	OptionCheck              = "check"
+	OptionState              = "state"
+	OptionLimit              = "limit"
+	OptionOffset             = "offset"
 	actionNameProposalPrefix = "proposals "
 )
 
@@ -81,6 +84,10 @@ var registry = []Action{
 	{
 		Name: "repair apply", Method: "RepairAccept", Description: "apply an accepted repair proposal (or accept a pending one first)",
 		Mutating: true, Arguments: []string{ArgumentProposalID}, Options: []string{OptionDryRun, OptionAcceptPending},
+	},
+	{
+		Name: "links list", Method: "ListLinks", Description: "list recorded links with their current state, read-only",
+		Options: []string{OptionState, OptionLimit, OptionOffset},
 	},
 	{Name: "doctor", Method: "Doctor", Description: "check that every configured component is reachable", Options: []string{OptionCheck}},
 }

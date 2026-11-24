@@ -46,6 +46,8 @@ type fakeService struct {
 	forceErrors map[int64]error
 	stageGate   chan struct{}
 	lastFilter  app.ProposalFilter
+	lastLinks   app.LinkFilter
+	linkPage    app.LinkPage
 }
 
 func (fake *fakeService) record(method string, arguments ...any) error {
@@ -134,6 +136,14 @@ func (fake *fakeService) RepairScan(_ context.Context, directory string) ([]app.
 func (fake *fakeService) RepairAccept(_ context.Context, proposalID int64, options ...app.DecisionOption) (app.MaintenanceResult, error) {
 	err := fake.record("RepairAccept", proposalID, options)
 	return app.MaintenanceResult{ProposalID: proposalID, Applied: true}, err
+}
+
+func (fake *fakeService) ListLinks(_ context.Context, filter app.LinkFilter) (app.LinkPage, error) {
+	err := fake.record("ListLinks", filter)
+	fake.mutex.Lock()
+	fake.lastLinks = filter
+	fake.mutex.Unlock()
+	return fake.linkPage, err
 }
 
 func (*fakeService) Actions() []app.Action { return app.Actions() }

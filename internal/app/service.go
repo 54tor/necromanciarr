@@ -13,6 +13,7 @@ import (
 	"necromanciarr/internal/doctor"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/pipeline"
+	"necromanciarr/internal/repair"
 	"necromanciarr/internal/store"
 )
 
@@ -78,6 +79,8 @@ type Service interface {
 	RepairScan(ctx context.Context, directory string) ([]RepairProposal, error)
 	// RepairAccept applique une proposition repair acceptée (mêmes options que DedupeAccept).
 	RepairAccept(ctx context.Context, proposalID int64, options ...DecisionOption) (MaintenanceResult, error)
+	// ListLinks liste les liens enregistrés avec leur état courant, lu sur le disque sans rien écrire, par page bornée.
+	ListLinks(ctx context.Context, filter LinkFilter) (LinkPage, error)
 	// Actions renvoie le registre des actions (parité CLI et web).
 	Actions() []Action
 }
@@ -147,8 +150,11 @@ type Deps struct {
 	Now              func() time.Time
 }
 
+// inspect et inspectionBudget remplacent, dans les tests seulement, l'examen d'un lien et le budget de ListLinks.
 type service struct {
-	deps Deps
+	deps             Deps
+	inspect          func(store.Link) repair.Inspection
+	inspectionBudget time.Duration
 }
 
 // New construit le Service sur ses dépendances.

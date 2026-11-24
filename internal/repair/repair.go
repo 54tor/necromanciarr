@@ -227,65 +227,116 @@ func (run *scanRun) setState(link store.Link, state store.LinkState) error {
 	return err
 }
 
-// examine classe un lien enregistré ; seul un lien symbolique dont la cible est absente (fs.ErrNotExist) est cherché
-// dans la bibliothèque, toute autre erreur laisse le lien inconnu.
+// Condition est l'état d'un lien enregistré tel que le système de fichiers le montre, sans rien lire ni écrire.
+type Condition string
+
+// Conditions rendues par Inspect.
+const (
+	// ConditionOK : symlink dont la cible répond, ou hardlink qui partage encore l'inode de sa cible.
+	ConditionOK Condition = "ok"
+	// ConditionUnverified : lien qui n'est ni un symlink ni un hardlink (reflink, copie) ; rien n'est comparé.
+	ConditionUnverified Condition = "unverified"
+	// ConditionLost : le lien lui-même a disparu.
+	ConditionLost Condition = "lost"
+	// ConditionBroken : symlink dont la cible est absente ; OldTarget est son texte.
+	ConditionBroken Condition = "broken"
+	// ConditionDiverged : hardlink qui ne partage plus l'inode de sa cible enregistrée.
+	ConditionDiverged Condition = "diverged"
+	// ConditionRenamedTarget : hardlink intact dont la cible enregistrée a changé de nom.
+	ConditionRenamedTarget Condition = "renamed_target"
+	// ConditionUnreadable : un contrôle a échoué autrement que par « absent » (EIO, ENOTCONN, ...) ; Err le porte.
+	ConditionUnreadable Condition = "unreadable"
+)
+
+// Inspection est le résultat d'Inspect : Err est l'erreur d'un lien illisible, ou celle de la lecture du texte d'un
+// symlink cassé.
+type Inspection struct {
+	Condition Condition
+	OldTarget string
+	Err       error
+}
+
+// Inspect classe un lien enregistré avec les seuls Lstat, Stat et Readlink, les mêmes contrôles que Scan ; il ne lit
+// aucun contenu et n'écrit rien, ni sur le disque ni en base.
+func Inspect(link store.Link) Inspection {
+	return inspect(os.Lstat, os.Stat, link)
+}
+
+func inspect(lstat, stat func(path string) (fs.FileInfo, error), link store.Link) Inspection {
+	linkInfo, err := lstat(link.LinkPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Inspection{Condition: ConditionLost}
+	}
+	if err != nil {
+		return Inspection{Condition: ConditionUnreadable, Err: err}
+	}
+	if linkInfo.Mode()&fs.ModeSymlink == 0 {
+		return inspectNonSymlink(stat, link, linkInfo)
+	}
+	_, err = stat(link.LinkPath)
+	if err == nil {
+		return Inspection{Condition: ConditionOK}
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return Inspection{Condition: ConditionUnreadable, Err: err}
+	}
+	oldTarget, err := os.Readlink(link.LinkPath)
+	return Inspection{Condition: ConditionBroken, OldTarget: oldTarget, Err: err}
+}
+
+// inspectNonSymlink : seul un hardlink peut diverger (inode plus partagé avec la cible) ; une cible simplement
+// renommée ne le fait pas diverger, et les autres sortes de liens ne sont pas comparées.
+func inspectNonSymlink(stat func(path string) (fs.FileInfo, error), link store.Link, linkInfo fs.FileInfo) Inspection {
+	if link.Kind != hardlinkKind {
+		return Inspection{Condition: ConditionUnverified}
+	}
+	targetInfo, err := stat(link.TargetPath)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return Inspection{Condition: ConditionRenamedTarget}
+	case err != nil:
+		return Inspection{Condition: ConditionUnreadable, Err: err}
+	case os.SameFile(linkInfo, targetInfo):
+		return Inspection{Condition: ConditionOK}
+	}
+	return Inspection{Condition: ConditionDiverged}
+}
+
+// examine range un lien enregistré selon inspect ; seul un lien symbolique dont la cible est absente est cherché dans
+// la bibliothèque, toute autre erreur laisse le lien inconnu.
 func (run *scanRun) examine(link store.Link) error {
 	if err := run.ctx.Err(); err != nil {
 		return err
 	}
-	linkInfo, err := run.options.lstat(link.LinkPath)
-	if errors.Is(err, fs.ErrNotExist) {
+	inspection := inspect(run.options.lstat, run.options.stat, link)
+	switch inspection.Condition {
+	case ConditionLost:
 		run.report.Lost = append(run.report.Lost, link.LinkPath)
 		return run.setState(link, store.LinkLost)
-	}
-	if err != nil {
-		run.markUnreadable(link.LinkPath, err)
+	case ConditionUnreadable:
+		run.markUnreadable(link.LinkPath, inspection.Err)
 		return nil
-	}
-	if linkInfo.Mode()&fs.ModeSymlink == 0 {
-		return run.examineNonSymlink(link, linkInfo)
-	}
-	_, err = run.options.stat(link.LinkPath)
-	if err == nil {
+	case ConditionUnverified:
 		run.report.OK = append(run.report.OK, link.LinkPath)
-		return run.setState(link, store.LinkOK)
-	}
-	if !errors.Is(err, fs.ErrNotExist) {
-		run.markUnreadable(link.LinkPath, err)
 		return nil
+	case ConditionRenamedTarget:
+		run.report.RenamedTarget = append(run.report.RenamedTarget, link.LinkPath)
+		return nil
+	case ConditionDiverged:
+		run.report.Diverged = append(run.report.Diverged, link.LinkPath)
+		return run.setState(link, store.LinkDiverged)
+	case ConditionBroken:
+		if inspection.Err != nil {
+			return inspection.Err
+		}
+		return run.repairBroken(link, inspection.OldTarget)
 	}
-	oldTarget, err := os.Readlink(link.LinkPath)
-	if err != nil {
-		return err
-	}
-	return run.repairBroken(link, oldTarget)
+	run.report.OK = append(run.report.OK, link.LinkPath)
+	return run.setState(link, store.LinkOK)
 }
 
 func (run *scanRun) markUnreadable(linkPath string, err error) {
 	run.report.Unreadable = append(run.report.Unreadable, UnreadableLink{LinkPath: linkPath, Err: err.Error()})
-}
-
-// examineNonSymlink : seul un hardlink peut diverger (inode plus partagé avec la cible) ; une cible simplement
-// renommée ne le fait pas diverger, et les autres sortes de liens sont laissées telles quelles sans toucher à la base.
-func (run *scanRun) examineNonSymlink(link store.Link, linkInfo fs.FileInfo) error {
-	if link.Kind != hardlinkKind {
-		run.report.OK = append(run.report.OK, link.LinkPath)
-		return nil
-	}
-	targetInfo, err := run.options.stat(link.TargetPath)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		run.report.RenamedTarget = append(run.report.RenamedTarget, link.LinkPath)
-		return nil
-	case err != nil:
-		run.markUnreadable(link.LinkPath, err)
-		return nil
-	case os.SameFile(linkInfo, targetInfo):
-		run.report.OK = append(run.report.OK, link.LinkPath)
-		return run.setState(link, store.LinkOK)
-	}
-	run.report.Diverged = append(run.report.Diverged, link.LinkPath)
-	return run.setState(link, store.LinkDiverged)
 }
 
 func (run *scanRun) repairBroken(link store.Link, oldTarget string) error {
