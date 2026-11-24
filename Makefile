@@ -28,10 +28,12 @@ QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode sh
 # npm_config_maxsockets borne les téléchargements parallèles de npm.
 WEB_DIR = web
 NPM = nice -n 10 ionice -c3 env npm_config_maxsockets=$(QUALITY_PARALLELISM) npm --prefix $(WEB_DIR)
-UI_DIST_MARKER = internal/web/ui/dist/index.html
-# Rend la garde : sort 0 sans rien faire si web/ est absent, échoue si npm manque.
+# Garde : sort 0 sans rien faire si web/ est absent ; échoue si npm manque ou si Node est trop ancien.
+# Minimum aligné sur « engines » de web/package.json (>= 22.12).
 UI_GUARD = @test -f $(WEB_DIR)/package.json || { echo "web/package.json absent : cible front ignorée"; exit 0; }; \
-	command -v npm >/dev/null || { echo "Node/npm requis (web/package.json existe) : installer Node >= 22.12"; exit 1; }
+	command -v npm >/dev/null && command -v node >/dev/null || { echo "Node/npm requis (web/package.json existe) : installer Node >= 22.12"; exit 1; }; \
+	node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1)' \
+		|| { echo "Node trop ancien : version >= 22.12 requise"; exit 1; }
 
 .PHONY: ui ui-deps ui-lint ui-test ui-audit build cross-build docker-buildx quality hooks docker-build docker-lint site $(QUALITY_TARGETS)
 
@@ -134,10 +136,10 @@ ui-deps:
 	fi
 
 # Construit l'interface vers internal/web/ui/dist (embarqué dans le binaire).
-# skip-worktree : la construction écrase le marqueur index.html suivi par git ; on masque cette modification.
+# Le marqueur .placeholder suivi par git est recopié par Vite : le dépôt reste propre après la construction.
 ui: ui-deps
 	$(UI_GUARD); \
-	$(NPM) run build && { git update-index --skip-worktree $(UI_DIST_MARKER) 2>/dev/null || true; }
+	$(NPM) run build
 
 ui-lint: ui-deps
 	$(UI_GUARD); \

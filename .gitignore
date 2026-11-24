@@ -14,4 +14,4 @@ web/node_modules/
 web/coverage/
 # Sortie de make ui : seul le marqueur de remplacement est suivi.
 internal/web/ui/dist/*
-!internal/web/ui/dist/index.html
+!internal/web/ui/dist/.placeholder
