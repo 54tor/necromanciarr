@@ -10,19 +10,27 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const (
 	// MinKnownSecretLength : une valeur de trackers (ou découverte) plus courte n'entre pas dans les secrets connus,
 	// car la masquer littéralement couperait des mots ordinaires ; elle reste masquée dans les URL d'annonce.
 	MinKnownSecretLength = 8
+	// MaxAnnounceURLBytes borne la longueur d'une URL d'annonce.
+	MaxAnnounceURLBytes = 2048
+	// MaxAnnounceURLs borne le nombre d'URL d'annonce d'une entrée trackers ou d'un torrent, tous paliers confondus.
+	MaxAnnounceURLs      = 512
 	maxTrackerNameLength = 128
 	errTrackersShape     = `trackers: must be an object mapping each tracker name to an announce URL or to {"announce": [URL, …], "aliases": [name, …]}`
 	errTrackerEntryShape = `must be an announce URL or an object with "announce" (a list of URLs) and optional "aliases"`
-	errAnnounceURLFormat = "announce[%d]: invalid URL (expected http, https or udp://host[:port]/path, no fragment)"
+	errAnnounceURLFormat = "announce[%d]: invalid URL (expected http, https or udp://host[:port]/path, at most 2048 bytes, no fragment, space or control character)"
 )
 
 var announceSchemes = []string{"http", "https", "udp"}
+
+// ErrInvalidAnnounceURL refuse une URL d'annonce hors de la règle de ValidAnnounceURL ; il ne cite jamais l'URL.
+var ErrInvalidAnnounceURL = errors.New("invalid announce URL")
 
 // Tracker décrit l'annonce d'un tracker, injectée au seed. Announce porte la passkey de l'opérateur : c'est un secret,
 // rendu seulement en schéma://hôte[:port]/*** par String, GoString, LogValue et MarshalJSON. Plusieurs URL forment un
@@ -167,13 +175,16 @@ func parseTrackerEntry(key string, rawEntry json.RawMessage, lookup func(string)
 	if len(rawFile.Announce) == 0 {
 		return Tracker{}, errors.New("announce: at least one URL is required")
 	}
+	if len(rawFile.Announce) > MaxAnnounceURLs {
+		return Tracker{}, fmt.Errorf("announce: at most %d URLs", MaxAnnounceURLs)
+	}
 	recorder := variableRecorder{lookup: lookup}
 	for announceIndex, rawAnnounce := range rawFile.Announce {
 		announce, err := Interpolate(rawAnnounce, recorder.resolve)
 		if err != nil {
 			return Tracker{}, fmt.Errorf("announce[%d]: %w", announceIndex, err)
 		}
-		if !isValidAnnounceURL(announce) {
+		if ValidAnnounceURL(announce) != nil {
 			return Tracker{}, fmt.Errorf(errAnnounceURLFormat, announceIndex)
 		}
 		tracker.Announce = append(tracker.Announce, announce)
@@ -217,13 +228,21 @@ func checkTrackerName(field, name string) error {
 	return nil
 }
 
-// isValidAnnounceURL accepte http, https ou udp avec un hôte, sans fragment (même vide : un « # » couperait la passkey).
-func isValidAnnounceURL(announce string) bool {
-	parsedURL, err := url.Parse(announce)
-	if err != nil || strings.Contains(announce, "#") || parsedURL.Opaque != "" || parsedURL.Hostname() == "" {
-		return false
+// ValidAnnounceURL est la seule règle des URL d'annonce, au chargement de trackers comme à l'injection au seed :
+// http, https ou udp avec un hôte, au plus MaxAnnounceURLBytes octets d'UTF-8 valide, sans fragment (même vide : un
+// « # » couperait la passkey), sans espace (U+00A0 compris) ni caractère de contrôle. L'erreur ne cite jamais l'URL.
+func ValidAnnounceURL(announce string) error {
+	hasForbiddenCharacter := strings.ContainsFunc(announce, func(character rune) bool {
+		return unicode.IsSpace(character) || unicode.IsControl(character) || character == '#'
+	})
+	if announce == "" || len(announce) > MaxAnnounceURLBytes || !utf8.ValidString(announce) || hasForbiddenCharacter {
+		return ErrInvalidAnnounceURL
 	}
-	return slices.Contains(announceSchemes, parsedURL.Scheme)
+	parsedURL, err := url.Parse(announce)
+	if err != nil || parsedURL.Opaque != "" || parsedURL.Hostname() == "" || !slices.Contains(announceSchemes, parsedURL.Scheme) {
+		return ErrInvalidAnnounceURL
+	}
+	return nil
 }
 
 // claimTrackerNames retient la clé et les alias sous leur forme NormalizeTracker ; un nom déjà pris par une autre entrée est une

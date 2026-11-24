@@ -27,7 +27,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - English version of the reference documentation (`docs/reference/en/`).
 - Torznab indexers (`torznab`, Prowlarr feeds) and `sourceOrder`: URLs and keys are masked everywhere; `doctor` checks each indexer (`torznab:<name>`, capabilities only, no quota spent) and Prowlarr (`prowlarr`, indexers missing or disabled). Match does not query them yet.
 - `NECROMANCIARR_SECRET_KEY` (`api-key --secret`) seals indexer torrents at rest (AES-256-GCM); a configured `torznab` indexer now requires it, and `doctor` checks it (`secret-key`) by unsealing the stored blobs. Candidates record their `source` (`provider` for existing ones).
-- `trackers`: announce URLs per tracker (passkey from the environment), to be injected at seed time (Seed does not inject them yet); announce URLs are always shown as `scheme://host/***`, and `config check` lists only hosts, aliases and variable names.
+- `trackers`: announce URLs per tracker (passkey from the environment), to be injected at seed time (Seed does not inject them yet); announce URLs are always shown as `scheme://host/***`, and `config check` lists only hosts, aliases and variable names. An announce URL holding a space (U+00A0 included, so a variable value ending with a space), a control character or more than 2048 bytes, or an entry with more than 512 URLs, is refused at load.
 
 ### Changed
 - Web interface redesigned: sidebar navigation, page toolbars, dense sortable tables, status pills; cards only on narrow screens; fully translated (fr/en).

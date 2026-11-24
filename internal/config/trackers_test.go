@@ -3,12 +3,14 @@ package config
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // Passkeys factices à faible entropie : la seconde porte des caractères qui changent sous l'échappement JSON et
@@ -320,5 +322,67 @@ func TestConfig_shortTrackerValueIsMaskedInsideAnyURLOnly(t *testing.T) {
 	}
 	if err := json.Unmarshal(encoded, &decoded); err != nil || decoded.ID != 42 || decoded.URL != "https://tracker-a.example.com/announce?id=***" {
 		t.Fatalf("gotValue %s (%v), expectedValue the number kept and the URL value masked", encoded, err)
+	}
+}
+
+// announceRuleCases sont refusées par la même règle au chargement (config) et à l'injection (sources).
+func announceRuleCases() map[string]string {
+	return map[string]string{
+		"space inside":           "https://tracker-a.example.com/announce /x",
+		"longer than 2048 bytes": "https://tracker-a.example.com/" + strings.Repeat("a", MaxAnnounceURLBytes),
+		"no-break space":         "https://tracker-a.example.com/announce x",
+		"newline":                "https://tracker-a.example.com/announce\nx",
+		"invalid utf-8":          "https://tracker-a.example.com/\xff",
+		"fragment":               "https://tracker-a.example.com/announce#x",
+		"other scheme":           "wss://tracker-a.example.com/announce",
+		"missing host":           "https:///announce",
+		"empty":                  "",
+	}
+}
+
+func TestValidAnnounceURL_refusesSpacesControlAndLongURLs(t *testing.T) {
+	for name, announce := range announceRuleCases() {
+		if err := ValidAnnounceURL(announce); !errors.Is(err, ErrInvalidAnnounceURL) || strings.Contains(err.Error(), "tracker-a") {
+			t.Fatalf("%s: gotValue %v, expectedValue ErrInvalidAnnounceURL without the URL", name, err)
+		}
+	}
+	for _, announce := range []string{"HTTPS://tracker-a.example.com/x", "udp://[2001:db8::1]:6969/announce", "https://t.example/" + fakePasskeyB} {
+		if err := ValidAnnounceURL(announce); err != nil {
+			t.Fatalf("gotValue %v, expectedValue accepted", err)
+		}
+	}
+}
+
+func TestConfig_trackerRefusesSpacesAndLongURLsAtLoad(t *testing.T) {
+	for name, announce := range announceRuleCases() {
+		if !utf8.ValidString(announce) {
+			continue
+		}
+		_, err := loadTrackerConfig(t, `{"tracker-a": "`+jsonText(announce)+`"}`, nil)
+
+		if err == nil || !strings.Contains(err.Error(), `trackers["tracker-a"]`) || strings.Contains(err.Error(), "tracker-a.example.com") {
+			t.Fatalf("%s: gotValue %v, expectedValue a refusal naming the key only", name, err)
+		}
+	}
+}
+
+func TestConfig_trackerRefusesAnEnvironmentValueWithATrailingSpace(t *testing.T) {
+	_, err := loadTrackerConfig(t, `{"tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}"}`,
+		map[string]string{"PASSKEY_TRACKER_A": fakePasskeyA + " "})
+
+	if err == nil || strings.Contains(err.Error(), fakePasskeyA) {
+		t.Fatalf("gotValue %v, expectedValue a refusal without the value", err)
+	}
+}
+
+func TestConfig_trackerRefusesMoreThanTheAnnounceLimit(t *testing.T) {
+	announces := make([]string, MaxAnnounceURLs+1)
+	for announceIndex := range announces {
+		announces[announceIndex] = fmt.Sprintf("https://t%d.example.com/a", announceIndex)
+	}
+	encoded, _ := json.Marshal(map[string]any{"tracker-a": map[string]any{"announce": announces}})
+
+	if _, err := loadTrackerConfig(t, string(encoded), nil); err == nil {
+		t.Fatal("gotValue accepted, expectedValue a refusal above MaxAnnounceURLs")
 	}
 }
