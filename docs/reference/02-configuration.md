@@ -112,6 +112,8 @@ Preuve d'identité : `full` compare tous les octets ; `sampled` compare début, 
 
 Sans client torrent configuré, ou avec `recheckAfter: false`, une proposition `symlink` ou `hardlink` porte l'avertissement `no_client_recheck` (CLI : ligne `warning: no_client_recheck` sous la proposition ; web : « Avertissement ») : le torrent pointera sur le fichier de la bibliothèque sans recontrôle, et un torrent incomplet qui tourne pourrait y écrire. La proposition reste acceptable ; un `reflink` n'est pas concerné (copie à l'écriture).
 
+Un fichier enregistré dans `links` comme `copy` ou `reflink` (copie posée par Force, ou reflink de Link) n'est jamais relié à la bibliothèque : `dedupe plan` le liste avec `actionable: false` et `reason: isolated_copy`, et `dedupe apply` le refuse, pour ne pas défaire l'isolation d'un `partial_annex`.
+
 ## Réparation des liens
 
 `repair scan` examine les liens enregistrés, puis les liens inconnus sous `dedupe.torrentRoots` et sous le dossier donné par `--dir` (refusé s'il recouvre la bibliothèque). Pour un lien cassé il cherche la nouvelle cible par inode (disque local seulement), puis taille et date, puis empreinte début-fin (5 lectures au plus par lien), puis pièces du torrent du client. Plusieurs candidats : `ambiguous`, rien n'est choisi. Rien trouvé : `lost`. Seul un lien `repairable` s'accepte. `repair apply` ne remplace un lien que sous `linkDirs`, `dedupe.torrentRoots` ou le dossier du scan, jamais sous la bibliothèque.

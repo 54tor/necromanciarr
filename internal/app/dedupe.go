@@ -42,6 +42,10 @@ type DedupeDetails struct {
 	InodeReliable      bool      `json:"inode_reliable"`
 }
 
+// DedupeReasonIsolatedCopy : le fichier côté torrent est une copie indépendante posée par Force (ou un reflink) ; le
+// relier à la bibliothèque déferait l'isolation qui protège celle-ci.
+const DedupeReasonIsolatedCopy = "isolated_copy"
+
 // DedupeProposal est une proposition dedupe telle que la CLI et le web l'affichent.
 type DedupeProposal struct {
 	ID       int64                  `json:"id"`
@@ -102,9 +106,16 @@ func (svc *service) DedupePlan(ctx context.Context) ([]DedupeProposal, error) {
 		if err != nil {
 			return err
 		}
+		isolated, err := svc.isolatedCopies(ctx)
+		if err != nil {
+			return err
+		}
 		entries := make([]DedupeDetails, 0, len(replacements))
 		for _, replacement := range replacements {
 			details := dedupeDetailsOf(replacement)
+			if isolated[details.TorrentPath] {
+				details.Actionable, details.Reason = false, DedupeReasonIsolatedCopy
+			}
 			if svc.linksWithoutRecheck(details) {
 				details.Warnings = append(details.Warnings, WarningNoClientRecheck)
 			}
@@ -119,6 +130,21 @@ func (svc *service) DedupePlan(ctx context.Context) ([]DedupeProposal, error) {
 		return err
 	})
 	return proposals, err
+}
+
+// isolatedCopies renvoie les chemins enregistrés comme copie ou reflink : dedupe ne les remplace jamais par un lien.
+func (svc *service) isolatedCopies(ctx context.Context) (map[string]bool, error) {
+	links, err := svc.deps.Store.ListLinks(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	isolated := map[string]bool{}
+	for _, link := range links {
+		if link.Kind == linker.Copy.String() || link.Kind == linker.Reflink.String() {
+			isolated[link.LinkPath] = true
+		}
+	}
+	return isolated, nil
 }
 
 // linksWithoutRecheck : un lien dur ou symbolique fait pointer le torrent sur le fichier de la bibliothèque ; sans
@@ -182,6 +208,13 @@ func (svc *service) DedupeAccept(ctx context.Context, proposalID int64, options 
 func (svc *service) applyDedupe(ctx context.Context, details DedupeDetails, result *MaintenanceResult) error {
 	if err := checkOutsideLibrary(svc.deps.Config.Dedupe.TorrentRoots, svc.deps.Config.LibraryRoots, dedupe.ErrTorrentRootOverlapsLibrary); err != nil {
 		return err
+	}
+	isolated, err := svc.isolatedCopies(ctx)
+	if err != nil {
+		return err
+	}
+	if isolated[details.TorrentPath] {
+		return fmt.Errorf("%w: %s", ErrNotActionable, DedupeReasonIsolatedCopy)
 	}
 	options := svc.dedupeOptions(ctx)
 	options.DryRun = result.DryRun

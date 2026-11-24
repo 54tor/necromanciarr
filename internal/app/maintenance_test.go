@@ -703,3 +703,25 @@ func TestApp_repairByPresumptionRefusesWhenTheCoveringTorrentsCannotBeListed(t *
 		t.Fatalf("gotValue %v link %q→%q rechecks %v, expectedValue a refusal before the rename", err, before, after, fixture.client.recheckedPaths)
 	}
 }
+
+func TestApp_dedupeNeverRelinksAnIsolatedCopy(t *testing.T) {
+	for _, kind := range []string{linker.Copy.String(), linker.Reflink.String()} {
+		t.Run(kind, func(t *testing.T) {
+			fixture := newMaintenanceFixture(t)
+			link := store.Link{Kind: kind, LinkPath: fixture.copyPath, TargetPath: fixture.moviePath, State: store.LinkOK, CreatedAt: fixedNow, VerifiedAt: fixedNow}
+			if err := fixture.store.RecordLink(context.Background(), link); err != nil {
+				t.Fatal(err)
+			}
+			service := fixture.service()
+
+			planned := fixture.planOne(service)
+
+			if planned.Details.Actionable || planned.Details.Reason != DedupeReasonIsolatedCopy {
+				t.Fatalf("gotValue %+v, expectedValue the isolated copy listed but not actionable", planned.Details)
+			}
+			if err := service.Accept(context.Background(), planned.ID); !errors.Is(err, ErrNotActionable) {
+				t.Fatalf("gotValue %v, expectedValue ErrNotActionable", err)
+			}
+		})
+	}
+}
