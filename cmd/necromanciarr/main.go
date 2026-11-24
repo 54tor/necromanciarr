@@ -24,6 +24,7 @@ const (
 	// usageExitCode est le code de sortie d'une ligne de commande invalide.
 	usageExitCode   = 2
 	failureExitCode = 1
+	apiKeyHint      = "put it in .env as NECROMANCIARR_AUTH_TOKEN"
 )
 
 // lookupEnv lit l'environnement pour config.Load.
@@ -99,16 +100,19 @@ func defaultConfigDir() string {
 	return filepath.Join(userConfigDir, "necromanciarr")
 }
 
+// runAPIKey tire un jeton neuf pour NECROMANCIARR_AUTH_TOKEN et l'affiche sur stdout seulement ; il n'est jamais écrit
+// sur le disque ni journalisé.
 func runAPIKey(args []string, stdout, stderr io.Writer) int {
-	configDir, err := config.ResolveConfigDir(args, os.LookupEnv, defaultConfigDir())
+	if len(args) > 0 {
+		_, _ = fmt.Fprint(stderr, usageText)
+		return usageExitCode
+	}
+	token, err := config.GenerateAuthToken()
 	if err != nil {
 		return reportError(stderr, err)
 	}
-	apiKey, err := config.EnsureAPIKey(configDir)
-	if err != nil {
-		return reportError(stderr, err)
-	}
-	_, _ = fmt.Fprintln(stdout, apiKey)
+	_, _ = fmt.Fprintln(stdout, token)
+	_, _ = fmt.Fprintln(stderr, apiKeyHint)
 	return 0
 }
 

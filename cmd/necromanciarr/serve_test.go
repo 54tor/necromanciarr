@@ -113,7 +113,7 @@ func TestServe_startsAndStopsOnContextCancel(t *testing.T) {
 }
 
 func TestServe_warnsWhenListeningOutsideLoopbackWithoutPrintingTheToken(t *testing.T) {
-	const token = "serve-test-token"
+	const token = "serve-test-token-serve-test-token"
 	harness := useServeHarness(t)
 	previousLookup := lookupEnv
 	lookupEnv = func(name string) (string, bool) {

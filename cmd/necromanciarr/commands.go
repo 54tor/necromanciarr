@@ -447,7 +447,7 @@ func buildUsage() string {
 	}
 	usage.WriteString("  serve                   serve the web interface and its api until SIGINT or SIGTERM\n" +
 		"  healthcheck             probe /healthz on loopback: exit 0 if it answers 200, else 1\n" +
-		"  api-key                 print the API key of the web interface\n" +
+		"  api-key                 print a fresh random token for NECROMANCIARR_AUTH_TOKEN\n" +
 		"  config check            print the effective configuration, secrets masked\n" +
 		"\nexit codes: 0 ok (warnings on stderr), 1 failure, 2 usage, 3 stale proposal, 4 refused\n" +
 		"--all-accepted: 3 if a proposal was stale, else 1 if one failed\n")

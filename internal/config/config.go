@@ -32,6 +32,7 @@ const (
 	envConfigDir            = "CONFIG_DIR"
 	envLibraryAPI           = "LIBRARY_API"
 	envAuthToken            = "NECROMANCIARR_AUTH_TOKEN"
+	envListen               = "NECROMANCIARR_LISTEN"
 	envLibraryProviderToken = "LIBRARY_PROVIDER_TOKEN"
 	envCrossSeedMode        = "CROSS_SEED_MODE"
 )
@@ -130,16 +131,6 @@ type commandLine struct {
 
 // ErrUsage signale une ligne de commande invalide (option inconnue, argument en trop, aide demandée).
 var ErrUsage = errors.New("usage")
-
-// ResolveConfigDir détermine le dossier de configuration sans charger le reste : --config-dir > CONFIG_DIR > défaut.
-// Un dossier choisi explicitement doit exister ; le défaut est créé plus tard, à la demande.
-func ResolveConfigDir(args []string, lookupEnv func(string) (string, bool), defaultConfigDir string) (string, error) {
-	options, err := parseCommandLine(args)
-	if err != nil {
-		return "", err
-	}
-	return resolveConfigDir(options, lookupEnv, defaultConfigDir)
-}
 
 // Load construit la configuration. Priorité : ligne de commande > environnement > config.json > config.js de
 // cross-seed (si crossSeedConfig est donné) > défauts.
@@ -369,6 +360,9 @@ func applyOverrides(target *Config, options commandLine, lookup func(string) (st
 	}
 	target.AuthToken, _ = lookup(envAuthToken)
 	target.LibraryProviderToken, _ = lookup(envLibraryProviderToken)
+	if value, found := lookup(envListen); found && value != "" {
+		target.ListenAddr = value
+	}
 	if options.set["listen"] {
 		target.ListenAddr = options.listen
 	}
@@ -403,7 +397,12 @@ func validate(loadedConfig Config) error {
 		return err
 	}
 	if loadedConfig.AuthToken == "" && !isLoopbackAddress(loadedConfig.ListenAddr) {
-		return fmt.Errorf("listen %q is not loopback: set %s", loadedConfig.ListenAddr, envAuthToken)
+		return fmt.Errorf("listen %q is not loopback: set %s (at least %d characters, generate one with "+
+			"necromanciarr api-key)", loadedConfig.ListenAddr, envAuthToken, MinAuthTokenLength)
+	}
+	if loadedConfig.AuthToken != "" && len(loadedConfig.AuthToken) < MinAuthTokenLength {
+		return fmt.Errorf("%s must be at least %d characters (generate one with necromanciarr api-key)",
+			envAuthToken, MinAuthTokenLength)
 	}
 	return nil
 }

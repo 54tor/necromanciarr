@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -51,11 +50,11 @@ func TestLoad_rejectsNonLoopbackWithoutToken(t *testing.T) {
 }
 
 func TestLoad_acceptsNonLoopbackWithTokenFromEnvironment(t *testing.T) {
-	environment := map[string]string{envAuthToken: "token-for-test"}
+	environment := map[string]string{envAuthToken: longTestToken}
 
 	loadedConfig := mustLoad(t, []string{"--listen", "0.0.0.0:8787"}, environment, t.TempDir())
 
-	if loadedConfig.AuthToken != "token-for-test" {
+	if loadedConfig.AuthToken != longTestToken {
 		t.Fatal("AuthToken not read from environment")
 	}
 }
@@ -199,9 +198,8 @@ func TestLoad_rejectsMissingExplicitConfigDirWithoutCreatingIt(t *testing.T) {
 
 	_, flagErr := Load([]string{"--config-dir", missingDir}, lookupFrom(nil), t.TempDir())
 	_, envErr := Load(nil, lookupFrom(map[string]string{envConfigDir: missingDir}), t.TempDir())
-	_, keyErr := ResolveConfigDir([]string{"--config-dir", missingDir}, lookupFrom(nil), t.TempDir())
 
-	for _, err := range []error{flagErr, envErr, keyErr} {
+	for _, err := range []error{flagErr, envErr} {
 		if err == nil || !strings.Contains(err.Error(), missingDir) {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -261,15 +259,6 @@ func TestConfig_redactsUserinfoInRadarrAndLibraryApi(t *testing.T) {
 	}
 }
 
-func TestEnsureAPIKey_rejectsEmptyKeyFile(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, apiKeyFileName, " \n\t\n")
-
-	if _, err := EnsureAPIKey(configDir); err == nil {
-		t.Fatal("expected an error for an empty key file")
-	}
-}
-
 func TestConfigExample_loadsFsProviders(t *testing.T) {
 	configDir := t.TempDir()
 	exampleContent, err := os.ReadFile(filepath.Join("..", "..", "config.example.json"))
@@ -295,7 +284,7 @@ func TestConfig_redactsUrlCredentials(t *testing.T) {
   "radarr": ["http://example.com:7878?apikey=secret-radarr"],
   "torrentClients": ["qbittorrent:http://alice:secret-qbit@example.com:8080"]
 }`)
-	environment := map[string]string{envAuthToken: "secret-auth", envLibraryProviderToken: "secret-provider"}
+	environment := map[string]string{envAuthToken: "secret-auth-secret-auth-secret-auth", envLibraryProviderToken: "secret-provider"}
 	loadedConfig := mustLoad(t, nil, environment, configDir)
 
 	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
@@ -311,34 +300,6 @@ func TestConfig_redactsUrlCredentials(t *testing.T) {
 	assertNoSecret(t, string(redactedJSON))
 	if !strings.Contains(string(redactedJSON), "***") {
 		t.Fatalf("expected redaction mark in %s", redactedJSON)
-	}
-}
-
-func TestEnsureAPIKey_isStableAcrossRunsAndPrivate(t *testing.T) {
-	configDir := filepath.Join(t.TempDir(), "nested")
-
-	firstKey, err := EnsureAPIKey(configDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secondKey, err := EnsureAPIKey(configDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if firstKey != secondKey || len(firstKey) != 64 {
-		t.Fatalf("keys differ or wrong length: %q %q", firstKey, secondKey)
-	}
-	info, err := os.Stat(filepath.Join(configDir, apiKeyFileName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
-		t.Fatalf("mode gotValue %v, expectedValue 0600", info.Mode().Perm())
-	}
-	entries, _ := os.ReadDir(configDir)
-	if len(entries) != 1 {
-		t.Fatalf("temporary files left behind: %v", entries)
 	}
 }
 
@@ -472,5 +433,54 @@ func TestConfig_readsLibraryApiFromEnvironment(t *testing.T) {
 	loadedConfig := mustLoad(t, nil, environment, t.TempDir())
 	if loadedConfig.LibraryAPI != "https://example.com/api/necromanciarr" || loadedConfig.LibraryProviderToken != "provider-secret" {
 		t.Fatalf("gotValue %q %q", loadedConfig.LibraryAPI, loadedConfig.LibraryProviderToken)
+	}
+}
+
+// longTestToken a la longueur minimale admise, à faible entropie (gitleaks).
+const longTestToken = "token-for-test-token-for-test-00"
+
+func TestLoad_rejectsAShortAuthTokenWithoutPrintingIt(t *testing.T) {
+	const shortToken = "short-token-for-test"
+
+	_, err := Load(nil, lookupFrom(map[string]string{envAuthToken: shortToken}), t.TempDir())
+
+	if err == nil || !strings.Contains(err.Error(), envAuthToken) || strings.Contains(err.Error(), shortToken) {
+		t.Fatalf("gotValue %v, expectedValue an error naming the variable without its value", err)
+	}
+}
+
+func TestLoad_nonLoopbackWithoutTokenNamesTheVariable(t *testing.T) {
+	_, err := Load(nil, lookupFrom(map[string]string{envListen: "0.0.0.0:8787"}), t.TempDir())
+
+	if err == nil || !strings.Contains(err.Error(), envAuthToken) || !strings.Contains(err.Error(), "api-key") {
+		t.Fatalf("gotValue %v, expectedValue a refusal naming the token variable and the generator", err)
+	}
+}
+
+func TestLoad_listenEnvOverridesTheFileAndTheFlagOverridesTheEnv(t *testing.T) {
+	configDir := t.TempDir()
+	writeFile(t, configDir, configFileName, `{"listen": "127.0.0.1:1111"}`)
+	environment := map[string]string{envListen: "127.0.0.1:2222"}
+
+	fromEnvironment := mustLoad(t, []string{"--config-dir", configDir}, environment, t.TempDir())
+	fromFlag := mustLoad(t, []string{"--config-dir", configDir, "--listen", "127.0.0.1:3333"}, environment, t.TempDir())
+	fromFile := mustLoad(t, []string{"--config-dir", configDir}, map[string]string{envListen: ""}, t.TempDir())
+
+	gotValues := []string{fromEnvironment.ListenAddr, fromFlag.ListenAddr, fromFile.ListenAddr}
+	expectedValues := []string{"127.0.0.1:2222", "127.0.0.1:3333", "127.0.0.1:1111"}
+	if !slices.Equal(gotValues, expectedValues) {
+		t.Fatalf("gotValue %v, expectedValue %v", gotValues, expectedValues)
+	}
+}
+
+func TestGenerateAuthToken_isLongRandomAndURLSafe(t *testing.T) {
+	first, firstErr := GenerateAuthToken()
+	second, secondErr := GenerateAuthToken()
+
+	if firstErr != nil || secondErr != nil || first == second || len(first) < 43 || len(first) < MinAuthTokenLength {
+		t.Fatalf("gotValue %q %q (%v %v), expectedValue two distinct tokens of at least 43 characters", first, second, firstErr, secondErr)
+	}
+	if strings.ContainsAny(first, "+/=") {
+		t.Fatalf("gotValue %q, expectedValue base64url without padding", first)
 	}
 }

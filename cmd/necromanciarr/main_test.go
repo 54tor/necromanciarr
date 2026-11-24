@@ -38,44 +38,29 @@ func TestRun_configCheckPrintsRedactedConfigAndFailsOnError(t *testing.T) {
 	}
 }
 
-func TestRun_apiKeyIsStable(t *testing.T) {
-	arguments := []string{"api-key", "--config-dir", t.TempDir()}
-	var first, second bytes.Buffer
+func TestRun_apiKeyPrintsAFreshTokenAndWritesNothing(t *testing.T) {
+	workingDir := t.TempDir()
+	t.Chdir(workingDir)
+	t.Setenv("CONFIG_DIR", workingDir)
+	var first, second, stderr bytes.Buffer
 
-	run(arguments, &first, &bytes.Buffer{})
-	run(arguments, &second, &bytes.Buffer{})
+	firstExit := run([]string{"api-key"}, &first, &stderr)
+	secondExit := run([]string{"api-key"}, &second, &bytes.Buffer{})
 
-	if first.Len() < 64 || first.String() != second.String() {
-		t.Fatalf("first %q second %q", first.String(), second.String())
+	firstToken := strings.TrimSpace(first.String())
+	if firstExit != 0 || secondExit != 0 || len(firstToken) < 43 || firstToken == strings.TrimSpace(second.String()) {
+		t.Fatalf("gotValue exits %d %d, tokens %q %q, expectedValue two distinct tokens", firstExit, secondExit, first.String(), second.String())
 	}
-}
-
-func TestRun_apiKeyDoesNotNeedValidConfig(t *testing.T) {
-	configDir := t.TempDir()
-	configPath := filepath.Join(configDir, "config.json")
-	if err := os.WriteFile(configPath, []byte(`{"listen": "0.0.0.0:1", "radarr": ["http://example.com?apikey=${UNDEFINED_RADARR_KEY_FOR_TEST}"]}`), 0o600); err != nil {
-		t.Fatal(err)
+	if strings.TrimSpace(stderr.String()) != apiKeyHint || strings.Contains(stderr.String(), firstToken) {
+		t.Fatalf("gotValue stderr %q, expectedValue only the hint", stderr.String())
 	}
-	var stdout, stderr bytes.Buffer
-
-	if exitCode := run([]string{"api-key", "--config-dir", configDir}, &stdout, &stderr); exitCode != 0 || stdout.Len() < 64 {
-		t.Fatalf("exit %d, stderr %q", exitCode, stderr.String())
-	}
-}
-
-func TestRun_apiKeyWithMissingExplicitDirFailsWithoutCreatingIt(t *testing.T) {
-	missingDir := filepath.Join(t.TempDir(), "typo")
-	var stderr bytes.Buffer
-
-	exitCode := run([]string{"api-key", "--config-dir", missingDir}, &bytes.Buffer{}, &stderr)
-
-	if _, statErr := os.Stat(missingDir); exitCode != 1 || statErr == nil {
-		t.Fatalf("exit %d, stat err %v", exitCode, statErr)
+	if entries, err := os.ReadDir(workingDir); err != nil || len(entries) != 0 {
+		t.Fatalf("gotValue %v %v, expectedValue nothing written", entries, err)
 	}
 }
 
 func TestRun_extraArgumentsAndHelpPrintUsageAndExit2(t *testing.T) {
-	for _, arguments := range [][]string{{"config", "check", "extra"}, {"api-key", "--help"}} {
+	for _, arguments := range [][]string{{"config", "check", "extra"}, {"api-key", "--help"}, {"api-key", "--config-dir", "x"}} {
 		var stderr bytes.Buffer
 
 		if exitCode := run(arguments, &bytes.Buffer{}, &stderr); exitCode != usageExitCode || !strings.Contains(stderr.String(), "usage") {
