@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"necromanciarr/internal/arr"
+	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/library"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/store"
+	"necromanciarr/internal/torrentcheck"
 )
 
 // Stage est une étape du pipeline.
@@ -61,6 +63,16 @@ type Store interface {
 	ListCandidateFiles(ctx context.Context, candidateID int64) ([]store.CandidateFile, error)
 	SaveCandidate(ctx context.Context, candidate store.Candidate, files []store.CandidateFile, now time.Time) (int64, store.SaveOutcome, error)
 	RegroupCandidates(ctx context.Context) error
+	SetCandidateState(ctx context.Context, candidateID int64, state store.CandidateState, now time.Time) error
+	SaveCandidateTorrent(ctx context.Context, candidateID int64, raw []byte, now time.Time) error
+	CandidateTorrent(ctx context.Context, candidateID int64) ([]byte, error)
+	LoadVerification(ctx context.Context, candidateID int64) (store.Verification, bool, error)
+	SaveVerification(ctx context.Context, verification store.Verification, now time.Time) error
+	ListVerifiedFiles(ctx context.Context, candidateID int64) ([]store.VerifiedFile, error)
+	SaveVerifiedFile(ctx context.Context, file store.VerifiedFile) error
+	UpsertProposal(ctx context.Context, proposal store.Proposal, now time.Time) (int64, bool, error)
+	ListProposals(ctx context.Context, decision store.ProposalDecision) ([]store.Proposal, error)
+	SetGroupPrimary(ctx context.Context, groupID, proposalID int64) error
 	AcquireRunLock(ctx context.Context, holder, stage string, now, expiresAt time.Time) error
 	RefreshRunLock(ctx context.Context, holder string, expiresAt time.Time) error
 	ReleaseRunLock(ctx context.Context, holder string) error
@@ -74,6 +86,12 @@ type ItemsSource interface {
 // Searcher cherche des releases chez le fournisseur de bibliothèque.
 type Searcher interface {
 	Search(ctx context.Context, query libraryprovider.Query) ([]libraryprovider.Release, error)
+}
+
+// TorrentFetcher télécharge le .torrent et les .nfo d'une release chez le fournisseur de bibliothèque.
+type TorrentFetcher interface {
+	Torrent(ctx context.Context, infohash, tracker string) ([]byte, error)
+	Nfos(ctx context.Context, infohash, tracker string) ([]libraryprovider.Nfo, error)
 }
 
 // PathMapper traduit un chemin vu par un service externe (côté To des règles) vers la vue de ce processus (côté From).
@@ -91,15 +109,27 @@ func LibraryScanner(mediaStore *store.Store) RootScanner {
 
 // Deps regroupe les dépendances des étapes. LibraryRoots sont vus par ce processus ; Mapper nil signifie que les
 // services externes voient les mêmes chemins ; Now nil vaut time.Now ; LockTTL 0 vaut deux minutes.
+//
+// Pour Verify : ReadLimiter plafonne le débit de lecture locale (nil = sans plafond), ReadBudget les octets lus pour
+// départager des fichiers de même taille (0 = sans limite) ; OpenLocal nil ouvre en lecture seule avec os.Open ;
+// CrossSeed vient de crossseed.ResolveMode ; l'avancement est enregistré toutes les ProgressEvery pièces (0 = 64) ou
+// toutes les ProgressInterval (0 = 5 s).
 type Deps struct {
-	Store        Store
-	ScanRoot     RootScanner
-	LibraryRoots []string
-	ArrSources   []ItemsSource
-	Provider     Searcher
-	Mapper       PathMapper
-	Now          func() time.Time
-	LockTTL      time.Duration
+	Store            Store
+	ScanRoot         RootScanner
+	LibraryRoots     []string
+	ArrSources       []ItemsSource
+	Provider         Searcher
+	Fetcher          TorrentFetcher
+	Mapper           PathMapper
+	ReadLimiter      torrentcheck.Limiter
+	ReadBudget       int64
+	OpenLocal        func(path string) (LocalFile, error)
+	CrossSeed        crossseed.Behavior
+	ProgressEvery    int
+	ProgressInterval time.Duration
+	Now              func() time.Time
+	LockTTL          time.Duration
 }
 
 func (deps Deps) now() time.Time {
@@ -130,6 +160,14 @@ type Result struct {
 	CandidatesUpdated   int
 	CandidatesUnchanged int
 	CandidatesStale     int
+	// Compteurs de Verify : candidats vérifiés, classés partial_annex ou partial_pack, propositions de conflit créées,
+	// vérifications reprises, et propositions créées au total.
+	Verified         int
+	PartialAnnex     int
+	PartialPack      int
+	Conflicts        int
+	Resumed          int
+	ProposalsCreated int
 }
 
 func (result *Result) count(reason string, amount int) {
@@ -163,7 +201,7 @@ type stageRunner func(ctx context.Context, deps Deps) (Result, error)
 var stageRunners = map[Stage]stageRunner{
 	StageScan:   runScan,
 	StageMatch:  runMatch,
-	StageVerify: notImplemented,
+	StageVerify: runVerify,
 	StageLink:   notImplemented,
 	StageSeed:   notImplemented,
 }

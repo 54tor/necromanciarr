@@ -316,7 +316,7 @@ func TestRun_unknownStageIsAnError(t *testing.T) {
 	if err != nil || gotStage != StageMatch {
 		t.Fatalf("gotValue %q %v, expectedValue match", gotStage, err)
 	}
-	if _, err := Run(context.Background(), StageVerify, matchDeps(openTestStore(t), &fakeProvider{})); !errors.Is(err, ErrStageNotImplemented) {
+	if _, err := Run(context.Background(), StageLink, matchDeps(openTestStore(t), &fakeProvider{})); !errors.Is(err, ErrStageNotImplemented) {
 		t.Fatalf("gotValue %v, expectedValue ErrStageNotImplemented", err)
 	}
 }

@@ -1,0 +1,269 @@
+package pipeline
+
+import (
+	"context"
+	"errors"
+	"os"
+	"strings"
+
+	"necromanciarr/internal/libraryprovider"
+	"necromanciarr/internal/matcher"
+	"necromanciarr/internal/store"
+	"necromanciarr/internal/torrentcheck"
+)
+
+// Raisons comptées par l'étape Verify (des noms, jamais un chemin ni un secret).
+const (
+	ReasonTorrentNotFound    = "torrent_not_found"
+	ReasonTorrentFetchFailed = "torrent_fetch_failed"
+	ReasonTorrentTooLarge    = "torrent_too_large"
+	ReasonInvalidTorrent     = "invalid_torrent"
+	ReasonV2Only             = "v2_only"
+	ReasonInfohashMismatch   = "infohash_mismatch"
+	ReasonNoFileMatched      = "no_file_matched"
+	ReasonChangedFile        = "changed_file_stale"
+	// ReasonReadError compte une lecture locale en échec : le candidat garde son avancement et sera repris.
+	ReasonReadError        = "read_error"
+	ReasonReadBudget       = "read_budget_exceeded"
+	ReasonNfoFetchFailed   = "nfo_fetch_failed"
+	ReasonMediaNotVerified = "media_not_verified"
+)
+
+// runVerify vérifie, un candidat à la fois, chaque candidat matched ou fetched (reprise), puis met à jour les
+// propositions de groupe ; une annulation enregistre l'avancement cohérent et arrête l'étape, une perte du verrou
+// arrête toute écriture.
+func runVerify(ctx context.Context, deps Deps) (Result, error) {
+	var result Result
+	candidates, err := deps.Store.ListCandidatesByState(ctx, store.CandidateMatched, store.CandidateFetched)
+	if err != nil {
+		return result, err
+	}
+	mediaFiles, err := deps.Store.ListMediaFiles(ctx)
+	if err != nil {
+		return result, err
+	}
+	run := candidateRun{deps: deps, result: &result, mediaByID: map[int64]store.MediaFile{}}
+	for _, mediaFile := range mediaFiles {
+		run.mediaByID[mediaFile.ID] = mediaFile
+	}
+	var stageErr error
+	for _, candidate := range candidates {
+		if stageErr = ctx.Err(); stageErr != nil {
+			break
+		}
+		if stageErr = run.verify(ctx, candidate); stageErr != nil {
+			break
+		}
+	}
+	if lockLost(ctx) {
+		return result, stageErr
+	}
+	return result, errors.Join(stageErr, refreshGroups(context.WithoutCancel(ctx), deps, &result))
+}
+
+// candidateRun porte ce qui sert à vérifier un candidat ; une erreur renvoyée arrête l'étape, un échec propre au
+// candidat est compté et la boucle continue.
+type candidateRun struct {
+	deps      Deps
+	result    *Result
+	mediaByID map[int64]store.MediaFile
+}
+
+func (run candidateRun) verify(ctx context.Context, candidate store.Candidate) error {
+	associations, err := run.deps.Store.ListCandidateFiles(ctx, candidate.ID)
+	if err != nil {
+		return err
+	}
+	local, unchanged := run.currentLocalFiles(associations)
+	if !unchanged {
+		return run.markStale(ctx, candidate)
+	}
+	torrent, failure, err := run.loadTorrent(ctx, candidate)
+	if err != nil || failure != "" {
+		return run.failOrStop(ctx, candidate, failure, err)
+	}
+	opener := newFileOpener(run.deps.OpenLocal)
+	defer opener.closeAll()
+	assignment, proceed, err := run.assign(ctx, candidate, torrent, local, opener)
+	if err != nil || !proceed {
+		return err
+	}
+	annexes, err := run.storedAnnexes(ctx, candidate, torrent)
+	if err != nil {
+		return err
+	}
+	source, err := buildSource(assignment, annexes, opener)
+	if err != nil {
+		run.countReadError()
+		return nil
+	}
+	source, err = run.completeNfos(ctx, candidate, torrent, assignment, source)
+	if err != nil {
+		return run.readErrorOrStop(ctx, err)
+	}
+	report, complete, err := run.cover(ctx, candidate, torrent, source)
+	if err != nil || !complete {
+		return err
+	}
+	return run.finish(ctx, candidate, associations, torrent, assignment, report)
+}
+
+// currentLocalFiles renvoie les fichiers locaux associés, tels que sur disque ; unchanged est faux si l'un a disparu
+// ou a changé de taille ou de date depuis l'association : un bitset enregistré ne vaudrait alors plus rien.
+func (run candidateRun) currentLocalFiles(associations []store.CandidateFile) ([]store.MediaFile, bool) {
+	seen := map[int64]bool{}
+	var local []store.MediaFile
+	for _, association := range associations {
+		if association.MediaFileID == 0 || seen[association.MediaFileID] {
+			continue
+		}
+		seen[association.MediaFileID] = true
+		mediaFile, known := run.mediaByID[association.MediaFileID]
+		if !known {
+			return nil, false
+		}
+		info, err := os.Stat(mediaFile.Path)
+		if err != nil || info.Size() != association.MediaSize || !info.ModTime().Equal(association.MediaModTime) {
+			return nil, false
+		}
+		local = append(local, mediaFile)
+	}
+	return local, true
+}
+
+func (run candidateRun) markStale(ctx context.Context, candidate store.Candidate) error {
+	run.result.Skipped++
+	run.result.count(ReasonChangedFile, 1)
+	return run.deps.Store.SetCandidateState(ctx, candidate.ID, store.CandidateStale, run.deps.now())
+}
+
+// failOrStop passe le candidat à failed pour une raison nommée, ou renvoie l'erreur qui arrête l'étape.
+func (run candidateRun) failOrStop(ctx context.Context, candidate store.Candidate, failure string, err error) error {
+	if err != nil {
+		return err
+	}
+	run.result.Failed++
+	run.result.count(failure, 1)
+	return run.deps.Store.SetCandidateState(ctx, candidate.ID, store.CandidateFailed, run.deps.now())
+}
+
+// loadTorrent reprend le .torrent conservé d'un candidat fetched, sinon le télécharge, le contrôle et le conserve.
+func (run candidateRun) loadTorrent(ctx context.Context, candidate store.Candidate) (*torrentcheck.Torrent, string, error) {
+	if candidate.State == store.CandidateFetched {
+		raw, err := run.deps.Store.CandidateTorrent(ctx, candidate.ID)
+		if err != nil {
+			return nil, "", err
+		}
+		if len(raw) > 0 {
+			torrent, failure := parseCandidateTorrent(raw, candidate)
+			return torrent, failure, nil
+		}
+	}
+	raw, err := run.deps.Fetcher.Torrent(ctx, candidate.Infohash, candidate.Tracker)
+	if err != nil {
+		failure, stopErr := fetchFailure(err)
+		return nil, failure, stopErr
+	}
+	if len(raw) > store.MaxTorrentBytes {
+		return nil, ReasonTorrentTooLarge, nil
+	}
+	torrent, failure := parseCandidateTorrent(raw, candidate)
+	if failure != "" {
+		return nil, failure, nil
+	}
+	if err := run.deps.Store.SaveCandidateTorrent(ctx, candidate.ID, raw, run.deps.now()); err != nil {
+		return nil, "", err
+	}
+	return torrent, "", run.deps.Store.SetCandidateState(ctx, candidate.ID, store.CandidateFetched, run.deps.now())
+}
+
+// fetchFailure classe une erreur du fournisseur : arrêt de l'étape (annulation, accès refusé, fournisseur limité ou
+// indisponible, à reprendre plus tard) ou échec de ce seul candidat.
+func fetchFailure(err error) (string, error) {
+	if stopErr := stopError(StageVerify, err); stopErr != nil {
+		return "", stopErr
+	}
+	if errors.Is(err, libraryprovider.ErrNotFound) {
+		return ReasonTorrentNotFound, nil
+	}
+	return ReasonTorrentFetchFailed, nil
+}
+
+// parseCandidateTorrent refuse un .torrent v2 seul, invalide, ou dont l'infohash n'est pas celui du candidat.
+func parseCandidateTorrent(raw []byte, candidate store.Candidate) (*torrentcheck.Torrent, string) {
+	torrent, err := torrentcheck.Parse(raw)
+	if errors.Is(err, torrentcheck.ErrV2Only) {
+		return nil, ReasonV2Only
+	}
+	if err != nil {
+		return nil, ReasonInvalidTorrent
+	}
+	if !strings.EqualFold(torrent.InfoHash, candidate.Infohash) {
+		return nil, ReasonInfohashMismatch
+	}
+	return torrent, ""
+}
+
+// assign associe les fichiers locaux aux fichiers du torrent par taille puis par hash ; proceed est faux quand le
+// candidat a été traité (aucun fichier ne correspond, ou lecture en échec à reprendre).
+func (run candidateRun) assign(ctx context.Context, candidate store.Candidate, torrent *torrentcheck.Torrent,
+	local []store.MediaFile, opener *fileOpener,
+) (matcher.Assignment, bool, error) {
+	options := matcher.Options{Budget: run.deps.ReadBudget, Limiter: run.deps.ReadLimiter}
+	assignment, err := options.Assign(ctx, torrent, local, opener.readerAt)
+	switch {
+	case err == nil:
+	case errors.Is(err, matcher.ErrReadBudgetExceeded):
+		// Le reste est rangé dans Ambiguous : il deviendra un conflit, jamais un choix.
+		run.result.count(ReasonReadBudget, 1)
+	case ctx.Err() != nil:
+		return assignment, false, err
+	default:
+		run.countReadError()
+		return assignment, false, nil
+	}
+	if len(assignment.ByTorrentFile) == 0 && len(assignment.Ambiguous) == 0 {
+		return assignment, false, run.failOrStop(ctx, candidate, ReasonNoFileMatched, nil)
+	}
+	return assignment, true, nil
+}
+
+// readErrorOrStop arrête l'étape sur annulation ou arrêt du fournisseur ; une lecture locale en échec n'arrête que ce
+// candidat, qui reste fetched et sera repris.
+func (run candidateRun) readErrorOrStop(ctx context.Context, err error) error {
+	var resumable *ResumableError
+	isStop := ctx.Err() != nil || errors.As(err, &resumable) || errors.Is(err, libraryprovider.ErrAccessDenied)
+	if isStop {
+		return err
+	}
+	if errors.Is(err, errReadLocal) {
+		run.countReadError()
+		return nil
+	}
+	return err
+}
+
+func (run candidateRun) countReadError() {
+	run.result.Failed++
+	run.result.count(ReasonReadError, 1)
+}
+
+// finish relit l'état des fichiers (un fichier modifié pendant la lecture périme le candidat), enregistre la
+// vérification terminée, passe le candidat à verified et crée sa proposition.
+func (run candidateRun) finish(ctx context.Context, candidate store.Candidate, associations []store.CandidateFile,
+	torrent *torrentcheck.Torrent, assignment matcher.Assignment, report torrentcheck.Report,
+) error {
+	if _, unchanged := run.currentLocalFiles(associations); !unchanged {
+		return run.markStale(ctx, candidate)
+	}
+	verification := completedVerification(candidate.ID, report)
+	if err := run.deps.Store.SaveVerification(ctx, verification, run.deps.now()); err != nil {
+		return err
+	}
+	if err := run.deps.Store.SetCandidateState(ctx, candidate.ID, store.CandidateVerified, run.deps.now()); err != nil {
+		return err
+	}
+	run.result.Verified++
+	run.result.Processed++
+	return run.propose(ctx, candidate, torrent, assignment, report)
+}

@@ -96,7 +96,7 @@ func searchGroups(ctx context.Context, deps Deps, result *Result, groups map[ext
 		}
 		releases, err := deps.Provider.Search(ctx, groupQuery(ids, groups[ids]))
 		if err != nil {
-			if stopErr := stopError(err); stopErr != nil {
+			if stopErr := stopError(StageMatch, err); stopErr != nil {
 				return stopErr
 			}
 			result.Failed++
@@ -113,14 +113,14 @@ func searchGroups(ctx context.Context, deps Deps, result *Result, groups map[ext
 
 // stopError renvoie l'erreur qui doit arrêter l'étape, ou nil si seule cette recherche a échoué : un fournisseur
 // limité ou indisponible n'est pas relancé en boucle, un refus d'accès vaudrait pour toutes les recherches.
-func stopError(err error) error {
+func stopError(stage Stage, err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, libraryprovider.ErrAccessDenied) {
 		return err
 	}
 	if !errors.Is(err, libraryprovider.ErrUnavailable) {
 		return nil
 	}
-	resumable := &ResumableError{Stage: StageMatch, Cause: err}
+	resumable := &ResumableError{Stage: stage, Cause: err}
 	var rateLimited *libraryprovider.RateLimitedError
 	if errors.As(err, &rateLimited) {
 		resumable.RetryAfter = rateLimited.RetryAfter
