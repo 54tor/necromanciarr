@@ -440,3 +440,11 @@ func TestConfig_rejectsDedupeRootsOverlappingLibraryRoots(t *testing.T) {
 		})
 	}
 }
+
+func TestConfig_readsLibraryApiFromEnvironment(t *testing.T) {
+	environment := map[string]string{envLibraryAPI: "https://example.com/api/necromanciarr", envLibraryProviderToken: "provider-secret"}
+	loadedConfig := mustLoad(t, nil, environment, t.TempDir())
+	if loadedConfig.LibraryAPI != "https://example.com/api/necromanciarr" || loadedConfig.LibraryProviderToken != "provider-secret" {
+		t.Fatalf("gotValue %q %q", loadedConfig.LibraryAPI, loadedConfig.LibraryProviderToken)
+	}
+}
