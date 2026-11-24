@@ -40,6 +40,8 @@ const (
 	envLibraryProviderToken = "LIBRARY_PROVIDER_TOKEN"
 	envCrossSeedMode        = "CROSS_SEED_MODE"
 	envSeedTags             = "NECROMANCIARR_SEED_TAGS"
+	// envPartialMaxMissingPercent plafonne les pièces manquantes des propositions partielles (pourcentage).
+	envPartialMaxMissingPercent = "NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT"
 )
 
 // PathRule traduit un préfixe de chemin entre deux vues du même stockage (hôte, conteneur, client torrent).
@@ -78,6 +80,9 @@ type Config struct {
 	Sources       Sources `json:"sources"`
 	// SeedTags sont les tags posés avec la catégorie sur chaque torrent ajouté ; la liste remplace le défaut.
 	SeedTags []string `json:"seedTags"`
+	// PartialMaxMissingPercent : au-delà de ce pourcentage de pièces manquantes, un torrent partiel n'est pas proposé
+	// (100 = sans plafond).
+	PartialMaxMissingPercent float64 `json:"partialMaxMissingPercent"`
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`
@@ -105,6 +110,8 @@ type fileConfig struct {
 	CrossSeed          string            `json:"crossSeed"`
 	CrossSeedMode      string            `json:"crossSeedMode"`
 	SeedTags           []string          `json:"seedTags"`
+	// PartialMaxMissingPercent est un pointeur : 0 est une valeur permise, distincte d'une clé absente.
+	PartialMaxMissingPercent *float64 `json:"partialMaxMissingPercent"`
 	// LegacyRclone n'existe que pour refuser l'ancienne section avec un message utile.
 	LegacyRclone json.RawMessage `json:"rclone"`
 }
@@ -180,6 +187,9 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir
 		return Config{}, err
 	}
 	if loadedConfig.SeedTags, err = normalizeSeedTags(loadedConfig.SeedTags); err != nil {
+		return Config{}, err
+	}
+	if err := applyPartialCapOverride(&loadedConfig, lookup); err != nil {
 		return Config{}, err
 	}
 	if err := validate(loadedConfig); err != nil {
@@ -259,19 +269,23 @@ func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config
 		return Config{}, errors.New(`"rclone" was renamed to "fsProviders" (type "rclone", with a "name")`)
 	}
 	loadedConfig := Config{
-		ListenAddr:         rawFile.Listen,
-		DBPath:             rawFile.DBPath,
-		ReadBytesPerSecond: rawFile.ReadBytesPerSecond,
-		TieBreakReadBytes:  rawFile.TieBreakReadBytes,
-		LibraryAPI:         rawFile.LibraryAPI,
-		LibraryRoots:       rawFile.LibraryRoots,
-		PathRules:          rawFile.PathMappings,
-		LinkDirs:           rawFile.LinkDirs,
-		LinkType:           rawFile.LinkType,
-		SkipRecheck:        rawFile.SkipRecheck == nil || *rawFile.SkipRecheck,
-		LinkCategory:       rawFile.LinkCategory,
-		CrossSeedMode:      rawFile.CrossSeedMode,
-		SeedTags:           rawFile.SeedTags,
+		ListenAddr:               rawFile.Listen,
+		DBPath:                   rawFile.DBPath,
+		ReadBytesPerSecond:       rawFile.ReadBytesPerSecond,
+		TieBreakReadBytes:        rawFile.TieBreakReadBytes,
+		LibraryAPI:               rawFile.LibraryAPI,
+		LibraryRoots:             rawFile.LibraryRoots,
+		PathRules:                rawFile.PathMappings,
+		LinkDirs:                 rawFile.LinkDirs,
+		LinkType:                 rawFile.LinkType,
+		SkipRecheck:              rawFile.SkipRecheck == nil || *rawFile.SkipRecheck,
+		LinkCategory:             rawFile.LinkCategory,
+		CrossSeedMode:            rawFile.CrossSeedMode,
+		SeedTags:                 rawFile.SeedTags,
+		PartialMaxMissingPercent: defaultPartialMaxMissingPercent,
+	}
+	if rawFile.PartialMaxMissingPercent != nil {
+		loadedConfig.PartialMaxMissingPercent = *rawFile.PartialMaxMissingPercent
 	}
 	var err error
 	if loadedConfig.Dedupe, err = parseDedupe(rawFile.Dedupe); err != nil {
@@ -408,6 +422,9 @@ func validate(loadedConfig Config) error {
 	}
 	if loadedConfig.TieBreakReadBytes <= 0 {
 		return errors.New("tieBreakReadBytes must be positive")
+	}
+	if err := validatePartialCap(loadedConfig.PartialMaxMissingPercent); err != nil {
+		return err
 	}
 	if loadedConfig.LibraryAPI != "" {
 		if _, err := parseHTTPURL(loadedConfig.LibraryAPI); err != nil {

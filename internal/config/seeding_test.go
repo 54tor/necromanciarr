@@ -91,3 +91,39 @@ func TestLoad_seedTagsAcceptsExactlyTheLimits(t *testing.T) {
 		t.Fatalf("gotValue %d tags, expectedValue %d", len(gotValue), maxSeedTags)
 	}
 }
+
+func TestLoad_partialMaxMissingPercentDefaultsToNoCap(t *testing.T) {
+	const expectedValue = 100.0
+
+	gotValue := mustLoad(t, nil, nil, t.TempDir()).PartialMaxMissingPercent
+
+	if gotValue != expectedValue {
+		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
+	}
+}
+
+func TestLoad_partialMaxMissingPercentReadsZeroFromTheFileAndTheEnvironmentWins(t *testing.T) {
+	configDir := t.TempDir()
+	writeFile(t, configDir, configFileName, `{"partialMaxMissingPercent": 0}`)
+
+	fromFile := mustLoad(t, nil, nil, configDir).PartialMaxMissingPercent
+	fromEnv := mustLoad(t, nil, map[string]string{envPartialMaxMissingPercent: "12.5"}, configDir).PartialMaxMissingPercent
+
+	if fromFile != 0 || fromEnv != 12.5 {
+		t.Fatalf("gotValue file %v env %v, expectedValue 0 then 12.5", fromFile, fromEnv)
+	}
+}
+
+func TestLoad_partialMaxMissingPercentRejectsOutOfRangeValuesNamingTheKey(t *testing.T) {
+	for _, rawValue := range []string{"-1", "100.5", "abc", "NaN"} {
+		t.Run(rawValue, func(t *testing.T) {
+			environment := map[string]string{envPartialMaxMissingPercent: rawValue}
+
+			_, err := Load(nil, lookupFrom(environment), t.TempDir())
+
+			if err == nil || !strings.Contains(err.Error(), "partialMaxMissingPercent") {
+				t.Fatalf("gotValue %v, expectedValue an error naming partialMaxMissingPercent", err)
+			}
+		})
+	}
+}

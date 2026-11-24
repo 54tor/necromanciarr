@@ -96,3 +96,8 @@ export const CANDIDATE_LABELS: Record<CandidateState, string> = {
   failed: 'En échec',
   stale: 'Obsolètes',
 }
+
+/** Raisons pour lesquelles un torrent vérifié n'est pas proposé (inconnue : affichée telle quelle). */
+export const HELD_REASON_LABELS: Readonly<Record<string, string>> = {
+  missing_pieces_above_cap: 'au-delà du plafond partialMaxMissingPercent',
+}

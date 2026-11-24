@@ -117,6 +117,7 @@ type Store interface {
 	ListProposals(ctx context.Context, decision store.ProposalDecision) ([]store.Proposal, error)
 	ListCandidatesByState(ctx context.Context, states ...store.CandidateState) ([]store.Candidate, error)
 	ListProposalProgress(ctx context.Context) (map[int64]store.ProposalProgress, error)
+	ListCandidateHolds(ctx context.Context) ([]store.CandidateHold, error)
 	SaveProposalProgress(ctx context.Context, progress store.ProposalProgress, now time.Time) error
 	SetProposalDecision(ctx context.Context, proposalID int64, decision store.ProposalDecision, now time.Time) error
 	AcceptProposals(ctx context.Context, proposalIDs []int64, now time.Time) error

@@ -29,10 +29,13 @@ const (
 	ReasonMediaNotVerified = "media_not_verified"
 	// ReasonMediaHashFailed : un média présent a une pièce au SHA1 faux (mauvais fichier ou corruption) ; candidat failed.
 	ReasonMediaHashFailed = "media_hash_failed"
+	// ReasonMissingPiecesAboveCap : un partial_annex ou partial_pack manque plus de pièces que partialMaxMissingPercent ;
+	// son verdict est mis de côté, aucune proposition n'est créée.
+	ReasonMissingPiecesAboveCap = "missing_pieces_above_cap"
 )
 
-// runVerify vérifie, un candidat à la fois, chaque candidat matched ou fetched (reprise), puis met à jour les
-// propositions de groupe ; une annulation enregistre l'avancement cohérent et arrête l'étape, une perte du verrou
+// runVerify vérifie, un candidat à la fois, chaque candidat matched ou fetched (reprise), applique le plafond de
+// pièces manquantes courant (reevaluateCap), puis met à jour les propositions de groupe ; une annulation enregistre l'avancement cohérent et arrête l'étape, une perte du verrou
 // arrête toute écriture.
 func runVerify(ctx context.Context, deps Deps) (Result, error) {
 	var result Result
@@ -60,7 +63,8 @@ func runVerify(ctx context.Context, deps Deps) (Result, error) {
 	if lockLost(ctx) {
 		return result, stageErr
 	}
-	return result, errors.Join(stageErr, refreshGroups(context.WithoutCancel(ctx), deps, &result))
+	finalCtx := context.WithoutCancel(ctx)
+	return result, errors.Join(stageErr, reevaluateCap(finalCtx, deps, &result), refreshGroups(finalCtx, deps, &result))
 }
 
 // candidateRun porte ce qui sert à vérifier un candidat ; une erreur renvoyée arrête l'étape, un échec propre au

@@ -151,6 +151,19 @@ export interface Status {
   steps: Partial<Record<ProposalStep, number>>
   cross_seed_mode: string
   warnings?: string[]
+  /** Torrents vérifiés non proposés (verdict mis de côté), avec la raison. */
+  held?: HeldCandidate[]
+}
+
+export interface HeldCandidate {
+  candidate_id: number
+  candidate_name: string
+  tracker: string
+  kind: ProposalKind
+  reason: string
+  percent: number
+  missing_pieces: number
+  total_pieces: number
 }
 
 export type StageName = 'scan' | 'match' | 'verify' | 'link' | 'seed'

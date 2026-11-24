@@ -675,3 +675,19 @@ func TestCli_textOutputDropsTerminalControlCharacters(t *testing.T) {
 		t.Fatalf("gotValue %q, expectedValue the printable part of the name kept", listed.stdout)
 	}
 }
+
+func TestCli_statusListsTheHeldTorrentsWithTheirReason(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{}`)
+	fake := &fakeService{status: app.Status{Held: []app.HeldCandidate{{
+		CandidateID: 7, CandidateName: "Show.S01", Kind: "partial_pack", Reason: "missing_pieces_above_cap",
+		MissingPieces: 6, TotalPieces: 10,
+	}}}}
+	useFakeService(t, fake)
+	expectedValue := "held: 7 Show.S01 partial_pack missing_pieces_above_cap (6/10 pieces missing)"
+
+	gotValue := runCli(t, configDir, "status").stdout
+
+	if !strings.Contains(gotValue, expectedValue) {
+		t.Fatalf("gotValue %q, expectedValue a line %q", gotValue, expectedValue)
+	}
+}

@@ -56,8 +56,8 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 		Store: openedStore, ScanRoot: pipeline.LibraryScanner(openedStore), LibraryRoots: settings.LibraryRoots,
 		ArrSources: arrSources(settings), Mapper: mapper, ClientMapper: mapper,
 		ReadLimiter: rate.NewLimiter(rate.Limit(settings.ReadBytesPerSecond), readBurstBytes),
-		ReadBudget:  settings.TieBreakReadBytes,
-		LinkDirs:    settings.LinkDirs, LinkKinds: linkKinds, Category: settings.LinkCategory,
+		ReadBudget:  settings.TieBreakReadBytes, PartialMaxMissingPercent: &settings.PartialMaxMissingPercent,
+		LinkDirs: settings.LinkDirs, LinkKinds: linkKinds, Category: settings.LinkCategory,
 		Tags: settings.SeedTags, SkipRecheck: settings.SkipRecheck,
 	}
 	if err := wireProvider(settings, &stages); err != nil {

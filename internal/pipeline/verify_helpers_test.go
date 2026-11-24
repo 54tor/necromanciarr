@@ -176,6 +176,8 @@ type verifyFixture struct {
 	limiter   torrentcheck.Limiter
 	// readBudget plafonne les octets lus pour départager les copies (0 = sans limite, comme Deps.ReadBudget).
 	readBudget int64
+	// partialCap est Deps.PartialMaxMissingPercent (nil = sans plafond).
+	partialCap *float64
 	// productionOpener laisse Deps.OpenLocal nil : l'étape ouvre alors avec openReadOnly.
 	productionOpener bool
 }
@@ -279,7 +281,8 @@ func (fixture *verifyFixture) candidate(infohash string) store.Candidate {
 func (fixture *verifyFixture) deps() Deps {
 	deps := Deps{
 		Store: fixture.store, Fetcher: fixture.fetcher, OpenLocal: fixture.opener.open, CrossSeed: fixture.crossSeed,
-		ReadLimiter: fixture.limiter, ReadBudget: fixture.readBudget, ProgressEvery: 1, Now: func() time.Time { return fixedNow },
+		ReadLimiter: fixture.limiter, ReadBudget: fixture.readBudget, ProgressEvery: 1,
+		PartialMaxMissingPercent: fixture.partialCap, Now: func() time.Time { return fixedNow },
 	}
 	if fixture.productionOpener {
 		deps.OpenLocal = nil

@@ -97,6 +97,15 @@ CREATE TABLE IF NOT EXISTS proposal_steps (
 	link_root TEXT NOT NULL DEFAULT '',
 	updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS candidate_holds (
+	candidate_id INTEGER PRIMARY KEY REFERENCES torrent_candidates(id) ON DELETE CASCADE,
+	generation INTEGER NOT NULL,
+	reason TEXT NOT NULL,
+	kind TEXT NOT NULL,
+	warnings TEXT NOT NULL DEFAULT '[]',
+	details TEXT NOT NULL DEFAULT '{}',
+	updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS run_lock (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
 	holder TEXT NOT NULL,

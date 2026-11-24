@@ -4,7 +4,14 @@ import { onMounted } from 'vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { Button } from '@/components/ui/button'
 import { useOnboarding } from '@/composables/useOnboarding'
-import { CANDIDATE_LABELS, DECISION_LABELS, STEP_LABELS, labelOf } from '@/lib/labels'
+import {
+  CANDIDATE_LABELS,
+  DECISION_LABELS,
+  HELD_REASON_LABELS,
+  KIND_LABELS,
+  STEP_LABELS,
+  labelOf,
+} from '@/lib/labels'
 import { navigate } from '@/router'
 
 const { checks, status, worst, firstLaunch, pending, loadAll, rerunCheck, refreshStatus, skip } =
@@ -119,6 +126,16 @@ const STATE_GROUPS = [
         <div>
           <dt class="font-medium">Mode cross-seed</dt>
           <dd class="text-muted-foreground">{{ status.cross_seed_mode }}</dd>
+        </div>
+        <div v-if="(status.held ?? []).length > 0" class="sm:col-span-2" data-held>
+          <dt class="font-medium">Non proposés</dt>
+          <dd class="text-muted-foreground">
+            <p v-for="held in status.held" :key="held.candidate_id">
+              {{ held.candidate_name }} ({{ labelOf(KIND_LABELS, held.kind) }}) :
+              {{ held.missing_pieces }}/{{ held.total_pieces }} pièces manquantes,
+              {{ labelOf(HELD_REASON_LABELS, held.reason) }}
+            </p>
+          </dd>
         </div>
         <div
           v-for="warning in status.warnings ?? []"

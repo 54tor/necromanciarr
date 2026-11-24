@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
 )
 
@@ -15,6 +17,20 @@ type Status struct {
 	Steps         map[store.ProposalStep]int     `json:"steps"`
 	CrossSeedMode string                         `json:"cross_seed_mode"`
 	Warnings      []string                       `json:"warnings,omitempty"`
+	// Held liste les torrents vérifiés dont le verdict est mis de côté (aucune proposition), avec la raison.
+	Held []HeldCandidate `json:"held"`
+}
+
+// HeldCandidate est un torrent vérifié non proposé : nature qu'il aurait eue, raison et pièces manquantes.
+type HeldCandidate struct {
+	CandidateID   int64              `json:"candidate_id"`
+	CandidateName string             `json:"candidate_name"`
+	Tracker       string             `json:"tracker"`
+	Kind          store.ProposalKind `json:"kind"`
+	Reason        string             `json:"reason"`
+	Percent       float64            `json:"percent"`
+	MissingPieces int                `json:"missing_pieces"`
+	TotalPieces   int                `json:"total_pieces"`
 }
 
 // behaviorNames nomme le comportement cross-seed effectif pour l'affichage.
@@ -48,5 +64,24 @@ func (svc *service) Status(ctx context.Context) (Status, error) {
 			status.Steps[progress.Step]++
 		}
 	}
-	return status, nil
+	status.Held, err = svc.heldCandidates(ctx, state)
+	return status, err
+}
+
+func (svc *service) heldCandidates(ctx context.Context, state snapshot) ([]HeldCandidate, error) {
+	holds, err := svc.deps.Store.ListCandidateHolds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	held := []HeldCandidate{}
+	for _, hold := range holds {
+		candidate := state.candidates[hold.CandidateID]
+		var details pipeline.ProposalDetails
+		_ = json.Unmarshal(hold.Details, &details)
+		held = append(held, HeldCandidate{
+			CandidateID: hold.CandidateID, CandidateName: candidate.Name, Tracker: candidate.Tracker, Kind: hold.Kind,
+			Reason: hold.Reason, Percent: details.Percent, MissingPieces: details.MissingPieces, TotalPieces: details.TotalPieces,
+		})
+	}
+	return held, nil
 }

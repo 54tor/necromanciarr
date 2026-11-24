@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -39,4 +41,29 @@ func normalizeSeedTags(rawTags []string) ([]string, error) {
 		return []string{defaultSeedTag}, nil
 	}
 	return tags, nil
+}
+
+// defaultPartialMaxMissingPercent ne plafonne rien : un pourcentage de pièces manquantes ne dépasse jamais 100.
+const defaultPartialMaxMissingPercent = 100.0
+
+// applyPartialCapOverride lit le plafond de l'environnement, qui l'emporte sur config.json.
+func applyPartialCapOverride(target *Config, lookup func(string) (string, bool)) error {
+	rawValue, found := lookup(envPartialMaxMissingPercent)
+	if !found || rawValue == "" {
+		return nil
+	}
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(rawValue), 64)
+	if err != nil {
+		return fmt.Errorf("partialMaxMissingPercent (%s): not a number", envPartialMaxMissingPercent)
+	}
+	target.PartialMaxMissingPercent = parsed
+	return nil
+}
+
+func validatePartialCap(percent float64) error {
+	isInRange := percent >= 0 && percent <= 100
+	if !isInRange {
+		return errors.New("partialMaxMissingPercent must be between 0 and 100")
+	}
+	return nil
 }

@@ -157,6 +157,38 @@ describe('OnboardingView', () => {
     expect(gotText).toContain('odd_state : 1')
   })
 
+  it('OnboardingView_listsTheTorrentsHeldAboveTheMissingPiecesCap', async () => {
+    installFakeApi({
+      'POST /api/doctor/run': okReport,
+      'GET /api/status': {
+        candidates: { verified: 1 },
+        proposals: {},
+        steps: {},
+        cross_seed_mode: 'disabled',
+        held: [
+          {
+            candidate_id: 7,
+            candidate_name: 'Show.S01',
+            tracker: '',
+            kind: 'partial_pack',
+            reason: 'missing_pieces_above_cap',
+            percent: 40,
+            missing_pieces: 6,
+            total_pieces: 10,
+          },
+        ],
+      },
+    })
+    const wrapper = mount(OnboardingView)
+    await flushPromises()
+
+    const gotText = wrapper.find('[data-held]').text()
+
+    expect(gotText).toContain('Show.S01')
+    expect(gotText).toContain('6/10 pièces manquantes')
+    expect(gotText).toContain('au-delà du plafond')
+  })
+
   it('OnboardingView_doesNotRedirectWhenEverythingIsFineAndUsed', async () => {
     installFakeApi({
       'POST /api/doctor/run': okReport,

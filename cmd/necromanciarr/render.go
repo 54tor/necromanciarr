@@ -108,6 +108,10 @@ func writeStatus(writer io.Writer, status app.Status) {
 	writeCounts(writer, "proposals", status.Proposals)
 	writeCounts(writer, "applied steps", status.Steps)
 	_, _ = fmt.Fprintf(writer, "cross-seed mode: %s\n", status.CrossSeedMode)
+	for _, held := range status.Held {
+		_, _ = fmt.Fprintf(writer, "held: %d %s %s %s (%d/%d pieces missing)\n", held.CandidateID, held.CandidateName, held.Kind,
+			held.Reason, held.MissingPieces, held.TotalPieces)
+	}
 }
 
 var proposalColumns = []int{6, 13, 10, 24, 6}

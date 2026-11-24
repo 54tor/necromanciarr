@@ -170,6 +170,12 @@ func (run candidateRun) propose(ctx context.Context, candidate store.Candidate, 
 	case store.ProposalPartialPack:
 		run.result.PartialPack++
 	}
+	if run.deps.aboveCap(decided.kind, decided.details) {
+		return holdVerdict(ctx, run.deps, candidate.ID, decided.kind, decided.warnings, decided.details)
+	}
+	if err := run.deps.Store.DeleteCandidateHold(ctx, candidate.ID); err != nil {
+		return err
+	}
 	created, err := upsertProposal(ctx, run.deps, store.Proposal{
 		CandidateID: candidate.ID, GroupID: GroupOf(candidate), Kind: decided.kind, Warnings: decided.warnings,
 	}, decided.details)

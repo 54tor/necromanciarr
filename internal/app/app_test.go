@@ -392,6 +392,24 @@ func TestBuildDeps_wiresTheSeedTagsFromConfig(t *testing.T) {
 	}
 }
 
+func TestBuildDeps_wiresThePartialMissingPiecesCapFromConfig(t *testing.T) {
+	const expectedValue = 25.0
+	openedStore := openTestStore(t)
+	settings := config.Config{
+		ConfigDir: t.TempDir(), ReadBytesPerSecond: 1 << 20, TieBreakReadBytes: 1, LinkType: "hardlink",
+		CrossSeedMode: "off", PartialMaxMissingPercent: expectedValue,
+	}
+
+	deps, err := buildDeps(context.Background(), settings, openedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if gotValue := deps.Stages.PartialMaxMissingPercent; gotValue == nil || *gotValue != expectedValue {
+		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
+	}
+}
+
 func TestNewFromConfig_wiresAMinimalConfigAndNamesTheMissingComponent(t *testing.T) {
 	settings := config.Config{
 		ConfigDir: t.TempDir(), DBPath: "necromanciarr.db", ReadBytesPerSecond: 1 << 20, LinkType: "hardlink", CrossSeedMode: "off",

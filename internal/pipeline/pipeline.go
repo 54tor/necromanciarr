@@ -83,6 +83,9 @@ type Store interface {
 	RecordLink(ctx context.Context, link store.Link) error
 	LookupFingerprint(ctx context.Context, path string, size int64, modTime time.Time) (string, bool, error)
 	RecordFingerprint(ctx context.Context, entry store.CachedFingerprint) error
+	SaveCandidateHold(ctx context.Context, hold store.CandidateHold, now time.Time) error
+	ListCandidateHolds(ctx context.Context) ([]store.CandidateHold, error)
+	DeleteCandidateHold(ctx context.Context, candidateID int64) error
 	ListProposalProgress(ctx context.Context) (map[int64]store.ProposalProgress, error)
 	SaveProposalProgress(ctx context.Context, progress store.ProposalProgress, now time.Time) error
 	ApplyProposal(ctx context.Context, proposalID int64, step store.ProposalStep, linkRoot string, now time.Time) error
@@ -164,20 +167,23 @@ type Deps struct {
 	CrossSeed        crossseed.Behavior
 	ProgressEvery    int
 	ProgressInterval time.Duration
-	LinkDirs         []string
-	LinkKinds        []linker.Kind
-	ProbeLinks       func(directory string) (linker.Capabilities, error)
-	PrepareCopy      func(source, destination, root string) (linker.PreparedCopy, error)
-	Client           TorrentClient
-	ClientMapper     ClientPathMapper
-	Category         string
-	Tags             []string
-	SkipRecheck      bool
-	RecheckTimeout   time.Duration
-	Notifier         crossseed.Notifier
-	CrossSeedWarning string
-	Now              func() time.Time
-	LockTTL          time.Duration
+	// PartialMaxMissingPercent plafonne la part de pièces manquantes d'un partial_annex ou partial_pack (nil = sans
+	// plafond) : au-delà, le verdict est mis de côté au lieu de devenir une proposition.
+	PartialMaxMissingPercent *float64
+	LinkDirs                 []string
+	LinkKinds                []linker.Kind
+	ProbeLinks               func(directory string) (linker.Capabilities, error)
+	PrepareCopy              func(source, destination, root string) (linker.PreparedCopy, error)
+	Client                   TorrentClient
+	ClientMapper             ClientPathMapper
+	Category                 string
+	Tags                     []string
+	SkipRecheck              bool
+	RecheckTimeout           time.Duration
+	Notifier                 crossseed.Notifier
+	CrossSeedWarning         string
+	Now                      func() time.Time
+	LockTTL                  time.Duration
 }
 
 func (deps Deps) now() time.Time {
