@@ -16,6 +16,10 @@ jobs:
       - uses: actions/setup-go@v5.5.0
         with:
           go-version-file: go.mod
+      # Version alignée sur l'image de l'étape ui du Dockerfile.
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 26.13.1
       # Une seule étape : la même pile que le hook pre-push.
       - run: make quality
   # Binaires des cinq plateformes puis image des trois architectures, sans push ni émulation.
