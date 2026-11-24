@@ -124,13 +124,10 @@ onMounted(load)
           <li v-for="path in item.details.ambiguous" :key="path">{{ path }}</li>
         </ul>
         <p v-if="item.details.reason" class="text-sm text-muted-foreground">
-          Raison : {{ item.details.reason }}
+          Raison : {{ item.details.label ?? item.details.reason }}
         </p>
         <p
-          v-for="(warning, position) in uniqueWarnings([
-            ...item.warnings,
-            ...(item.details.warnings ?? []),
-          ])"
+          v-for="(warning, position) in uniqueWarnings(item.warnings)"
           :key="position"
           class="text-sm"
         >

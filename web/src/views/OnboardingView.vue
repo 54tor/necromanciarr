@@ -4,6 +4,7 @@ import { onMounted } from 'vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { Button } from '@/components/ui/button'
 import { useOnboarding } from '@/composables/useOnboarding'
+import { warningText } from '@/lib/warnings'
 import {
   CANDIDATE_LABELS,
   DECISION_LABELS,
@@ -138,12 +139,12 @@ const STATE_GROUPS = [
           </dd>
         </div>
         <div
-          v-for="warning in status.warnings ?? []"
-          :key="warning"
+          v-for="(warning, position) in status.warnings ?? []"
+          :key="position"
           class="sm:col-span-2"
           role="status"
         >
-          Avertissement : {{ warning }}
+          Avertissement : {{ warningText(warning) }}
         </div>
       </dl>
     </div>

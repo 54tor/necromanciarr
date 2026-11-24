@@ -18,6 +18,8 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - CLI text and help, API error messages and action descriptions follow `language`; `GET /api/status` reports it; error codes never change.
 
 ### Changed
+- Server log lines are translated and carry a stable `code` attribute (`job_failed`, `server_listening`, ...); `serve` and `healthcheck` messages follow `language`.
+- `links list` returns a stable `reason` code with a translated `label` instead of an English sentence; dedupe reasons are stable codes too, and `warnings` of `status`, stage results and `dedupe apply`/`repair apply` are `{code, text}` objects; mount advice and cross-seed mode warnings are translated.
 - `doctor` results carry a stable `code` and are rendered in the configured language.
 - Proposal warnings are stored as translatable messages and returned as `{code, text}`; reasons come with translated labels (`reason_labels`, `label`). Warnings stored by earlier versions are still shown as they were saved.
 - Proposal warnings are now stored as structured messages; a database written by this version cannot be read by an older binary.

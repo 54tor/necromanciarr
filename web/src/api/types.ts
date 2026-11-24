@@ -70,9 +70,12 @@ export interface DedupeDetails {
   bytes_to_read: number
   method: string
   hash_algorithm?: string
+  /** Clés stables des avertissements du plan (jamais traduites) ; le texte est dans les avertissements de la proposition. */
   warnings?: string[]
   ambiguous?: string[]
   reason?: string
+  /** Libellé traduit de `reason`. */
+  label?: string
   actionable: boolean
 }
 
@@ -102,7 +105,10 @@ export interface LinkItem {
   state: LinkState
   recorded_at: string
   size?: number
+  /** Code stable du motif (`link_target_missing`…), jamais traduit. */
   reason?: string
+  /** Libellé traduit de `reason`. */
+  label?: string
   /** Faux quand rien n'a été comparé (reflink ou copie sans taille enregistrée). */
   compared: boolean
 }
@@ -156,7 +162,7 @@ export interface Status {
   proposals: Partial<Record<Decision, number>>
   steps: Partial<Record<ProposalStep, number>>
   cross_seed_mode: string
-  warnings?: string[]
+  warnings?: Warning[]
   /** Torrents vérifiés non proposés (verdict mis de côté), avec la raison. */
   held?: HeldCandidate[]
 }
@@ -195,7 +201,7 @@ export interface StageResult {
   linked: number
   seeded: number
   seeded_paused_incomplete: number
-  warnings?: string[]
+  warnings?: Warning[]
 }
 
 export type DoctorStatus = 'ok' | 'warn' | 'fail' | 'skipped'

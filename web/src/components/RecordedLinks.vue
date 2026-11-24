@@ -134,7 +134,7 @@ watch(lastFinished, () => void load())
           </div>
           <div v-if="link.reason">
             <dt class="mr-1 inline font-medium">Motif :</dt>
-            <dd class="inline break-all">{{ link.reason }}</dd>
+            <dd class="inline break-all">{{ link.label ?? link.reason }}</dd>
           </div>
         </dl>
         <div v-if="link.state !== 'ok'">
