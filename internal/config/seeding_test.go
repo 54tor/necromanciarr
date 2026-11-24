@@ -127,3 +127,16 @@ func TestLoad_partialMaxMissingPercentRejectsOutOfRangeValuesNamingTheKey(t *tes
 		})
 	}
 }
+
+func TestLoad_seedCategoryEnvironmentOverridesLinkCategoryFromTheFile(t *testing.T) {
+	configDir := t.TempDir()
+	writeFile(t, configDir, configFileName, `{"linkCategory": "from-file"}`)
+	const expectedValue = "from-env"
+
+	fromFile := mustLoad(t, nil, nil, configDir).LinkCategory
+	gotValue := mustLoad(t, nil, map[string]string{envSeedCategory: expectedValue}, configDir).LinkCategory
+
+	if fromFile != "from-file" || gotValue != expectedValue {
+		t.Fatalf("gotValue file %q env %q, expectedValue from-file then %q", fromFile, gotValue, expectedValue)
+	}
+}

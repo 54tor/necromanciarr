@@ -40,6 +40,7 @@ const (
 	envLibraryProviderToken = "LIBRARY_PROVIDER_TOKEN"
 	envCrossSeedMode        = "CROSS_SEED_MODE"
 	envSeedTags             = "NECROMANCIARR_SEED_TAGS"
+	envSeedCategory         = "NECROMANCIARR_SEED_CATEGORY"
 	// envPartialMaxMissingPercent plafonne les pièces manquantes des propositions partielles (pourcentage).
 	envPartialMaxMissingPercent = "NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT"
 )
@@ -391,6 +392,9 @@ func applyOverrides(target *Config, options commandLine, lookup func(string) (st
 	}
 	if options.set["cross-seed-mode"] {
 		target.CrossSeedMode = options.crossSeedMode
+	}
+	if value, found := lookup(envSeedCategory); found && value != "" {
+		target.LinkCategory = strings.TrimSpace(value)
 	}
 	if value, found := lookup(envSeedTags); found && value != "" {
 		target.SeedTags = strings.Split(value, ",")
