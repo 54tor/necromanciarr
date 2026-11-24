@@ -25,7 +25,7 @@ const (
 	maxListEntries = 256
 )
 
-// displayableKeyPattern : une clé ignorée n'est nommée que si elle ressemble à un identifiant JS ; une clé arbitraire
+// displayableKeyPattern : une clé ignorée n'est nommée que si elle a la forme d'un identifiant JS ; une clé arbitraire
 // pourrait porter une valeur (secret collé par erreur) et n'est que comptée.
 var displayableKeyPattern = regexp.MustCompile(`^[A-Za-z_$][A-Za-z0-9_$]{0,63}$`)
 
