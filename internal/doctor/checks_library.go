@@ -9,18 +9,16 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/libraryprovider"
+	"necromanciarr/internal/torrentcheck"
 )
 
 const (
 	maxWalkEntries  = 2000
 	probeSizeFilter = int64(1)
 )
-
-var mediaExtensions = []string{".mkv", ".mp4", ".avi", ".m4v", ".mov", ".wmv", ".ts", ".m2ts", ".mpg", ".mpeg", ".webm", ".flac", ".mp3"}
 
 // checkLibraryRoots ne fait que lire : aucune écriture dans une racine de bibliothèque.
 func checkLibraryRoots(ctx context.Context, settings config.Config) Result {
@@ -93,7 +91,8 @@ func findMediaFile(ctx context.Context, root string) mediaWalk {
 			return nil
 		}
 		isFileLike := entry.Type().IsRegular() || entry.Type()&fs.ModeSymlink != 0
-		if isFileLike && slices.Contains(mediaExtensions, strings.ToLower(filepath.Ext(path))) {
+		// Même définition du média que Scan et Verify : doctor ne doit pas annoncer un média que Scan ignorerait.
+		if isFileLike && torrentcheck.IsMediaPath(path) {
 			walk.found = true
 			return fs.SkipAll
 		}

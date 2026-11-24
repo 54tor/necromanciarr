@@ -15,9 +15,11 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/hashsource"
+	"necromanciarr/internal/library"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
+	"necromanciarr/internal/store"
 )
 
 func fixedCheck(id string, status Status) Check {
@@ -661,5 +663,32 @@ func TestChecks_dedupeCatchesTorrentRootSymlinkedIntoLibrary(t *testing.T) {
 
 	if got.Status != Fail {
 		t.Fatalf("gotValue %+v", got)
+	}
+}
+
+func TestChecks_libraryRootsAgreeWithScanOnMediaExtensions(t *testing.T) {
+	extensions := []string{".mkv", ".MP4", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".webm", ".nfo", ".txt"}
+	for _, extension := range extensions {
+		root := t.TempDir()
+		if err := os.WriteFile(filepath.Join(root, "file"+extension), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		scanStore, err := store.Open(filepath.Join(t.TempDir(), "scan.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = scanStore.Close() })
+		if err := library.Scan(context.Background(), root, scanStore); err != nil {
+			t.Fatal(err)
+		}
+		scannedFiles, err := scanStore.ListMediaFiles(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		expectedValue := len(scannedFiles) == 1
+		gotValue := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{root}}).Status == OK
+		if gotValue != expectedValue {
+			t.Fatalf("%s: expectedValue media=%v (scan), gotValue media=%v (doctor)", extension, expectedValue, gotValue)
+		}
 	}
 }
