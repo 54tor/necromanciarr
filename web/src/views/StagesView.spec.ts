@@ -121,4 +121,46 @@ describe('StagesView', () => {
 
     expect(toastError).toHaveBeenCalledWith('Une étape est déjà en cours.')
   })
+
+  it('StagesView_disablesRunButtonsDuringTheInFlightPost', async () => {
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => (release = resolve))
+    const calls = installFakeApi({ 'GET /api/jobs': [] })
+    const baseFetch = globalThis.fetch
+    vi.stubGlobal('fetch', async (input: string, init?: RequestInit) => {
+      if (init?.method === 'POST') await gate
+      return baseFetch(input, init)
+    })
+    const wrapper = mount(StagesView)
+    await flushPromises()
+
+    await wrapper.find('button[data-stage="scan"]').trigger('click')
+    await flushPromises()
+
+    for (const runButton of wrapper.findAll('button[data-action="run"]')) {
+      expect(runButton.attributes('disabled')).toBeDefined()
+    }
+    release()
+    await flushPromises()
+    expect(calls.length).toBeGreaterThan(0)
+  })
+
+  it('StagesView_showsAnUnreachableStateAfterThreeFailedPolls', async () => {
+    let answered = 0
+    installFakeApi({
+      'GET /api/jobs': () => {
+        answered += 1
+        return answered === 1 ? [job()] : failure(500, 'failure')
+      },
+    })
+    const wrapper = mount(StagesView)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="unreachable"]').exists()).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(6000)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="unreachable"]').text()).toContain('Serveur injoignable')
+    expect(wrapper.find('[data-testid="job-state"]').text()).not.toContain('en cours')
+  })
 })

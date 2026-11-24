@@ -6,7 +6,7 @@ import type { StageName, StageResult } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { useJobs } from '@/composables/useJobs'
 
-const { jobs, runningJob, busy, start, refresh } = useJobs()
+const { jobs, runningJob, busy, unreachable, start, refresh } = useJobs()
 
 const STAGES: readonly {
   name: StageName
@@ -97,7 +97,8 @@ onMounted(refresh)
   <section aria-labelledby="stages-title" class="grid gap-4">
     <h2 id="stages-title" class="text-xl font-semibold">Étapes</h2>
     <p class="text-sm text-muted-foreground" aria-live="polite" data-testid="job-state">
-      <template v-if="runningJob">
+      <template v-if="unreachable">État inconnu.</template>
+      <template v-else-if="runningJob">
         <LoaderCircle
           class="mr-1 inline size-4 animate-spin motion-reduce:animate-none"
           aria-hidden="true"
@@ -105,6 +106,15 @@ onMounted(refresh)
         Une étape est en cours ({{ runningJob.action }} n° {{ runningJob.id }}).
       </template>
       <template v-else>Aucune étape en cours.</template>
+    </p>
+    <p
+      v-if="unreachable"
+      role="alert"
+      class="rounded-lg border border-destructive bg-card p-3 text-sm"
+      data-testid="unreachable"
+    >
+      Serveur injoignable : l’état de l’étape n’est plus à jour. Nouvelle tentative toutes les 2
+      secondes.
     </p>
     <ul class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <li
