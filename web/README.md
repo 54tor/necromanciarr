@@ -19,6 +19,14 @@ Vue 3, Vite, TypeScript strict, Tailwind v4, shadcn-vue (Reka UI). Thème unique
 
 `public/.placeholder` est copié par Vite dans `internal/web/ui/dist/` à chaque build ; c'est le seul fichier de `dist` suivi par git. Sans build, le binaire embarque ce marqueur et pas d'`index.html`.
 
+## Licences et assets
+
+`make ui-licences` (`scripts/check-licences.mjs`) : liste d'autorisation SPDX sur le lockfile (production et dev ; MPL-2.0 en dev seulement ; `(MIT OR GPL-3.0)` refusé, dérogation justifiée par paquet dans `licences-overrides.json`). Tout fichier de `src` ou `public` hors types texte (SVG compris) est un asset : il figure dans `assets-allowlist.json` avec `path`, `origin`, `licence` et `sha256`. Un nom de fichier contenant Radarr, Sonarr, Prowlarr, Servarr, Lidarr ou Readarr échoue ; le contenu ne l'est que pour du code copié (« Servarr », en-tête GPL, classe CSS ou chemin d'import à ce nom), les locales et specs étant exemptées. `dist` relève de `ui-csp`.
+
+## Textes d'interface
+
+Règle ESLint `no-raw-text` (texte et attributs `title`, `aria-label`, `alt`, `placeholder`) : aucun texte en dur. `lint-exceptions.json` liste les fichiers non encore migrés ; `lint-exceptions.spec.ts` échoue quand l'un n'en a plus besoin.
+
 ## Logo
 
 Pictogramme dessiné à la main en SVG inline dans `App.vue` ; aucun fichier externe.
