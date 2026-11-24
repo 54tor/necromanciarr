@@ -189,6 +189,28 @@ describe('OnboardingView', () => {
     expect(gotText).toContain('au-delà du plafond')
   })
 
+  it('OnboardingView_rendersTheTextOfStructuredStatusWarnings', async () => {
+    installFakeApi({
+      'POST /api/doctor/run': okReport,
+      'GET /api/status': {
+        candidates: {},
+        proposals: {},
+        steps: {},
+        cross_seed_mode: 'native',
+        warnings: [
+          { code: 'warning.crossseed.fallback_native', text: 'repli sur la correspondance native' },
+        ],
+      },
+    })
+    const wrapper = mount(OnboardingView)
+    await flushPromises()
+
+    const gotText = wrapper.text()
+
+    expect(gotText).toContain('Avertissement : repli sur la correspondance native')
+    expect(gotText).not.toContain('[object Object]')
+  })
+
   it('OnboardingView_doesNotRedirectWhenEverythingIsFineAndUsed', async () => {
     installFakeApi({
       'POST /api/doctor/run': okReport,

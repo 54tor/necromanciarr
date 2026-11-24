@@ -53,6 +53,27 @@ describe('DedupeView', () => {
     expect(blockedRow.find('button').attributes('disabled')).toBeDefined()
   })
 
+  it('DedupeView_showsTheLabelOfTheReasonInsteadOfItsCode', async () => {
+    installFakeApi({
+      'GET /api/proposals': [
+        maintenanceProposal(24, {
+          ...dedupeDetails,
+          actionable: false,
+          reason: 'hash_unavailable',
+          label: 'Empreinte indisponible',
+        }),
+      ],
+      'GET /api/jobs': () => [],
+    })
+    const wrapper = mount(DedupeView)
+    await flushPromises()
+
+    const gotText = wrapper.find('[data-testid="dedupe-24"]').text()
+
+    expect(gotText).toContain('Empreinte indisponible')
+    expect(gotText).not.toContain('hash_unavailable')
+  })
+
   it('DedupeView_dryRunDoesNotCallApplyWithoutFlag', async () => {
     const { wrapper, calls } = mountView()
     await flushPromises()

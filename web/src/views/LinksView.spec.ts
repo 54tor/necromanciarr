@@ -115,9 +115,22 @@ describe('LinksView', () => {
 
   const recorded = [
     linkItem(1),
-    linkItem(2, { kind: 'hardlink', state: 'diverged', reason: 'inode changed' }),
-    linkItem(3, { state: 'lost', reason: 'the link target is missing' }),
-    linkItem(4, { state: 'unreadable', reason: 'input/output error' }),
+    linkItem(2, {
+      kind: 'hardlink',
+      state: 'diverged',
+      reason: 'link_inode_diverged',
+      label: 'inode changed',
+    }),
+    linkItem(3, {
+      state: 'lost',
+      reason: 'link_target_missing',
+      label: 'the link target is missing',
+    }),
+    linkItem(4, {
+      state: 'unreadable',
+      reason: 'link_inspection_failed',
+      label: 'inspection failed',
+    }),
   ]
 
   it('LinksView_showsRecordedLinksWithStateAndFilter', async () => {
@@ -141,6 +154,7 @@ describe('LinksView', () => {
     expect(wrapper.find('[data-testid="count-lost"]').text()).toBe('1')
     expect(wrapper.find('[data-testid="link-2"]').text()).toContain('lien physique')
     expect(wrapper.find('[data-testid="link-3"]').text()).toContain('the link target is missing')
+    expect(wrapper.find('[data-testid="link-3"]').text()).not.toContain('link_target_missing')
 
     await wrapper.find('[data-testid="link-state-filter"]').setValue('lost')
     await flushPromises()
@@ -242,7 +256,12 @@ describe('LinksView', () => {
       'GET /api/jobs': [],
       'GET /api/links': linkPage([
         linkItem(1),
-        linkItem(2, { kind: 'reflink', compared: false, reason: 'not compared' }),
+        linkItem(2, {
+          kind: 'reflink',
+          compared: false,
+          reason: 'link_not_compared',
+          label: 'not compared',
+        }),
       ]),
     })
     const wrapper = mount(LinksView)
