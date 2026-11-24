@@ -2,7 +2,6 @@ package pipeline
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"necromanciarr/internal/config"
 	"necromanciarr/internal/dedupe"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/matcher"
@@ -17,22 +17,29 @@ import (
 	"necromanciarr/internal/torrentcheck"
 )
 
-// ErrNoLinkDirs signale une configuration sans linkDirs : Link n'a nulle part où reconstituer les torrents.
-var ErrNoLinkDirs = errors.New("pipeline: no link directory configured")
+// Erreurs typées de Link.
+var (
+	// ErrNoLinkDirs signale une configuration sans linkDirs : Link n'a nulle part où reconstituer les torrents.
+	ErrNoLinkDirs = errors.New("pipeline: no link directory configured")
+	// ErrLinkDirOverlapsLibrary : un dossier de liens est dans une racine de bibliothèque, ou la contient (chemins
+	// résolus) ; rien n'est créé.
+	ErrLinkDirOverlapsLibrary = errors.New("pipeline: a link directory overlaps a library root")
+)
 
 // Raisons propres à Link.
 const (
-	ReasonAlreadyLinked         = "already_linked"
-	ReasonNoVerifiedAssignment  = "no_verified_assignment"
-	ReasonAssignmentMismatch    = "assignment_mismatch"
-	ReasonNoLinkDirOnSameDevice = "no_link_dir_on_same_device"
-	ReasonLinkKindRefused       = "link_kind_refused"
-	ReasonLinkRootUnusable      = "link_root_unusable"
-	ReasonCrossDevice           = "cross_device"
-	ReasonDestinationExists     = "destination_exists"
-	ReasonSourceChanged         = "source_changed"
-	ReasonLinkFailed            = "link_failed"
-	ReasonAnnexWriteFailed      = "annex_write_failed"
+	ReasonAlreadyLinked          = "already_linked"
+	ReasonNoVerifiedAssignment   = "no_verified_assignment"
+	ReasonAssignmentMismatch     = "assignment_mismatch"
+	ReasonNoLinkDirOnSameDevice  = "no_link_dir_on_same_device"
+	ReasonLinkKindRefused        = "link_kind_refused"
+	ReasonLinkRootUnusable       = "link_root_unusable"
+	ReasonCrossDevice            = "cross_device"
+	ReasonDestinationConflict    = "destination_conflict"
+	ReasonSourceChanged          = "source_changed"
+	ReasonLinkFailed             = "link_failed"
+	ReasonAnnexWriteFailed       = "annex_write_failed"
+	ReasonLinkDirOverlapsLibrary = "link_dir_overlaps_library"
 )
 
 // linkRootMode : le dossier du torrent doit rester lisible par le client torrent, qui tourne souvent sous un autre compte.
@@ -41,12 +48,19 @@ const linkRootMode fs.FileMode = 0o755
 // shortHashLength : 8 caractères d'infohash suffisent à séparer deux torrents de même nom racine (autre tracker).
 const shortHashLength = 8
 
+// temporaryMarker est le motif des fichiers temporaires d'annexe laissés par un arrêt (linker.WriteVerifiedFile).
+const temporaryMarker = ".necromanciarr-tmp-"
+
 // runLink reconstitue, une proposition acceptée à la fois, l'arborescence de chaque torrent par des liens vers
 // l'association prouvée, puis écrit ses annexes vérifiées ; rien n'est jamais écrit dans la bibliothèque.
 func runLink(ctx context.Context, deps Deps) (Result, error) {
 	var result Result
 	if len(deps.LinkDirs) == 0 {
 		return result, ErrNoLinkDirs
+	}
+	if err := checkLinkDirsOutsideLibrary(deps.LinkDirs, deps.LibraryRoots); err != nil {
+		result.count(ReasonLinkDirOverlapsLibrary, 1)
+		return result, err
 	}
 	work, err := loadAcceptedWork(ctx, deps)
 	if err != nil {
@@ -56,7 +70,7 @@ func runLink(ctx context.Context, deps Deps) (Result, error) {
 		return result, err
 	}
 	run := linkRun{deps: deps, result: &result, probes: map[string]linker.Capabilities{}}
-	linkedCandidates := map[int64]bool{}
+	linkedCandidates := work.linkedCandidates()
 	for _, proposal := range work.proposals {
 		if err := ctx.Err(); err != nil {
 			return result, err
@@ -81,6 +95,31 @@ func runLink(ctx context.Context, deps Deps) (Result, error) {
 	return result, nil
 }
 
+// checkLinkDirsOutsideLibrary compare les chemins résolus (liens symboliques suivis) : un dossier de liens égal à une
+// racine de bibliothèque, ancêtre ou descendant, y ferait écrire liens et annexes.
+func checkLinkDirsOutsideLibrary(linkDirs, libraryRoots []string) error {
+	for linkIndex, linkDir := range linkDirs {
+		for libraryIndex, libraryRoot := range libraryRoots {
+			if config.PathsOverlap(resolvedPath(linkDir), resolvedPath(libraryRoot)) {
+				return fmt.Errorf("%w: linkDirs[%d] and libraryRoots[%d]", ErrLinkDirOverlapsLibrary, linkIndex, libraryIndex)
+			}
+		}
+	}
+	return nil
+}
+
+// resolvedPath suit les liens symboliques ; un chemin absent garde sa forme absolue.
+func resolvedPath(original string) string {
+	absolute, err := filepath.Abs(original)
+	if err != nil {
+		return filepath.Clean(original)
+	}
+	if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
+		return resolved
+	}
+	return absolute
+}
+
 type linkRun struct {
 	deps   Deps
 	result *Result
@@ -90,86 +129,31 @@ type linkRun struct {
 // linkProposal ne renvoie une erreur que pour arrêter l'étape (store, annulation) ; un refus passe la proposition à
 // failed avec sa raison.
 func (run linkRun) linkProposal(ctx context.Context, proposal store.Proposal, candidate store.Candidate) error {
-	assignment, found, err := run.deps.Store.LoadVerifiedAssignment(ctx, candidate.ID)
+	proven, reason, err := loadProven(ctx, run.deps, proposal, candidate)
 	switch {
-	case errors.Is(err, store.ErrAssignmentMismatch):
-		return failProposal(ctx, run.deps, run.result, proposal.ID, ReasonAssignmentMismatch)
 	case err != nil:
 		return err
-	case !found:
-		return failProposal(ctx, run.deps, run.result, proposal.ID, ReasonNoVerifiedAssignment)
-	}
-	if assignedFilesChanged(assignment.Files) {
+	case reason == ReasonChangedFile:
 		run.result.Skipped++
 		run.result.count(ReasonChangedFile, 1)
 		return run.deps.Store.SetCandidateState(ctx, candidate.ID, store.CandidateStale, run.deps.now())
+	case reason != "":
+		return failProposal(ctx, run.deps, run.result, proposal.ID, reason)
 	}
-	raw, err := run.deps.Store.CandidateTorrent(ctx, candidate.ID)
-	if err != nil {
-		return err
-	}
-	torrent, err := torrentcheck.Parse(raw)
-	if err != nil {
-		return failProposal(ctx, run.deps, run.result, proposal.ID, ReasonInvalidTorrent)
-	}
-	return run.linkTorrent(ctx, proposal, candidate, torrent, provenAssignment(torrent, assignment, excludedPaths(proposal)))
-}
-
-// assignedFilesChanged compare chaque fichier associé à son instantané de vérification (taille, date à la nanoseconde).
-func assignedFilesChanged(files []store.AssignedFile) bool {
-	for _, file := range files {
-		info, err := os.Stat(file.Path)
-		if err != nil || info.Size() != file.Size || !info.ModTime().Equal(file.ModTime) {
-			return true
-		}
-	}
-	return false
-}
-
-func excludedPaths(proposal store.Proposal) map[string]bool {
-	var details ProposalDetails
-	excluded := map[string]bool{}
-	if json.Unmarshal(proposal.Details, &details) != nil {
-		return excluded
-	}
-	for _, file := range details.ExcludedFiles {
-		excluded[file.TorrentPath] = true
-	}
-	return excluded
-}
-
-// provenAssignment reprend exactement l'association prouvée (jamais de nouvel appel à matcher.Assign), sans les
-// fichiers écartés par Verify.
-func provenAssignment(torrent *torrentcheck.Torrent, assignment store.VerifiedAssignment, excluded map[string]bool) matcher.Assignment {
-	proven := matcher.Assignment{ByTorrentFile: map[int]store.MediaFile{}}
-	for _, file := range assignment.Files {
-		isKnownIndex := file.TorrentFileIndex >= 0 && file.TorrentFileIndex < len(torrent.Files)
-		if isKnownIndex && excluded[torrent.Files[file.TorrentFileIndex].Path] {
-			continue
-		}
-		proven.ByTorrentFile[file.TorrentFileIndex] = store.MediaFile{ID: file.MediaFileID, Path: file.Path, Size: file.Size, ModTime: file.ModTime}
-	}
-	return proven
-}
-
-func (run linkRun) linkTorrent(ctx context.Context, proposal store.Proposal, candidate store.Candidate, torrent *torrentcheck.Torrent, assignment matcher.Assignment) error {
-	if len(assignment.ByTorrentFile) == 0 {
-		return failProposal(ctx, run.deps, run.result, proposal.ID, ReasonNoVerifiedAssignment)
-	}
-	linkDir, kinds, reason := run.chooseLinkDir(firstSource(assignment))
+	linkDir, kinds, reason := run.chooseLinkDir(firstSource(proven.assignment))
 	if reason != "" {
 		return failProposal(ctx, run.deps, run.result, proposal.ID, reason)
 	}
-	destRoot, err := torrentLinkRoot(linkDir, torrent, candidate.Infohash)
+	destRoot, err := torrentLinkRoot(linkDir, proven.torrent, candidate.Infohash)
 	if err != nil {
 		return failProposal(ctx, run.deps, run.result, proposal.ID, ReasonLinkRootUnusable)
 	}
-	ops, err := linker.Plan(torrent, assignment, destRoot)
+	ops, err := linker.Plan(proven.torrent, proven.assignment, destRoot)
 	if err != nil {
 		return failProposal(ctx, run.deps, run.result, proposal.ID, ReasonLinkRootUnusable)
 	}
 	placement := &linkPlacement{destRoot: destRoot}
-	reason, err = run.place(ctx, proposal.ID, candidate, torrent, ops, kinds, placement)
+	reason, err = run.place(ctx, proposal.ID, proven, ops, kinds, placement)
 	if err != nil || reason != "" {
 		placement.rollback()
 	}
@@ -184,28 +168,33 @@ func (run linkRun) linkTorrent(ctx context.Context, proposal store.Proposal, can
 	return nil
 }
 
-// place crée le dossier du torrent, les liens, les annexes, enregistre chaque lien puis l'étape linked. Une raison non
-// vide est un refus ; une erreur arrête l'étape. Dans les deux cas l'appelant défait ce que placement a créé.
-func (run linkRun) place(ctx context.Context, proposalID int64, candidate store.Candidate, torrent *torrentcheck.Torrent, ops []linker.Op, kinds []linker.Kind, placement *linkPlacement) (string, error) {
+// place crée le dossier du torrent, réconcilie ce qui s'y trouve déjà (reprise après un arrêt), crée les liens et les
+// annexes, enregistre chaque lien puis l'étape linked. Une raison non vide est un refus ; une erreur arrête l'étape.
+// Dans les deux cas l'appelant défait ce que placement a créé.
+func (run linkRun) place(ctx context.Context, proposalID int64, proven provenTorrent, ops []linker.Op, kinds []linker.Kind, placement *linkPlacement) (string, error) {
 	rootUsable := placement.ensureRoot() == nil
 	if !rootUsable {
 		return ReasonLinkRootUnusable, nil
 	}
-	pending, err := run.pendingOps(ctx, ops)
-	if err != nil {
-		return "", err
+	reconciled, reason, err := run.reconcile(ctx, proven, ops, placement.destRoot)
+	if err != nil || reason != "" {
+		return reason, err
 	}
-	placement.notePreexisting(pending)
-	applied, err := linker.Apply(pending, kinds)
+	applied, err := linker.Apply(reconciled.pending, kinds)
 	if err != nil {
 		return applyFailureReason(err), nil
 	}
-	placement.links = pending
-	if reason := run.writeAnnexes(ctx, candidate.ID, torrent, placement); reason != "" {
+	placement.links = reconciled.pending
+	if reason := run.writeAnnexes(proven, placement); reason != "" {
 		return reason, nil
 	}
-	for opIndex, operation := range pending {
+	for opIndex, operation := range reconciled.pending {
 		if err := run.recordLink(ctx, operation, applied.Used[opIndex]); err != nil {
+			return "", err
+		}
+	}
+	for _, adopted := range reconciled.adopted {
+		if err := run.recordLink(ctx, adopted.operation, adopted.kind); err != nil {
 			return "", err
 		}
 	}
@@ -213,27 +202,96 @@ func (run linkRun) place(ctx context.Context, proposalID int64, candidate store.
 	return "", run.deps.Store.SaveProposalProgress(ctx, progress, run.deps.now())
 }
 
-// pendingOps écarte les liens déjà enregistrés vers la même source et encore présents : un reflink ne se reconnaît pas
-// d'une copie, il ne doit jamais être recréé.
-func (run linkRun) pendingOps(ctx context.Context, ops []linker.Op) ([]linker.Op, error) {
+// reconciled sépare les liens à créer de ceux déjà présents avec le bon contenu (adoptés, à enregistrer).
+type reconciled struct {
+	pending []linker.Op
+	adopted []adoptedLink
+}
+
+type adoptedLink struct {
+	operation linker.Op
+	kind      linker.Kind
+}
+
+// reconcile examine chaque destination déjà présente dans le dossier du torrent (le nôtre, nommé d'après l'infohash) :
+// contenu identique à la source → adoptée sans nouvel Apply (un reflink interrompu avant son enregistrement compris) ;
+// entrée différente mais enregistrée par cet outil, ou annexe différente → périmée ; toute autre entrée → litige.
+// Les entrées périmées ne sont retirées que si le dossier ne contient que des entrées de cet outil.
+func (run linkRun) reconcile(ctx context.Context, proven provenTorrent, ops []linker.Op, destRoot string) (reconciled, string, error) {
 	links, err := run.deps.Store.ListLinks(ctx, "")
 	if err != nil {
-		return nil, err
+		return reconciled{}, "", err
 	}
 	recorded := make(map[string]string, len(links))
 	for _, link := range links {
 		recorded[link.LinkPath] = link.TargetPath
 	}
-	pending := make([]linker.Op, 0, len(ops))
+	var result reconciled
+	var stale []string
 	for _, operation := range ops {
-		target, known := recorded[operation.Destination]
-		_, statErr := os.Lstat(operation.Destination)
-		if known && target == operation.Source && statErr == nil {
+		if _, statErr := os.Lstat(operation.Destination); errors.Is(statErr, fs.ErrNotExist) {
+			result.pending = append(result.pending, operation)
 			continue
 		}
-		pending = append(pending, operation)
+		kind, matches, err := entryMatches(ctx, run.deps, operation.Destination, operation.Source)
+		if err != nil {
+			return reconciled{}, "", err
+		}
+		_, known := recorded[operation.Destination]
+		switch {
+		case matches && recorded[operation.Destination] != operation.Source:
+			result.adopted = append(result.adopted, adoptedLink{operation: operation, kind: kind})
+		case matches:
+		case known:
+			stale = append(stale, operation.Destination)
+			result.pending = append(result.pending, operation)
+		default:
+			return reconciled{}, ReasonDestinationConflict, nil
+		}
 	}
-	return pending, nil
+	expectedAnnexes := map[string]bool{}
+	for _, annex := range proven.annexes {
+		path, err := annexPath(proven.torrent, destRoot, annex)
+		if err != nil {
+			return reconciled{}, ReasonAnnexWriteFailed, nil
+		}
+		expectedAnnexes[path] = true
+		if _, statErr := os.Lstat(path); statErr == nil && !annexMatches(path, annex) {
+			stale = append(stale, path)
+		}
+	}
+	return result, removeStaleEntries(destRoot, stale, recorded, expectedAnnexes), nil
+}
+
+// removeStaleEntries retire les entrées périmées et les temporaires d'annexe, seulement si le dossier du torrent ne
+// contient que des entrées de cet outil (liens enregistrés, annexes attendues, temporaires) ; sinon litige.
+func removeStaleEntries(destRoot string, stale []string, recorded map[string]string, expectedAnnexes map[string]bool) string {
+	if len(stale) == 0 {
+		return ""
+	}
+	var temporaries []string
+	onlyOurs := true
+	walkErr := filepath.WalkDir(destRoot, func(entryPath string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		_, isRecorded := recorded[entryPath]
+		isTemporary := strings.Contains(entry.Name(), temporaryMarker)
+		if isTemporary {
+			temporaries = append(temporaries, entryPath)
+		}
+		onlyOurs = onlyOurs && (isRecorded || expectedAnnexes[entryPath] || isTemporary)
+		return nil
+	})
+	if walkErr != nil || !onlyOurs {
+		return ReasonDestinationConflict
+	}
+	for _, entryPath := range append(stale, temporaries...) {
+		if err := os.Remove(entryPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return ReasonDestinationConflict
+		}
+	}
+	return ""
 }
 
 func applyFailureReason(err error) string {
@@ -243,7 +301,7 @@ func applyFailureReason(err error) string {
 	case errors.Is(err, linker.ErrLinkRefused), errors.Is(err, linker.ErrUnsupported):
 		return ReasonLinkKindRefused
 	case errors.Is(err, linker.ErrDestinationExists):
-		return ReasonDestinationExists
+		return ReasonDestinationConflict
 	case errors.Is(err, linker.ErrSizeMismatch), errors.Is(err, linker.ErrInvalidSource):
 		return ReasonSourceChanged
 	default:
@@ -251,19 +309,19 @@ func applyFailureReason(err error) string {
 	}
 }
 
-func (run linkRun) writeAnnexes(ctx context.Context, candidateID int64, torrent *torrentcheck.Torrent, placement *linkPlacement) string {
-	annexes, err := run.deps.Store.ListVerifiedFiles(ctx, candidateID)
-	if err != nil {
-		return ReasonAnnexWriteFailed
-	}
-	for _, annex := range annexes {
-		relative, err := linker.RelativeDestination(torrent, annex.FileIndex)
+func (run linkRun) writeAnnexes(proven provenTorrent, placement *linkPlacement) string {
+	for _, annex := range proven.annexes {
+		relative, err := linker.RelativeDestination(proven.torrent, annex.FileIndex)
 		if err != nil {
 			return ReasonAnnexWriteFailed
 		}
 		destination := filepath.Join(placement.destRoot, filepath.FromSlash(relative))
 		_, statErr := os.Lstat(destination)
-		if err := linker.WriteVerifiedFile(placement.destRoot, relative, annex.Data); err != nil {
+		err = linker.WriteVerifiedFile(placement.destRoot, relative, annex.Data)
+		if errors.Is(err, linker.ErrDestinationExists) {
+			return ReasonDestinationConflict
+		}
+		if err != nil {
 			return ReasonAnnexWriteFailed
 		}
 		if errors.Is(statErr, fs.ErrNotExist) {
@@ -385,7 +443,6 @@ func torrentLinkRoot(linkDir string, torrent *torrentcheck.Torrent, infohash str
 type linkPlacement struct {
 	destRoot    string
 	createdRoot bool
-	preexisting map[string]bool
 	links       []linker.Op
 	annexes     []string
 }
@@ -409,26 +466,15 @@ func (placement *linkPlacement) ensureRoot() error {
 	return nil
 }
 
-func (placement *linkPlacement) notePreexisting(ops []linker.Op) {
-	placement.preexisting = map[string]bool{}
-	for _, operation := range ops {
-		if _, err := os.Lstat(operation.Destination); err == nil {
-			placement.preexisting[operation.Destination] = true
-		}
-	}
-}
-
 // rollback retire ce que l'exécution a créé : le dossier du torrent entier s'il est neuf (il ne contient que des liens
-// et des annexes posés ici ; RemoveAll ne suit pas les liens), sinon les seuls liens et annexes nouveaux.
+// et des annexes posés ici ; RemoveAll ne suit pas les liens), sinon les seuls liens et annexes créés par l'exécution.
 func (placement *linkPlacement) rollback() {
 	if placement.createdRoot {
 		_ = os.RemoveAll(placement.destRoot)
 		return
 	}
 	for _, operation := range placement.links {
-		if !placement.preexisting[operation.Destination] {
-			_ = os.Remove(operation.Destination)
-		}
+		_ = os.Remove(operation.Destination)
 	}
 	for _, annex := range placement.annexes {
 		_ = os.Remove(annex)

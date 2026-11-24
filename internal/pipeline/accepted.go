@@ -94,3 +94,15 @@ func failProposal(ctx context.Context, deps Deps, result *Result, proposalID int
 	}
 	return deps.Store.AddProposalWarning(ctx, proposalID, "application failed: "+reason)
 }
+
+// linkedCandidates marque chaque candidat dont une proposition acceptée a déjà une étape : une seconde proposition du
+// même torrent n'est jamais liée une seconde fois.
+func (work acceptedWork) linkedCandidates() map[int64]bool {
+	linked := map[int64]bool{}
+	for _, proposal := range work.proposals {
+		if work.progress[proposal.ID].Step != "" {
+			linked[proposal.CandidateID] = true
+		}
+	}
+	return linked
+}

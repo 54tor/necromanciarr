@@ -42,6 +42,7 @@ func (fixture *applyFixture) applyDeps() Deps {
 		deps.Store = fixture.stageStore
 	}
 	deps.LinkDirs, deps.LinkKinds, deps.ProbeLinks = []string{fixture.linkDir}, fixture.linkKinds, fixture.probe
+	deps.LibraryRoots = []string{fixture.root}
 	deps.Client, deps.Notifier, deps.SkipRecheck = fixture.client, fixture.notifier, fixture.skipRecheck
 	deps.Category, deps.Tags, deps.ClientMapper = "necromanciarr", []string{"necromanciarr", "relinked"}, fixture.mapper
 	deps.RecheckTimeout = time.Minute

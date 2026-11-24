@@ -22,6 +22,15 @@ type tamperedStore struct {
 	assignment func(store.VerifiedAssignment) store.VerifiedAssignment
 	// forgetProgress simule un arrêt après l'enregistrement des liens et avant celui de l'étape linked.
 	forgetProgress bool
+	// forgetLinks simule un arrêt avant même l'enregistrement des liens.
+	forgetLinks bool
+}
+
+func (tampered *tamperedStore) ListLinks(ctx context.Context, state store.LinkState) ([]store.Link, error) {
+	if tampered.forgetLinks {
+		return nil, nil
+	}
+	return tampered.Store.ListLinks(ctx, state)
 }
 
 func (tampered *tamperedStore) ListCandidatesByState(ctx context.Context, states ...store.CandidateState) ([]store.Candidate, error) {
