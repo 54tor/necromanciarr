@@ -195,6 +195,28 @@ func writeRepairProposals(writer io.Writer, proposals []app.RepairProposal) {
 	}
 }
 
+var linkColumns = []int{6, 10, 8}
+
+// writeLinks écrit les liens de la page, le motif d'un état non conforme en retrait, puis les effectifs et la suite.
+func writeLinks(writer io.Writer, page app.LinkPage, offset int) {
+	writeCounts(writer, "links", page.Counts)
+	if len(page.Items) == 0 {
+		_, _ = fmt.Fprintln(writer, "no recorded link")
+		return
+	}
+	writeRow(writer, linkColumns, "ID", "STATE", "KIND", "LINK")
+	for _, item := range page.Items {
+		writeRow(writer, linkColumns, fmt.Sprint(item.ID), item.State, item.Kind, item.LinkPath)
+		if item.Reason != "" {
+			_, _ = fmt.Fprintln(writer, fitText("       "+item.Reason, tableWidth))
+		}
+	}
+	_, _ = fmt.Fprintf(writer, "showing %d-%d of %d\n", offset+1, offset+len(page.Items), page.Total)
+	if page.Next > 0 {
+		_, _ = fmt.Fprintf(writer, "next page: --offset %d\n", page.Next)
+	}
+}
+
 func writeMaintenanceResults(writer io.Writer, items []applyItem) {
 	if len(items) == 0 {
 		_, _ = fmt.Fprintln(writer, "no accepted proposal to apply")

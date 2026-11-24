@@ -541,3 +541,73 @@ func TestCli_jsonStaysValidWithAssignmentsAndQuotesInMessages(t *testing.T) {
 		}
 	}
 }
+
+func sampleLinkPage() app.LinkPage {
+	longPath := "/home/u/links/" + strings.Repeat("Very.Long.Movie.Name.", 8) + "mkv"
+	return app.LinkPage{
+		Items: []app.LinkItem{
+			{ID: 3, LinkPath: "/home/u/links/ok.mkv", TargetPath: "/home/u/library/ok.mkv", Kind: "symlink", State: app.LinkStateOK},
+			{ID: 4, LinkPath: longPath, TargetPath: "/home/u/library/gone.mkv", Kind: "hardlink", State: app.LinkStateLost, Reason: "the link target is missing"},
+		},
+		Total: 9, Next: 12, Truncated: true,
+		Counts: map[string]int{app.LinkStateOK: 1, app.LinkStateDiverged: 0, app.LinkStateLost: 8, app.LinkStateUnreadable: 0},
+	}
+}
+
+func TestCli_linksListPrintsATableAndStableJSON(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{}`)
+	fake := &fakeService{linkPage: sampleLinkPage()}
+	useFakeService(t, fake)
+
+	text := runCli(t, configDir, "links", "list", "--state", "lost", "--limit", "2", "--offset", "10")
+	jsonRun := runCli(t, configDir, "links", "list", "--json")
+
+	if text.exitCode != successExitCode || !fake.called("ListLinks {lost 2 10}") {
+		t.Fatalf("gotValue %+v calls %v, expectedValue exit 0 and the filter passed through", text, fake.calls)
+	}
+	for _, expectedValue := range []string{"lost 8", "/home/u/links/ok.mkv", "the link target is missing", "showing 11-12 of 9", "--offset 12"} {
+		if !strings.Contains(text.stdout, expectedValue) {
+			t.Fatalf("gotValue %q, expectedValue %q in the text output", text.stdout, expectedValue)
+		}
+	}
+	for _, line := range strings.Split(text.stdout, "\n") {
+		if gotValue := utf8.RuneCountInString(line); gotValue > 100 {
+			t.Fatalf("gotValue a %d-column line %q, expectedValue at most 100", gotValue, line)
+		}
+	}
+	if !strings.Contains(text.stderr, "warning: the inspection time budget ran out") {
+		t.Fatalf("gotValue stderr %q, expectedValue the truncation warning", text.stderr)
+	}
+	var gotValue map[string]any
+	if err := json.Unmarshal([]byte(jsonRun.stdout), &gotValue); err != nil || jsonRun.exitCode != successExitCode {
+		t.Fatalf("gotValue %+v, expectedValue a JSON page", jsonRun)
+	}
+	for _, field := range []string{"items", "total", "next", "truncated", "counts"} {
+		if _, present := gotValue[field]; !present {
+			t.Fatalf("gotValue %v, expectedValue the field %q", gotValue, field)
+		}
+	}
+	firstItem := gotValue["items"].([]any)[0].(map[string]any)
+	for _, field := range []string{"id", "link_path", "target_path", "kind", "state", "recorded_at"} {
+		if _, present := firstItem[field]; !present {
+			t.Fatalf("gotValue %v, expectedValue the item field %q", firstItem, field)
+		}
+	}
+}
+
+func TestCli_linksListRejectsABadCountAndKeepsAnEmptyListAnArray(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{}`)
+	fake := &fakeService{}
+	useFakeService(t, fake)
+
+	badLimit := runCli(t, configDir, "links", "list", "--limit", "many", "--json")
+	if badLimit.exitCode != usageExitCode || !strings.Contains(badLimit.stdout, `"usage"`) || fake.called("ListLinks") {
+		t.Fatalf("gotValue %+v calls %v, expectedValue a usage error before any call", badLimit, fake.calls)
+	}
+
+	empty := runCli(t, configDir, "links", "list", "--json")
+
+	if !strings.Contains(empty.stdout, `"items": []`) {
+		t.Fatalf("gotValue %q, expectedValue an empty items array", empty.stdout)
+	}
+}

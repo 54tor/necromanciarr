@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strconv"
 	"strings"
 
 	"necromanciarr/internal/app"
@@ -27,6 +28,8 @@ const (
 	flagGroup            = "group"
 	flagDirectory        = "dir"
 	flagCheck            = "check"
+	flagLimit            = "limit"
+	flagOffset           = "offset"
 )
 
 // Noms des actions du registre appelées par chaque sous-commande (parité CLI et web).
@@ -44,6 +47,7 @@ const (
 	actionRepairScan         = "repair scan"
 	actionRepairApply        = "repair apply"
 	actionDoctor             = "doctor"
+	actionLinksList          = "links list"
 	exampleProposalID        = "1"
 	forceStartsClientWarning = "starting a partial_annex lets the client download its missing pieces: pieces that " +
 		"straddle a linked media file are written into it; the bytes are identical but the file is rewritten (an " +
@@ -117,6 +121,10 @@ func buildCommands() []command {
 			path: []string{"repair", "apply"}, summary: "accept and apply <id>, or apply --all-accepted [--dry-run]",
 			actions: []string{actionRepairApply}, arguments: []string{app.ArgumentProposalID}, optionalArguments: true,
 			boolFlags: []string{flagAllAccepted, flagDryRun}, execute: maintenanceApply(store.ProposalRepair, app.Service.RepairAccept),
+		},
+		{
+			path: []string{"links", "list"}, summary: "list recorded links and their state [--state S] [--limit N] [--offset N]",
+			actions: []string{actionLinksList}, valueFlags: []string{flagState, flagLimit, flagOffset}, execute: runLinksList,
 		},
 		{
 			path: []string{"doctor"}, summary: "check every configured component [--check ID]...", actions: []string{actionDoctor},
@@ -398,6 +406,42 @@ func runRepairScan(ctx context.Context, call *invocation) (output, error) {
 	}
 	proposals = nonNil(proposals)
 	return output{jsonValue: proposals, text: func(writer io.Writer) { writeRepairProposals(writer, proposals) }}, nil
+}
+
+// truncatedLinksWarning signale une liste partielle : le budget de temps de l'examen est épuisé.
+const truncatedLinksWarning = "the inspection time budget ran out: counts and total cover only the links inspected in time"
+
+func runLinksList(ctx context.Context, call *invocation) (output, error) {
+	filter := app.LinkFilter{State: call.value(flagState)}
+	var err error
+	if filter.Limit, err = optionalCount(call, flagLimit); err != nil {
+		return output{}, err
+	}
+	if filter.Offset, err = optionalCount(call, flagOffset); err != nil {
+		return output{}, err
+	}
+	page, err := call.service.ListLinks(ctx, filter)
+	if err != nil {
+		return output{}, err
+	}
+	page.Items = nonNil(page.Items)
+	var warnings []string
+	if page.Truncated {
+		warnings = []string{truncatedLinksWarning}
+	}
+	return output{jsonValue: page, warnings: warnings, text: func(writer io.Writer) { writeLinks(writer, page, filter.Offset) }}, nil
+}
+
+// optionalCount lit un entier positif ou nul ; absent vaut 0 (le Service applique alors sa valeur par défaut).
+func optionalCount(call *invocation, flag string) (int, error) {
+	if !call.has(flag) {
+		return 0, nil
+	}
+	count, err := strconv.Atoi(call.value(flag))
+	if err != nil || count < 0 {
+		return 0, fmt.Errorf("%w: --%s must be a non-negative integer", config.ErrUsage, flag)
+	}
+	return count, nil
 }
 
 func runDoctor(ctx context.Context, call *invocation) (output, error) {
