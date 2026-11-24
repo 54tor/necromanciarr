@@ -259,7 +259,16 @@ func (svc *service) Force(ctx context.Context, proposalID int64) (ForceResult, e
 	if err := svc.checkSourcesUnchanged(ctx, proposal.CandidateID); err != nil {
 		return result, err
 	}
-	if err := svc.deps.Client.Resume(ctx, state.candidates[proposal.CandidateID].Infohash); err != nil {
+	candidate := state.candidates[proposal.CandidateID]
+	isolation, err := pipeline.IsolateStraddlingMedia(ctx, svc.deps.Stages, proposal, candidate, progress.LinkRoot)
+	result.Replaced = isolation.Replaced
+	if errors.Is(err, pipeline.ErrIsolationImpossible) {
+		return result, fmt.Errorf("%w: %w", ErrForceIsolationImpossible, err)
+	}
+	if err != nil {
+		return result, err
+	}
+	if err := svc.deps.Client.Resume(ctx, candidate.Infohash); err != nil {
 		return result, err
 	}
 	progress.Step = store.StepForced

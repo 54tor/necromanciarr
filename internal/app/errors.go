@@ -25,9 +25,9 @@ const (
 // refusals sont les refus typés des règles métier : la demande est bien formée, l'action ne l'est pas.
 var refusals = []error{
 	ErrConflictNeedsChoose, ErrPartialPackNeedsForce, ErrNotATorrentProposal, ErrCandidateAlreadyAccepted,
-	ErrOneTorrentPerFile, ErrNotFull, ErrNotForceable, ErrNoPrimary, ErrForceNotAllowed,
+	ErrOneTorrentPerFile, ErrNotFull, ErrNotForceable, ErrNoPrimary, ErrForceNotAllowed, ErrForceIsolationImpossible,
 	ErrNotAccepted, ErrNotActionable, ErrWrongProposalKind, ErrDirectoryInLibrary,
-	store.ErrInvalidTransition, pipeline.ErrGroupInconsistent, pipeline.ErrClientReadOnly,
+	store.ErrInvalidTransition, pipeline.ErrGroupInconsistent, pipeline.ErrClientReadOnly, pipeline.ErrPlacementChanged,
 	dedupe.ErrTorrentRootOverlapsLibrary, repair.ErrOutsideRoots,
 }
 

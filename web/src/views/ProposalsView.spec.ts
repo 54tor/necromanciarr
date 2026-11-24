@@ -127,7 +127,7 @@ describe('ProposalsView', () => {
     expect(enabledIds).toEqual([3])
     await button(wrapper, 3, 'proposals force').trigger('click')
     await flushPromises()
-    expect(document.body.textContent).toContain('réécrire des octets dans des fichiers liés')
+    expect(document.body.textContent).toContain('la bibliothèque n’est jamais écrite')
     expect(posts(calls)).toHaveLength(0)
     document.body
       .querySelector<HTMLButtonElement>('[data-testid="confirm-dialog-confirm"]')

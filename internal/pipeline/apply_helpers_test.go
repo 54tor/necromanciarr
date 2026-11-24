@@ -26,6 +26,7 @@ type applyFixture struct {
 	skipRecheck bool
 	stageStore  Store
 	mapper      ClientPathMapper
+	prepareCopy func(source, destination, root string) (linker.PreparedCopy, error)
 }
 
 func newApplyFixture(t *testing.T) *applyFixture {
@@ -45,7 +46,7 @@ func (fixture *applyFixture) applyDeps() Deps {
 	deps.LibraryRoots = []string{fixture.root}
 	deps.Client, deps.Notifier, deps.SkipRecheck = fixture.client, fixture.notifier, fixture.skipRecheck
 	deps.Category, deps.Tags, deps.ClientMapper = "necromanciarr", []string{"necromanciarr", "relinked"}, fixture.mapper
-	deps.RecheckTimeout = time.Minute
+	deps.RecheckTimeout, deps.PrepareCopy = time.Minute, fixture.prepareCopy
 	return deps
 }
 

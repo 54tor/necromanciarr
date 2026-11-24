@@ -122,8 +122,9 @@ func baseVerdict(torrent *torrentcheck.Torrent, assignment matcher.Assignment, r
 		return verdict{kind: store.ProposalFull, details: details}
 	}
 	if report.MediaComplete {
-		warning := fmt.Sprintf("will be added paused: %d piece(s) overlap annex files not proven from the library, and the "+
-			"client would rewrite those pieces across the linked media; it starts only with an explicit Force", len(report.MissingPieces))
+		warning := fmt.Sprintf("will be added paused: %d piece(s) overlap annex files not proven from the library and the "+
+			"client writes whole pieces; an explicit Force first replaces each linked media sharing such a piece by an "+
+			"independent copy in the link folder, then starts it", len(report.MissingPieces))
 		return verdict{kind: store.ProposalPartialAnnex, warnings: []string{warning}, details: details}
 	}
 	return verdict{}

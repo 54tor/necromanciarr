@@ -49,9 +49,10 @@ const (
 	actionDoctor             = "doctor"
 	actionLinksList          = "links list"
 	exampleProposalID        = "1"
-	forceStartsClientWarning = "starting a partial_annex lets the client download its missing pieces: pieces that " +
-		"straddle a linked media file are written into it; the bytes are identical but the file is rewritten (an " +
-		"object store such as S3 uploads the whole object again)"
+	forceStartsClientWarning = "starting a partial_annex lets the client download its missing pieces: each linked " +
+		"media file that shares a missing piece is first replaced, inside the link folder only, by an independent " +
+		"copy (reflink, else a full copy that needs free space); the library is never written, and Force is refused " +
+		"if no copy is possible"
 )
 
 // command est une sous-commande : path sa suite de mots, actions les actions du registre qu'elle appelle, arguments
@@ -297,6 +298,9 @@ func runForce(ctx context.Context, call *invocation) (output, error) {
 		return output{}, err
 	}
 	return output{jsonValue: result, warnings: result.Warnings, text: func(writer io.Writer) {
+		for _, replaced := range result.Replaced {
+			_, _ = fmt.Fprintf(writer, "replaced by a %s: %s\n", replaced.Kind, replaced.LinkPath)
+		}
 		_, _ = fmt.Fprintf(writer, "proposal %d: forced, the client may now download its missing pieces\n", proposalID)
 	}}, nil
 }

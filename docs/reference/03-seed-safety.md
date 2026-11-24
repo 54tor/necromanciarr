@@ -38,7 +38,7 @@ Juste avant l'ajout, Seed :
 
 ### 5 : partial_annex et Force
 
-Un `partial_annex` est ajouté en pause, jamais contrôlé par `skip_checking`, et passe `applied` avec l'étape `seeded_paused_incomplete` (`paused_incomplete`). Les pièces qui manquent couvrent des annexes absentes de la bibliothèque, souvent à cheval sur la fin d'un média lié. Reprendre le torrent laisserait le client les télécharger **et les écrire dans le fichier lié**, donc dans la bibliothèque. Les octets seraient identiques, mais le fichier serait réécrit (sur un stockage objet, tout l'objet est renvoyé).
+Un `partial_annex` est ajouté en pause, jamais contrôlé par `skip_checking`, et passe `applied` avec l'étape `seeded_paused_incomplete` (`paused_incomplete`). Les pièces qui manquent couvrent des annexes absentes de la bibliothèque, souvent à cheval sur la fin d'un média lié. Le client télécharge et écrit chaque pièce manquante **en entier**, y compris la part qui appartient au média : à travers un lien dur ou symbolique, il écrirait des blocs non vérifiés dans le fichier de la bibliothèque.
 
 `Force` est le seul moyen de démarrer ce torrent :
 
@@ -47,7 +47,16 @@ Un `partial_annex` est ajouté en pause, jamais contrôlé par `skip_checking`, 
 | Action | `proposals force <id> --yes` | `POST /api/proposals/{id}/force` avec `{"confirm": true}` |
 | Sans confirmation | avertissement sur stderr, rien n'est démarré, exit 2 (`confirmation_required`) | 400 `confirmation_required` |
 
-Conditions : nature `partial_annex`, décision `applied`, étape `seeded_paused_incomplete`, génération courante, client configuré, sources inchangées (sinon candidat `stale` et refus `stale_proposal`). Le client est alors repris et l'étape devient `forced`. Un `partial_pack` rend `a partial pack can never be forced`.
+Conditions : nature `partial_annex`, décision `applied`, étape `seeded_paused_incomplete`, génération courante, client configuré, sources inchangées (sinon candidat `stale` et refus `stale_proposal`). Un `partial_pack` rend `a partial pack can never be forced`.
+
+Avant de reprendre le torrent, Force isole les médias exposés :
+
+1. il calcule les pièces manquantes : celles qui recouvrent un fichier ni lié ni annexe vérifiée ;
+2. chaque média lié qui recouvre une de ces pièces et désigne encore le fichier de la bibliothèque (lien dur, ou lien symbolique) est remplacé par une copie indépendante, écrite dans le dossier de liens du torrent : reflink si le système de fichiers le permet (copie à l'écriture, aucun bloc partagé n'est modifiable), sinon copie complète. Un reflink ou une copie déjà en place n'est pas touché, un média qui ne partage aucune pièce manquante non plus ;
+3. une copie complète exige sur le volume du dossier de liens sa taille plus une marge (64 Mio plus 1 % de la taille). Toutes les copies sont préparées dans des fichiers temporaires avant le premier remplacement, puis mises en place par renommage dans le même dossier ; le lien est réenregistré avec sa nouvelle sorte (`reflink` ou `copy`) ;
+4. le dossier est revérifié (liens, copies, annexes), puis le client est repris et l'étape devient `forced`. La réponse liste les fichiers remplacés (`replaced`).
+
+Si un média ne peut être ni cloné ni copié (copie refusée, place insuffisante, place libre illisible sur la plateforme), Force refuse avec `force refused, a straddling media file cannot be copied out of the library` (code `refused`) : aucune copie ne reste, aucun lien n'est remplacé, le torrent reste en pause. Un dossier abîmé entre-temps rend `the torrent link folder no longer matches its proven content`. La bibliothèque n'est jamais écrite, ni par l'outil ni par le client.
 
 Accepter un `partial_pack` demande déjà un acte explicite (`--allow-partial-pack`, ou `{"allow_partial_pack": true}`) ; il est ajouté en pause comme un `partial_annex` et ne peut jamais être démarré par Necromanciarr.
 

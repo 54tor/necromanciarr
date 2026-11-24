@@ -22,7 +22,7 @@ const filters = reactive({
 })
 
 const FORCE_WARNING =
-  'Le client va réécrire des octets dans des fichiers liés à la bibliothèque. Cette action n’est pas annulable.'
+  'Le client va télécharger les pièces manquantes. Chaque média lié qui partage une de ces pièces est d’abord remplacé, dans le dossier de liens seulement, par une copie indépendante (reflink, sinon copie complète qui demande de la place) : la bibliothèque n’est jamais écrite. Le démarrage est refusé si aucune copie n’est possible. Cette action n’est pas annulable.'
 const GROUP_DESCRIPTION =
   'Accepte la proposition principale du groupe et, en mode cross-seed natif, les autres torrents vérifiés du même groupe.'
 const PARTIAL_PACK_WARNING =

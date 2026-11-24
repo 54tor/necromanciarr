@@ -42,6 +42,9 @@ var (
 	ErrNotFull = errors.New("app: only a full proposal can be chosen")
 	// ErrNotForceable : Force ne démarre qu'un partial_annex déjà lié et laissé en pause par Seed.
 	ErrNotForceable = errors.New("app: only a linked partial_annex left paused by seed can be forced")
+	// ErrForceIsolationImpossible : un média à cheval sur une pièce manquante ne peut être remplacé par une copie
+	// indépendante (ni reflink ni copie, ou place insuffisante) ; rien n'a changé et le torrent reste en pause.
+	ErrForceIsolationImpossible = errors.New("app: force refused, a straddling media file cannot be copied out of the library")
 	// ErrNoPrimary : le groupe n'a pas de proposition principale full ouverte (Choose d'abord).
 	ErrNoPrimary = errors.New("app: the group has no open primary full proposal")
 	// ErrGroupNotFound : aucun candidat vérifié n'appartient à ce groupe.
@@ -98,11 +101,13 @@ const (
 	AcceptPending
 )
 
-// ForceResult rend compte d'un Force : Warnings rappelle toujours les avertissements de la proposition.
+// ForceResult rend compte d'un Force : Warnings rappelle toujours les avertissements de la proposition ; Replaced
+// nomme les médias du dossier de liens remplacés par une copie indépendante avant le démarrage.
 type ForceResult struct {
-	ProposalID int64    `json:"proposal_id"`
-	Forced     bool     `json:"forced"`
-	Warnings   []string `json:"warnings"`
+	ProposalID int64                   `json:"proposal_id"`
+	Forced     bool                    `json:"forced"`
+	Warnings   []string                `json:"warnings"`
+	Replaced   []pipeline.IsolatedFile `json:"replaced,omitempty"`
 }
 
 // Store est la part du store utilisée par les actions.

@@ -145,7 +145,8 @@ func LibraryScanner(mediaStore *store.Store) RootScanner {
 // toutes les ProgressInterval (0 = 5 s).
 //
 // Pour Link : LinkDirs (vue de ce processus) et LinkKinds, ordre des sortes de liens autorisées (vide = hardlink) ;
-// ProbeLinks nil vaut linker.Probe. Pour Seed : Client, ClientMapper (nil = même vue que le client), Category et Tags,
+// ProbeLinks nil vaut linker.Probe ; PrepareCopy nil vaut linker.PrepareCopy (copie indépendante posée avant un
+// Force). Pour Seed : Client, ClientMapper (nil = même vue que le client), Category et Tags,
 // SkipRecheck (permis de sauter le recontrôle quand notre vérification couvre 100 %), RecheckTimeout (0 = une heure),
 // Notifier (nil = aucun) et CrossSeedWarning, l'avertissement de crossseed.ResolveMode recopié dans le Result.
 type Deps struct {
@@ -165,6 +166,7 @@ type Deps struct {
 	LinkDirs         []string
 	LinkKinds        []linker.Kind
 	ProbeLinks       func(directory string) (linker.Capabilities, error)
+	PrepareCopy      func(source, destination, root string) (linker.PreparedCopy, error)
 	Client           TorrentClient
 	ClientMapper     ClientPathMapper
 	Category         string

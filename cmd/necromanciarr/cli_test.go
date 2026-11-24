@@ -269,18 +269,18 @@ func TestCli_exitCodesMapTypedErrors(t *testing.T) {
 	}
 }
 
-func TestCli_forceRequiresYesAndWarnsAboutRewrittenFiles(t *testing.T) {
+func TestCli_forceRequiresYesAndWarnsAboutTheIndependentCopy(t *testing.T) {
 	configDir := writeDoctorConfig(t, `{}`)
 	fake := &fakeService{}
 	useFakeService(t, fake)
 
 	refused := runCli(t, configDir, "proposals", "force", "3")
 
-	if refused.exitCode != usageExitCode || fake.called("Force") || !strings.Contains(refused.stderr, "rewritten") {
+	if refused.exitCode != usageExitCode || fake.called("Force") || !strings.Contains(refused.stderr, "independent copy") {
 		t.Fatalf("gotValue exit %d, calls %v, stderr %q, expectedValue a refusal with the warning", refused.exitCode, fake.calls, refused.stderr)
 	}
 	confirmed := runCli(t, configDir, "proposals", "force", "3", "--yes")
-	if confirmed.exitCode != successExitCode || !fake.called("Force 3") || !strings.Contains(confirmed.stderr, "rewritten") {
+	if confirmed.exitCode != successExitCode || !fake.called("Force 3") || !strings.Contains(confirmed.stderr, "independent copy") {
 		t.Fatalf("gotValue exit %d, calls %v, stderr %q, expectedValue Force called after the warning", confirmed.exitCode, fake.calls, confirmed.stderr)
 	}
 }

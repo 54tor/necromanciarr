@@ -189,12 +189,12 @@ func (run linkRun) place(ctx context.Context, proposalID int64, proven provenTor
 		return reason, nil
 	}
 	for opIndex, operation := range reconciled.pending {
-		if err := run.recordLink(ctx, operation, applied.Used[opIndex]); err != nil {
+		if err := recordLink(ctx, run.deps, operation, applied.Used[opIndex]); err != nil {
 			return "", err
 		}
 	}
 	for _, adopted := range reconciled.adopted {
-		if err := run.recordLink(ctx, adopted.operation, adopted.kind); err != nil {
+		if err := recordLink(ctx, run.deps, adopted.operation, adopted.kind); err != nil {
 			return "", err
 		}
 	}
@@ -332,17 +332,18 @@ func (run linkRun) writeAnnexes(proven provenTorrent, placement *linkPlacement) 
 	return ""
 }
 
-func (run linkRun) recordLink(ctx context.Context, operation linker.Op, kind linker.Kind) error {
+// recordLink enregistre le lien posé (ou la copie qui le remplace) avec sa sorte et l'instantané de sa source.
+func recordLink(ctx context.Context, deps Deps, operation linker.Op, kind linker.Kind) error {
 	info, err := os.Stat(operation.Source)
 	if err != nil {
 		return err
 	}
-	fingerprint, _, err := dedupe.HeadTailFingerprint(ctx, run.deps.Store, run.deps.ReadLimiter, operation.Source, info.Size(), info.ModTime(), true)
+	fingerprint, _, err := dedupe.HeadTailFingerprint(ctx, deps.Store, deps.ReadLimiter, operation.Source, info.Size(), info.ModTime(), true)
 	if err != nil {
 		return err
 	}
 	filesystem, _ := linker.FilesystemKindOf(operation.Source)
-	now := run.deps.now()
+	now := deps.now()
 	link := store.Link{
 		Kind: kind.String(), LinkPath: operation.Destination, TargetPath: operation.Source, Size: info.Size(),
 		Fingerprint: fingerprint, State: store.LinkOK, CreatedAt: now, VerifiedAt: now, ModTime: info.ModTime(),
@@ -351,7 +352,7 @@ func (run linkRun) recordLink(ctx context.Context, operation linker.Op, kind lin
 	if link.InodeReliable {
 		link.TargetDevice, link.TargetInode, link.InodeReliable = dedupe.FileIdentity(info)
 	}
-	return run.deps.Store.RecordLink(ctx, link)
+	return deps.Store.RecordLink(ctx, link)
 }
 
 func firstSource(assignment matcher.Assignment) string {

@@ -18,6 +18,8 @@ const (
 	Hardlink Kind = iota + 1
 	Reflink
 	Symlink
+	// Copy est une copie complète et indépendante, posée seulement par PrepareCopy (jamais par Apply).
+	Copy
 )
 
 // String nomme la sorte de lien.
@@ -29,6 +31,8 @@ func (kind Kind) String() string {
 		return "reflink"
 	case Symlink:
 		return "symlink"
+	case Copy:
+		return "copy"
 	default:
 		return fmt.Sprintf("kind(%d)", int(kind))
 	}

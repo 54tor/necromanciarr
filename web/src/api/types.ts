@@ -132,10 +132,16 @@ export interface GroupResult {
   accepted: number[]
 }
 
+export interface IsolatedFile {
+  link_path: string
+  kind: 'reflink' | 'copy'
+}
+
 export interface ForceResult {
   proposal_id: number
   forced: boolean
   warnings: string[]
+  replaced?: IsolatedFile[]
 }
 
 export interface Status {

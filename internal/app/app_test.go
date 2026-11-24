@@ -194,31 +194,15 @@ func TestApp_chooseSetsOperatorPrimaryOnFullOnly(t *testing.T) {
 	}
 }
 
-func TestApp_forceStartsOnlyLinkedSeededPartialAnnexAfterExplicitCall(t *testing.T) {
+func TestApp_forceRefusesEverythingButALinkedSeededPartialAnnex(t *testing.T) {
 	fixture := newDecisionFixture(t)
 	service := fixture.service(crossseed.Delegate)
 	ctx := context.Background()
-	annex := fixture.verifiedCandidate("aa")
-	annexID := fixture.proposal(annex, store.ProposalPartialAnnex)
+	annexID := fixture.proposal(fixture.verifiedCandidate("aa"), store.ProposalPartialAnnex)
 
 	if _, err := service.Force(ctx, annexID); !errors.Is(err, ErrNotForceable) || len(fixture.resumer.resumed) != 0 {
 		t.Fatalf("pending: gotValue %v %v, expectedValue ErrNotForceable and nothing started", err, fixture.resumer.resumed)
 	}
-	fixture.seedPaused(annexID)
-
-	result, err := service.Force(ctx, annexID)
-
-	if err != nil || !result.Forced || !slices.Equal(fixture.resumer.resumed, []string{annex.Infohash}) {
-		t.Fatalf("gotValue %+v %v resumed=%v, expectedValue the paused partial_annex started", result, err, fixture.resumer.resumed)
-	}
-	if !slices.Equal(result.Warnings, []string{"warning of partial_annex"}) {
-		t.Fatalf("gotValue %v, expectedValue the proposal warning returned", result.Warnings)
-	}
-	progress, err := fixture.store.ListProposalProgress(ctx)
-	if err != nil || progress[annexID].Step != store.StepForced {
-		t.Fatalf("gotValue %+v %v, expectedValue the forced step", progress[annexID], err)
-	}
-
 	fullID := fixture.proposal(fixture.verifiedCandidate("bb"), store.ProposalFull)
 	fixture.seedPaused(fullID)
 	if _, err := service.Force(ctx, fullID); !errors.Is(err, ErrNotForceable) {

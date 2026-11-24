@@ -10,7 +10,7 @@
 - `dedupe plan` annonce `bytes_to_read` avant acceptation : 0 si le stockage donne les deux empreintes, la taille d'un fichier s'il en faut une, les deux sinon. Les empreintes début-fin (2 Mio) sont mises en cache par (chemin, taille, date).
 - Un montage qui ne restitue pas la date de modification du fichier (backend `mega` classique) désactive la méthode « taille et date » de la réparation ; un objet réécrit change de date et rend les candidats concernés périmés au scan suivant.
 - Un renommage par-dessus un fichier n'est pas atomique sur certains volumes (le VFS de rclone peut supprimer la destination avant de renommer) : la déduplication l'écrit en avertissement et `dedupe plan` reprend les entrées temporaires restantes.
-- Écrire dans un stockage objet renvoie l'objet entier : c'est le coût d'un `Force` sur un `partial_annex`.
+- Un `Force` sur un `partial_annex` copie dans le dossier de liens chaque média à cheval sur une pièce manquante : sans reflink, cela coûte la taille du média en place libre (et en lecture sur un stockage distant).
 - Scan n'inventorie que les fichiers média, ne suit aucun lien symbolique à l'intérieur d'une racine et ignore un sous-dossier monté sur un autre système de fichiers : déclarer chaque montage comme sa propre racine dans `libraryRoots`.
 
 ### Types de volumes
