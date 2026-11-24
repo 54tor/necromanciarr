@@ -70,9 +70,12 @@ CREATE TABLE IF NOT EXISTS proposals (
 	decision TEXT NOT NULL,
 	warnings TEXT NOT NULL DEFAULT '[]',
 	created_at INTEGER NOT NULL,
-	decided_at INTEGER
+	decided_at INTEGER,
+	is_primary INTEGER NOT NULL DEFAULT 0,
+	details TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS proposals_decision ON proposals(decision);
+CREATE INDEX IF NOT EXISTS proposals_candidate_kind ON proposals(candidate_id, kind);
 CREATE TABLE IF NOT EXISTS run_lock (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
 	holder TEXT NOT NULL,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -705,5 +706,78 @@ func TestRetryCandidate_onlyFromFailedAndClearsVerification(t *testing.T) {
 	}
 	if len(matched) != 1 || verificationKept || decisionsByID(t, openedStore)[pendingID] != ProposalSuperseded {
 		t.Fatalf("gotValue matched %d verification kept %v decision %s", len(matched), verificationKept, decisionsByID(t, openedStore)[pendingID])
+	}
+}
+
+func TestUpsertProposal_isIdempotentPerCandidateAndKindAndKeepsDecidedOnes(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	first := Proposal{CandidateID: candidateID, GroupID: candidateID, Kind: ProposalFull, Details: json.RawMessage(`{"percent":50}`)}
+	firstID, created, err := openedStore.UpsertProposal(ctx, first, testNow)
+	if err != nil || !created {
+		t.Fatalf("gotValue created=%v err=%v, expectedValue a new proposal", created, err)
+	}
+	updated := first
+	updated.Details, updated.Warnings = json.RawMessage(`{"percent":100}`), []string{"w"}
+	secondID, created, err := openedStore.UpsertProposal(ctx, updated, testNow)
+	if err != nil || created || secondID != firstID {
+		t.Fatalf("gotValue id=%d created=%v err=%v, expectedValue the same pending proposal", secondID, created, err)
+	}
+	gotProposals, err := openedStore.ListProposals(ctx, "")
+	if err != nil || len(gotProposals) != 1 || string(gotProposals[0].Details) != `{"percent":100}` || gotProposals[0].Warnings[0] != "w" {
+		t.Fatalf("gotValue %+v %v, expectedValue one updated proposal", gotProposals, err)
+	}
+	if err := openedStore.SetProposalDecision(ctx, firstID, ProposalRejected, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, created, err := openedStore.UpsertProposal(ctx, first, testNow); err != nil || created {
+		t.Fatalf("gotValue created=%v err=%v, expectedValue the rejected proposal kept", created, err)
+	}
+	gotProposals, _ = openedStore.ListProposals(ctx, "")
+	if len(gotProposals) != 1 || string(gotProposals[0].Details) != `{"percent":100}` {
+		t.Fatalf("gotValue %+v, expectedValue the decided proposal untouched", gotProposals)
+	}
+	if _, _, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: candidateID, Kind: ProposalPartialPack, Details: json.RawMessage(`[1]`)}, testNow); !errors.Is(err, ErrInvalidProposalDetails) {
+		t.Fatalf("gotValue %v, expectedValue ErrInvalidProposalDetails", err)
+	}
+}
+
+func TestSetGroupPrimary_keepsExactlyOnePrimaryInTheGroup(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	firstCandidate, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	secondCandidate, _ := saveTestCandidate(t, openedStore, "bb", mediaFile)
+	var proposalIDs []int64
+	for _, candidateID := range []int64{firstCandidate, secondCandidate} {
+		proposalID, _, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: candidateID, GroupID: firstCandidate, Kind: ProposalFull}, testNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proposalIDs = append(proposalIDs, proposalID)
+	}
+	conflictID, _, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: firstCandidate, GroupID: firstCandidate, Kind: ProposalConflict}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, primaryID := range proposalIDs {
+		if err := openedStore.SetGroupPrimary(ctx, firstCandidate, primaryID); err != nil {
+			t.Fatal(err)
+		}
+		gotProposals, _ := openedStore.ListProposals(ctx, "")
+		for _, proposal := range gotProposals {
+			expectedValue := proposal.ID == primaryID
+			if proposal.Primary != expectedValue {
+				t.Fatalf("proposal %d: gotValue primary=%v, expectedValue %v", proposal.ID, proposal.Primary, expectedValue)
+			}
+		}
+	}
+	if err := openedStore.SetGroupPrimary(ctx, firstCandidate, conflictID); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("gotValue %v, expectedValue ErrInvalidTransition for a conflict proposal", err)
+	}
+	if err := openedStore.SetGroupPrimary(ctx, firstCandidate, conflictID+10); !errors.Is(err, ErrProposalNotFound) {
+		t.Fatalf("gotValue %v, expectedValue ErrProposalNotFound", err)
 	}
 }

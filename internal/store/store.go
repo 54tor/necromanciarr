@@ -154,6 +154,8 @@ var columnUpgrades = []struct{ table, column, definition string }{
 	{"fingerprints", "hash_algo", "TEXT"},
 	{"fingerprints", "hash", "TEXT"},
 	{"mount_capabilities", "provider", "TEXT NOT NULL DEFAULT ''"},
+	{"proposals", "is_primary", "INTEGER NOT NULL DEFAULT 0"},
+	{"proposals", "details", "TEXT NOT NULL DEFAULT '{}'"},
 }
 
 func upgradeColumns(database executor) error {

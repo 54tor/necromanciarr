@@ -182,10 +182,16 @@ var (
 	ErrUnknownProposalKind     = errors.New("store: unknown proposal kind")
 	ErrUnknownProposalDecision = errors.New("store: unknown proposal decision")
 	ErrProposalNotFound        = errors.New("store: proposal not found")
+	// ErrInvalidProposalDetails signale des détails qui ne sont pas un objet JSON.
+	ErrInvalidProposalDetails = errors.New("store: proposal details must be a JSON object")
+	// ErrProposalNeedsCandidate signale une proposition sans candidat passée à UpsertProposal.
+	ErrProposalNeedsCandidate = errors.New("store: proposal needs a candidate")
 )
 
 // Proposal est une action soumise à l'opérateur ; CandidateID vaut 0 pour une proposition sans torrent (dedupe,
-// repair) et DecidedAt est zéro tant qu'aucune décision n'est prise.
+// repair) et DecidedAt est zéro tant qu'aucune décision n'est prise. Primary marque la proposition retenue par défaut
+// dans son groupe (une seule à la fois, voir SetGroupPrimary) ; Details est un objet JSON propre à la nature
+// (pourcentage, pièces manquantes, candidats en conflit), vide vaut {}.
 type Proposal struct {
 	ID          int64
 	CandidateID int64
@@ -193,6 +199,8 @@ type Proposal struct {
 	Kind        ProposalKind
 	Decision    ProposalDecision
 	Warnings    []string
+	Primary     bool
+	Details     json.RawMessage
 	CreatedAt   time.Time
 	DecidedAt   time.Time
 }
@@ -217,26 +225,117 @@ func checkProposalDecision(decision ProposalDecision) error {
 
 // CreateProposal enregistre une proposition en attente et renvoie son identifiant.
 func (openedStore *Store) CreateProposal(ctx context.Context, proposal Proposal, now time.Time) (int64, error) {
-	if err := checkProposalKind(proposal.Kind); err != nil {
+	encoded, err := encodeProposal(proposal)
+	if err != nil {
 		return 0, err
+	}
+	return insertProposal(ctx, openedStore.database, proposal, encoded, now)
+}
+
+// encodedProposal porte les colonnes JSON d'une proposition validée.
+type encodedProposal struct {
+	warnings, details string
+}
+
+func encodeProposal(proposal Proposal) (encodedProposal, error) {
+	if err := checkProposalKind(proposal.Kind); err != nil {
+		return encodedProposal{}, err
 	}
 	warnings, err := json.Marshal(nonNilStrings(proposal.Warnings))
 	if err != nil {
-		return 0, fmt.Errorf("encode proposal warnings: %w", err)
+		return encodedProposal{}, fmt.Errorf("encode proposal warnings: %w", err)
 	}
-	result, err := openedStore.database.ExecContext(ctx, `INSERT INTO proposals (candidate_id, group_id, kind, decision, warnings, created_at)
-	VALUES (?, ?, ?, ?, ?, ?)`, nullableID(proposal.CandidateID), nullableID(proposal.GroupID), string(proposal.Kind),
-		string(ProposalPending), string(warnings), now.UnixNano())
+	details, err := normalizeDetails(proposal.Details)
+	if err != nil {
+		return encodedProposal{}, err
+	}
+	return encodedProposal{warnings: string(warnings), details: details}, nil
+}
+
+func normalizeDetails(details json.RawMessage) (string, error) {
+	if len(details) == 0 {
+		return "{}", nil
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(details, &object); err != nil || object == nil {
+		return "", ErrInvalidProposalDetails
+	}
+	return string(details), nil
+}
+
+func insertProposal(ctx context.Context, database executor, proposal Proposal, encoded encodedProposal, now time.Time) (int64, error) {
+	result, err := database.ExecContext(ctx, `INSERT INTO proposals (candidate_id, group_id, kind, decision, warnings, details, created_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?)`, nullableID(proposal.CandidateID), nullableID(proposal.GroupID), string(proposal.Kind),
+		string(ProposalPending), encoded.warnings, encoded.details, now.UnixNano())
 	if err != nil {
 		return 0, fmt.Errorf("create proposal: %w", err)
 	}
 	return result.LastInsertId()
 }
 
+// UpsertProposal crée au plus une proposition non close (toute décision sauf superseded) par candidat et par nature :
+// si elle existe et attend encore, son groupe, ses avertissements et ses détails sont mis à jour (Primary n'est jamais
+// touché, voir SetGroupPrimary) ; décidée, elle reste telle quelle. created dit si une ligne a été insérée. Rejouable.
+func (openedStore *Store) UpsertProposal(ctx context.Context, proposal Proposal, now time.Time) (proposalID int64, created bool, err error) {
+	if proposal.CandidateID == 0 {
+		return 0, false, ErrProposalNeedsCandidate
+	}
+	encoded, err := encodeProposal(proposal)
+	if err != nil {
+		return 0, false, err
+	}
+	err = openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
+		var existingDecision string
+		lookupErr := transaction.QueryRowContext(ctx, `SELECT id, decision FROM proposals
+WHERE candidate_id = ? AND kind = ? AND decision != ? ORDER BY id LIMIT 1`,
+			proposal.CandidateID, string(proposal.Kind), string(ProposalSuperseded)).Scan(&proposalID, &existingDecision)
+		if errors.Is(lookupErr, sql.ErrNoRows) {
+			proposalID, err = insertProposal(ctx, transaction, proposal, encoded, now)
+			created = err == nil
+			return err
+		}
+		if lookupErr != nil || ProposalDecision(existingDecision) != ProposalPending {
+			return lookupErr
+		}
+		_, err = transaction.ExecContext(ctx, `UPDATE proposals SET group_id = ?, warnings = ?, details = ? WHERE id = ?`,
+			nullableID(proposal.GroupID), encoded.warnings, encoded.details, proposalID)
+		return err
+	})
+	if err != nil {
+		return 0, false, fmt.Errorf("upsert proposal: %w", err)
+	}
+	return proposalID, created, nil
+}
+
+// SetGroupPrimary fait de la proposition la seule principale du groupe (elle y est rattachée) ; elle doit être full ou
+// partial_annex et ni rejetée ni close, sinon ErrInvalidTransition.
+func (openedStore *Store) SetGroupPrimary(ctx context.Context, groupID, proposalID int64) error {
+	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
+		var kind, decision string
+		err := transaction.QueryRowContext(ctx, `SELECT kind, decision FROM proposals WHERE id = ?`, proposalID).Scan(&kind, &decision)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrProposalNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("load proposal: %w", err)
+		}
+		isSeedable := ProposalKind(kind) == ProposalFull || ProposalKind(kind) == ProposalPartialAnnex
+		isClosed := ProposalDecision(decision) == ProposalRejected || ProposalDecision(decision) == ProposalSuperseded
+		if !isSeedable || isClosed {
+			return fmt.Errorf("%w: %s %s proposal cannot be primary", ErrInvalidTransition, decision, kind)
+		}
+		if _, err := transaction.ExecContext(ctx, `UPDATE proposals SET is_primary = 0 WHERE group_id = ?`, groupID); err != nil {
+			return fmt.Errorf("clear group primary: %w", err)
+		}
+		_, err = transaction.ExecContext(ctx, `UPDATE proposals SET is_primary = 1, group_id = ? WHERE id = ?`, groupID, proposalID)
+		return err
+	})
+}
+
 // ListProposals renvoie les propositions de la décision donnée (toutes si vide), triées par identifiant.
 func (openedStore *Store) ListProposals(ctx context.Context, decision ProposalDecision) ([]Proposal, error) {
-	rows, err := openedStore.database.QueryContext(ctx, `SELECT id, candidate_id, group_id, kind, decision, warnings, created_at, decided_at
-FROM proposals WHERE ? = '' OR decision = ? ORDER BY id`, string(decision), string(decision))
+	rows, err := openedStore.database.QueryContext(ctx, `SELECT id, candidate_id, group_id, kind, decision, warnings, is_primary, details,
+	created_at, decided_at FROM proposals WHERE ? = '' OR decision = ? ORDER BY id`, string(decision), string(decision))
 	if err != nil {
 		return nil, fmt.Errorf("list proposals: %w", err)
 	}
@@ -255,14 +354,16 @@ FROM proposals WHERE ? = '' OR decision = ? ORDER BY id`, string(decision), stri
 func scanProposal(rows *sql.Rows) (Proposal, error) {
 	var proposal Proposal
 	var candidateID, groupID, decidedAt sql.NullInt64
-	var kind, decision, warnings string
+	var kind, decision, warnings, details string
 	var createdAt int64
-	if err := rows.Scan(&proposal.ID, &candidateID, &groupID, &kind, &decision, &warnings, &createdAt, &decidedAt); err != nil {
+	if err := rows.Scan(&proposal.ID, &candidateID, &groupID, &kind, &decision, &warnings, &proposal.Primary, &details,
+		&createdAt, &decidedAt); err != nil {
 		return Proposal{}, fmt.Errorf("scan proposal: %w", err)
 	}
 	if err := json.Unmarshal([]byte(warnings), &proposal.Warnings); err != nil {
 		return Proposal{}, fmt.Errorf("decode proposal warnings: %w", err)
 	}
+	proposal.Details = json.RawMessage(details)
 	proposal.CandidateID, proposal.GroupID = candidateID.Int64, groupID.Int64
 	proposal.Kind, proposal.Decision = ProposalKind(kind), ProposalDecision(decision)
 	proposal.CreatedAt = time.Unix(0, createdAt).UTC()
