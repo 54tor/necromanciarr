@@ -655,3 +655,22 @@ func TestCli_dedupePlanPrintsEachProposalWarning(t *testing.T) {
 		t.Fatalf("gotValue %+v, expectedValue the warning printed under the proposal", plan)
 	}
 }
+
+func TestCli_textOutputDropsTerminalControlCharacters(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{}`)
+	hostileName := "Movie\x1b]52;c;ZXZpbA==\x07.\x1b[31mred\u009b2J\x00end\ttab"
+	fake := &fakeService{proposals: []app.Proposal{{ID: 5, Kind: store.ProposalFull, Decision: store.ProposalPending, CandidateName: hostileName, Current: true}},
+		err: nil, maintenanceWarnings: nil}
+	useFakeService(t, fake)
+
+	listed := runCli(t, configDir, "proposals", "list")
+
+	for _, forbidden := range []string{"\x1b", "\x07", "\u009b", "\x00"} {
+		if strings.Contains(listed.stdout, forbidden) || strings.Contains(listed.stderr, forbidden) {
+			t.Fatalf("gotValue %q, expectedValue no %q in the text output", listed.stdout, forbidden)
+		}
+	}
+	if !strings.Contains(listed.stdout, "Movie]52;c;") {
+		t.Fatalf("gotValue %q, expectedValue the printable part of the name kept", listed.stdout)
+	}
+}

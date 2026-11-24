@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"necromanciarr/internal/app"
 	"necromanciarr/internal/config"
@@ -162,7 +163,22 @@ type printer struct {
 	secrets        []string
 }
 
-func (out printer) redact(text string) string { return config.RedactText(text, out.secrets...) }
+// redact masque les secrets puis retire les caractères de contrôle (ESC, OSC, C1...) d'un texte destiné au terminal :
+// un nom de torrent ou une réponse de service ne doit jamais piloter le terminal. Seuls saut de ligne et tabulation
+// restent.
+func (out printer) redact(text string) string {
+	return stripControlCharacters(config.RedactText(text, out.secrets...))
+}
+
+func stripControlCharacters(text string) string {
+	return strings.Map(func(character rune) rune {
+		isKeptControl := character == '\n' || character == '\t'
+		if unicode.IsControl(character) && !isKeptControl {
+			return -1
+		}
+		return character
+	}, text)
+}
 
 func (out printer) result(result output) int {
 	if out.jsonOutput {
