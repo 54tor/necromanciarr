@@ -15,6 +15,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - `NECROMANCIARR_SEED_CATEGORY` sets the seed category (`linkCategory`) from the environment.
 - `partialMaxMissingPercent` (`NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT`, default 100): partial torrents missing more pieces are not proposed; `status` lists them with the reason `missing_pieces_above_cap`, and each Verify applies the current cap.
 - `language` (`--language`, `NECROMANCIARR_LANGUAGE`, default `fr`): display language of the CLI, web interface, diagnostics and logs (`fr` or `en`).
+- CLI text and help, API error messages and action descriptions follow `language`; `GET /api/status` reports it; error codes never change.
 
 ### Changed
 - A link kind failure (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) now tells the cause and the setting to change.
