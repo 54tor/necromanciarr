@@ -57,6 +57,11 @@
 - **Aucune limite de débit sur l'authentification** : un échec écrit une ligne de journal (adresse, sans jeton) et rien d'autre. Garder le jeton long (32 caractères au moins, `api-key` en tire 43) et ne pas exposer le port sans mandataire.
 - **Jeton facultatif en boucle locale** : sur une machine partagée entre plusieurs utilisateurs, tout utilisateur local atteint l'API de `127.0.0.1` sans jeton. Définir `NECROMANCIARR_AUTH_TOKEN` même en boucle locale.
 
+### Base et plateformes
+
+- **Journal SQLite** : la base garde le mode de journal par défaut (`DELETE`), sans WAL. Le mode WAL exige une mémoire partagée (`-shm`) que les volumes réseau (NFS, SMB, montages rclone) ne garantissent pas, et la base vit souvent sur un tel volume en Docker ; les transactions prennent le verrou d'écriture dès `BEGIN` (`_txlock=immediate`) avec une attente de 5 secondes (`busy_timeout`).
+- **Windows** : les binaires `windows/amd64` et `windows/arm64` sont construits ; la CI n'exécute sur Windows que les tests des paquets `internal/linker`, `internal/config` et `internal/pipeline` (job `windows-tests`), sur `amd64`.
+
 ### Risques acceptés (relecture de la v1)
 
 | Risque | Condition |

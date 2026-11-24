@@ -47,6 +47,6 @@ Le contrat du fournisseur de bibliothèque est dans [`docs/contract/openapi.yaml
 - Un identifiant de proposition, de groupe ou de job est un entier strictement positif.
 - Les clés de `config.json` sont en `camelCase`, les champs JSON des sorties CLI et API en `snake_case`.
 - Les sorties `--json` et l'API ne contiennent aucun secret : jetons, clés d'API, mots de passe, clé du chemin `/proxy/` de qui et identifiants rc y sont masqués par `***` ou `[redacted]`.
-- Les messages d'erreur et les motifs de refus des journaux sont en anglais, les pages de cette référence en français.
+- Les messages d'erreur, les motifs de refus et la plupart des textes de `doctor` sont en anglais ; quelques textes destinés à l'opérateur (message de proposition périmée, conseils rclone, avertissements de lecture de dedupe) sont en français ([04-cli-and-web.md](04-cli-and-web.md)). Les pages de cette référence sont en français.
 - Les exemples utilisent des valeurs fictives : `/home/u/…`, `/data/…`, `example.com`, `alice`.
 - Une durée de configuration est une durée Go (`10m`, `90s`, `1h`).
