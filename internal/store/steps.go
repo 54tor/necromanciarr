@@ -76,16 +76,19 @@ func (openedStore *Store) ApplyProposal(ctx context.Context, proposalID int64, s
 	})
 }
 
-// DeleteProposalProgress efface l'étape de la proposition (liens abîmés constatés par Seed : Link doit les refaire).
-func (openedStore *Store) DeleteProposalProgress(ctx context.Context, proposalID int64) error {
-	_, err := openedStore.database.ExecContext(ctx, `DELETE FROM proposal_steps WHERE proposal_id = ?`, proposalID)
+// ClearProposalStep efface l'étape de la proposition (liens abîmés constatés par Seed : Link doit les refaire) mais garde
+// son dossier de liens : Link le reprend tel quel, sans le renommer.
+func (openedStore *Store) ClearProposalStep(ctx context.Context, proposalID int64, now time.Time) error {
+	_, err := openedStore.database.ExecContext(ctx, `UPDATE proposal_steps SET step = '', updated_at = ? WHERE proposal_id = ?`,
+		now.UnixNano(), proposalID)
 	if err != nil {
-		return fmt.Errorf("delete proposal step: %w", err)
+		return fmt.Errorf("clear proposal step: %w", err)
 	}
 	return nil
 }
 
-// ListProposalProgress renvoie l'étape de chaque proposition qui en a une, par identifiant de proposition.
+// ListProposalProgress renvoie l'étape de chaque proposition qui en a une, par identifiant de proposition ; une étape
+// effacée par ClearProposalStep est vide et garde son dossier de liens.
 func (openedStore *Store) ListProposalProgress(ctx context.Context) (map[int64]ProposalProgress, error) {
 	rows, err := openedStore.database.QueryContext(ctx, `SELECT proposal_id, step, link_root, updated_at FROM proposal_steps`)
 	if err != nil {

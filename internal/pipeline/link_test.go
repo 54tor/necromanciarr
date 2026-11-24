@@ -210,8 +210,8 @@ func TestLinkStage_excludedFilesAreNotLinked(t *testing.T) {
 	fixture.mustRunStage(StageLink)
 
 	expectedValue := []string{
-		"Movie.2020 [" + candidate.Infohash[:8] + "]", "Movie.2020 [" + candidate.Infohash[:8] + "]/Movie.2020",
-		"Movie.2020 [" + candidate.Infohash[:8] + "]/Movie.2020/movie.mkv",
+		"Movie.2020 [" + candidate.Infohash + "]", "Movie.2020 [" + candidate.Infohash + "]/Movie.2020",
+		"Movie.2020 [" + candidate.Infohash + "]/Movie.2020/movie.mkv",
 	}
 	if gotValue := linkDirEntries(t, fixture.linkDir); !slices.Equal(gotValue, expectedValue) {
 		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)

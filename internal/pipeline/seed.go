@@ -120,7 +120,7 @@ func (run seedRun) seedChecked(ctx context.Context, proposal store.Proposal, can
 		return err
 	}
 	if damage != "" {
-		if err := run.deps.Store.DeleteProposalProgress(ctx, proposal.ID); err != nil {
+		if err := run.deps.Store.ClearProposalStep(ctx, proposal.ID, run.deps.now()); err != nil {
 			return err
 		}
 		return refusal(damage)

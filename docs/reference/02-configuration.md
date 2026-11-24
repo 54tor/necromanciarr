@@ -61,7 +61,7 @@ Les chemins de la bibliothèque, des dossiers de liens et des racines torrent so
 
 - Aucun `linkDirs[i]` n'est égal à une racine de bibliothèque, ne la contient ni n'y est contenu : refus au chargement (lexical), puis à l'étape Link sur chemins résolus (liens symboliques suivis).
 - Pour chaque torrent, Link choisit le **premier** dossier de `linkDirs` situé sur le même système de fichiers que le premier fichier source. Hardlink et reflink exigent ce même système de fichiers. Sans dossier correspondant, seul un symlink est possible, et seulement si `linkType` vaut `symlink` : sinon la proposition passe `failed` (`no_link_dir_on_same_device`).
-- Le dossier du torrent s'appelle `<nom racine> [<8 premiers caractères de l'infohash>]` sous le dossier de liens, droits `0755` pour que le client, souvent sous un autre compte, le lise.
+- Le dossier du torrent s'appelle `<nom racine> [<infohash complet>]` sous le dossier de liens, droits `0755` pour que le client, souvent sous un autre compte, le lise. Un nom de plus de 255 octets raccourcit le nom racine (sans couper un caractère), jamais l'infohash. Un dossier déjà enregistré pour la proposition (`proposal_steps.link_root`) est toujours repris tel quel par Link, Seed et Force, y compris un dossier `<nom racine> [<8 caractères>]` posé par une version antérieure ; après des liens abîmés, Seed efface l'étape mais garde ce dossier, et Link le refait au même endroit.
 - `linkType` est le seul réglage de sorte pour Link : s'il n'est pas accepté par le dossier (sonde réelle), la proposition échoue (`link_kind_refused`) au lieu de changer de sorte.
 
 ### Clients torrent, qui, mode lecture seule

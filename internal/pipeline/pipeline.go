@@ -87,7 +87,7 @@ type Store interface {
 	SaveProposalProgress(ctx context.Context, progress store.ProposalProgress, now time.Time) error
 	ApplyProposal(ctx context.Context, proposalID int64, step store.ProposalStep, linkRoot string, now time.Time) error
 	AddProposalWarning(ctx context.Context, proposalID int64, warning string) error
-	DeleteProposalProgress(ctx context.Context, proposalID int64) error
+	ClearProposalStep(ctx context.Context, proposalID int64, now time.Time) error
 	AcquireRunLock(ctx context.Context, holder, stage string, now, expiresAt time.Time) error
 	RefreshRunLock(ctx context.Context, holder string, expiresAt time.Time) error
 	ReleaseRunLock(ctx context.Context, holder string) error

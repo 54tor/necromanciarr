@@ -43,7 +43,9 @@ func (svc *service) Status(ctx context.Context) (Status, error) {
 		status.Proposals[proposal.Decision]++
 	}
 	for _, progress := range state.progress {
-		status.Steps[progress.Step]++
+		if progress.Step != "" {
+			status.Steps[progress.Step]++
+		}
 	}
 	return status, nil
 }

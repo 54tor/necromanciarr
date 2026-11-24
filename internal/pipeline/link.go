@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/dedupe"
@@ -45,8 +46,8 @@ const (
 // linkRootMode : le dossier du torrent doit rester lisible par le client torrent, qui tourne souvent sous un autre compte.
 const linkRootMode fs.FileMode = 0o755
 
-// shortHashLength : 8 caractères d'infohash suffisent à séparer deux torrents de même nom racine (autre tracker).
-const shortHashLength = 8
+// maxFolderNameBytes est la longueur maximale d'un nom de dossier sur les systèmes de fichiers courants (octets).
+const maxFolderNameBytes = 255
 
 // temporaryMarker est le motif des fichiers temporaires d'annexe laissés par un arrêt (linker.WriteVerifiedFile).
 const temporaryMarker = ".necromanciarr-tmp-"
@@ -88,7 +89,7 @@ func runLink(ctx context.Context, deps Deps) (Result, error) {
 			continue
 		}
 		linkedCandidates[candidate.ID] = true
-		if err := run.linkProposal(ctx, proposal, candidate); err != nil {
+		if err := run.linkProposal(ctx, proposal, candidate, work.progress[proposal.ID].LinkRoot); err != nil {
 			return result, err
 		}
 	}
@@ -127,8 +128,8 @@ type linkRun struct {
 }
 
 // linkProposal ne renvoie une erreur que pour arrêter l'étape (store, annulation) ; un refus passe la proposition à
-// failed avec sa raison.
-func (run linkRun) linkProposal(ctx context.Context, proposal store.Proposal, candidate store.Candidate) error {
+// failed avec sa raison. recordedRoot est le dossier déjà enregistré pour la proposition (vide s'il n'y en a pas).
+func (run linkRun) linkProposal(ctx context.Context, proposal store.Proposal, candidate store.Candidate, recordedRoot string) error {
 	proven, reason, err := loadProven(ctx, run.deps, proposal, candidate)
 	switch {
 	case err != nil:
@@ -144,7 +145,7 @@ func (run linkRun) linkProposal(ctx context.Context, proposal store.Proposal, ca
 	if reason != "" {
 		return failProposal(ctx, run.deps, run.result, proposal.ID, reason)
 	}
-	destRoot, err := torrentLinkRoot(linkDir, proven.torrent, candidate.Infohash)
+	destRoot, err := chooseLinkRoot(linkDir, recordedRoot, proven.torrent, candidate.Infohash)
 	if err != nil {
 		return failProposal(ctx, run.deps, run.result, proposal.ID, ReasonLinkRootUnusable)
 	}
@@ -431,14 +432,39 @@ func (run linkRun) probe(linkDir string) (linker.Capabilities, error) {
 	return capabilities, nil
 }
 
-// torrentLinkRoot est le dossier propre au torrent sous linkDir, nommé d'après son nom racine et le début de son
-// infohash : deux torrents de même nom (autre tracker) n'y partagent jamais un dossier.
+// chooseLinkRoot reprend le dossier déjà enregistré pour la proposition s'il est sous linkDir (un dossier d'une
+// version antérieure, nommé autrement, reste ainsi utilisé) ; sinon il le nomme.
+func chooseLinkRoot(linkDir, recordedRoot string, torrent *torrentcheck.Torrent, infohash string) (string, error) {
+	isRecordedUnderLinkDir := recordedRoot != "" && filepath.Dir(filepath.Clean(recordedRoot)) == filepath.Clean(linkDir)
+	if isRecordedUnderLinkDir {
+		return recordedRoot, nil
+	}
+	return torrentLinkRoot(linkDir, torrent, infohash)
+}
+
+// torrentLinkRoot est le dossier propre au torrent sous linkDir, nommé d'après son nom racine et son infohash
+// complet : deux torrents de même nom (autre tracker) n'y partagent jamais un dossier. Un nom trop long pour le système
+// de fichiers raccourcit le nom racine, jamais l'infohash.
 func torrentLinkRoot(linkDir string, torrent *torrentcheck.Torrent, infohash string) (string, error) {
-	name := fmt.Sprintf("%s [%s]", torrent.Root, infohash[:min(shortHashLength, len(infohash))])
+	suffix := " [" + infohash + "]"
+	name := truncateUTF8(torrent.Root, maxFolderNameBytes-len(suffix)) + suffix
 	if strings.ContainsAny(name, `/\`) || !filepath.IsLocal(name) {
 		return "", fmt.Errorf("%w: %q", linker.ErrUnsafePath, name)
 	}
 	return filepath.Join(linkDir, name), nil
+}
+
+// truncateUTF8 coupe text à maxBytes octets au plus sans couper un caractère, puis retire espaces et points finaux
+// (refusés en fin de nom par Windows).
+func truncateUTF8(text string, maxBytes int) string {
+	if len(text) <= maxBytes {
+		return text
+	}
+	cut := max(maxBytes, 0)
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return strings.TrimRight(text[:cut], " .")
 }
 
 // linkPlacement retient ce que cette exécution a créé pour un torrent, afin de le défaire en cas d'échec.

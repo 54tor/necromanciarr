@@ -63,7 +63,6 @@
 |---|---|
 | `doctor` suit un lien symbolique entre le contrôle de chevauchement et la sonde (TOCTOU) | un tiers modifie les dossiers de liens pendant le diagnostic |
 | À Link, l'adoption d'une entrée déjà présente ne rejoue pas le contrôle de confinement par segments | un tiers a déjà écrit dans le dossier de liens de l'outil |
-| Le nom du dossier d'un torrent n'utilise que 8 caractères de l'infohash | collision entre deux torrents de même nom racine, improbable |
 | L'écriture d'une annexe renomme par-dessus sans `fsync` du dossier parent | coupure franche à cet instant |
 | Une clé dupliquée de `config.json` n'est pas détectée (la dernière gagne) | limite d'`encoding/json` |
 | Dépendances de développement : 5 alertes `npm audit` de niveau modéré | dev seulement (le seuil bloquant est `high`) |

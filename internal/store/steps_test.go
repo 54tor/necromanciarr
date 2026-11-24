@@ -119,18 +119,19 @@ func TestAcceptProposals_acceptsAllOrNothing(t *testing.T) {
 	}
 }
 
-func TestDeleteProposalProgress_removesTheStep(t *testing.T) {
+func TestClearProposalStep_removesTheStepButKeepsTheLinkRoot(t *testing.T) {
 	ctx := context.Background()
 	openedStore := openTestStore(t)
 	_, proposalID := acceptedTestProposal(t, openedStore)
-	if err := openedStore.SaveProposalProgress(ctx, ProposalProgress{ProposalID: proposalID, Step: StepLinked}, testNow); err != nil {
+	expectedRoot := "/home/u/links/Movie [aa]"
+	if err := openedStore.SaveProposalProgress(ctx, ProposalProgress{ProposalID: proposalID, Step: StepLinked, LinkRoot: expectedRoot}, testNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := openedStore.DeleteProposalProgress(ctx, proposalID); err != nil {
+	if err := openedStore.ClearProposalStep(ctx, proposalID, testNow); err != nil {
 		t.Fatal(err)
 	}
 	progress, err := openedStore.ListProposalProgress(ctx)
-	if _, present := progress[proposalID]; err != nil || present {
-		t.Fatalf("gotValue %+v %v, expectedValue no step", progress, err)
+	if gotValue := progress[proposalID]; err != nil || gotValue.Step != "" || gotValue.LinkRoot != expectedRoot {
+		t.Fatalf("gotValue %+v %v, expectedValue no step and the link root kept", gotValue, err)
 	}
 }
