@@ -101,7 +101,7 @@ func defaultConfigDir() string {
 }
 
 // runAPIKey tire un jeton neuf pour NECROMANCIARR_AUTH_TOKEN et l'affiche sur stdout seulement ; il n'est jamais écrit
-// sur le disque ni journalisé.
+// sur le disque ni consigné dans un log.
 func runAPIKey(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		_, _ = fmt.Fprint(stderr, usageText)

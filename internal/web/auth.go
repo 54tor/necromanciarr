@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -97,7 +98,7 @@ func (handler *Handler) protect(next http.Handler) http.Handler {
 		}
 		if !handler.authorized(request) {
 			// Une ligne par échec, sans limite de débit (risque accepté en v1) ; ni jeton ni en-tête n'y figurent.
-			log.Printf("api: unauthorized request from %s", request.RemoteAddr)
+			log.Printf("api: unauthorized request from %s", remoteAddress(request)) // #nosec G706 -- adresse analysée par netip, sans texte libre
 			writer.Header().Set("WWW-Authenticate", bearerScheme)
 			handler.writeError(writer, newAPIError(http.StatusUnauthorized, errorCodeUnauthorized, errorMessageToken))
 			return
@@ -145,6 +146,15 @@ func (handler *Handler) checkUnsafeMethod(request *http.Request) error {
 		return newAPIError(http.StatusForbidden, errorCodeForbidden, errorMessageOrigin)
 	}
 	return nil
+}
+
+// remoteAddress ne garde de RemoteAddr qu'une adresse analysée : aucun texte arbitraire n'entre dans le journal.
+func remoteAddress(request *http.Request) string {
+	address, err := netip.ParseAddrPort(request.RemoteAddr)
+	if err != nil {
+		return "unknown"
+	}
+	return address.String()
 }
 
 func sameOrigin(origin, host string) bool {
