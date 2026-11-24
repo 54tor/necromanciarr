@@ -1,0 +1,116 @@
+// Package web sert l'API JSON de revue (/api), la sonde /healthz et l'interface embarquée. Chaque action passe par
+// app.Service : le web n'appelle jamais le store ni le pipeline directement.
+package web
+
+import (
+	"context"
+	"errors"
+	"io/fs"
+	"net"
+	"net/http"
+	"time"
+
+	"necromanciarr/internal/app"
+	"necromanciarr/internal/config"
+	"necromanciarr/internal/web/ui"
+)
+
+// Bornes du serveur HTTP : les actions longues tournent en job, aucune requête n'a donc besoin de plus de 30 s de
+// lecture. Pas de WriteTimeout : le diagnostic synchrone attend ses contrôles (chacun borné par son propre délai).
+const (
+	readHeaderTimeout = 10 * time.Second
+	readTimeout       = 30 * time.Second
+	idleTimeout       = 120 * time.Second
+	maxHeaderBytes    = 16 << 10
+	shutdownTimeout   = 10 * time.Second
+	healthTimeout     = 2 * time.Second
+)
+
+// HealthChecker répond à la sonde /healthz ; *store.Store convient (Ping de la base SQLite).
+type HealthChecker interface {
+	Ping(ctx context.Context) error
+}
+
+// Handler est le handler HTTP complet : API protégée, sonde et interface. Wait attend la fin des jobs en cours.
+type Handler struct {
+	mux      *http.ServeMux
+	service  app.Service
+	health   HealthChecker
+	settings config.Config
+	jobs     *jobRunner
+	hosts    allowedHosts
+}
+
+// NewHandler sert l'interface embarquée (ui.Assets) ; ctx est le contexte du serveur : son annulation arrête les jobs.
+func NewHandler(ctx context.Context, service app.Service, health HealthChecker, settings config.Config) *Handler {
+	// fs.Sub n'échoue que sur un nom invalide, et « dist » est valide.
+	dist, _ := fs.Sub(ui.Assets, "dist")
+	return NewHandlerWithAssets(ctx, service, health, settings, dist)
+}
+
+// NewHandlerWithAssets sert assets (racine = contenu de dist) à la place de l'interface embarquée ; sert aux tests.
+func NewHandlerWithAssets(ctx context.Context, service app.Service, health HealthChecker, settings config.Config, assets fs.FS) *Handler {
+	handler := &Handler{
+		mux: http.NewServeMux(), service: service, health: health, settings: settings,
+		jobs: newJobRunner(ctx), hosts: hostsFor(settings.ListenAddr),
+	}
+	handler.mux.HandleFunc("GET /healthz", handler.serveHealth)
+	for _, apiRoute := range apiRoutes {
+		handler.mux.Handle(apiRoute.pattern(), handler.protect(handler.endpoint(apiRoute.handle)))
+	}
+	handler.mux.Handle("/api/", handler.protect(handler.endpoint(unknownRoute)))
+	handler.mux.Handle("/", assetsHandler(assets))
+	return handler
+}
+
+// ServeHTTP pose les en-têtes de sécurité sur chaque réponse, puis route la requête.
+func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	setSecurityHeaders(writer.Header())
+	handler.mux.ServeHTTP(writer, request)
+}
+
+// Wait attend la fin des jobs lancés (ils s'arrêtent quand le contexte du serveur est annulé).
+func (handler *Handler) Wait() { handler.jobs.wait() }
+
+// serveHealth ne renvoie que « ok » ou « unavailable » : ni configuration, ni version, ni texte d'erreur.
+func (handler *Handler) serveHealth(writer http.ResponseWriter, request *http.Request) {
+	ctx, cancel := context.WithTimeout(request.Context(), healthTimeout)
+	defer cancel()
+	writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	writer.Header().Set("Cache-Control", "no-store")
+	if handler.health == nil || handler.health.Ping(ctx) != nil {
+		writer.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = writer.Write([]byte("unavailable"))
+		return
+	}
+	_, _ = writer.Write([]byte("ok"))
+}
+
+// NewServer règle les délais et la taille des en-têtes du serveur ; ctx devient le contexte de base des requêtes.
+func NewServer(ctx context.Context, handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler: handler, ReadHeaderTimeout: readHeaderTimeout, ReadTimeout: readTimeout, IdleTimeout: idleTimeout,
+		MaxHeaderBytes: maxHeaderBytes, BaseContext: func(net.Listener) context.Context { return ctx },
+	}
+}
+
+// Run sert handler sur listener jusqu'à l'annulation de ctx, puis arrête le serveur proprement (requêtes en cours
+// terminées sous 10 s) et attend la fin des jobs.
+func Run(ctx context.Context, listener net.Listener, handler *Handler) error {
+	server := NewServer(ctx, handler)
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	var serveErr error
+	select {
+	case serveErr = <-served:
+	case <-ctx.Done():
+		shutdownContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+		defer cancel()
+		serveErr = server.Shutdown(shutdownContext)
+	}
+	handler.Wait()
+	if errors.Is(serveErr, http.ErrServerClosed) {
+		return nil
+	}
+	return serveErr
+}
