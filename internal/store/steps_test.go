@@ -213,3 +213,23 @@ func TestAddProposalWarning_appendsToALegacyRowWithoutLosingIt(t *testing.T) {
 		t.Fatalf("gotValue %+v, expectedValue %+v", gotValue, expectedValue)
 	}
 }
+
+func TestWarnings_mixedLegacyAndStructuredArraysAreRead(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	_, proposalID := acceptedTestProposal(t, openedStore)
+	mixed := `["old text",{"key":"warning.test","params":{"count":"2"}},"another"]`
+	if _, err := openedStore.database.ExecContext(ctx, `UPDATE proposals SET warnings = ? WHERE id = ?`, mixed, proposalID); err != nil {
+		t.Fatal(err)
+	}
+	expectedValue := []i18n.Message{
+		{Key: i18n.KeyLegacyText, Params: map[string]string{"text": "old text"}},
+		{Key: "warning.test", Params: map[string]string{"count": "2"}},
+		{Key: i18n.KeyLegacyText, Params: map[string]string{"text": "another"}},
+	}
+
+	proposals, err := openedStore.ListProposals(ctx, ProposalAccepted)
+	if err != nil || !reflect.DeepEqual(proposals[0].Warnings, expectedValue) {
+		t.Fatalf("gotValue %+v %v, expectedValue %+v", proposals, err, expectedValue)
+	}
+}

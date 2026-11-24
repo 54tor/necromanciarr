@@ -12,7 +12,7 @@ const (
 	KeyWarningApplicationFailedCrossDevice Key = "warning.application_failed.cross_device"
 	KeyWarningApplicationFailedNoLinkDir   Key = "warning.application_failed.no_link_dir"
 	KeyWarningApplicationFailedKindRefused Key = "warning.application_failed.kind_refused"
-	KeyWarningApplicationFailedDetail      Key = "warning.application_failed_detail"
+	KeyWarningApplicationFailedDetail      Key = "warning.application_failed.detail"
 	KeyWarningPausedIncompleteAfterRecheck Key = "warning.paused_incomplete_after_recheck"
 	KeyWarningRecheckFailed                Key = "warning.recheck_failed"
 	KeyWarningNoClientRecheck              Key = "warning.no_client_recheck"

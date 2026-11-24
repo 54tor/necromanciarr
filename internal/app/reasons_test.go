@@ -128,3 +128,40 @@ func TestProposalJSON_reasonLabelsFollowLanguage(t *testing.T) {
 		}
 	}
 }
+
+// TestPipeline_everyCountedReasonIsAReasonIdentifier : un motif compté par une étape ne peut pas être un littéral, il
+// échapperait au test des libellés.
+func TestPipeline_everyCountedReasonIsAReasonIdentifier(t *testing.T) {
+	paths, err := filepath.Glob("../pipeline/*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspected := 0
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, isCall := node.(*ast.CallExpr)
+			if !isCall {
+				return true
+			}
+			selector, isSelector := call.Fun.(*ast.SelectorExpr)
+			if !isSelector || selector.Sel.Name != "count" || len(call.Args) != 2 {
+				return true
+			}
+			inspected++
+			if literal, isLiteral := call.Args[0].(*ast.BasicLit); isLiteral {
+				t.Errorf("%s: count(%s, …) uses a string literal, expectedValue a Reason constant", path, literal.Value)
+			}
+			return true
+		})
+	}
+	if inspected < 20 {
+		t.Fatalf("gotValue %d count calls, expectedValue the stages' ones", inspected)
+	}
+}

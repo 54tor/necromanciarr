@@ -1,6 +1,8 @@
 package app
 
 import (
+	"slices"
+
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 )
@@ -35,13 +37,29 @@ func messagesOfCodes(codes []string) []i18n.Message {
 	return messages
 }
 
-// warningViews rend les messages stockés ; jamais nil, pour que le JSON porte toujours un tableau.
+// warningViews rend les messages stockés ; jamais nil, pour que le JSON porte toujours un tableau. Une ligne héritée
+// qui contient un code de dedupe ou repair est rendue comme sa clé, et un même avertissement n'apparaît qu'une fois.
 func warningViews(translator i18n.Translator, messages []i18n.Message) []Warning {
 	views := make([]Warning, 0, len(messages))
 	for _, message := range messages {
-		views = append(views, Warning{Code: string(message.Key), Text: translator.Render(message)})
+		view := Warning{Code: string(message.Key), Text: translator.Render(message)}
+		if key, isCode := maintenanceKeyOfLegacy(message); isCode {
+			view = Warning{Code: string(key), Text: translator.Text(key, nil)}
+		}
+		if !slices.Contains(views, view) {
+			views = append(views, view)
+		}
 	}
 	return views
+}
+
+// maintenanceKeyOfLegacy dit si un message hérité porte un code d'avertissement de dedupe ou repair.
+func maintenanceKeyOfLegacy(message i18n.Message) (i18n.Key, bool) {
+	if message.Key != i18n.KeyLegacyText {
+		return "", false
+	}
+	key, known := maintenanceWarningKeys[message.Params["text"]]
+	return key, known
 }
 
 // withReasonLabels ajoute au résultat d'une étape le libellé traduit de chaque motif compté ; les codes restent la seule

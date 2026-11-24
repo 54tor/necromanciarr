@@ -98,3 +98,21 @@ func TestHoldWarnings_legacyStringRowsStillRender(t *testing.T) {
 		}
 	}
 }
+
+func TestHoldWarnings_mixedLegacyAndStructuredArraysAreRead(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID := saveVerifiedHoldCandidate(t, openedStore)
+	if err := openedStore.SaveCandidateHold(ctx, CandidateHold{CandidateID: candidateID, Reason: "missing_pieces_above_cap", Kind: ProposalPartialAnnex}, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openedStore.database.ExecContext(ctx, `UPDATE candidate_holds SET warnings = ?`, `[{"key":"warning.test"},"old hold text"]`); err != nil {
+		t.Fatal(err)
+	}
+	expectedValue := []i18n.Message{{Key: "warning.test"}, {Key: i18n.KeyLegacyText, Params: map[string]string{"text": "old hold text"}}}
+
+	holds, err := openedStore.ListCandidateHolds(ctx)
+	if err != nil || len(holds) != 1 || !reflect.DeepEqual(holds[0].Warnings, expectedValue) {
+		t.Fatalf("gotValue %+v %v, expectedValue %+v", holds, err, expectedValue)
+	}
+}

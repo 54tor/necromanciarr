@@ -144,7 +144,12 @@ func TestProposalJSON_onlyTextFieldsDifferBetweenLanguages(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		encoded, err := json.Marshal(map[string]any{"proposals": proposals, "held": status.Held, "result": withReasonLabels(i18n.New(language, nil), pipeline.Result{Reasons: map[string]int{"no_exact_size": 1}})})
+		encoded, err := json.Marshal(map[string]any{
+			"proposals": proposals, "held": status.Held, "result": withReasonLabels(i18n.New(language, nil), pipeline.Result{Reasons: map[string]int{"no_exact_size": 1}}),
+			"force":  ForceResult{ProposalID: proposalID, Warnings: warningViews(i18n.New(language, nil), []i18n.Message{{Key: i18n.KeyWarningSourcesChanged}})},
+			"dedupe": DedupeProposal{ID: 1, Warnings: warningViews(i18n.New(language, nil), []i18n.Message{{Key: i18n.KeyWarningNoClientRecheck}}), Details: DedupeDetails{Reason: DedupeReasonIsolatedCopy}.labelled(i18n.New(language, nil))},
+			"repair": RepairProposal{ID: 2, Warnings: warningViews(i18n.New(language, nil), []i18n.Message{{Key: i18n.KeyWarningRecheckFailed}}), Details: RepairDetails{Reason: RepairReasonNeedsClientRecheck}.labelled(i18n.New(language, nil))},
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -160,5 +165,28 @@ func TestProposalJSON_onlyTextFieldsDifferBetweenLanguages(t *testing.T) {
 	}
 	if !strings.Contains(fmt.Sprint(trees[i18n.French]), "code:warning.annex_hash_failed") {
 		t.Fatalf("gotValue %v, expectedValue the warning key under code", trees[i18n.French])
+	}
+}
+
+func TestProposalWarnings_legacyMaintenanceCodeRendersTranslatedAndOnce(t *testing.T) {
+	fixture := newDecisionFixture(t)
+	proposalID := fixture.proposal(fixture.verifiedCandidate("aa"), store.ProposalFull)
+	legacyCode := i18n.Message{Key: i18n.KeyLegacyText, Params: map[string]string{"text": WarningNoClientRecheck}}
+	for _, message := range []i18n.Message{legacyCode, {Key: i18n.KeyWarningNoClientRecheck}} {
+		if err := fixture.store.AddProposalWarning(t.Context(), proposalID, message); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, language := range []i18n.Language{i18n.French, i18n.English} {
+		warnings := listedWarnings(t, fixture, language)
+		var codes []string
+		for _, warning := range warnings {
+			codes = append(codes, warning.Code)
+		}
+		expectedValue := []string{"warning.test", string(i18n.KeyWarningNoClientRecheck)}
+		if !slices.Equal(codes, expectedValue) || strings.Contains(warnings[1].Text, WarningNoClientRecheck) {
+			t.Fatalf("language %s: gotValue %+v, expectedValue codes %v with a translated text", language, warnings, expectedValue)
+		}
 	}
 }
