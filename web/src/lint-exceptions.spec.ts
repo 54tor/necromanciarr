@@ -32,3 +32,29 @@ describe('raw-text lint exceptions', () => {
     expect(rawTextErrors.length).toBeGreaterThan(0)
   })
 })
+
+describe('raw-text lint on an unlisted file', () => {
+  const linter = new ESLint({ cwd: webRoot })
+
+  async function rawTextMessages(template: string) {
+    const [result] = await linter.lintText(`<template>${template}</template>`, {
+      filePath: 'src/components/Unlisted.vue',
+    })
+    return result!.messages.filter((message) => message.ruleId === '@intlify/vue-i18n/no-raw-text')
+  }
+
+  it('fails on a raw text node', async () => {
+    expect((await rawTextMessages('<p>Hello</p>')).length).toBeGreaterThan(0)
+  })
+
+  it.each(['placeholder', 'aria-label', 'title', 'alt'])(
+    'fails on a raw %s attribute',
+    async (attribute) => {
+      expect((await rawTextMessages(`<input ${attribute}="Hello" />`)).length).toBeGreaterThan(0)
+    },
+  )
+
+  it('passes on a translated text', async () => {
+    expect(await rawTextMessages('<p>{{ t("nav.label") }}</p>')).toHaveLength(0)
+  })
+})

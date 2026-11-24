@@ -56,7 +56,7 @@ watch(loginRequired, (required) => {
           stroke-linecap="round"
           stroke-linejoin="round"
           role="img"
-          aria-label="Logo"
+          :aria-label="t('nav.logo')"
         >
           <path d="M16 3a10 10 0 0 0-10 10v6l3 2v5h4v-3h6v3h4v-5l3-2v-6A10 10 0 0 0 16 3Z" />
           <circle cx="12" cy="14" r="1.8" />

@@ -28,7 +28,17 @@ export default tseslint.config(
       'vue-i18n': { localeDir: './src/locales/*.json', messageSyntaxVersion: '^11.0.0' },
     },
     rules: {
-      '@intlify/vue-i18n/no-raw-text': 'error',
+      '@intlify/vue-i18n/no-raw-text': [
+        'error',
+        // Les attributs lus par l'utilisateur ou un lecteur d'écran sont des textes d'interface aussi.
+        {
+          attributes: {
+            '/.+/': ['title', 'aria-label', 'aria-placeholder', 'aria-description', 'alt'],
+            input: ['placeholder'],
+            textarea: ['placeholder'],
+          },
+        },
+      ],
       '@intlify/vue-i18n/no-missing-keys': 'error',
     },
   },
