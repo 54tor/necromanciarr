@@ -2,10 +2,12 @@ package arr
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 const radarrPayload = `[
@@ -85,5 +87,59 @@ func TestItems_errorNeverContainsAPIKey(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "wrong-secret") {
 		t.Fatalf("api key leaked in error: %v", err)
+	}
+}
+
+func newStatusServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v3/system/status" || request.Header.Get("X-Api-Key") != "secret-key" {
+			http.Error(writer, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		_, _ = writer.Write([]byte(`{"version":"5.0.0"}`))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestArrPing_okWithValidKey(t *testing.T) {
+	server := newStatusServer(t)
+
+	if err := New("radarr", server.URL, "secret-key").Ping(context.Background()); err != nil {
+		t.Fatalf("gotValue %v, expectedValue nil", err)
+	}
+}
+
+func TestArrPing_wrongKeyIsAccessDenied(t *testing.T) {
+	server := newStatusServer(t)
+
+	err := New("radarr", server.URL, "wrong-secret").Ping(context.Background())
+
+	if !errors.Is(err, ErrAccessDenied) {
+		t.Fatalf("gotValue %v, expectedValue ErrAccessDenied", err)
+	}
+}
+
+func TestArrPing_timeoutReturnsErrorWithoutKey(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		<-request.Context().Done()
+	}))
+	t.Cleanup(server.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err := New("radarr", server.URL, "secret-key").Ping(ctx)
+
+	if err == nil || strings.Contains(err.Error(), "secret-key") {
+		t.Fatalf("gotValue %v, expectedValue an error without the key", err)
+	}
+}
+
+func TestArrPing_keyNeverAppearsInErrors(t *testing.T) {
+	err := New("radarr", "http://127.0.0.1:1", "secret-key").Ping(context.Background())
+
+	if err == nil || strings.Contains(err.Error(), "secret-key") {
+		t.Fatalf("gotValue %v, expectedValue an error without the key", err)
 	}
 }

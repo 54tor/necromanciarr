@@ -25,6 +25,9 @@ const (
 // ErrUnknownKind signale un type d'instance qui n'est ni radarr ni sonarr.
 var ErrUnknownKind = errors.New("arr: unknown kind")
 
+// ErrAccessDenied signale une clé d'API refusée par l'instance (HTTP 401 ou 403).
+var ErrAccessDenied = errors.New("arr: access denied")
+
 // Item est un fichier connu d'une instance ; TMDBID (Radarr) ou TVDBID (Sonarr) vaut 0 s'il ne s'applique pas.
 type Item struct {
 	Path   string
@@ -48,6 +51,12 @@ func New(kind, baseURL, apiKey string) *Client {
 		apiKey:     apiKey,
 		httpClient: &http.Client{Timeout: requestTimeout},
 	}
+}
+
+// Ping vérifie que l'instance répond et accepte la clé, par un appel authentifié minimal (GET /api/v3/system/status).
+func (client *Client) Ping(ctx context.Context) error {
+	var status map[string]any
+	return client.getJSON(ctx, "/api/v3/system/status", nil, &status)
 }
 
 // Items renvoie les fichiers présents de l'instance ; pour Radarr, les films sans fichier sont ignorés.
@@ -128,6 +137,9 @@ func (client *Client) getJSON(ctx context.Context, endpoint string, query url.Va
 		return fmt.Errorf("arr %s: request failed: %w", endpoint, errors.Unwrap(err))
 	}
 	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("arr %s: %w (HTTP %d)", endpoint, ErrAccessDenied, response.StatusCode)
+	}
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("arr %s: unexpected status %d", endpoint, response.StatusCode)
 	}
