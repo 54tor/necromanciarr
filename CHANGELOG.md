@@ -11,6 +11,12 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - Cross-seed integration: sandboxed import of its `config.js`, `auto/delegate/native/off` modes, webhook notification.
 - rclone hash providers (`fsProviders`) with a per-mount capability cache.
 - CLI with `--json`, web interface and API (bearer token, jobs), `doctor` diagnostics, Docker image (amd64, arm64, riscv64).
+- `seedTags` (`NECROMANCIARR_SEED_TAGS`): tags set on every added torrent; the list replaces the default `necromanciarr` tag. `doctor` shows the category and tags.
+- `NECROMANCIARR_SEED_CATEGORY` sets the seed category (`linkCategory`) from the environment.
+- `partialMaxMissingPercent` (`NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT`, default 100): partial torrents missing more pieces are not proposed; `status` lists them with the reason `missing_pieces_above_cap`, and each Verify applies the current cap.
+
+### Changed
+- A link kind failure (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) now tells the cause and the setting to change.
 
 ### Security
 - Force copies each linked media sharing a missing piece out of the library before starting, or refuses.

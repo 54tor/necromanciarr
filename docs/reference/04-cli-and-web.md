@@ -9,7 +9,7 @@ Syntaxe : `necromanciarr <commande> [arguments] [options]`. Les arguments positi
 | Commande | Effet | Options |
 |---|---|---|
 | `scan`, `match`, `verify`, `link`, `seed` | lance une étape ([01-pipeline.md](01-pipeline.md)) | |
-| `status` | candidats par état, propositions par décision, étapes d'application, mode cross-seed effectif | |
+| `status` | candidats par état, propositions par décision, étapes d'application, mode cross-seed effectif, torrents vérifiés non proposés (`held`, une ligne `held:` par torrent avec la raison) | |
 | `proposals list` | liste les propositions | `--kind K`, `--state S`, `--group G`, `--current-only` |
 | `proposals accept <id>` | accepte une proposition de torrent | `--allow-partial-pack` |
 | `proposals accept-group <groupe>` | accepte la principale du groupe (et les `cross_seed` en mode `native`) | |

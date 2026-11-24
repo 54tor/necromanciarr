@@ -15,6 +15,9 @@ Du plus fort au plus faible : **options de ligne de commande**, **variables d'en
 | Débit de lecture | `--read-bytes-per-second` | aucune | `readBytesPerSecond` |
 | Mode cross-seed | `--cross-seed-mode` | `CROSS_SEED_MODE` | `crossSeedMode` |
 | `config.js` de cross-seed | `--cross-seed-config` | `CROSS_SEED_CONFIG` | `crossSeedConfig` |
+| Catégorie des seeds | aucune | `NECROMANCIARR_SEED_CATEGORY` | `linkCategory` |
+| Tags des seeds | aucune | `NECROMANCIARR_SEED_TAGS` (séparés par des virgules) | `seedTags` |
+| Plafond de pièces manquantes | aucune | `NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT` | `partialMaxMissingPercent` |
 | Jeton de l'interface | aucune | `NECROMANCIARR_AUTH_TOKEN` | aucune (jamais dans un fichier JSON) |
 | Jeton du fournisseur | aucune | `LIBRARY_PROVIDER_TOKEN` | aucune |
 
@@ -44,9 +47,11 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 | `radarr`, `sonarr` | liste d'URL | vide | `http(s)://hôte:port[/chemin]?apikey=CLÉ`, `utilisateur:mdp@` facultatif (proxy en authentification basique) ; seul `apikey` est admis |
 | `torrentClients` | liste de chaînes | vide | `qbittorrent[:readonly]:http(s)://[utilisateur:mdp@]hôte:port[/chemin]`, sans paramètre de requête. Seul le premier client reçoit les torrents (avertissement s'il y en a plusieurs) |
 | `linkDirs` | liste de chemins | vide | ne chevauche jamais une racine de `libraryRoots` |
-| `linkType` | `hardlink`, `symlink`, `reflink` | `hardlink` | une seule sorte, sans repli |
+| `linkType` | `hardlink`, `symlink`, `reflink` | `hardlink` | une seule sorte, sans repli ; un échec dit la cause et le réglage à changer |
 | `skipRecheck` | booléen | `true` | voir [03-seed-safety.md](03-seed-safety.md) |
-| `linkCategory` | chaîne | vide | catégorie qBittorrent des torrents ajoutés ; le tag `necromanciarr` est fixe |
+| `linkCategory` | chaîne | vide | catégorie qBittorrent des torrents ajoutés ; `NECROMANCIARR_SEED_CATEGORY` l'emporte (espaces retirés) |
+| `seedTags` | liste de chaînes | `["necromanciarr"]` | tags posés avec la catégorie sur chaque torrent ajouté. La liste **remplace** le défaut : sans `necromanciarr`, ce tag n'est plus posé (les filtres de qui ou de cross-seed qui le ciblent ne voient plus ces torrents). Espaces retirés, doublons ignorés, liste vide = défaut ; refus d'un tag vide, contenant une virgule ou de plus de 64 caractères, et de plus de 20 tags |
+| `partialMaxMissingPercent` | nombre de 0 à 100 | `100` (sans plafond) | part maximale de pièces manquantes d'un `partial_annex` ou `partial_pack` ; au-delà, aucune proposition n'est créée (raison `missing_pieces_above_cap`, voir [01-pipeline.md](01-pipeline.md)). `0` ne garde que les torrents complets |
 | `crossSeedConfig` | chemin | vide | relatif : depuis le dossier de configuration |
 | `crossSeed` | URL | vide | `http(s)://hôte:2468?apikey=CLÉ`, sans identifiants d'utilisateur |
 | `crossSeedMode` | `auto`, `delegate`, `native`, `off` | `auto` | casse et espaces ignorés |
@@ -63,6 +68,7 @@ Les chemins de la bibliothèque, des dossiers de liens et des racines torrent so
 - Pour chaque torrent, Link choisit le **premier** dossier de `linkDirs` situé sur le même système de fichiers que le premier fichier source. Hardlink et reflink exigent ce même système de fichiers. Sans dossier correspondant, seul un symlink est possible, et seulement si `linkType` vaut `symlink` : sinon la proposition passe `failed` (`no_link_dir_on_same_device`).
 - Le dossier du torrent s'appelle `<nom racine> [<infohash complet>]` sous le dossier de liens, droits `0755` pour que le client, souvent sous un autre compte, le lise. Un nom de plus de 255 octets raccourcit le nom racine (sans couper un caractère), jamais l'infohash. Seed et Force utilisent toujours le dossier enregistré pour la proposition (`proposal_steps.link_root`), y compris un dossier `<nom racine> [<8 caractères>]` posé par une version antérieure. Après des liens abîmés, Seed efface l'étape mais garde ce dossier ; Link le reprend seulement s'il se trouve directement sous le dossier de liens choisi pour cette exécution, sinon il crée un nouveau dossier nommé avec l'infohash complet.
 - `linkType` est le seul réglage de sorte pour Link : s'il n'est pas accepté par le dossier (sonde réelle), la proposition échoue (`link_kind_refused`) au lieu de changer de sorte.
+- Un échec de sorte de lien (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) laisse sur la proposition un avertissement qui nomme la cause et l'action attendue, par exemple « hardlink impossible entre deux montages : placer linkDirs sous le même point de montage que la bibliothèque, ou choisir linkType symlink/reflink ». Après la correction, réaccepter la proposition puis relancer Link.
 
 ### Clients torrent, qui, mode lecture seule
 

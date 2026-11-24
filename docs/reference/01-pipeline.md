@@ -61,6 +61,12 @@ Une lecture locale en échec (`read_error`) ne change pas l'état du candidat : 
 
 Verify ne crée aucune proposition quand les médias ne sont pas tous couverts sans que ce soit un pack partiel (`media_not_verified`) : le candidat reste `verified` sans proposition.
 
+### Plafond de pièces manquantes des partiels
+
+`partialMaxMissingPercent` (défaut `100`, sans plafond) borne la part de pièces manquantes (pièces manquantes / pièces du torrent) d'un `partial_annex` ou `partial_pack`. Égal au plafond reste proposé ; au-delà, le candidat reste `verified`, aucune proposition n'est créée et son verdict est mis de côté avec la raison `missing_pieces_above_cap` : comptée dans le résultat de Verify (`reasons`) et listée par `status` (champ `held` : nature, pièces manquantes, raison). Les torrents `full` et les litiges ne sont jamais plafonnés.
+
+Chaque Verify applique le plafond courant, sans relire les fichiers : un verdict mis de côté revenu sous le plafond devient une proposition `pending` ; une proposition partielle encore `pending` passée au-dessus devient `superseded` et son verdict est mis de côté. Une proposition déjà acceptée, appliquée, rejetée ou en échec n'est jamais retirée. Un verdict mis de côté ne vaut que pour la génération du candidat : une revérification le remplace.
+
 ### Décisions
 
 ```

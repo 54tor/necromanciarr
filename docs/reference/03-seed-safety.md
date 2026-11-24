@@ -1,6 +1,6 @@
 # Sécurité du seed
 
-Seeder un contenu faux pénalise le ratio auprès des trackers, et un client qui écrit dans un fichier lié modifie la bibliothèque. Ces invariants sont vérifiés par le code de Link et Seed, pas par convention. Chaque motif de refus ci-dessous est la raison comptée dans le résultat de l'étape (`reasons`) et ajoutée à la proposition comme avertissement `application failed: <raison>`.
+Seeder un contenu faux pénalise le ratio auprès des trackers, et un client qui écrit dans un fichier lié modifie la bibliothèque. Ces invariants sont vérifiés par le code de Link et Seed, pas par convention. Chaque motif de refus ci-dessous est la raison comptée dans le résultat de l'étape (`reasons`) et ajoutée à la proposition comme avertissement `application failed: <raison>` ; pour `cross_device`, `no_link_dir_on_same_device` et `link_kind_refused`, l'avertissement ajoute entre parenthèses la cause et le réglage à changer (aucun repli vers une autre sorte de lien n'est tenté).
 
 ## Les invariants
 
