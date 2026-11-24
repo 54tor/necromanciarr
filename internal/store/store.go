@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -22,27 +23,6 @@ CREATE TABLE IF NOT EXISTS media_files (
 	mtime INTEGER NOT NULL,
 	tmdb_id INTEGER NOT NULL DEFAULT 0,
 	tvdb_id INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS candidates (
-	id INTEGER PRIMARY KEY,
-	media_file_id INTEGER NOT NULL REFERENCES media_files(id),
-	tracker TEXT NOT NULL,
-	infohash TEXT NOT NULL,
-	state TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS verifications (
-	id INTEGER PRIMARY KEY,
-	candidate_id INTEGER NOT NULL REFERENCES candidates(id),
-	verified_pieces INTEGER NOT NULL,
-	total_pieces INTEGER NOT NULL,
-	missing_pieces_json TEXT NOT NULL,
-	state TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS proposals (
-	id INTEGER PRIMARY KEY,
-	candidate_id INTEGER NOT NULL REFERENCES candidates(id),
-	kind TEXT NOT NULL,
-	decision TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS links (
 	id INTEGER PRIMARY KEY,
@@ -79,7 +59,7 @@ CREATE TABLE IF NOT EXISTS mount_capabilities (
 	modtime INTEGER NOT NULL,
 	symlinks INTEGER NOT NULL,
 	probed_at INTEGER NOT NULL
-);`
+);` + pipelineSchema
 
 // MediaFile est un fichier média de la bibliothèque, identifié par son chemin ; TMDBID et TVDBID valent 0 si inconnus.
 type MediaFile struct {
@@ -117,6 +97,9 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open store: %w", err)
 	}
+	if err := dropEmptyLegacyPipelineTables(database); err != nil {
+		return nil, errors.Join(fmt.Errorf("upgrade pipeline tables: %w", err), database.Close())
+	}
 	if _, err := database.Exec(schema); err != nil {
 		return nil, errors.Join(fmt.Errorf("create schema: %w", err), database.Close())
 	}
@@ -131,12 +114,14 @@ func (openedStore *Store) Close() error {
 	return openedStore.database.Close()
 }
 
-// UpsertMediaFile insère le fichier, ou met à jour taille, date et identifiants si son chemin existe déjà.
+// UpsertMediaFile insère le fichier, ou met à jour taille et date si son chemin existe déjà ; un identifiant externe
+// à 0 garde la valeur connue (le parcours de la bibliothèque n'en fournit pas), SetMediaFileIDs les remplace.
 func (openedStore *Store) UpsertMediaFile(ctx context.Context, file MediaFile) error {
 	_, err := openedStore.database.ExecContext(ctx, `
 INSERT INTO media_files (path, size, mtime, tmdb_id, tvdb_id) VALUES (?, ?, ?, ?, ?)
 ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime = excluded.mtime,
-	tmdb_id = excluded.tmdb_id, tvdb_id = excluded.tvdb_id`,
+	tmdb_id = CASE WHEN excluded.tmdb_id != 0 THEN excluded.tmdb_id ELSE tmdb_id END,
+	tvdb_id = CASE WHEN excluded.tvdb_id != 0 THEN excluded.tvdb_id ELSE tvdb_id END`,
 		file.Path, file.Size, file.ModTime.UnixNano(), file.TMDBID, file.TVDBID)
 	if err != nil {
 		return fmt.Errorf("upsert media file: %w", err)
@@ -189,25 +174,33 @@ func upgradeColumns(database *sql.DB) error {
 // addColumnIfMissing ajoute la colonne si pragma_table_info ne la voit pas ; sans effet sinon, donc rejouable.
 // Table, colonne et définition viennent de columnUpgrades, jamais d'une entrée externe.
 func addColumnIfMissing(database *sql.DB, table, column, definition string) error {
-	rows, err := database.Query(`SELECT name FROM pragma_table_info(?)`, table)
-	if err != nil {
+	present, err := hasColumn(database, table, column)
+	if err != nil || present {
 		return err
 	}
-	hasColumn := false
+	_, err = database.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition) // #nosec G202 -- constantes de columnUpgrades
+	return err
+}
+
+func hasColumn(database *sql.DB, table, column string) (bool, error) {
+	columns, err := tableColumns(database, table)
+	return slices.Contains(columns, column), err
+}
+
+// tableColumns renvoie les colonnes de la table, vide si elle n'existe pas.
+func tableColumns(database *sql.DB, table string) ([]string, error) {
+	rows, err := database.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		return nil, err
+	}
+	var columns []string
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
 			_ = rows.Close()
-			return err
+			return nil, err
 		}
-		hasColumn = hasColumn || name == column
+		columns = append(columns, name)
 	}
-	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-		return err
-	}
-	if hasColumn {
-		return nil
-	}
-	_, err = database.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " " + definition) // #nosec G202 -- constantes de columnUpgrades
-	return err
+	return columns, errors.Join(rows.Err(), rows.Close())
 }
