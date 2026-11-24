@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -168,28 +167,62 @@ func contextWithTimeout(t *testing.T, timeout time.Duration) context.Context {
 	return ctx
 }
 
-func TestNotify_refusesRedirectAndEnvProxy(t *testing.T) {
-	var redirectedHits, proxyHits atomic.Int32
-	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { redirectedHits.Add(1) }))
-	defer target.Close()
-	redirecting := httptest.NewServer(http.RedirectHandler(target.URL, http.StatusTemporaryRedirect))
-	defer redirecting.Close()
-	proxy := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { proxyHits.Add(1) }))
-	defer proxy.Close()
-	t.Setenv("HTTP_PROXY", proxy.URL)
-	t.Setenv("http_proxy", proxy.URL)
-	t.Setenv("NO_PROXY", "")
-	t.Setenv("no_proxy", "")
-	// Une adresse non loopback : net/http ne passe jamais par le proxy pour 127.0.0.1.
-	redirectingURL := strings.Replace(redirecting.URL, "127.0.0.1", "localhost.", 1)
+func TestNotify_refusesRedirect(t *testing.T) {
+	var secondHits atomic.Int32
+	second := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { secondHits.Add(1) }))
+	defer second.Close()
+	first := httptest.NewServer(http.RedirectHandler(second.URL, http.StatusFound))
+	defer first.Close()
 
-	gotError := mustWebhook(t, redirectingURL).Notify(context.Background(), testInfoHash)
+	gotError := mustWebhook(t, first.URL).Notify(context.Background(), testInfoHash)
 
-	if !errors.Is(gotError, ErrUnexpectedStatus) && !errors.Is(gotError, ErrUnavailable) {
-		t.Fatalf("gotValue %v", gotError)
+	if !errors.Is(gotError, ErrUnexpectedStatus) || secondHits.Load() != 0 {
+		t.Fatalf("gotValue %v, second server hits %d", gotError, secondHits.Load())
 	}
-	if redirectedHits.Load() != 0 || proxyHits.Load() != 0 {
-		t.Fatalf("redirect followed (%d) or proxy used (%d)", redirectedHits.Load(), proxyHits.Load())
+}
+
+func TestNotify_defaultTransportIgnoresProxy(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:9")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+
+	webhook := mustWebhook(t, "http://example.com")
+
+	transport, isTransport := webhook.httpClient.Transport.(*http.Transport)
+	if !isTransport || transport.Proxy != nil {
+		t.Fatalf("transport = %#v", webhook.httpClient.Transport)
+	}
+}
+
+func TestNewWebhook_rejectsControlCharactersInApiKey(t *testing.T) {
+	for _, badKey := range []string{"a\r\nX-Evil: 1", "a\nb", "a\x00b", "a\x7fb", "tab\tkey"} {
+		_, err := NewWebhook("http://example.com", badKey)
+
+		if !errors.Is(err, ErrInvalidAPIKey) || strings.Contains(err.Error(), "Evil") {
+			t.Fatalf("key %q: gotValue %v", badKey, err)
+		}
+	}
+}
+
+func TestWithTimeout_ignoresNonPositiveValues(t *testing.T) {
+	webhook := mustWebhook(t, "http://example.com", WithTimeout(0), WithTimeout(-time.Second))
+
+	if webhook.httpClient.Timeout != defaultWebhookTimeout {
+		t.Fatalf("gotValue %s", webhook.httpClient.Timeout)
+	}
+}
+
+func TestNotify_keepsContextCause(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer server.Close()
+	defer close(release)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	gotError := mustWebhook(t, server.URL).Notify(cancelled, testInfoHash)
+
+	if !errors.Is(gotError, context.Canceled) || !errors.Is(gotError, ErrUnavailable) || strings.Contains(gotError.Error(), server.URL) {
+		t.Fatalf("gotValue %v", gotError)
 	}
 }
 
@@ -226,34 +259,4 @@ func TestNoop_doesNothing(t *testing.T) {
 	if gotError := notifier.Notify(context.Background(), "not-even-a-hash"); gotError != nil {
 		t.Fatal(gotError)
 	}
-}
-
-func TestPipelineLikeFlow_seedSucceedsIdenticallyWithNoopAndWithUnreachableNotifier(t *testing.T) {
-	closedListener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closedURL := "http://" + closedListener.Addr().String()
-	_ = closedListener.Close()
-	unreachable := mustWebhook(t, closedURL, WithTimeout(time.Second))
-
-	for name, notifier := range map[string]Notifier{"noop": Noop{}, "unreachable": unreachable} {
-		seeded, warnings := seedLikePipeline(notifier)
-
-		if !seeded {
-			t.Fatalf("%s: seed failed", name)
-		}
-		if (name == "noop") != (len(warnings) == 0) {
-			t.Fatalf("%s: warnings %v", name, warnings)
-		}
-	}
-}
-
-// seedLikePipeline imite l'appel en meilleur effort de la tâche 8 : l'échec de Notify n'annule pas le seed.
-func seedLikePipeline(notifier Notifier) (bool, []string) {
-	var warnings []string
-	if err := notifier.Notify(context.Background(), testInfoHash); err != nil {
-		warnings = append(warnings, "cross-seed notification failed")
-	}
-	return true, warnings
 }

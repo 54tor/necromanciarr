@@ -30,6 +30,8 @@ var infoHashPattern = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 var (
 	// ErrInvalidInfoHash signale une empreinte qui n'est pas 40 caractères hexadécimaux ; aucune requête n'est émise.
 	ErrInvalidInfoHash = errors.New("cross-seed: invalid info hash")
+	// ErrInvalidAPIKey signale une clé d'API vide ou contenant un caractère de contrôle ; la valeur n'est jamais citée.
+	ErrInvalidAPIKey = errors.New("cross-seed: invalid api key")
 	// ErrAccessDenied signale une clé d'API refusée (HTTP 401 ou 403).
 	ErrAccessDenied = errors.New("cross-seed: access denied")
 	// ErrNotFound signale une route absente ou désactivée côté cross-seed (HTTP 404).
@@ -63,7 +65,11 @@ type WebhookOption func(*Webhook)
 
 // WithTimeout fixe le délai total d'une notification (30 s par défaut).
 func WithTimeout(timeout time.Duration) WebhookOption {
-	return func(webhook *Webhook) { webhook.httpClient.Timeout = timeout }
+	return func(webhook *Webhook) {
+		if timeout > 0 {
+			webhook.httpClient.Timeout = timeout
+		}
+	}
 }
 
 // NewWebhook valide l'URL de base (http ou https, sans identifiants, requête ni fragment) et exige une clé d'API.
@@ -73,8 +79,8 @@ func NewWebhook(baseURL, apiKey string, options ...WebhookOption) (*Webhook, err
 		parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" || strings.Contains(baseURL, "#") {
 		return nil, errors.New("cross-seed: base URL must be an http(s) URL without credentials, query or fragment")
 	}
-	if apiKey == "" {
-		return nil, errors.New("cross-seed: api key is required")
+	if !isValidHeaderValue(apiKey) {
+		return nil, ErrInvalidAPIKey
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/") + webhookPath
 	webhook := &Webhook{endpoint: parsed.String(), apiKey: apiKey, httpClient: httpsafe.NewClient(defaultWebhookTimeout)}
@@ -82,6 +88,19 @@ func NewWebhook(baseURL, apiKey string, options ...WebhookOption) (*Webhook, err
 		option(webhook)
 	}
 	return webhook, nil
+}
+
+// isValidHeaderValue refuse la chaîne vide et tout octet de contrôle (CR, LF, NUL…) : injection d'en-tête.
+func isValidHeaderValue(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index := range len(value) {
+		if value[index] < 0x20 || value[index] == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // Notify demande à cross-seed de chercher le torrent d'empreinte infoHash. Les erreurs ne portent ni URL, ni clé, ni corps.
@@ -101,12 +120,22 @@ func (webhook *Webhook) Notify(ctx context.Context, infoHash string) error {
 	request.Header.Set("Content-Type", "application/json")
 	response, err := webhook.httpClient.Do(request)
 	if err != nil {
-		return fmt.Errorf("%w: request failed", ErrUnavailable)
+		return requestError(err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	// Le corps est vidé (borné) pour réutiliser la connexion, jamais exploité.
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
 	return statusError(response.StatusCode)
+}
+
+// requestError garde la cause de contexte (annulation, délai) sans jamais citer l'erreur réseau, qui contient l'URL.
+func requestError(err error) error {
+	for _, contextErr := range []error{context.Canceled, context.DeadlineExceeded} {
+		if errors.Is(err, contextErr) {
+			return fmt.Errorf("%w: request failed: %w", ErrUnavailable, contextErr)
+		}
+	}
+	return fmt.Errorf("%w: request failed", ErrUnavailable)
 }
 
 func statusError(status int) error {
