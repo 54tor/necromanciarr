@@ -127,7 +127,12 @@ const columns = computed<DataColumn<Proposal>[]>(() => {
           }),
           row.current ? undefined : h(StatusPill, { tone: 'warn', labelKey: 'proposals.stale' }),
           hasNoAnnounce(row)
-            ? h(StatusPill, { tone: 'warn', labelKey: 'proposals.noAnnounce.pill' })
+            ? h(StatusPill, {
+                tone: 'warn',
+                labelKey: 'proposals.noAnnounce.pill',
+                title: t('proposals.noAnnounce.linkRefused'),
+                'aria-description': t('proposals.noAnnounce.linkRefused'),
+              })
             : undefined,
         ])
       },
@@ -475,6 +480,8 @@ onMounted(load)
               v-if="hasNoAnnounce(row)"
               tone="warn"
               label-key="proposals.noAnnounce.pill"
+              :title="t('proposals.noAnnounce.linkRefused')"
+              :aria-description="t('proposals.noAnnounce.linkRefused')"
             />
           </dd>
           <dt v-if="row.source" class="text-muted-foreground">
@@ -518,8 +525,7 @@ onMounted(load)
             :accessible-name="t('proposals.actions.acceptOf', { name: row.candidate_name })"
             data-action="proposals accept"
             data-scope="row"
-            :disabled="pending || !canAccept(row) || hasNoAnnounce(row)"
-            :title="hasNoAnnounce(row) ? t('proposals.noAnnounce.linkDisabled') : undefined"
+            :disabled="pending || !canAccept(row)"
             @click="accept(row)"
           />
           <RowActionButton

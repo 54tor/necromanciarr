@@ -307,7 +307,7 @@
     "stale": "Obsolète",
     "noAnnounce": {
       "pill": "Sans annonce",
-      "linkDisabled": "Lien impossible : aucune annonce pour ce tracker. Ajouter une entrée trackers à la configuration."
+      "linkRefused": "Le lien sera refusé tant qu'une entrée `trackers` n'est pas ajoutée"
     },
     "loadFailed": "Chargement des propositions impossible.",
     "filters": {

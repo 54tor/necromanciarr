@@ -722,7 +722,7 @@ describe('ProposalsView', () => {
     ])
   })
 
-  it('shows the no-announce pill and disables link', async () => {
+  it('shows the no-announce pill and keeps accept enabled', async () => {
     const withoutAnnounce = proposal({
       id: 11,
       candidate_name: 'Film.NoAnnounce',
@@ -736,18 +736,17 @@ describe('ProposalsView', () => {
     const { wrapper, calls } = await mountView([withoutAnnounce, withAnnounce])
 
     const pill = rowOf(wrapper, 11).find('[data-tone="warn"]')
-    expect(pill.exists()).toBe(true)
+    const explanation = "Le lien sera refusé tant qu'une entrée `trackers` n'est pas ajoutée"
     expect(pill.text()).toBe('Sans annonce')
+    expect(pill.attributes('title')).toBe(explanation)
+    expect(pill.attributes('aria-description')).toBe(explanation)
     expect(rowOf(wrapper, 12).text()).not.toContain('Sans annonce')
-    const blocked = rowButton(wrapper, 11, 'proposals accept')
-    expect(blocked.attributes('disabled')).toBeDefined()
-    expect(blocked.attributes('title')).toBe(
-      'Lien impossible : aucune annonce pour ce tracker. Ajouter une entrée trackers à la configuration.',
-    )
-    expect(rowButton(wrapper, 12, 'proposals accept').attributes('disabled')).toBeUndefined()
-    await blocked.trigger('click')
+    const accept = rowButton(wrapper, 11, 'proposals accept')
+    expect(accept.attributes('disabled')).toBeUndefined()
+    expect(accept.attributes('title')).toBeUndefined()
+    await accept.trigger('click')
     await flushPromises()
-    expect(posts(calls)).toEqual([])
+    expect(posts(calls).map((call) => call.path)).toEqual(['/api/proposals/11/accept'])
   })
 
   it('shows an empty state', async () => {

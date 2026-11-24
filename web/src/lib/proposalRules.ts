@@ -36,8 +36,8 @@ const isOpen = (proposal: Proposal) =>
 export const canAccept = (proposal: Proposal) => isOpen(proposal) && proposal.kind !== 'conflict'
 
 /**
- * Sans annonce (`no_announce`), Link refuse la proposition : le bouton qui mène au lien est désactivé, avec la raison.
- * Calculé par le serveur à chaque lecture : ajouter une entrée `trackers` lève l'état sans revérifier.
+ * Sans annonce (`no_announce`), Link refusera la proposition ; accepter reste permis (parité avec la CLI). Calculé par
+ * le serveur à chaque lecture : ajouter une entrée `trackers` lève l'état sans revérifier.
  */
 export const hasNoAnnounce = (proposal: Proposal) => proposal.details.announce_source === 'none'
 
