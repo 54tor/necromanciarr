@@ -12,7 +12,7 @@ import (
 	"necromanciarr/internal/store"
 )
 
-// openPrimaries renvoie les propositions principales ouvertes (pending ou accepted), celles que l'index du store borne.
+// openPrimaries renvoie chaque proposition principale ouverte (pending ou accepted), celles que l'index du store borne.
 func (fixture *verifyFixture) openPrimaries() []store.Proposal {
 	fixture.t.Helper()
 	var primaries []store.Proposal

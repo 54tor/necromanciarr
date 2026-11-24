@@ -294,7 +294,7 @@ func insertProposal(ctx context.Context, database executor, proposal Proposal, e
 // PrimarySource dit qui a choisi la proposition principale d'un groupe.
 type PrimarySource string
 
-// Origines d'une proposition principale : élue par le pipeline (réélue quand un résultat change) ou choisie par
+// Provenances d'une proposition principale : élue par le pipeline (réélue quand un résultat change) ou choisie par
 // l'opérateur (gardée tant que son candidat n'est pas périmé).
 const (
 	PrimaryAuto     PrimarySource = "auto"

@@ -170,7 +170,7 @@ func markStale(ctx context.Context, transaction *sql.Tx, selection string, now t
 	return int(affected), err
 }
 
-// clearVerification efface la vérification et l'association prouvée des candidats choisis par selection.
+// clearVerification efface la vérification et l'association prouvée de chaque candidat choisi par selection.
 func clearVerification(ctx context.Context, transaction *sql.Tx, selection string, arguments ...any) error {
 	for _, table := range []string{"verifications", "verified_assignments"} {
 		// #nosec G202 -- table et sélection constantes du paquet
