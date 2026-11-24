@@ -40,7 +40,7 @@ warnings = excluded.warnings, details = excluded.details, updated_at = excluded.
 	return nil
 }
 
-// ListCandidateHolds renvoie les verdicts mis de côté des candidats verified, de leur génération courante seulement :
+// ListCandidateHolds renvoie les verdicts mis de côté des torrents à l'état verified, de leur génération courante seulement :
 // un candidat revérifié ou périmé n'a plus de verdict valable.
 func (openedStore *Store) ListCandidateHolds(ctx context.Context) ([]CandidateHold, error) {
 	rows, err := openedStore.database.QueryContext(ctx, `SELECT holds.candidate_id, holds.generation, holds.reason,

@@ -81,7 +81,7 @@ type Config struct {
 	Sources       Sources `json:"sources"`
 	// SeedTags sont les tags posés avec la catégorie sur chaque torrent ajouté ; la liste remplace le défaut.
 	SeedTags []string `json:"seedTags"`
-	// PartialMaxMissingPercent : au-delà de ce pourcentage de pièces manquantes, un torrent partiel n'est pas proposé
+	// PartialMaxMissingPercent : au-delà de ce pourcentage de pièces manquantes, un torrent incomplet n'est pas proposé
 	// (100 = sans plafond).
 	PartialMaxMissingPercent float64 `json:"partialMaxMissingPercent"`
 
@@ -111,7 +111,7 @@ type fileConfig struct {
 	CrossSeed          string            `json:"crossSeed"`
 	CrossSeedMode      string            `json:"crossSeedMode"`
 	SeedTags           []string          `json:"seedTags"`
-	// PartialMaxMissingPercent est un pointeur : 0 est une valeur permise, distincte d'une clé absente.
+	// PartialMaxMissingPercent : nil distingue une clé absente de 0, qui est accepté.
 	PartialMaxMissingPercent *float64 `json:"partialMaxMissingPercent"`
 	// LegacyRclone n'existe que pour refuser l'ancienne section avec un message utile.
 	LegacyRclone json.RawMessage `json:"rclone"`
