@@ -80,7 +80,7 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 | Méthode | Chemin | Action | Corps / paramètres | Réponse |
 |---|---|---|---|---|
 | GET | `/api/status` | `status` | | 200 |
-| GET | `/api/proposals` | `proposals list` | `decision`, `kind`, `group`, `current_only` | 200, tableau |
+| GET | `/api/proposals` | `proposals list` | `decision`, `kind`, `group`, `current_only` | 200, tableau ; chaque proposition porte `updated_at` (RFC 3339 UTC : le plus récent de sa création, de sa décision et de sa dernière étape d'application ; vide si inconnu) |
 | POST | `/api/proposals/{id}/accept` | `proposals accept` | `{"allow_partial_pack": bool}` | 200 |
 | POST | `/api/proposals/{id}/reject` | `proposals reject` | | 200 |
 | POST | `/api/proposals/{id}/choose` | `proposals choose` | `{"candidate_id": n}` (le candidat de la proposition ou un membre de son litige) | 200 |

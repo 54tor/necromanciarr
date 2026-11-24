@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/i18n"
@@ -18,20 +19,22 @@ import (
 // fichiers exclus, litige). Current dit qu'elle est de la génération courante d'un candidat vérifié ; une proposition
 // dedupe ou repair, sans candidat, est toujours courante (une proposition périmée y passe à superseded).
 type Proposal struct {
-	ID            int64                    `json:"id"`
-	CandidateID   int64                    `json:"candidate_id"`
-	CandidateName string                   `json:"candidate_name"`
-	CandidateSize int64                    `json:"candidate_size"`
-	Tracker       string                   `json:"tracker"`
-	GroupID       int64                    `json:"group_id"`
-	Kind          store.ProposalKind       `json:"kind"`
-	Decision      store.ProposalDecision   `json:"decision"`
-	Step          store.ProposalStep       `json:"step,omitempty"`
-	Primary       bool                     `json:"primary"`
-	Generation    int64                    `json:"generation"`
-	Current       bool                     `json:"current"`
-	Warnings      []Warning                `json:"warnings"`
-	Details       pipeline.ProposalDetails `json:"details"`
+	ID            int64                  `json:"id"`
+	CandidateID   int64                  `json:"candidate_id"`
+	CandidateName string                 `json:"candidate_name"`
+	CandidateSize int64                  `json:"candidate_size"`
+	Tracker       string                 `json:"tracker"`
+	GroupID       int64                  `json:"group_id"`
+	Kind          store.ProposalKind     `json:"kind"`
+	Decision      store.ProposalDecision `json:"decision"`
+	Step          store.ProposalStep     `json:"step,omitempty"`
+	Primary       bool                   `json:"primary"`
+	Generation    int64                  `json:"generation"`
+	Current       bool                   `json:"current"`
+	// UpdatedAt est le plus récent des instants connus de la proposition (RFC 3339 UTC), vide si aucun.
+	UpdatedAt string                   `json:"updated_at"`
+	Warnings  []Warning                `json:"warnings"`
+	Details   pipeline.ProposalDetails `json:"details"`
 	// Maintenance porte le détail d'une proposition dedupe (DedupeDetails) ou repair (RepairDetails).
 	Maintenance json.RawMessage `json:"maintenance,omitempty"`
 }
@@ -115,6 +118,7 @@ func (state snapshot) view(translator i18n.Translator, proposal store.Proposal) 
 		Tracker: candidate.Tracker, GroupID: proposal.GroupID, Kind: proposal.Kind, Decision: proposal.Decision,
 		Step: state.progress[proposal.ID].Step, Primary: proposal.Primary, Generation: proposal.Generation,
 		Current: state.current(proposal), Warnings: warningViews(translator, proposal.Warnings),
+		UpdatedAt: proposalUpdatedAt(proposal, state.progress[proposal.ID]),
 	}
 	if isMaintenanceKind(proposal.Kind) {
 		view.Current, view.Maintenance = true, labelledMaintenance(translator, proposal)
@@ -428,4 +432,18 @@ func (state snapshot) groupTargets(members []store.Proposal, behavior crossseed.
 		}
 	}
 	return targets, nil
+}
+
+// proposalUpdatedAt rend le plus récent de la création, de la décision et de la dernière étape d'application.
+func proposalUpdatedAt(proposal store.Proposal, progress store.ProposalProgress) string {
+	latest := proposal.CreatedAt
+	for _, instant := range []time.Time{proposal.DecidedAt, progress.UpdatedAt} {
+		if instant.After(latest) {
+			latest = instant
+		}
+	}
+	if latest.IsZero() {
+		return ""
+	}
+	return latest.UTC().Format(time.RFC3339)
 }
