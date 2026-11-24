@@ -27,6 +27,8 @@ const (
 	ReasonReadBudget       = "read_budget_exceeded"
 	ReasonNfoFetchFailed   = "nfo_fetch_failed"
 	ReasonMediaNotVerified = "media_not_verified"
+	// ReasonMediaHashFailed : un média présent a une pièce au SHA1 faux (mauvais fichier ou corruption) ; candidat failed.
+	ReasonMediaHashFailed = "media_hash_failed"
 )
 
 // runVerify vérifie, un candidat à la fois, chaque candidat matched ou fetched (reprise), puis met à jour les
@@ -105,7 +107,7 @@ func (run candidateRun) verify(ctx context.Context, candidate store.Candidate) e
 	if err != nil || !complete {
 		return err
 	}
-	return run.finish(ctx, candidate, associations, torrent, assignment, report)
+	return run.finish(ctx, candidate, associations, torrent, assignment, source, report)
 }
 
 // currentLocalFiles renvoie les fichiers locaux associés, tels que sur disque ; unchanged est faux si l'un a disparu
@@ -126,6 +128,8 @@ func (run candidateRun) currentLocalFiles(associations []store.CandidateFile) ([
 		if err != nil || info.Size() != association.MediaSize || !info.ModTime().Equal(association.MediaModTime) {
 			return nil, false
 		}
+		// Taille et date de l'instantané d'association, identiques au disque : ce sont elles que Link recontrôlera.
+		mediaFile.Size, mediaFile.ModTime = association.MediaSize, association.MediaModTime
 		local = append(local, mediaFile)
 	}
 	return local, true
@@ -185,6 +189,9 @@ func fetchFailure(err error) (string, error) {
 	}
 	if errors.Is(err, libraryprovider.ErrNotFound) {
 		return ReasonTorrentNotFound, nil
+	}
+	if errors.Is(err, libraryprovider.ErrResponseTooLarge) {
+		return ReasonTorrentTooLarge, nil
 	}
 	return ReasonTorrentFetchFailed, nil
 }
@@ -248,22 +255,42 @@ func (run candidateRun) countReadError() {
 	run.result.count(ReasonReadError, 1)
 }
 
-// finish relit l'état des fichiers (un fichier modifié pendant la lecture périme le candidat), enregistre la
-// vérification terminée, passe le candidat à verified et crée sa proposition.
+// finish relit l'état des fichiers (un fichier modifié pendant la lecture périme le candidat), puis : un média au hash
+// faux rend le candidat failed (vérification gardée pour la revue, aucune proposition) ; sinon la vérification,
+// l'association prouvée (sans les annexes exclues) et l'état verified sont écrits ensemble, et la proposition créée.
 func (run candidateRun) finish(ctx context.Context, candidate store.Candidate, associations []store.CandidateFile,
-	torrent *torrentcheck.Torrent, assignment matcher.Assignment, report torrentcheck.Report,
+	torrent *torrentcheck.Torrent, assignment matcher.Assignment, source compositeSource, report torrentcheck.Report,
 ) error {
 	if _, unchanged := run.currentLocalFiles(associations); !unchanged {
 		return run.markStale(ctx, candidate)
 	}
+	decided := classify(torrent, assignment, source, report)
 	verification := completedVerification(candidate.ID, report)
-	if err := run.deps.Store.SaveVerification(ctx, verification, run.deps.now()); err != nil {
-		return err
+	if decided.ineligible != "" {
+		if err := run.deps.Store.SaveVerification(ctx, verification, run.deps.now()); err != nil {
+			return err
+		}
+		return run.failOrStop(ctx, candidate, decided.ineligible, nil)
 	}
-	if err := run.deps.Store.SetCandidateState(ctx, candidate.ID, store.CandidateVerified, run.deps.now()); err != nil {
+	files := assignedFiles(assignment, decided.excluded)
+	if err := run.deps.Store.CompleteVerification(ctx, verification, files, run.deps.now()); err != nil {
 		return err
 	}
 	run.result.Verified++
 	run.result.Processed++
-	return run.propose(ctx, candidate, torrent, assignment, report)
+	return run.propose(ctx, candidate, decided)
+}
+
+// assignedFiles traduit l'association prouvée par le hash, sans les fichiers exclus.
+func assignedFiles(assignment matcher.Assignment, excluded map[int]bool) []store.AssignedFile {
+	var files []store.AssignedFile
+	for torrentFileIndex, mediaFile := range assignment.ByTorrentFile {
+		if excluded[torrentFileIndex] {
+			continue
+		}
+		files = append(files, store.AssignedFile{
+			TorrentFileIndex: torrentFileIndex, MediaFileID: mediaFile.ID, Path: mediaFile.Path, Size: mediaFile.Size, ModTime: mediaFile.ModTime,
+		})
+	}
+	return files
 }

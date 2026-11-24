@@ -34,6 +34,8 @@ type torrentEntry struct {
 	localName     string
 	localContent  []byte
 	twinLocalName string
+	// padding fait de l'entrée un fichier de remplissage BEP 47 : listé par le fournisseur, ignoré par torrentcheck.
+	padding bool
 }
 
 func patternBytes(seed byte, size int) []byte {
@@ -72,7 +74,11 @@ func buildTestTorrent(t *testing.T, name string, entries []torrentEntry) []byte 
 	info := metainfo.Info{Name: name, PieceLength: verifyPieceLength}
 	for _, entry := range entries {
 		concatenated = append(concatenated, entry.content...)
-		info.Files = append(info.Files, metainfo.FileInfo{Path: []string{entry.path}, Length: int64(len(entry.content))})
+		fileInfo := metainfo.FileInfo{Path: []string{entry.path}, Length: int64(len(entry.content))}
+		if entry.padding {
+			fileInfo.Attr = "p"
+		}
+		info.Files = append(info.Files, fileInfo)
 	}
 	info.Pieces = concatenatedPieceHashes(concatenated)
 	return encodeTestTorrent(t, info)
@@ -82,19 +88,23 @@ func buildTestTorrent(t *testing.T, name string, entries []torrentEntry) []byte 
 type fakeFetcher struct {
 	mutex        sync.Mutex
 	torrents     map[string][]byte
+	torrentErrs  map[string]error
 	nfos         map[string][]libraryprovider.Nfo
 	torrentCalls int
 	nfoCalls     int
 }
 
 func newFakeFetcher() *fakeFetcher {
-	return &fakeFetcher{torrents: map[string][]byte{}, nfos: map[string][]libraryprovider.Nfo{}}
+	return &fakeFetcher{torrents: map[string][]byte{}, torrentErrs: map[string]error{}, nfos: map[string][]libraryprovider.Nfo{}}
 }
 
 func (fetcher *fakeFetcher) Torrent(_ context.Context, infohash, _ string) ([]byte, error) {
 	fetcher.mutex.Lock()
 	defer fetcher.mutex.Unlock()
 	fetcher.torrentCalls++
+	if err := fetcher.torrentErrs[infohash]; err != nil {
+		return nil, err
+	}
 	raw, known := fetcher.torrents[infohash]
 	if !known {
 		return nil, libraryprovider.ErrNotFound
@@ -164,6 +174,8 @@ type verifyFixture struct {
 	opener    *countingOpener
 	crossSeed crossseed.Behavior
 	limiter   torrentcheck.Limiter
+	// productionOpener laisse Deps.OpenLocal nil : l'étape ouvre alors avec openReadOnly.
+	productionOpener bool
 }
 
 func newVerifyFixture(t *testing.T) *verifyFixture {
@@ -263,14 +275,22 @@ func (fixture *verifyFixture) candidate(infohash string) store.Candidate {
 }
 
 func (fixture *verifyFixture) deps() Deps {
-	return Deps{
+	deps := Deps{
 		Store: fixture.store, Fetcher: fixture.fetcher, OpenLocal: fixture.opener.open, CrossSeed: fixture.crossSeed,
 		ReadLimiter: fixture.limiter, ProgressEvery: 1, Now: func() time.Time { return fixedNow },
 	}
+	if fixture.productionOpener {
+		deps.OpenLocal = nil
+	}
+	return deps
 }
 
+// run exécute l'étape et vérifie, après chaque exécution, que la bibliothèque n'a pas bougé.
 func (fixture *verifyFixture) run(ctx context.Context) (Result, error) {
-	return Run(ctx, StageVerify, fixture.deps())
+	before := snapshotLibrary(fixture.t, fixture.root)
+	result, err := Run(ctx, StageVerify, fixture.deps())
+	assertLibraryUnchanged(fixture.t, before, snapshotLibrary(fixture.t, fixture.root))
+	return result, err
 }
 
 func (fixture *verifyFixture) mustRun() Result {
@@ -329,27 +349,21 @@ func decodeDetails(t *testing.T, proposal store.Proposal) ProposalDetails {
 	return details
 }
 
-// guardLibrary vérifie, à la fin du test, que ni le contenu, ni la date, ni l'inode d'aucun fichier de la bibliothèque
-// n'ont changé et qu'aucun fichier n'y a été créé.
-func (fixture *verifyFixture) guardLibrary() {
-	t := fixture.t
+// assertLibraryUnchanged compare deux instantanés : contenu, date et inode de chaque fichier, et aucun fichier créé.
+func assertLibraryUnchanged(t *testing.T, before, after map[string]librarySnapshot) {
 	t.Helper()
-	before := snapshotLibrary(t, fixture.root)
-	t.Cleanup(func() {
-		after := snapshotLibrary(t, fixture.root)
-		if len(after) != len(before) {
-			t.Fatalf("library entries changed: gotValue %d, expectedValue %d", len(after), len(before))
+	if len(after) != len(before) {
+		t.Fatalf("library entries changed: gotValue %d, expectedValue %d", len(after), len(before))
+	}
+	for name, expectedValue := range before {
+		gotValue, present := after[name]
+		if !present || !bytes.Equal(gotValue.content, expectedValue.content) {
+			t.Fatalf("library file %s content changed", name)
 		}
-		for name, expectedValue := range before {
-			gotValue, present := after[name]
-			if !present || !bytes.Equal(gotValue.content, expectedValue.content) {
-				t.Fatalf("library file %s content changed", name)
-			}
-			if !gotValue.info.ModTime().Equal(expectedValue.info.ModTime()) || !os.SameFile(gotValue.info, expectedValue.info) {
-				t.Fatalf("library file %s mtime or inode changed", name)
-			}
+		if !gotValue.info.ModTime().Equal(expectedValue.info.ModTime()) || !os.SameFile(gotValue.info, expectedValue.info) {
+			t.Fatalf("library file %s mtime or inode changed", name)
 		}
-	})
+	}
 }
 
 type librarySnapshot struct {
@@ -379,15 +393,20 @@ func snapshotLibrary(t *testing.T, root string) map[string]librarySnapshot {
 	return snapshot
 }
 
-// cancellingLimiter annule le contexte de l'étape à sa première sollicitation, comme un arrêt demandé en pleine lecture.
+// cancellingLimiter annule le contexte de l'étape à sa première sollicitation, comme un arrêt demandé en pleine lecture ;
+// letReadThrough laisse passer cette lecture, pour que l'annulation tombe sur l'enregistrement qui suit.
 type cancellingLimiter struct {
-	cancel context.CancelFunc
-	calls  int
+	cancel         context.CancelFunc
+	calls          int
+	letReadThrough bool
 }
 
 func (limiter *cancellingLimiter) WaitN(ctx context.Context, _ int) error {
 	limiter.calls++
 	limiter.cancel()
+	if limiter.letReadThrough && limiter.calls == 1 {
+		return nil
+	}
 	<-ctx.Done()
 	return ctx.Err()
 }

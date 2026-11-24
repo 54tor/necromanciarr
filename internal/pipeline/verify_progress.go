@@ -36,7 +36,8 @@ func (run candidateRun) cover(ctx context.Context, candidate store.Candidate, to
 		// Un autre processus tient le verrou : plus aucune écriture.
 		return report, false, err
 	}
-	if tracker.saveErr != nil {
+	// Un enregistrement périodique coupé par l'annulation n'empêche pas l'enregistrement final.
+	if tracker.saveErr != nil && ctx.Err() == nil {
 		return report, false, tracker.saveErr
 	}
 	if saveErr := tracker.save(context.WithoutCancel(ctx)); saveErr != nil {

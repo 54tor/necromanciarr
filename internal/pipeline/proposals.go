@@ -1,14 +1,12 @@
 package pipeline
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
 
-	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/matcher"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
@@ -23,7 +21,18 @@ type ProposalDetails struct {
 	TotalPieces       int             `json:"total_pieces"`
 	MissingMediaFiles []string        `json:"missing_media_files,omitempty"`
 	AmbiguousFiles    []AmbiguousFile `json:"ambiguous_files,omitempty"`
+	ExcludedFiles     []ExcludedFile  `json:"excluded_files,omitempty"`
 	Candidates        []GroupMember   `json:"candidates,omitempty"`
+}
+
+// ExclusionAnnexHashFailed : un fichier annexe de la bibliothèque, de même taille, a une pièce au SHA1 faux ; il n'est
+// ni compté possédé ni lié, le client le téléchargera.
+const ExclusionAnnexHashFailed = "annex_hash_failed"
+
+// ExcludedFile est un fichier du torrent présent dans la bibliothèque mais écarté de l'association prouvée.
+type ExcludedFile struct {
+	TorrentPath string `json:"torrent_path"`
+	Reason      string `json:"reason"`
 }
 
 // AmbiguousFile est un fichier du torrent que le hash n'a pas pu attribuer à un seul fichier local.
@@ -43,17 +52,59 @@ type GroupMember struct {
 	Percent     float64              `json:"percent"`
 }
 
-// verdict est la proposition à créer pour un candidat vérifié ; kind vide = aucune (média non vérifié).
+// verdict est la proposition à créer pour un candidat vérifié ; kind vide = aucune (média non vérifié). ineligible
+// nomme la raison qui rend le candidat failed ; excluded liste les index de fichiers du torrent écartés de l'association.
 type verdict struct {
-	kind     store.ProposalKind
-	warnings []string
-	details  ProposalDetails
+	kind       store.ProposalKind
+	warnings   []string
+	details    ProposalDetails
+	ineligible string
+	excluded   map[int]bool
 }
 
-// classify range un candidat vérifié : un fichier ambigu est un litige (jamais départagé ici), un média absent de la
+// classify range un candidat vérifié : un média présent dont une pièce a un SHA1 faux le rend inéligible ; une annexe
+// présente dans ce cas est exclue ; puis un fichier ambigu est un litige (jamais départagé ici), un média absent de la
 // bibliothèque un pack incomplet, 100 % des pièces un torrent complet, un média complet dont seules des pièces
-// d'annexes manquent un partial_annex ; sinon aucune proposition.
-func classify(torrent *torrentcheck.Torrent, assignment matcher.Assignment, report torrentcheck.Report) verdict {
+// d'annexes absentes ou exclues manquent un partial_annex ; sinon aucune proposition.
+func classify(torrent *torrentcheck.Torrent, assignment matcher.Assignment, source compositeSource, report torrentcheck.Report) verdict {
+	suspects := suspectFiles(torrent, source, report.FailedPieces)
+	for _, fileIndex := range suspects {
+		if torrentcheck.IsMediaPath(torrent.Files[fileIndex].Path) {
+			return verdict{ineligible: ReasonMediaHashFailed}
+		}
+	}
+	decided := baseVerdict(torrent, assignment, report)
+	decided.excluded = map[int]bool{}
+	for _, fileIndex := range suspects {
+		decided.excluded[fileIndex] = true
+		decided.details.ExcludedFiles = append(decided.details.ExcludedFiles,
+			ExcludedFile{TorrentPath: torrent.Files[fileIndex].Path, Reason: ExclusionAnnexHashFailed})
+	}
+	if len(suspects) > 0 && decided.kind != "" {
+		decided.warnings = append(decided.warnings, fmt.Sprintf("%d annex file(s) in the library failed the piece hash: "+
+			"they are excluded from linking and the client will download them", len(suspects)))
+	}
+	return decided
+}
+
+// suspectFiles liste, triés, les fichiers présents qui recouvrent une pièce au SHA1 faux : le hash ne dit pas lequel est
+// faux, donc tous sont suspects.
+func suspectFiles(torrent *torrentcheck.Torrent, source compositeSource, failedPieces []int) []int {
+	suspect := map[int]bool{}
+	for _, pieceIndex := range failedPieces {
+		start := int64(pieceIndex) * torrent.PieceLength
+		end := start + torrent.PieceLength
+		for fileIndex, file := range torrent.Files {
+			_, present := source.ReaderAt(fileIndex)
+			if present && file.Size > 0 && file.Offset < end && file.Offset+file.Size > start {
+				suspect[fileIndex] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(suspect))
+}
+
+func baseVerdict(torrent *torrentcheck.Torrent, assignment matcher.Assignment, report torrentcheck.Report) verdict {
 	details := ProposalDetails{
 		Percent: percentOf(report.VerifiedPieces, report.TotalPieces), VerifiedPieces: report.VerifiedPieces,
 		MissingPieces: len(report.MissingPieces), TotalPieces: report.TotalPieces,
@@ -71,7 +122,7 @@ func classify(torrent *torrentcheck.Torrent, assignment matcher.Assignment, repo
 		return verdict{kind: store.ProposalFull, details: details}
 	}
 	if report.MediaComplete {
-		warning := fmt.Sprintf("will be added paused: %d piece(s) overlap annex files missing from the library, and the "+
+		warning := fmt.Sprintf("will be added paused: %d piece(s) overlap annex files not proven from the library, and the "+
 			"client would rewrite those pieces across the linked media; it starts only with an explicit Force", len(report.MissingPieces))
 		return verdict{kind: store.ProposalPartialAnnex, warnings: []string{warning}, details: details}
 	}
@@ -110,10 +161,7 @@ func groupOf(candidate store.Candidate) int64 {
 }
 
 // propose crée (ou met à jour si elle attend encore) la proposition du candidat vérifié.
-func (run candidateRun) propose(ctx context.Context, candidate store.Candidate, torrent *torrentcheck.Torrent,
-	assignment matcher.Assignment, report torrentcheck.Report,
-) error {
-	decided := classify(torrent, assignment, report)
+func (run candidateRun) propose(ctx context.Context, candidate store.Candidate, decided verdict) error {
 	switch decided.kind {
 	case "":
 		run.result.count(ReasonMediaNotVerified, 1)
@@ -143,202 +191,4 @@ func upsertProposal(ctx context.Context, deps Deps, proposal store.Proposal, det
 	proposal.Details = encoded
 	_, created, err := deps.Store.UpsertProposal(ctx, proposal, deps.now())
 	return created, err
-}
-
-// proposalGroup rassemble chaque candidat d'un groupe et ses propositions non closes.
-type proposalGroup struct {
-	groupID int64
-	members []store.Candidate
-	open    map[int64][]store.Proposal
-}
-
-// refreshGroups recalcule, pour chaque groupe, la proposition principale par défaut, le litige qui liste chaque
-// torrent du groupe et, en mode natif, les propositions cross_seed ; rejouable sans doublon.
-func refreshGroups(ctx context.Context, deps Deps, result *Result) error {
-	candidates, err := deps.Store.ListCandidatesByState(ctx)
-	if err != nil {
-		return err
-	}
-	proposals, err := deps.Store.ListProposals(ctx, "")
-	if err != nil {
-		return err
-	}
-	open := map[int64][]store.Proposal{}
-	for _, proposal := range proposals {
-		if proposal.Decision != store.ProposalSuperseded && proposal.CandidateID != 0 {
-			open[proposal.CandidateID] = append(open[proposal.CandidateID], proposal)
-		}
-	}
-	membersByGroup := map[int64][]store.Candidate{}
-	for _, candidate := range candidates {
-		if candidate.State != store.CandidateStale && candidate.State != store.CandidateFailed {
-			membersByGroup[groupOf(candidate)] = append(membersByGroup[groupOf(candidate)], candidate)
-		}
-	}
-	for _, groupID := range slices.Sorted(maps.Keys(membersByGroup)) {
-		group := proposalGroup{groupID: groupID, members: membersByGroup[groupID], open: open}
-		if err := group.refresh(ctx, deps, result); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (group proposalGroup) refresh(ctx context.Context, deps Deps, result *Result) error {
-	if err := group.syncGroupIDs(ctx, deps); err != nil {
-		return err
-	}
-	primaryCandidate, err := group.ensurePrimary(ctx, deps)
-	if err != nil {
-		return err
-	}
-	if err := group.ensureConflict(ctx, deps, result, primaryCandidate); err != nil {
-		return err
-	}
-	if deps.CrossSeed != crossseed.Native || primaryCandidate == 0 {
-		return nil
-	}
-	return group.ensureCrossSeeds(ctx, deps, result, primaryCandidate)
-}
-
-// mainProposal est la proposition qui porte le verdict du candidat (pas le litige de groupe ni un cross_seed).
-func (group proposalGroup) mainProposal(candidateID int64) (store.Proposal, ProposalDetails, bool) {
-	for _, proposal := range group.open[candidateID] {
-		details := parseDetails(proposal)
-		isVerdict := proposal.Kind == store.ProposalFull || proposal.Kind == store.ProposalPartialAnnex ||
-			proposal.Kind == store.ProposalPartialPack || (proposal.Kind == store.ProposalConflict && len(details.AmbiguousFiles) > 0)
-		if isVerdict {
-			return proposal, details, true
-		}
-	}
-	return store.Proposal{}, ProposalDetails{}, false
-}
-
-// parseDetails lit les détails ; des détails illisibles valent des détails vides (pourcentage nul, jamais principal).
-func parseDetails(proposal store.Proposal) ProposalDetails {
-	var details ProposalDetails
-	_ = json.Unmarshal(proposal.Details, &details)
-	return details
-}
-
-// syncGroupIDs rattache au groupe courant les propositions en attente regroupées depuis leur création.
-func (group proposalGroup) syncGroupIDs(ctx context.Context, deps Deps) error {
-	for _, member := range group.members {
-		for _, proposal := range group.open[member.ID] {
-			if proposal.Decision != store.ProposalPending || proposal.GroupID == group.groupID {
-				continue
-			}
-			proposal.GroupID = group.groupID
-			if _, _, err := deps.Store.UpsertProposal(ctx, proposal, deps.now()); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// ensurePrimary garde la principale existante (choix éventuel de l'opérateur) ; sinon marque la proposition full ou
-// partial_annex non rejetée au plus fort pourcentage, à égalité le plus petit candidat. Renvoie son candidat (0 si aucune).
-func (group proposalGroup) ensurePrimary(ctx context.Context, deps Deps) (int64, error) {
-	var best store.Proposal
-	var bestPercent float64
-	for _, member := range group.members {
-		proposal, details, found := group.mainProposal(member.ID)
-		isSeedable := found && (proposal.Kind == store.ProposalFull || proposal.Kind == store.ProposalPartialAnnex) &&
-			proposal.Decision != store.ProposalRejected
-		if !isSeedable {
-			continue
-		}
-		if proposal.Primary {
-			return proposal.CandidateID, nil
-		}
-		isBetter := best.ID == 0 || details.Percent > bestPercent ||
-			(details.Percent == bestPercent && proposal.CandidateID < best.CandidateID)
-		if isBetter {
-			best, bestPercent = proposal, details.Percent
-		}
-	}
-	if best.ID == 0 {
-		return 0, nil
-	}
-	return best.CandidateID, deps.Store.SetGroupPrimary(ctx, group.groupID, best.ID)
-}
-
-// ensureConflict liste chaque torrent d'un groupe dès que deux d'entre eux ont une proposition ; le litige est
-// porté par le litige de groupe déjà présent, sinon par la principale, sinon par le premier candidat non ambigu.
-func (group proposalGroup) ensureConflict(ctx context.Context, deps Deps, result *Result, primaryCandidate int64) error {
-	members := group.describeMembers()
-	withProposal := 0
-	for _, member := range members {
-		if member.ProposalID != 0 {
-			withProposal++
-		}
-	}
-	if withProposal < 2 {
-		return nil
-	}
-	anchor := group.conflictAnchor(members, primaryCandidate)
-	if anchor == 0 {
-		return nil
-	}
-	created, err := upsertProposal(ctx, deps, store.Proposal{CandidateID: anchor, GroupID: group.groupID, Kind: store.ProposalConflict},
-		ProposalDetails{Candidates: members})
-	if created {
-		result.Conflicts++
-		result.ProposalsCreated++
-	}
-	return err
-}
-
-func (group proposalGroup) describeMembers() []GroupMember {
-	members := make([]GroupMember, 0, len(group.members))
-	for _, candidate := range group.members {
-		member := GroupMember{CandidateID: candidate.ID, Name: candidate.Name, Tracker: candidate.Tracker, State: candidate.State}
-		if proposal, details, found := group.mainProposal(candidate.ID); found {
-			member.Kind, member.ProposalID, member.Percent = proposal.Kind, proposal.ID, details.Percent
-		}
-		members = append(members, member)
-	}
-	slices.SortFunc(members, func(left, right GroupMember) int { return cmp.Compare(left.CandidateID, right.CandidateID) })
-	return members
-}
-
-func (group proposalGroup) conflictAnchor(members []GroupMember, primaryCandidate int64) int64 {
-	for _, member := range members {
-		for _, proposal := range group.open[member.CandidateID] {
-			if proposal.Kind == store.ProposalConflict && len(parseDetails(proposal).Candidates) > 0 {
-				return member.CandidateID
-			}
-		}
-	}
-	if primaryCandidate != 0 {
-		return primaryCandidate
-	}
-	for _, member := range members {
-		if member.ProposalID != 0 && member.Kind != store.ProposalConflict {
-			return member.CandidateID
-		}
-	}
-	return 0
-}
-
-// ensureCrossSeeds propose, en mode natif seulement, chaque autre torrent complet du groupe en cross_seed de la principale.
-func (group proposalGroup) ensureCrossSeeds(ctx context.Context, deps Deps, result *Result, primaryCandidate int64) error {
-	for _, member := range group.members {
-		proposal, details, found := group.mainProposal(member.ID)
-		isExtraFull := found && proposal.Kind == store.ProposalFull && proposal.Decision != store.ProposalRejected &&
-			member.ID != primaryCandidate
-		if !isExtraFull {
-			continue
-		}
-		created, err := upsertProposal(ctx, deps, store.Proposal{CandidateID: member.ID, GroupID: group.groupID, Kind: store.ProposalCrossSeed},
-			ProposalDetails{Percent: details.Percent, VerifiedPieces: details.VerifiedPieces, TotalPieces: details.TotalPieces})
-		if err != nil {
-			return err
-		}
-		if created {
-			result.ProposalsCreated++
-		}
-	}
-	return nil
 }

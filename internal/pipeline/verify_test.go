@@ -107,7 +107,13 @@ func TestVerifyStage_resumesAfterInterruption(t *testing.T) {
 func TestVerifyStage_completesNfoFromProviderWhenVariantMatches(t *testing.T) {
 	fixture := newVerifyFixture(t)
 	torrentNfo := []byte("ab\r\ncd")
-	candidate := fixture.addCandidate("Movie.2020", "", movieWithAnnex(torrentNfo))
+	// Le remplissage décale les index : le fournisseur (candidate_files) compte 3 fichiers, torrentcheck 2.
+	entries := []torrentEntry{
+		{path: "movie.mkv", content: patternBytes(1, movieSize), localName: "movie.mkv"},
+		{path: "_____padding_file_0", content: make([]byte, 8), padding: true},
+		{path: "movie.nfo", content: torrentNfo},
+	}
+	candidate := fixture.addCandidate("Movie.2020", "", entries)
 	providerNfo := append([]byte{0xEF, 0xBB, 0xBF}, []byte("ab\ncd")...)
 	fixture.fetcher.nfos[candidate.Infohash] = []libraryprovider.Nfo{{Label: "canonical", Data: providerNfo}}
 
@@ -115,7 +121,11 @@ func TestVerifyStage_completesNfoFromProviderWhenVariantMatches(t *testing.T) {
 
 	verifiedFiles, err := fixture.store.ListVerifiedFiles(context.Background(), candidate.ID)
 	if err != nil || len(verifiedFiles) != 1 || !bytes.Equal(verifiedFiles[0].Data, torrentNfo) || verifiedFiles[0].FileIndex != 1 {
-		t.Fatalf("gotValue %+v %v, expectedValue the CRLF variant stored for file 1", verifiedFiles, err)
+		t.Fatalf("gotValue %+v %v, expectedValue the CRLF variant stored for torrentcheck file 1", verifiedFiles, err)
+	}
+	providerRows, err := fixture.store.ListCandidateFiles(context.Background(), candidate.ID)
+	if err != nil || providerRows[len(providerRows)-1].Path != "Movie.2020/movie.nfo" || providerRows[len(providerRows)-1].FileIndex != 2 {
+		t.Fatalf("gotValue %+v %v, expectedValue the provider index 2 for movie.nfo, unlike verified_files", providerRows, err)
 	}
 	verification, _ := fixture.verification(candidate.ID)
 	if verification.VerifiedPieces != verification.TotalPieces {
@@ -151,8 +161,13 @@ func TestVerifyStage_createsFullProposalFor100Percent(t *testing.T) {
 	details := decodeDetails(t, proposal)
 	isExpected := proposal.CandidateID == candidate.ID && proposal.Decision == store.ProposalPending && proposal.Primary &&
 		details.Percent == 100 && details.MissingPieces == 0 && proposal.GroupID == candidate.GroupID
-	if !isExpected || result.ProposalsCreated != 1 {
-		t.Fatalf("gotValue %+v details %+v result %+v, expectedValue one pending primary full proposal", proposal, details, result)
+	if !isExpected || result.ProposalsCreated != 1 || proposal.PrimarySource != store.PrimaryAuto {
+		t.Fatalf("gotValue %+v details %+v result %+v, expectedValue one pending auto-primary full proposal", proposal, details, result)
+	}
+	assignment, found, err := fixture.store.LoadVerifiedAssignment(context.Background(), candidate.ID)
+	moviePath := filepath.Join(fixture.root, "movie.mkv")
+	if err != nil || !found || len(assignment.Files) != 1 || assignment.Files[0].Path != moviePath || assignment.Files[0].TorrentFileIndex != 0 {
+		t.Fatalf("gotValue %+v found=%v err=%v, expectedValue the proven movie.mkv mapping", assignment, found, err)
 	}
 }
 
@@ -165,8 +180,8 @@ func TestVerifyStage_createsPartialAnnexProposalWithWarning(t *testing.T) {
 	proposal := singleProposalOfKind(t, fixture.proposalsOf(candidate.ID), store.ProposalPartialAnnex)
 	details := decodeDetails(t, proposal)
 	hasPausedWarning := len(proposal.Warnings) == 1 && strings.Contains(proposal.Warnings[0], "paused")
-	if !hasPausedWarning || details.MissingPieces != 1 || math.Abs(details.Percent-200.0/3) > 1e-9 || !proposal.Primary {
-		t.Fatalf("gotValue %+v details %+v, expectedValue a paused warning, 1 missing piece and the percentage", proposal, details)
+	if !hasPausedWarning || details.MissingPieces != 1 || math.Abs(details.Percent-200.0/3) > 1e-9 || proposal.Primary {
+		t.Fatalf("gotValue %+v details %+v, expectedValue a paused warning, 1 missing piece, the percentage and no primary", proposal, details)
 	}
 }
 
@@ -317,10 +332,14 @@ func TestVerifyStage_neverWritesLibraryFiles(t *testing.T) {
 	fixture.addCandidate("Show.S01", "", []torrentEntry{
 		{path: "ep1.mkv", content: patternBytes(5, 32), localName: "ep1.mkv", localContent: patternBytes(6, 32)},
 	})
-	fixture.guardLibrary()
+	fixture.productionOpener = true
 
+	firstResult := fixture.mustRun()
 	fixture.mustRun()
-	fixture.mustRun()
+
+	if firstResult.Verified < 3 || fixture.opener.total() != 0 {
+		t.Fatalf("gotValue %+v and %d counted bytes, expectedValue verification through openReadOnly only", firstResult, fixture.opener.total())
+	}
 }
 
 func TestVerifyStage_oversizedTorrentFailsCleanly(t *testing.T) {
@@ -413,7 +432,10 @@ func TestVerifyStage_corruptedByteIsNeverVerified(t *testing.T) {
 	if corruptedPieceVerified || verification.VerifiedPieces != 2 || verification.MediaComplete {
 		t.Fatalf("gotValue %+v, expectedValue piece 1 unverified and media incomplete", verification)
 	}
-	if len(fixture.proposals()) != 0 || result.Reasons[ReasonMediaNotVerified] != 1 {
+	if len(fixture.proposals()) != 0 || result.Reasons[ReasonMediaHashFailed] != 1 {
 		t.Fatalf("gotValue %+v result %+v, expectedValue no proposal", fixture.proposals(), result)
+	}
+	if gotValue := fixture.candidate(candidate.Infohash).State; gotValue != store.CandidateFailed {
+		t.Fatalf("gotValue state %s, expectedValue failed (not eligible)", gotValue)
 	}
 }

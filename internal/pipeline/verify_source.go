@@ -177,8 +177,9 @@ func nfoFetchError(result *Result, err error) error {
 func (run candidateRun) findVerifyingVariant(ctx context.Context, torrent *torrentcheck.Torrent, fileIndex int,
 	nfos []libraryprovider.Nfo, source compositeSource,
 ) ([]byte, bool, error) {
-	testable := testablePieces(torrent, fileIndex, source)
-	if len(testable) == 0 {
+	testable, everyPieceTestable := testablePieces(torrent, fileIndex, source)
+	if !everyPieceTestable {
+		// Une pièce à cheval sur un autre fichier absent ne prouverait rien : l'annexe reste manquante.
 		return nil, false, nil
 	}
 	verifier := torrentcheck.Verifier{Limiter: run.deps.ReadLimiter}
@@ -205,19 +206,19 @@ func (run candidateRun) findVerifyingVariant(ctx context.Context, torrent *torre
 	return nil, false, nil
 }
 
-// testablePieces liste les pièces qui recouvrent le fichier et dont chaque autre fichier est disponible : une pièce
-// partagée avec une autre annexe absente ne peut rien prouver.
-func testablePieces(torrent *torrentcheck.Torrent, fileIndex int, source compositeSource) []int {
+// testablePieces liste les pièces qui recouvrent le fichier ; everyPieceTestable est vrai seulement si chaque autre
+// fichier de chacune de ces pièces est disponible.
+func testablePieces(torrent *torrentcheck.Torrent, fileIndex int, source compositeSource) (pieces []int, everyPieceTestable bool) {
 	file := torrent.Files[fileIndex]
 	firstPiece := int(file.Offset / torrent.PieceLength)
 	lastPiece := int((file.Offset + file.Size - 1) / torrent.PieceLength)
-	var testable []int
 	for pieceIndex := firstPiece; pieceIndex <= lastPiece; pieceIndex++ {
-		if neighboursPresent(torrent, pieceIndex, fileIndex, source) {
-			testable = append(testable, pieceIndex)
+		if !neighboursPresent(torrent, pieceIndex, fileIndex, source) {
+			return nil, false
 		}
+		pieces = append(pieces, pieceIndex)
 	}
-	return testable
+	return pieces, true
 }
 
 func neighboursPresent(torrent *torrentcheck.Torrent, pieceIndex, fileIndex int, source compositeSource) bool {

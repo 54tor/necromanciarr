@@ -72,7 +72,11 @@ type Store interface {
 	SaveVerifiedFile(ctx context.Context, file store.VerifiedFile) error
 	UpsertProposal(ctx context.Context, proposal store.Proposal, now time.Time) (int64, bool, error)
 	ListProposals(ctx context.Context, decision store.ProposalDecision) ([]store.Proposal, error)
-	SetGroupPrimary(ctx context.Context, groupID, proposalID int64) error
+	SetGroupPrimary(ctx context.Context, groupID, proposalID int64, source store.PrimarySource) error
+	ClearGroupPrimary(ctx context.Context, groupID int64) error
+	SetProposalGroup(ctx context.Context, proposalID, groupID int64) error
+	SetProposalDecision(ctx context.Context, proposalID int64, decision store.ProposalDecision, now time.Time) error
+	CompleteVerification(ctx context.Context, verification store.Verification, files []store.AssignedFile, now time.Time) error
 	AcquireRunLock(ctx context.Context, holder, stage string, now, expiresAt time.Time) error
 	RefreshRunLock(ctx context.Context, holder string, expiresAt time.Time) error
 	ReleaseRunLock(ctx context.Context, holder string) error
