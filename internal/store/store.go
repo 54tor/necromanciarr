@@ -105,6 +105,12 @@ func Open(path string) (*Store, error) {
 	return &Store{database: database}, nil
 }
 
+// Ping vérifie que la base répond à une requête (sonde /healthz) ; ctx borne l'attente.
+func (openedStore *Store) Ping(ctx context.Context) error {
+	var one int
+	return openedStore.database.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+}
+
 // Close ferme la base.
 func (openedStore *Store) Close() error {
 	return openedStore.database.Close()

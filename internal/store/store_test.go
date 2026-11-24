@@ -91,3 +91,20 @@ func TestOpen_acceptsQuestionMarkAndHashInPath(t *testing.T) {
 		t.Fatalf("database not created at the literal path: %v", err)
 	}
 }
+
+func TestPing_answersWhileOpenAndFailsOnceClosed(t *testing.T) {
+	testStore, err := Open(filepath.Join(t.TempDir(), "necromanciarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if gotValue := testStore.Ping(context.Background()); gotValue != nil {
+		t.Fatalf("gotValue %v, expectedValue nil on an open store", gotValue)
+	}
+	if err := testStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if gotValue := testStore.Ping(context.Background()); gotValue == nil {
+		t.Fatal("gotValue nil, expectedValue an error on a closed store")
+	}
+}
