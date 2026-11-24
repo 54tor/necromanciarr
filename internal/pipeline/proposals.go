@@ -152,8 +152,8 @@ func missingMediaFiles(torrent *torrentcheck.Torrent, assignment matcher.Assignm
 	return missing
 }
 
-// groupOf donne le groupe du candidat ; un candidat jamais regroupé forme son propre groupe.
-func groupOf(candidate store.Candidate) int64 {
+// GroupOf donne le groupe du candidat ; un candidat jamais regroupé forme son propre groupe.
+func GroupOf(candidate store.Candidate) int64 {
 	if candidate.GroupID != 0 {
 		return candidate.GroupID
 	}
@@ -172,7 +172,7 @@ func (run candidateRun) propose(ctx context.Context, candidate store.Candidate, 
 		run.result.PartialPack++
 	}
 	created, err := upsertProposal(ctx, run.deps, store.Proposal{
-		CandidateID: candidate.ID, GroupID: groupOf(candidate), Kind: decided.kind, Warnings: decided.warnings,
+		CandidateID: candidate.ID, GroupID: GroupOf(candidate), Kind: decided.kind, Warnings: decided.warnings,
 	}, decided.details)
 	if created && decided.kind == store.ProposalConflict {
 		run.result.Conflicts++

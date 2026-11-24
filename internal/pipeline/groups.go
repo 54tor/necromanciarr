@@ -35,7 +35,7 @@ func refreshGroups(ctx context.Context, deps Deps, result *Result) error {
 	for _, candidate := range candidates {
 		generations[candidate.ID] = candidate.Generation
 		if candidate.State != store.CandidateStale && candidate.State != store.CandidateFailed {
-			membersByGroup[groupOf(candidate)] = append(membersByGroup[groupOf(candidate)], candidate)
+			membersByGroup[GroupOf(candidate)] = append(membersByGroup[GroupOf(candidate)], candidate)
 		}
 	}
 	open := map[int64][]store.Proposal{}

@@ -15,6 +15,8 @@ import (
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/library"
 	"necromanciarr/internal/libraryprovider"
+	"necromanciarr/internal/linker"
+	"necromanciarr/internal/qbit"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
 )
@@ -33,9 +35,8 @@ const (
 
 // Erreurs typées du pipeline.
 var (
-	ErrUnknownStage        = errors.New("pipeline: unknown stage")
-	ErrStageNotImplemented = errors.New("pipeline: stage not implemented yet")
-	ErrStageRunning        = errors.New("pipeline: another stage is running")
+	ErrUnknownStage = errors.New("pipeline: unknown stage")
+	ErrStageRunning = errors.New("pipeline: another stage is running")
 	// ErrLockLost signale que le verrou d'étape a été repris ou n'a pas pu être prolongé : l'étape s'est arrêtée.
 	ErrLockLost = errors.New("pipeline: run lock lost")
 )
@@ -77,6 +78,15 @@ type Store interface {
 	SetProposalGroup(ctx context.Context, proposalID, groupID int64) error
 	SetProposalDecision(ctx context.Context, proposalID int64, decision store.ProposalDecision, now time.Time) error
 	CompleteVerification(ctx context.Context, verification store.Verification, files []store.AssignedFile, now time.Time) error
+	LoadVerifiedAssignment(ctx context.Context, candidateID int64) (store.VerifiedAssignment, bool, error)
+	ListLinks(ctx context.Context, state store.LinkState) ([]store.Link, error)
+	RecordLink(ctx context.Context, link store.Link) error
+	LookupFingerprint(ctx context.Context, path string, size int64, modTime time.Time) (string, bool, error)
+	RecordFingerprint(ctx context.Context, entry store.CachedFingerprint) error
+	ListProposalProgress(ctx context.Context) (map[int64]store.ProposalProgress, error)
+	SaveProposalProgress(ctx context.Context, progress store.ProposalProgress, now time.Time) error
+	ApplyProposal(ctx context.Context, proposalID int64, step store.ProposalStep, linkRoot string, now time.Time) error
+	AddProposalWarning(ctx context.Context, proposalID int64, warning string) error
 	AcquireRunLock(ctx context.Context, holder, stage string, now, expiresAt time.Time) error
 	RefreshRunLock(ctx context.Context, holder string, expiresAt time.Time) error
 	ReleaseRunLock(ctx context.Context, holder string) error
@@ -103,6 +113,19 @@ type PathMapper interface {
 	Reverse(original string) (string, error)
 }
 
+// ClientPathMapper traduit un chemin de ce processus (côté From des règles) vers la vue du client torrent (côté To).
+type ClientPathMapper interface {
+	Translate(original string) (string, error)
+}
+
+// TorrentClient est la part du client torrent utilisée par Seed et par Force ; *qbit.Client convient.
+type TorrentClient interface {
+	Add(ctx context.Context, torrent []byte, savePath string, options qbit.AddOptions) error
+	Progress(ctx context.Context, infoHash string) (float64, error)
+	RecheckAndGuard(ctx context.Context, infoHash string, timeout time.Duration) (qbit.RecheckResult, error)
+	Resume(ctx context.Context, infoHash string) error
+}
+
 // RootScanner inventorie une racine de bibliothèque dans le store.
 type RootScanner func(ctx context.Context, root string) error
 
@@ -118,6 +141,11 @@ func LibraryScanner(mediaStore *store.Store) RootScanner {
 // départager des fichiers de même taille (0 = sans limite) ; OpenLocal nil ouvre en lecture seule avec os.Open ;
 // CrossSeed vient de crossseed.ResolveMode ; l'avancement est enregistré toutes les ProgressEvery pièces (0 = 64) ou
 // toutes les ProgressInterval (0 = 5 s).
+//
+// Pour Link : LinkDirs (vue de ce processus) et LinkKinds, ordre des sortes de liens permises (vide = hardlink) ;
+// ProbeLinks nil vaut linker.Probe. Pour Seed : Client, ClientMapper (nil = même vue que le client), Category et Tags,
+// SkipRecheck (permis de sauter le recontrôle quand notre vérification couvre 100 %), RecheckTimeout (0 = une heure),
+// Notifier (nil = aucun) et CrossSeedWarning, l'avertissement de crossseed.ResolveMode recopié dans le Result.
 type Deps struct {
 	Store            Store
 	ScanRoot         RootScanner
@@ -132,6 +160,17 @@ type Deps struct {
 	CrossSeed        crossseed.Behavior
 	ProgressEvery    int
 	ProgressInterval time.Duration
+	LinkDirs         []string
+	LinkKinds        []linker.Kind
+	ProbeLinks       func(directory string) (linker.Capabilities, error)
+	Client           TorrentClient
+	ClientMapper     ClientPathMapper
+	Category         string
+	Tags             []string
+	SkipRecheck      bool
+	RecheckTimeout   time.Duration
+	Notifier         crossseed.Notifier
+	CrossSeedWarning string
 	Now              func() time.Time
 	LockTTL          time.Duration
 }
@@ -172,6 +211,12 @@ type Result struct {
 	Conflicts        int
 	Resumed          int
 	ProposalsCreated int
+	// Totaux de Link et Seed : torrent lié, ajouté puis repris à 100 %, ajouté et laissé en pause car incomplet.
+	Linked                 int
+	Seeded                 int
+	SeededPausedIncomplete int
+	// Warnings porte les avertissements globaux de l'étape (mode cross-seed), sans URL ni secret.
+	Warnings []string
 }
 
 func (result *Result) count(reason string, amount int) {
@@ -206,12 +251,8 @@ var stageRunners = map[Stage]stageRunner{
 	StageScan:   runScan,
 	StageMatch:  runMatch,
 	StageVerify: runVerify,
-	StageLink:   notImplemented,
-	StageSeed:   notImplemented,
-}
-
-func notImplemented(context.Context, Deps) (Result, error) {
-	return Result{}, ErrStageNotImplemented
+	StageLink:   runLink,
+	StageSeed:   runSeed,
 }
 
 // Run exécute une étape sous le verrou exclusif du store ; le Result incomplet est renvoyé même en cas d'erreur.
