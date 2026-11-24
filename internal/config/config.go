@@ -399,6 +399,9 @@ func validate(loadedConfig Config) error {
 	if err := validateDedupeRoots(loadedConfig); err != nil {
 		return err
 	}
+	if err := validateLinkDirs(loadedConfig); err != nil {
+		return err
+	}
 	if loadedConfig.AuthToken == "" && !isLoopbackAddress(loadedConfig.ListenAddr) {
 		return fmt.Errorf("listen %q is not loopback: set %s", loadedConfig.ListenAddr, envAuthToken)
 	}
@@ -413,6 +416,19 @@ func validateDedupeRoots(loadedConfig Config) error {
 			if PathsOverlap(torrentRoot, libraryRoot) {
 				return fmt.Errorf("dedupe.torrentRoots[%d] %q overlaps libraryRoots[%d] %q", torrentIndex, torrentRoot,
 					libraryIndex, libraryRoot)
+			}
+		}
+	}
+	return nil
+}
+
+// validateLinkDirs : un dossier de liens dans la bibliothèque (ou qui la contient) ferait écrire liens et annexes
+// au milieu des fichiers de la bibliothèque. Contrôle lexical ; l'étape Link refait le contrôle sur chemins résolus.
+func validateLinkDirs(loadedConfig Config) error {
+	for linkIndex, linkDir := range loadedConfig.LinkDirs {
+		for libraryIndex, libraryRoot := range loadedConfig.LibraryRoots {
+			if PathsOverlap(linkDir, libraryRoot) {
+				return fmt.Errorf("linkDirs[%d] %q overlaps libraryRoots[%d] %q", linkIndex, linkDir, libraryIndex, libraryRoot)
 			}
 		}
 	}

@@ -441,6 +441,32 @@ func TestConfig_rejectsDedupeRootsOverlappingLibraryRoots(t *testing.T) {
 	}
 }
 
+func TestConfig_rejectsLinkDirsOverlappingLibraryRoots(t *testing.T) {
+	cases := map[string]struct {
+		linkDir         string
+		expectedOverlap bool
+	}{
+		"equal":       {"/volumes/mega/1080p", true},
+		"ancestor":    {"/volumes/mega", true},
+		"descendant":  {"/volumes/mega/1080p/links", true},
+		"sibling":     {"/volumes/mega/links", false},
+		"same prefix": {"/volumes/mega/1080p-links", false},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			configDir := t.TempDir()
+			writeFile(t, configDir, configFileName, fmt.Sprintf(`{"libraryRoots": ["/volumes/mega/1080p"], "linkDirs": [%q]}`, testCase.linkDir))
+
+			_, err := Load(nil, lookupFrom(nil), configDir)
+
+			gotOverlap := err != nil && strings.Contains(err.Error(), "linkDirs[0]")
+			if gotOverlap != testCase.expectedOverlap || (err != nil && !gotOverlap) {
+				t.Fatalf("gotValue %v, expectedValue overlap %v", err, testCase.expectedOverlap)
+			}
+		})
+	}
+}
+
 func TestConfig_readsLibraryApiFromEnvironment(t *testing.T) {
 	environment := map[string]string{envLibraryAPI: "https://example.com/api/necromanciarr", envLibraryProviderToken: "provider-secret"}
 	loadedConfig := mustLoad(t, nil, environment, t.TempDir())
