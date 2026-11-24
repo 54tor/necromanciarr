@@ -147,7 +147,10 @@ type fakeTorrentClient struct {
 	guardResults map[string]qbit.RecheckResult
 	guardCalls   []string
 	resumed      []string
+	paused       []string
 	addErr       error
+	// existing sont des torrents déjà dans le client avant l'étape (d'un autre outil, ou d'une exécution interrompue).
+	existing []qbit.TorrentInfo
 }
 
 type fakeAdd struct {
@@ -174,13 +177,24 @@ func (client *fakeTorrentClient) Add(_ context.Context, torrent []byte, savePath
 	return nil
 }
 
-func (client *fakeTorrentClient) Progress(_ context.Context, infoHash string) (float64, error) {
+func (client *fakeTorrentClient) Torrents(context.Context) ([]qbit.TorrentInfo, error) {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
-	if _, present := client.added[infoHash]; !present {
-		return 0, qbit.ErrNotFound
+	var torrents []qbit.TorrentInfo
+	for infohash, added := range client.added {
+		torrents = append(torrents, qbit.TorrentInfo{Hash: infohash, SavePath: added.savePath, Progress: client.progress[infohash], State: "stoppedDL"})
 	}
-	return client.progress[infoHash], nil
+	for _, existing := range client.existing {
+		torrents = append(torrents, existing)
+	}
+	return torrents, nil
+}
+
+func (client *fakeTorrentClient) Pause(_ context.Context, infoHash string) error {
+	client.mutex.Lock()
+	defer client.mutex.Unlock()
+	client.paused = append(client.paused, infoHash)
+	return nil
 }
 
 func (client *fakeTorrentClient) RecheckAndGuard(_ context.Context, infoHash string, _ time.Duration) (qbit.RecheckResult, error) {

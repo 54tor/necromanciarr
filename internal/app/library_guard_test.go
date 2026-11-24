@@ -55,21 +55,31 @@ func (singleTorrentFetcher) Nfos(context.Context, string, string) ([]libraryprov
 
 // completeClient accepte tout ajout ; un torrent ajouté sans recontrôle est vu à 100 %.
 type completeClient struct {
-	added   map[string]bool
-	resumed []string
+	added    map[string]bool
+	resumed  []string
+	hash     string
+	savePath string
 }
 
-func (client *completeClient) Add(_ context.Context, _ []byte, _ string, _ qbit.AddOptions) error {
+func (client *completeClient) Add(_ context.Context, raw []byte, savePath string, _ qbit.AddOptions) error {
 	client.added["any"] = true
+	client.savePath = savePath
+	metaInfo, err := metainfo.Load(bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	client.hash = metaInfo.HashInfoBytes().HexString()
 	return nil
 }
 
-func (client *completeClient) Progress(context.Context, string) (float64, error) {
+func (client *completeClient) Torrents(context.Context) ([]qbit.TorrentInfo, error) {
 	if !client.added["any"] {
-		return 0, qbit.ErrNotFound
+		return nil, nil
 	}
-	return 1, nil
+	return []qbit.TorrentInfo{{Hash: client.hash, SavePath: client.savePath, Progress: 1}}, nil
 }
+
+func (client *completeClient) Pause(context.Context, string) error { return nil }
 
 func (client *completeClient) RecheckAndGuard(context.Context, string, time.Duration) (qbit.RecheckResult, error) {
 	return qbit.RecheckResult{Progress: 1, Complete: true, Resumed: true}, nil

@@ -87,6 +87,7 @@ type Store interface {
 	SaveProposalProgress(ctx context.Context, progress store.ProposalProgress, now time.Time) error
 	ApplyProposal(ctx context.Context, proposalID int64, step store.ProposalStep, linkRoot string, now time.Time) error
 	AddProposalWarning(ctx context.Context, proposalID int64, warning string) error
+	DeleteProposalProgress(ctx context.Context, proposalID int64) error
 	AcquireRunLock(ctx context.Context, holder, stage string, now, expiresAt time.Time) error
 	RefreshRunLock(ctx context.Context, holder string, expiresAt time.Time) error
 	ReleaseRunLock(ctx context.Context, holder string) error
@@ -121,7 +122,8 @@ type ClientPathMapper interface {
 // TorrentClient est la part du client torrent utilisée par Seed et par Force ; *qbit.Client convient.
 type TorrentClient interface {
 	Add(ctx context.Context, torrent []byte, savePath string, options qbit.AddOptions) error
-	Progress(ctx context.Context, infoHash string) (float64, error)
+	Torrents(ctx context.Context) ([]qbit.TorrentInfo, error)
+	Pause(ctx context.Context, infoHash string) error
 	RecheckAndGuard(ctx context.Context, infoHash string, timeout time.Duration) (qbit.RecheckResult, error)
 	Resume(ctx context.Context, infoHash string) error
 }

@@ -3,9 +3,12 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"path"
+	"strings"
 	"time"
 
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
 	"necromanciarr/internal/store"
 )
@@ -27,12 +30,18 @@ const (
 	ReasonIncompleteAfterRecheck = "incomplete_after_recheck"
 	ReasonPausedIncomplete       = "paused_incomplete"
 	ReasonCrossSeedNotifyFailed  = "crossseed_notify_failed"
+	ReasonLinkChanged            = "link_changed"
+	ReasonAnnexChanged           = "annex_changed"
+	ReasonAlreadyInClient        = "already_in_client"
+	ReasonClientPathInvalid      = "client_path_invalid"
+	ReasonPauseFailed            = "pause_failed"
 )
 
 // Avertissements consignés sur la proposition (texte fixe, sans URL ni secret).
 const (
 	warningIncompleteAfterRecheck = "left paused: the client did not reach 100% after its recheck"
 	warningCrossSeedNotifyFailed  = "cross-seed notification failed: the daemon will not search for this torrent"
+	warningSourcesChanged         = "not seeded: a library file changed since it was linked, verify again"
 )
 
 // defaultSeedRecheckTimeout couvre le recontrôle d'un gros torrent sur disque lent ; au-delà, il reste en pause.
@@ -83,42 +92,102 @@ type seedRun struct {
 	result *Result
 }
 
+// seedProposal ne renvoie une erreur que pour arrêter l'étape ; un refus (refusal) passe la proposition à failed.
 func (run seedRun) seedProposal(ctx context.Context, proposal store.Proposal, candidate store.Candidate, linkRoot string) error {
-	raw, err := run.deps.Store.CandidateTorrent(ctx, candidate.ID)
+	err := run.seedChecked(ctx, proposal, candidate, linkRoot)
+	var refused refusal
+	if errors.As(err, &refused) {
+		return failProposal(ctx, run.deps, run.result, proposal.ID, string(refused))
+	}
+	return err
+}
+
+// seedChecked revérifie tout juste avant l'ajout : sources inchangées (sinon candidat stale), liens et annexes du
+// dossier du torrent intacts (sinon échec et étape effacée, Link refera le dossier). Un torrent déjà dans le client
+// n'est repris en main que s'il pointe sur notre dossier.
+func (run seedRun) seedChecked(ctx context.Context, proposal store.Proposal, candidate store.Candidate, linkRoot string) error {
+	proven, reason, err := loadProven(ctx, run.deps, proposal, candidate)
+	switch {
+	case err != nil:
+		return err
+	case reason == ReasonChangedFile:
+		return run.markSourcesChanged(ctx, proposal.ID, candidate.ID)
+	case reason != "":
+		return refusal(reason)
+	}
+	certain, damage, err := run.checkPlacement(ctx, proven, linkRoot)
 	if err != nil {
 		return err
+	}
+	if damage != "" {
+		if err := run.deps.Store.DeleteProposalProgress(ctx, proposal.ID); err != nil {
+			return err
+		}
+		return refusal(damage)
+	}
+	savePath, validPath := run.clientPath(linkRoot)
+	if !validPath {
+		return refusal(ReasonClientPathInvalid)
 	}
 	complete, err := run.verifiedComplete(ctx, proposal, candidate.ID)
 	if err != nil {
 		return err
 	}
-	skipChecking := complete && run.deps.SkipRecheck
-	if err := run.addStopped(ctx, raw, candidate.Infohash, linkRoot, skipChecking); err != nil {
-		var refused refusal
-		if errors.As(err, &refused) {
-			return failProposal(ctx, run.deps, run.result, proposal.ID, string(refused))
-		}
+	existing, present, err := run.findTorrent(ctx, candidate.Infohash)
+	if err != nil {
+		return refusal(ReasonAddFailed)
+	}
+	if present {
+		return run.takeOverExisting(ctx, proposal.ID, candidate.Infohash, existing, savePath, linkRoot, complete)
+	}
+	skipChecking := complete && run.deps.SkipRecheck && certain
+	if err := run.addStopped(ctx, candidate.ID, savePath, skipChecking); err != nil {
 		return err
 	}
 	if !complete {
 		run.result.count(ReasonPausedIncomplete, 1)
 		return run.finish(ctx, proposal.ID, store.StepSeededPausedIncomplete, linkRoot)
 	}
-	started, reason := run.startComplete(ctx, candidate.Infohash, skipChecking)
-	if reason != "" {
-		return failProposal(ctx, run.deps, run.result, proposal.ID, reason)
-	}
-	if !started {
-		run.result.count(ReasonIncompleteAfterRecheck, 1)
-		if err := run.deps.Store.AddProposalWarning(ctx, proposal.ID, warningIncompleteAfterRecheck); err != nil {
-			return err
-		}
-		return run.finish(ctx, proposal.ID, store.StepSeededPausedIncomplete, linkRoot)
-	}
-	if err := run.finish(ctx, proposal.ID, store.StepSeeded, linkRoot); err != nil {
+	return run.startComplete(ctx, proposal.ID, candidate.Infohash, linkRoot, skipChecking)
+}
+
+// markSourcesChanged : une source a changé entre Link et Seed ; rien n'est ajouté et le candidat passe à stale (le
+// store clôt alors la proposition, l'avertissement en garde la raison).
+func (run seedRun) markSourcesChanged(ctx context.Context, proposalID, candidateID int64) error {
+	run.result.Skipped++
+	run.result.count(ReasonChangedFile, 1)
+	if err := run.deps.Store.AddProposalWarning(ctx, proposalID, warningSourcesChanged); err != nil {
 		return err
 	}
-	return run.notify(ctx, proposal.ID, candidate.Infohash)
+	return run.deps.Store.SetCandidateState(ctx, candidateID, store.CandidateStale, run.deps.now())
+}
+
+// checkPlacement contrôle chaque lien (même fichier que sa source, ou même taille et même empreinte pour un reflink) et
+// chaque annexe (taille et sha256). certain est faux dès qu'un lien n'est prouvé que par l'empreinte début-fin : le
+// client doit alors recontrôler.
+func (run seedRun) checkPlacement(ctx context.Context, proven provenTorrent, linkRoot string) (certain bool, damage string, err error) {
+	ops, planErr := linker.Plan(proven.torrent, proven.assignment, linkRoot)
+	if planErr != nil {
+		return false, ReasonLinkChanged, nil
+	}
+	certain = true
+	for _, operation := range ops {
+		kind, matches, err := entryMatches(ctx, run.deps, operation.Destination, operation.Source)
+		if err != nil {
+			return false, "", err
+		}
+		if !matches {
+			return false, ReasonLinkChanged, nil
+		}
+		certain = certain && kind != linker.Reflink
+	}
+	for _, annex := range proven.annexes {
+		path, pathErr := annexPath(proven.torrent, linkRoot, annex)
+		if pathErr != nil || !annexMatches(path, annex) {
+			return false, ReasonAnnexChanged, nil
+		}
+	}
+	return certain, "", nil
 }
 
 // verifiedComplete : seul un torrent complet dont NOTRE vérification a couvert toutes les pièces peut être repris ;
@@ -135,18 +204,44 @@ func (run seedRun) verifiedComplete(ctx context.Context, proposal store.Proposal
 	return found && verification.TotalPieces > 0 && verification.VerifiedPieces == verification.TotalPieces, nil
 }
 
-// addStopped ajoute le torrent arrêté s'il n'est pas déjà dans le client (reprise après un arrêt) ; le chemin envoyé est
-// celui que le client voit. Un client readonly arrête l'étape.
-func (run seedRun) addStopped(ctx context.Context, raw []byte, infohash, linkRoot string, skipChecking bool) error {
-	_, err := run.deps.Client.Progress(ctx, infohash)
-	if err == nil {
-		return nil
+func (run seedRun) findTorrent(ctx context.Context, infohash string) (qbit.TorrentInfo, bool, error) {
+	torrents, err := run.deps.Client.Torrents(ctx)
+	if err != nil {
+		return qbit.TorrentInfo{}, false, err
 	}
-	if !errors.Is(err, qbit.ErrNotFound) {
-		return refusal(ReasonAddFailed)
+	for _, torrent := range torrents {
+		if strings.EqualFold(torrent.Hash, infohash) {
+			return torrent, true, nil
+		}
+	}
+	return qbit.TorrentInfo{}, false, nil
+}
+
+// takeOverExisting reprend un torrent déjà dans le client (reprise après un arrêt) seulement s'il pointe sur notre
+// dossier ; sinon il appartient à quelqu'un d'autre et rien n'est touché. Incomplet, il est mis en pause ; complet, la
+// garde le recontrôle et ne le reprend qu'à 100 %.
+func (run seedRun) takeOverExisting(ctx context.Context, proposalID int64, infohash string, existing qbit.TorrentInfo, savePath, linkRoot string, complete bool) error {
+	if !sameClientPath(existing.SavePath, savePath) {
+		return refusal(ReasonAlreadyInClient)
+	}
+	if !complete {
+		if err := run.deps.Client.Pause(ctx, infohash); err != nil {
+			return refusal(ReasonPauseFailed)
+		}
+		run.result.count(ReasonPausedIncomplete, 1)
+		return run.finish(ctx, proposalID, store.StepSeededPausedIncomplete, linkRoot)
+	}
+	return run.guarded(ctx, proposalID, infohash, linkRoot)
+}
+
+// addStopped ajoute le torrent arrêté au chemin que voit le client ; un client readonly arrête l'étape.
+func (run seedRun) addStopped(ctx context.Context, candidateID int64, savePath string, skipChecking bool) error {
+	raw, err := run.deps.Store.CandidateTorrent(ctx, candidateID)
+	if err != nil {
+		return err
 	}
 	options := qbit.AddOptions{Category: run.deps.Category, Tags: run.deps.Tags, Start: false, SkipChecking: skipChecking}
-	err = run.deps.Client.Add(ctx, raw, run.clientPath(linkRoot), options)
+	err = run.deps.Client.Add(ctx, raw, savePath, options)
 	switch {
 	case errors.Is(err, qbit.ErrReadOnly):
 		run.result.count(ReasonClientReadOnly, 1)
@@ -163,39 +258,82 @@ type refusal string
 func (reason refusal) Error() string { return "pipeline: refused: " + string(reason) }
 
 // clientPath traduit le dossier du torrent vers la vue du client ; sans règle qui le couvre (linker.ErrNoRule), il
-// voit le même chemin.
-func (run seedRun) clientPath(linkRoot string) string {
-	if run.deps.ClientMapper == nil {
-		return linkRoot
-	}
-	translated, err := run.deps.ClientMapper.Translate(linkRoot)
-	if err != nil {
-		return linkRoot
-	}
-	return translated
-}
-
-// startComplete reprend le torrent seulement si le client le voit à 100 % : sans recontrôle, l'avancement doit déjà
-// valoir 1 ; sinon (ou à défaut) la garde recontrôle et ne reprend que s'il est complet.
-func (run seedRun) startComplete(ctx context.Context, infohash string, skipChecking bool) (bool, string) {
-	if skipChecking {
-		progress, err := run.deps.Client.Progress(ctx, infohash)
-		if err == nil && progress == 1 {
-			if err := run.deps.Client.Resume(ctx, infohash); err != nil {
-				return false, ReasonResumeFailed
-			}
-			return true, ""
+// voit le même chemin. Un chemin Windows qui contient un caractère interdit par Windows est refusé.
+func (run seedRun) clientPath(linkRoot string) (string, bool) {
+	translated := linkRoot
+	if run.deps.ClientMapper != nil {
+		if mapped, err := run.deps.ClientMapper.Translate(linkRoot); err == nil {
+			translated = mapped
 		}
 	}
+	return translated, !hasWindowsInvalidCharacters(translated)
+}
+
+// windowsInvalidCharacters sont interdits dans un nom de fichier Windows (le « : » du lecteur mis à part).
+const windowsInvalidCharacters = `:?*"<>|`
+
+func hasWindowsInvalidCharacters(clientPath string) bool {
+	isDrivePath := len(clientPath) >= 2 && clientPath[1] == ':'
+	isUNCPath := strings.HasPrefix(clientPath, `\\`)
+	if !isDrivePath && !isUNCPath {
+		return false
+	}
+	return strings.ContainsAny(clientPath[2:], windowsInvalidCharacters)
+}
+
+// sameClientPath compare deux chemins vus par le client, nettoyés, en ignorant la casse pour un chemin Windows.
+func sameClientPath(left, right string) bool {
+	normalize := func(clientPath string) string {
+		return strings.TrimSuffix(path.Clean(strings.ReplaceAll(clientPath, `\`, "/")), "/")
+	}
+	isWindows := (len(right) >= 2 && right[1] == ':') || strings.HasPrefix(right, `\\`)
+	if isWindows {
+		return strings.EqualFold(normalize(left), normalize(right))
+	}
+	return normalize(left) == normalize(right)
+}
+
+// startComplete reprend un torrent complet. Après skip_checking, qBittorrent affiche 100 % par construction : ce
+// contrôle ne prouve que l'ajout, la preuve du contenu est la revérification de checkPlacement juste avant. Sans
+// skip_checking (ou si l'avancement n'est pas à 1), la garde recontrôle et ne reprend qu'à 100 %.
+func (run seedRun) startComplete(ctx context.Context, proposalID int64, infohash, linkRoot string, skipChecking bool) error {
+	if skipChecking {
+		existing, present, err := run.findTorrent(ctx, infohash)
+		if err == nil && present && existing.Progress == 1 {
+			if err := run.deps.Client.Resume(ctx, infohash); err != nil {
+				return refusal(ReasonResumeFailed)
+			}
+			return run.seeded(ctx, proposalID, infohash, linkRoot)
+		}
+	}
+	return run.guarded(ctx, proposalID, infohash, linkRoot)
+}
+
+// guarded recontrôle (le torrent est mis en pause avant) et ne reprend qu'à 100 % ; incomplet, il reste en pause.
+func (run seedRun) guarded(ctx context.Context, proposalID int64, infohash, linkRoot string) error {
 	timeout := run.deps.RecheckTimeout
 	if timeout <= 0 {
 		timeout = defaultSeedRecheckTimeout
 	}
 	guard, err := run.deps.Client.RecheckAndGuard(ctx, infohash, timeout)
 	if err != nil {
-		return false, ReasonRecheckFailed
+		return refusal(ReasonRecheckFailed)
 	}
-	return guard.Complete && guard.Resumed, ""
+	if !guard.Complete || !guard.Resumed {
+		run.result.count(ReasonIncompleteAfterRecheck, 1)
+		if err := run.deps.Store.AddProposalWarning(ctx, proposalID, warningIncompleteAfterRecheck); err != nil {
+			return err
+		}
+		return run.finish(ctx, proposalID, store.StepSeededPausedIncomplete, linkRoot)
+	}
+	return run.seeded(ctx, proposalID, infohash, linkRoot)
+}
+
+func (run seedRun) seeded(ctx context.Context, proposalID int64, infohash, linkRoot string) error {
+	if err := run.finish(ctx, proposalID, store.StepSeeded, linkRoot); err != nil {
+		return err
+	}
+	return run.notify(ctx, proposalID, infohash)
 }
 
 func (run seedRun) finish(ctx context.Context, proposalID int64, step store.ProposalStep, linkRoot string) error {
