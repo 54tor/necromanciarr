@@ -14,7 +14,7 @@ import (
 // Status est le résultat d'un contrôle.
 type Status int
 
-// Statuts possibles ; Warn et Skipped ne font pas échouer le diagnostic.
+// États possibles ; Warn et Skipped ne font pas échouer le diagnostic.
 const (
 	OK Status = iota
 	Warn
@@ -52,7 +52,7 @@ func (status *Status) UnmarshalText(text []byte) error {
 	return fmt.Errorf("doctor: unknown status %q", text)
 }
 
-// severity ordonne les statuts du moins grave au plus grave ; Skipped ne pèse pas.
+// severity ordonne les états du moins grave au plus grave ; Skipped ne pèse pas.
 func (status Status) severity() int {
 	switch status {
 	case Warn:
