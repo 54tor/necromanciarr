@@ -82,6 +82,7 @@ type Client struct {
 	// wait attend la fin d'un délai du limiteur ; remplacé dans les tests par une horloge factice.
 	wait func(ctx context.Context, delay time.Duration) error
 
+	// capsMutex couvre aussi la requête : des appels simultanés partagent une seule requête t=caps.
 	capsMutex     sync.Mutex
 	cachedCaps    *Caps
 	capsFetchedAt time.Time
@@ -226,8 +227,11 @@ func (client *Client) get(ctx context.Context, parameters url.Values) ([]byte, t
 	retryAfter := httpsafe.ParseRetryAfter(response.Header.Get("Retry-After"), client.now())
 	isSuccess := response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices
 	if !isSuccess {
-		content, _ := readCapped(response.Body)
-		return nil, 0, statusError(response.StatusCode, content, retryAfter)
+		readBody := func() []byte {
+			content, _ := readCapped(response.Body)
+			return content
+		}
+		return nil, 0, statusError(response.StatusCode, readBody, retryAfter)
 	}
 	if !isXMLContentType(response.Header.Get("Content-Type")) {
 		return nil, 0, fmt.Errorf("%w: content type is not XML", ErrBadResponse)

@@ -288,3 +288,27 @@ func TestClient_textFormsNeverShowTheKey(t *testing.T) {
 		t.Errorf("client rendering lost its name: %s", renderings[0])
 	}
 }
+
+func TestCaps_concurrentCallsShareOneRequest(t *testing.T) {
+	caps := fixture(t, "caps.xml")
+	indexer := newFakeIndexer(t, func(writer http.ResponseWriter, request *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		xmlResponse(caps)(writer, request)
+	})
+	client, _, _ := newTestClient(t, indexer.server.URL)
+	const callers = 8
+
+	var group sync.WaitGroup
+	for range callers {
+		group.Go(func() {
+			if _, err := client.Caps(context.Background()); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	group.Wait()
+
+	if gotValue := indexer.requestCount(); gotValue != 1 {
+		t.Fatalf("expectedValue 1 shared request, gotValue %d", gotValue)
+	}
+}

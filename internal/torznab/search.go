@@ -10,12 +10,15 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 const (
 	infoHashLength = 40
 	magnetPrefix   = "magnet:"
 	guidHashPrefix = "sha256:"
+	// maxTitleRunes borne un titre : un indexeur hostile ne doit pas remplir les journaux ni l'interface.
+	maxTitleRunes = 512
 )
 
 // searchModes sont les valeurs de t acceptées par Search.
@@ -41,14 +44,16 @@ type Results struct {
 	Items []Item
 	// MagnetOnly compte les résultats écartés parce qu'ils n'offraient qu'un lien magnet.
 	MagnetOnly int
+	// Invalid compte les résultats écartés pour une taille, un infohash ou un lien de téléchargement invalide.
+	Invalid int
 }
 
 // Item est un résultat retenu.
 type Item struct {
 	// Title est le titre brut de l'indexeur, à passer au filtre des caractères de contrôle avant affichage.
 	Title string
-	// GUID identifie le résultat ; un GUID en forme d'URL (qui peut porter une passkey) est remplacé par son
-	// empreinte « sha256:… ».
+	// GUID identifie le résultat par l'empreinte « sha256:… » du GUID brut, jamais par sa valeur : c'est souvent un
+	// lien ou un magnet qui porte une passkey. Vide si l'indexeur n'en donne pas.
 	GUID string
 	// InfoHash est l'infohash v1 annoncé par l'indexeur (40 hexadécimaux minuscules) ; vide s'il n'est pas annoncé.
 	InfoHash string
@@ -186,24 +191,24 @@ func (reader *searchReader) end(path []string) error {
 	return nil
 }
 
-// keep valide un élément : sans lien http(s) il est écarté (compté s'il n'offrait qu'un magnet), une taille ou un
-// infohash invalide l'écarte aussi.
+// keep valide un élément : sans lien http(s) il est écarté (compté dans MagnetOnly s'il n'offrait qu'un magnet),
+// et tout autre écart (lien, taille, infohash invalide) est compté dans Invalid.
 func (reader *searchReader) keep(raw rawItem) {
-	links := []string{raw.enclosureURL, raw.fields["link"], raw.attributes["magneturl"]}
-	downloadURL, hasMagnet := classifyLinks(links)
-	if downloadURL == "" {
-		if hasMagnet {
-			reader.results.MagnetOnly++
-		}
+	downloadURL, hasMagnetLink := classifyLinks([]string{raw.enclosureURL, raw.fields["link"]})
+	// L'attribut magneturl ne sert qu'à repérer un magnet, jamais de lien de téléchargement.
+	hasMagnet := hasMagnetLink || isMagnet(raw.attributes["magneturl"])
+	if downloadURL == "" && hasMagnet {
+		reader.results.MagnetOnly++
 		return
 	}
 	size, isValidSize := parseSize(firstNonEmpty(raw.attributes["size"], raw.fields["size"], raw.enclosureSize))
 	infoHash, isValidHash := parseInfoHash(raw.attributes["infohash"])
-	if !isValidSize || !isValidHash {
+	if downloadURL == "" || !isValidSize || !isValidHash {
+		reader.results.Invalid++
 		return
 	}
 	reader.results.Items = append(reader.results.Items, Item{
-		Title:       raw.fields["title"],
+		Title:       cleanTitle(raw.fields["title"]),
 		GUID:        safeGUID(raw.fields["guid"]),
 		InfoHash:    infoHash,
 		Size:        size,
@@ -218,7 +223,7 @@ func classifyLinks(links []string) (string, bool) {
 	hasMagnet := false
 	for _, link := range links {
 		link = strings.TrimSpace(link)
-		if strings.HasPrefix(strings.ToLower(link), magnetPrefix) {
+		if isMagnet(link) {
 			hasMagnet = true
 			continue
 		}
@@ -227,6 +232,25 @@ func classifyLinks(links []string) (string, bool) {
 		}
 	}
 	return downloadURL, hasMagnet
+}
+
+func isMagnet(link string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(link)), magnetPrefix)
+}
+
+// cleanTitle retire les caractères de contrôle C0 et C1 (dont U+009B, qui ouvre une séquence de terminal) et borne
+// le titre à maxTitleRunes.
+func cleanTitle(raw string) string {
+	runes := []rune(strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) {
+			return -1
+		}
+		return character
+	}, raw))
+	if len(runes) > maxTitleRunes {
+		runes = runes[:maxTitleRunes]
+	}
+	return string(runes)
 }
 
 func isAbsoluteHTTP(link string) bool {
@@ -262,10 +286,10 @@ func parseInfoHash(raw string) (string, bool) {
 	return infoHash, err == nil
 }
 
-// safeGUID remplace un GUID en forme d'URL par son empreinte : c'est souvent le lien de téléchargement, passkey comprise.
+// safeGUID remplace toujours le GUID par son empreinte : aucune règle de forme ne reconnaît sûrement une passkey.
 func safeGUID(guid string) string {
-	if !strings.Contains(guid, "://") {
-		return guid
+	if guid == "" {
+		return ""
 	}
 	digest := sha256.Sum256([]byte(guid))
 	return guidHashPrefix + hex.EncodeToString(digest[:])

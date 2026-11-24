@@ -1,7 +1,10 @@
 package torznab
 
 import (
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -58,7 +61,7 @@ func TestSearch_parsesItemsAndSendsTheQuery(t *testing.T) {
 		t.Fatalf("expectedValue 2 items, gotValue %+v", results.Items)
 	}
 	first := results.Items[0]
-	if first.Title != "Invented Movie 2001 1080p" || first.GUID != "demo-guid-1" || first.Size != 4000000000 ||
+	if first.Title != "Invented Movie 2001 1080p" || first.GUID != hashedGUID("demo-guid-1") || first.Size != 4000000000 ||
 		first.InfoHash != strings.Repeat("a", 40) || !first.Magnet ||
 		first.downloadURL != "http://indexer.example.com/dl/1?file=invented" {
 		t.Errorf("gotValue first item %#v (link %q)", first, first.downloadURL)
@@ -437,4 +440,192 @@ func TestSearch_neverCopiesErrorText(t *testing.T) {
 			t.Fatalf("gotErr = %v", gotErr)
 		}
 	})
+}
+
+func hashedGUID(raw string) string {
+	digest := sha256.Sum256([]byte(raw))
+	return "sha256:" + hex.EncodeToString(digest[:])
+}
+
+func itemWith(title, inner string) string {
+	return `<item><title>` + title + `</title>` + inner + `</item>`
+}
+
+func TestSearch_alwaysHashesTheGUID(t *testing.T) {
+	rawGUIDs := []string{
+		"magnet:?xt=urn:btih:" + strings.Repeat("d", 40) + "&amp;tr=https%3A%2F%2Ftracker.example.com%2Fannounce%2Ffake-passkey-0000",
+		"//indexer.example.com/dl?passkey=fake-passkey-0000",
+		"indexer.example.com/dl?passkey=fake-passkey-0000",
+		"demo-guid-plain",
+	}
+	expectedGUIDs := []string{
+		hashedGUID("magnet:?xt=urn:btih:" + strings.Repeat("d", 40) + "&tr=https%3A%2F%2Ftracker.example.com%2Fannounce%2Ffake-passkey-0000"),
+		hashedGUID(rawGUIDs[1]), hashedGUID(rawGUIDs[2]), hashedGUID(rawGUIDs[3]),
+	}
+	items := make([]string, 0, len(rawGUIDs))
+	for index, rawGUID := range rawGUIDs {
+		items = append(items, itemWith(fmt.Sprintf("Invented %d", index),
+			`<guid>`+rawGUID+`</guid><link>http://indexer.example.com/dl/x</link><size>1</size>`))
+	}
+
+	results, err := searchAgainst(t, xmlResponse(rssWithItems(items...)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(results.Items) != len(expectedGUIDs) {
+		t.Fatalf("expectedValue %d items, gotValue %d", len(expectedGUIDs), len(results.Items))
+	}
+	for index, item := range results.Items {
+		if gotValue := item.GUID; gotValue != expectedGUIDs[index] {
+			t.Errorf("item %d: expectedValue %s, gotValue %s", index, expectedGUIDs[index], gotValue)
+		}
+		if rendering := fmt.Sprintf("%v %#v", item, item); strings.Contains(rendering, "fake-passkey-0000") {
+			t.Errorf("item %d leaks its passkey: %s", index, rendering)
+		}
+	}
+}
+
+func TestSearch_magnetURLAttributeIsNeverADownloadLink(t *testing.T) {
+	body := rssWithItems(itemWith("attr only", `<size>1</size><torznab:attr name="magneturl" value="http://indexer.example.com/dl/x"/>`))
+
+	results, err := searchAgainst(t, xmlResponse(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(results.Items) != 0 || results.MagnetOnly != 0 {
+		t.Fatalf("expectedValue the item dropped and not counted as magnet, gotValue %+v (magnet only %d)", results.Items, results.MagnetOnly)
+	}
+}
+
+func TestSearch_redirectBodyIsNeverRead(t *testing.T) {
+	body := &endlessBody{}
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		header := http.Header{"Location": []string{"http://elsewhere.example.com/"}}
+		return &http.Response{StatusCode: http.StatusFound, Header: header, Body: body, Request: request}, nil
+	})
+	client, err := New(endpointFor("http://indexer.example.com"), Deps{HTTP: &http.Client{Transport: transport}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, gotErr := client.Search(context.Background(), Query{Mode: "search", Text: "invented"})
+
+	if !errors.Is(gotErr, ErrBadResponse) {
+		t.Fatalf("expectedValue ErrBadResponse, gotErr %v", gotErr)
+	}
+	if gotValue := body.read.Load(); gotValue != 0 {
+		t.Fatalf("expectedValue redirect body never read, gotValue %d bytes", gotValue)
+	}
+}
+
+func TestSearch_keepsRetryAfterOnEveryUnavailableStatus(t *testing.T) {
+	statuses := []int{
+		http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout,
+	}
+	for _, status := range statuses {
+		_, gotErr := searchAgainst(t, func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Retry-After", "30")
+			writer.WriteHeader(status)
+		})
+		var unavailable *UnavailableError
+		if !errors.As(gotErr, &unavailable) || unavailable.RetryAfter != 30*time.Second {
+			t.Errorf("HTTP %d: expectedValue UnavailableError with 30s, gotErr %v", status, gotErr)
+		}
+	}
+}
+
+func TestSearch_countsInvalidItems(t *testing.T) {
+	body := rssWithItems(
+		plainItem("negative", "-1"),
+		plainItem("decimal", "12.5"),
+		itemWith("no size", `<link>http://indexer.example.com/dl/x</link>`),
+		itemWith("bad hash", `<link>http://indexer.example.com/dl/x</link><size>1</size><torznab:attr name="infohash" value="abc"/>`),
+		itemWith("no link", `<size>1</size>`),
+		itemWith("magnet", `<link>magnet:?xt=urn:btih:`+strings.Repeat("e", 40)+`</link><size>1</size>`),
+		plainItem("valid", "100"),
+	)
+
+	results, err := searchAgainst(t, xmlResponse(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(results.Items) != 1 || results.MagnetOnly != 1 || results.Invalid != 5 {
+		t.Fatalf("expectedValue 1 item, 1 magnet only, 5 invalid, gotValue %d, %d, %d",
+			len(results.Items), results.MagnetOnly, results.Invalid)
+	}
+}
+
+func TestSearch_boundsAndCleansTitles(t *testing.T) {
+	hostileTitle := "Invented\u009b31m Movie\u009d0;title\t\n" + strings.Repeat("a", 600)
+
+	results, err := searchAgainst(t, xmlResponse(rssWithItems(plainItem(hostileTitle, "1"))))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotValue := results.Items[0].Title
+	if strings.ContainsAny(gotValue, "\u009b\u009d\t\n") || len([]rune(gotValue)) != maxTitleRunes {
+		t.Fatalf("expectedValue %d runes without control characters, gotValue %d runes %q", maxTitleRunes, len([]rune(gotValue)), gotValue[:40])
+	}
+	if !strings.HasPrefix(gotValue, "Invented31m Movie0;title") {
+		t.Fatalf("gotValue prefix %q", gotValue[:40])
+	}
+}
+
+// gzipBomb envoie sans fin un document compressé : quelques Kio compressés valent des Mio une fois décompressés.
+type gzipBomb struct{ compressedWritten atomic.Int64 }
+
+type countingWriter struct {
+	writer  io.Writer
+	counter *atomic.Int64
+}
+
+func (counting countingWriter) Write(data []byte) (int, error) {
+	written, err := counting.writer.Write(data)
+	counting.counter.Add(int64(written))
+	return written, err
+}
+
+func (bomb *gzipBomb) serve(writer http.ResponseWriter, _ *http.Request) {
+	writer.Header().Set("Content-Type", "application/xml")
+	writer.Header().Set("Content-Encoding", "gzip")
+	compressor := gzip.NewWriter(countingWriter{writer: writer, counter: &bomb.compressedWritten})
+	if _, err := io.WriteString(compressor, rssWithItems(plainItem("Invented", "100"))); err != nil {
+		return
+	}
+	padding := []byte(strings.Repeat(" ", 1<<20))
+	for {
+		if _, err := compressor.Write(padding); err != nil {
+			return
+		}
+	}
+}
+
+func TestSearch_capsGzipBomb(t *testing.T) {
+	bomb := &gzipBomb{}
+	served := make(chan struct{})
+	indexer := newFakeIndexer(t, func(writer http.ResponseWriter, request *http.Request) {
+		defer close(served)
+		bomb.serve(writer, request)
+	})
+	client, _, _ := newTestClient(t, indexer.server.URL)
+
+	_, gotErr := client.Search(context.Background(), Query{Mode: "search", Text: "invented"})
+
+	if !errors.Is(gotErr, ErrBadResponse) || !strings.Contains(gotErr.Error(), "larger than") {
+		t.Fatalf("expectedValue the size overflow, gotErr %v", gotErr)
+	}
+	select {
+	case <-served:
+	case <-time.After(10 * time.Second):
+		t.Fatal("expectedValue the client to stop reading, the server is still writing")
+	}
+	// 64 Mio compressés vaudraient environ 64 Gio : le client a lâché bien avant.
+	if gotValue := bomb.compressedWritten.Load(); gotValue > 64<<20 {
+		t.Fatalf("expectedValue a bounded read, gotValue %d compressed bytes written", gotValue)
+	}
 }

@@ -33,7 +33,8 @@ const (
 // (500, 501, 429), service indisponible (503), erreur inconnue ou API coupée (900, 910).
 var unavailableCodes = map[int]bool{429: true, 500: true, 501: true, 503: true, 900: true, 910: true}
 
-// UnavailableError est renvoyée pour un HTTP 429 ou 503, ou un code Torznab de quota ; elle englobe ErrUnavailable.
+// UnavailableError est renvoyée pour un HTTP 408, 429 ou 5xx, ou un code Torznab de quota ; elle englobe
+// ErrUnavailable.
 type UnavailableError struct {
 	// RetryAfter est le délai demandé par l'en-tête Retry-After, plafonné à une heure ; zéro s'il est absent.
 	RetryAfter time.Duration
@@ -48,20 +49,20 @@ func (unavailable *UnavailableError) Error() string {
 // Unwrap permet errors.Is(err, ErrUnavailable).
 func (unavailable *UnavailableError) Unwrap() error { return ErrUnavailable }
 
-// statusError traduit un statut HTTP hors 2xx ; seul le code d'un élément <error> du corps est lu, jamais son texte.
-func statusError(status int, body []byte, retryAfter time.Duration) error {
+// statusError traduit un statut HTTP hors 2xx ; le corps n'est lu (par readBody) que pour un 4xx sans autre sens, et
+// seul le code de son élément <error> sert, jamais son texte.
+func statusError(status int, readBody func() []byte, retryAfter time.Duration) error {
 	isRedirect := status >= http.StatusMultipleChoices && status < http.StatusBadRequest
 	switch {
 	case isRedirect:
 		return fmt.Errorf("%w: redirect refused (HTTP %d)", ErrBadResponse, status)
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		return fmt.Errorf("%w (HTTP %d)", ErrAccessDenied, status)
-	case status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable:
+	case status == http.StatusTooManyRequests || status == http.StatusRequestTimeout ||
+		status >= http.StatusInternalServerError:
 		return &UnavailableError{RetryAfter: retryAfter, reason: "HTTP " + strconv.Itoa(status)}
-	case status >= http.StatusInternalServerError || status == http.StatusRequestTimeout:
-		return fmt.Errorf("%w (HTTP %d)", ErrUnavailable, status)
 	}
-	if code, isErrorElement := errorElementCode(body); isErrorElement {
+	if code, isErrorElement := errorElementCode(readBody()); isErrorElement {
 		return elementError(code, retryAfter)
 	}
 	return fmt.Errorf("%w (HTTP %d)", ErrBadResponse, status)

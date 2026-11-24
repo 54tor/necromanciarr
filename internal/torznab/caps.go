@@ -28,10 +28,13 @@ var searchingModes = map[string]string{"search": "search", "movie-search": "movi
 // defaultParams sont les paramètres à supposer quand supportedParams est absent (spécification Torznab 1.1).
 var defaultParams = map[string]string{"search": "q", "movie": "q,imdbid", "tvsearch": "q,rid,season,ep"}
 
-// Caps renvoie les capacités de l'indexeur, gardées 24 h en mémoire.
+// Caps renvoie les capacités de l'indexeur, gardées 24 h en mémoire ; des appels simultanés partagent une requête.
 func (client *Client) Caps(ctx context.Context) (Caps, error) {
-	if cached, isFresh := client.freshCaps(); isFresh {
-		return cached, nil
+	// ponytail: un appelant en attente du verrou ne voit pas son contexte avant la fin (au plus Timeout) de la requête en cours.
+	client.capsMutex.Lock()
+	defer client.capsMutex.Unlock()
+	if client.cachedCaps != nil && client.now().Sub(client.capsFetchedAt) < capsTTL {
+		return cloneCaps(*client.cachedCaps), nil
 	}
 	content, retryAfter, err := client.get(ctx, map[string][]string{"t": {"caps"}})
 	if err != nil {
@@ -41,24 +44,9 @@ func (client *Client) Caps(ctx context.Context) (Caps, error) {
 	if err := decodeDocument(content, "caps", retryAfter, reader); err != nil {
 		return Caps{}, err
 	}
-	client.storeCaps(reader.caps)
-	return cloneCaps(reader.caps), nil
-}
-
-func (client *Client) freshCaps() (Caps, bool) {
-	client.capsMutex.Lock()
-	defer client.capsMutex.Unlock()
-	if client.cachedCaps == nil || client.now().Sub(client.capsFetchedAt) >= capsTTL {
-		return Caps{}, false
-	}
-	return cloneCaps(*client.cachedCaps), true
-}
-
-func (client *Client) storeCaps(caps Caps) {
-	client.capsMutex.Lock()
-	defer client.capsMutex.Unlock()
-	client.cachedCaps = &caps
+	client.cachedCaps = &reader.caps
 	client.capsFetchedAt = client.now()
+	return cloneCaps(reader.caps), nil
 }
 
 // cloneCaps protège le cache d'une modification par l'appelant.
