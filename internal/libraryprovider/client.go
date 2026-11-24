@@ -122,7 +122,7 @@ func (client *Client) get(ctx context.Context, target, accept string, limit int6
 		return nil, fmt.Errorf("%w: body read failed", ErrUnavailable)
 	}
 	if int64(len(body)) > limit {
-		return nil, fmt.Errorf("%w: body exceeds %d bytes", ErrBadResponse, limit)
+		return nil, fmt.Errorf("%w: %w (%d bytes)", ErrBadResponse, ErrResponseTooLarge, limit)
 	}
 	return body, nil
 }

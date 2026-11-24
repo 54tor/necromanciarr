@@ -309,7 +309,7 @@ func TestTorrent_rejectsOverflowInsteadOfTruncating(t *testing.T) {
 			_, _ = writer.Write(chunk)
 		}
 	})
-	if _, err := client.Torrent(context.Background(), hashA, ""); !errors.Is(err, ErrBadResponse) {
+	if _, err := client.Torrent(context.Background(), hashA, ""); !errors.Is(err, ErrBadResponse) || !errors.Is(err, ErrResponseTooLarge) {
 		t.Fatalf("gotErr = %v", err)
 	}
 }

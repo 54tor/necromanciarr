@@ -21,6 +21,8 @@ var (
 	ErrUnavailable = errors.New("library-provider: unavailable")
 	// ErrBadResponse signale une réponse illisible ou contraire au contrat.
 	ErrBadResponse = errors.New("library-provider: unreadable response")
+	// ErrResponseTooLarge précise un ErrBadResponse dont le corps dépasse le plafond (32 Mio pour un .torrent).
+	ErrResponseTooLarge = errors.New("library-provider: response body exceeds the limit")
 )
 
 const (
