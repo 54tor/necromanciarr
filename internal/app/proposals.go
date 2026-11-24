@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -82,8 +83,10 @@ func (svc *service) loadSnapshot(ctx context.Context) (snapshot, error) {
 		return snapshot{}, err
 	}
 	announces := svc.announces()
+	// Au mieux à la lecture : une base occupée ne doit pas priver l'opérateur de ses propositions ; l'annonce configurée
+	// gagne de toute façon sur le scellé resté en place.
 	if err := clearCoveredSealed(ctx, svc.deps.Store, announces, candidates); err != nil {
-		return snapshot{}, err
+		svc.logLine(ctx, slog.LevelWarn, LogCodeSealedClearFailed, i18n.KeyLogSealedClearFailed, map[string]string{"error": err.Error()})
 	}
 	progress, err := svc.deps.Store.ListProposalProgress(ctx)
 	if err != nil {

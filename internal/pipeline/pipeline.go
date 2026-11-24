@@ -211,7 +211,7 @@ func (deps Deps) lockTTL() time.Duration {
 }
 
 // Result résume une exécution : Reasons compte les éléments ignorés ou en échec par nom de raison (jamais de chemin
-// complet ni de secret) ; UnidentifiedSamples donne les premiers noms de fichiers sans identifiant externe.
+// complet ni de secret), plus, pour Verify, les propositions créées sans annonce (no_announce) ; UnidentifiedSamples donne les premiers noms de fichiers sans identifiant externe.
 type Result struct {
 	Stage     Stage          `json:"stage"`
 	Processed int            `json:"processed"`

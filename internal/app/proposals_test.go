@@ -1,8 +1,11 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -56,7 +59,7 @@ func TestProposals_noAnnounceClearedWhenTrackerConfigured(t *testing.T) {
 		status, err := service.Status(t.Context())
 
 		expectedSeedable := step.expectedSource != sources.AnnounceNone
-		isExpected := err == nil && view.Details.Seedable == expectedSeedable && view.Details.AnnounceSource == string(step.expectedSource) &&
+		isExpected := err == nil && view.Details.Seedable != nil && *view.Details.Seedable == expectedSeedable && view.Details.AnnounceSource == string(step.expectedSource) &&
 			hasWarningCode(view.Warnings, i18n.KeyWarningNoAnnounce) == !expectedSeedable && (status.NoAnnounce == 1) == !expectedSeedable
 		if !isExpected {
 			t.Fatalf("%s: gotValue details %+v warnings %+v status %d %v, expectedValue source %s without re-Verify",
@@ -107,7 +110,7 @@ func TestProposals_sealedTorrentClearedOnReadOnceATrackerEntryCoversIt(t *testin
 
 	withoutEntry := listedProposal(t, announceService(fixture, i18n.English))
 	_, keptWithoutEntry, err := fixture.store.CandidateSealed(context.Background(), candidate.ID)
-	if err != nil || !keptWithoutEntry || withoutEntry.Details.AnnounceSource != string(sources.AnnounceIndexer) || !withoutEntry.Details.Seedable {
+	if err != nil || !keptWithoutEntry || withoutEntry.Details.AnnounceSource != string(sources.AnnounceIndexer) || withoutEntry.Details.Seedable == nil || !*withoutEntry.Details.Seedable {
 		t.Fatalf("gotValue %+v kept=%v %v, expectedValue the indexer announce and the sealed torrent kept", withoutEntry.Details, keptWithoutEntry, err)
 	}
 
@@ -137,5 +140,56 @@ func TestClearSealedAtStart_clearsOnlyTheTrackersAnEntryCovers(t *testing.T) {
 	if coveredErr != nil || uncoveredErr != nil || coveredKept || !uncoveredKept {
 		t.Fatalf("gotValue covered kept=%v uncovered kept=%v (%v %v), expectedValue only the covered tracker cleared",
 			coveredKept, uncoveredKept, coveredErr, uncoveredErr)
+	}
+}
+
+func TestProposals_noAnnounceWarningNamesAnEmptyTrackerAsUnknown(t *testing.T) {
+	fixture := newDecisionFixture(t)
+	fixture.proposal(fixture.verifiedCandidate("aa"), store.ProposalFull)
+	expectedTexts := map[i18n.Language]string{
+		i18n.French:  "aucune annonce pour le tracker (inconnu) : ajouter une entrée `trackers`",
+		i18n.English: "no announce for tracker (unknown): add a `trackers` entry",
+	}
+	for language, expectedValue := range expectedTexts {
+		view := listedProposal(t, announceService(fixture, language))
+		if gotValue := view.Warnings[len(view.Warnings)-1].Text; gotValue != expectedValue {
+			t.Fatalf("language %s: gotValue %q, expectedValue %q", language, gotValue, expectedValue)
+		}
+	}
+}
+
+// busyClearer simule une base occupée au moment d'effacer les scellés ; son erreur cite un secret de la configuration.
+type busyClearer struct {
+	Store
+}
+
+const fakeAuthToken = "fake-auth-token-0000-busy"
+
+func (busyClearer) ClearSealedForTrackers(context.Context, []string) (int, error) {
+	return 0, errors.New("database is locked while serving " + fakeAuthToken)
+}
+
+func TestProposals_readsDespiteABusyDatabaseWhenClearingSealed(t *testing.T) {
+	fixture := newDecisionFixture(t)
+	candidate := fixture.verifiedCandidateOn("aa", "Tracker-A")
+	fixture.proposal(candidate, store.ProposalFull)
+	if err := fixture.store.SaveCandidateSealed(context.Background(), candidate.ID, []byte{1, 2, 3}, fixedNow); err != nil {
+		t.Fatal(err)
+	}
+	var logged bytes.Buffer
+	service := New(Deps{
+		Store: busyClearer{Store: fixture.store}, Translator: i18n.New(i18n.English, nil),
+		Config: config.Config{Trackers: []config.Tracker{trackerAEntry}, AuthToken: fakeAuthToken},
+		Logger: slog.New(slog.NewTextHandler(&logged, nil)),
+	})
+
+	view := listedProposal(t, service)
+	_, statusErr := service.Status(t.Context())
+
+	if statusErr != nil || view.Details.AnnounceSource != string(sources.AnnounceConfig) {
+		t.Fatalf("gotValue %+v status error %v, expectedValue the proposals read and the config announce", view.Details, statusErr)
+	}
+	if text := logged.String(); !strings.Contains(text, "code="+LogCodeSealedClearFailed) || strings.Contains(text, fakeAuthToken) {
+		t.Fatalf("gotValue log %q, expectedValue a coded, redacted line", text)
 	}
 }

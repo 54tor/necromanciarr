@@ -191,6 +191,8 @@ type verifyFixture struct {
 	// d'indexeur (nil : aucune clé).
 	trackers []config.Tracker
 	sealer   *sources.Sealer
+	// keepEmptyTracker garde un tracker vide tel quel (candidat du fournisseur sans tracker, cas N1).
+	keepEmptyTracker bool
 }
 
 // testTracker remplace le tracker vide d'un candidat de test : une entrée trackers le couvre, comme un candidat réel
@@ -252,7 +254,7 @@ func (fixture *verifyFixture) addCandidate(name, tracker string, entries []torre
 func (fixture *verifyFixture) addCandidateWithTorrent(name, tracker string, entries []torrentEntry, raw []byte) store.Candidate {
 	fixture.t.Helper()
 	infohash := infohashOf(fixture.t, raw)
-	if tracker == "" {
+	if tracker == "" && !fixture.keepEmptyTracker {
 		tracker = testTracker
 	}
 	var files []store.CandidateFile

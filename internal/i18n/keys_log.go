@@ -11,9 +11,11 @@ const (
 	KeyLogAPIUnauthorized    Key = "log.api_unauthorized"
 	KeyLogAPIPanicked        Key = "log.api_panicked"
 	KeyLogHTTPServerError    Key = "log.http_server_error"
+	KeyLogSealedClearFailed  Key = "log.sealed_clear_failed"
 )
 
 var logKeys = []Key{
 	KeyLogJobFailed, KeyLogJobPanicked, KeyLogServerListening, KeyLogNonLoopbackWarning,
 	KeyLogHealthcheckFailed, KeyLogAPIInternalError, KeyLogAPIUnauthorized, KeyLogAPIPanicked, KeyLogHTTPServerError,
+	KeyLogSealedClearFailed,
 }

@@ -141,7 +141,7 @@ func TestVerify_marksProposalNoAnnounce(t *testing.T) {
 			}
 		}
 		details := decodeDetails(t, stored).WithAnnounce(AnnounceSourceOf(resolver, candidate))
-		if details.AnnounceSource != string(expectedValue) || details.Seedable != (expectedValue != sources.AnnounceNone) {
+		if details.AnnounceSource != string(expectedValue) || details.Seedable == nil || *details.Seedable != (expectedValue != sources.AnnounceNone) {
 			t.Fatalf("candidate %d: gotValue %+v, expectedValue source %s", candidateID, details, expectedValue)
 		}
 		if bytes.Contains(stored.Details, []byte("seedable")) || bytes.Contains(stored.Details, []byte("announce_source")) {
@@ -176,6 +176,68 @@ func TestLink_refusesNoAnnounceProposal(t *testing.T) {
 	links, err := fixture.store.ListLinks(context.Background(), "")
 	if err != nil || len(links) != 0 {
 		t.Fatalf("gotValue links %v %v, expectedValue none recorded", links, err)
+	}
+}
+
+// probedLinkDir compte les sondes du dossier de liens : la sonde y écrit des fichiers d'essai, donc un refus qui doit
+// précéder toute création doit aussi la précéder.
+func probedLinkDir(fixture *applyFixture) *int {
+	probed := 0
+	fixture.probe = func(directory string) (linker.Capabilities, error) {
+		probed++
+		return linker.Probe(directory)
+	}
+	return &probed
+}
+
+func TestLink_refusesSealedCandidateWithoutKeyBeforeCreatingAnything(t *testing.T) {
+	fixture := newApplyFixture(t)
+	probed := probedLinkDir(fixture)
+	candidate := fixture.addCandidate("Movie.2020", indexerTracker, movieOnly())
+	proposal := fixture.verifiedProposal(candidate, store.ProposalFull)
+	verified := fixture.candidate(candidate.Infohash)
+	fixture.sealIndexerTorrent(verified.ID, fixture.indexerTorrentOf(verified), bindingOf(verified))
+	fixture.accept(proposal.ID)
+	fixture.sealer = nil
+	before := linkDirEntries(t, fixture.linkDir)
+
+	result := fixture.mustRunStage(StageLink)
+
+	if after := linkDirEntries(t, fixture.linkDir); !slices.Equal(after, before) || *probed != 0 {
+		t.Fatalf("gotValue entries %v and %d probes, expectedValue nothing probed nor created", after, *probed)
+	}
+	if result.Reasons[ReasonSecretKeyMissing] != 1 || fixture.decisionOf(proposal.ID) != store.ProposalFailed {
+		t.Fatalf("gotValue %+v, expectedValue a secret_key_missing refusal at Link", result)
+	}
+}
+
+func TestLinkAndSeed_refuseAProviderCandidateWithAnEmptyTracker(t *testing.T) {
+	fixture := newApplyFixture(t)
+	fixture.keepEmptyTracker = true
+	probed := probedLinkDir(fixture)
+	candidate := fixture.addCandidate("Movie.2020", "", movieOnly())
+	if stored := fixture.candidate(candidate.Infohash); stored.Tracker != "" || stored.HasSealed {
+		t.Fatalf("gotValue %+v, expectedValue a provider candidate with an empty tracker and no sealed torrent", stored)
+	}
+	proposal := fixture.verifiedProposal(candidate, store.ProposalFull)
+	fixture.accept(proposal.ID)
+
+	linkResult := fixture.mustRunStage(StageLink)
+	// Réacceptée comme le ferait l'opérateur, puis marquée liée : seule la défense de Seed reste.
+	if err := fixture.store.AcceptProposals(context.Background(), []int64{proposal.ID}, fixedNow); err != nil {
+		t.Fatal(err)
+	}
+	progress := store.ProposalProgress{ProposalID: proposal.ID, Step: store.StepLinked, LinkRoot: fixture.linkDir}
+	if err := fixture.store.SaveProposalProgress(context.Background(), progress, fixedNow); err != nil {
+		t.Fatal(err)
+	}
+	seedResult := fixture.mustRunStage(StageSeed)
+
+	isRefused := linkResult.Reasons[ReasonNoAnnounce] == 1 && seedResult.Reasons[ReasonNoAnnounce] == 1 && *probed == 0 &&
+		len(fixture.client.received) == 0 && len(linkDirEntries(t, fixture.linkDir)) == 0
+	if !isRefused {
+		t.Fatalf("gotValue link %+v seed %+v probes %d, expectedValue no_announce at Link and Seed, nothing created or added",
+			linkResult, seedResult, *probed)
 	}
 }
 
@@ -526,7 +588,7 @@ func TestSeed_injectedTorrentNeverStoredOrLogged(t *testing.T) {
 }
 
 func TestProposalDetails_announceFieldsAreNeverStored(t *testing.T) {
-	encoded, err := encodeStoredDetails(ProposalDetails{Percent: 100, Seedable: true, AnnounceSource: string(sources.AnnounceConfig)})
+	encoded, err := encodeStoredDetails(ProposalDetails{Percent: 100}.WithAnnounce(sources.AnnounceConfig))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,6 +600,23 @@ func TestProposalDetails_announceFieldsAreNeverStored(t *testing.T) {
 	_, hasSource := fields["announce_source"]
 	if hasSeedable || hasSource || string(fields["percent"]) != "100" {
 		t.Fatalf("gotValue %s, expectedValue the stored details without the computed fields", encoded)
+	}
+}
+
+func TestProposalDetails_announceFieldsAreAbsentUntilComputed(t *testing.T) {
+	encoded, err := json.Marshal(ProposalDetails{Percent: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte("seedable")) || bytes.Contains(encoded, []byte("announce_source")) {
+		t.Fatalf("gotValue %s, expectedValue no seedable nor announce_source for a kind without torrent", encoded)
+	}
+	computed, err := json.Marshal(ProposalDetails{}.WithAnnounce(sources.AnnounceNone))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(computed, []byte(`"seedable":false`)) || !bytes.Contains(computed, []byte(`"announce_source":"none"`)) {
+		t.Fatalf("gotValue %s, expectedValue seedable false kept once computed", computed)
 	}
 }
 

@@ -32,9 +32,23 @@ func AnnounceSourceOf(resolver sources.Resolver, candidate store.Candidate) sour
 
 // WithAnnounce renvoie les détails complétés de seedable et announce_source, calculés à la lecture.
 func (details ProposalDetails) WithAnnounce(source sources.AnnounceSource) ProposalDetails {
-	details.Seedable = source != sources.AnnounceNone
-	details.AnnounceSource = string(source)
+	seedable := source != sources.AnnounceNone
+	details.Seedable, details.AnnounceSource = &seedable, string(source)
 	return details
+}
+
+// announceRefusal nomme ce qui empêcherait Seed de construire l'annonce, sans lire le bloc scellé : aucune annonce,
+// ou un .torrent scellé sans clé pour le desceller. Vide si rien ne l'empêche d'avance.
+func announceRefusal(deps Deps, candidate store.Candidate) string {
+	switch AnnounceSourceOf(deps.Announces, candidate) {
+	case sources.AnnounceNone:
+		return ReasonNoAnnounce
+	case sources.AnnounceIndexer:
+		if deps.Sealer == nil {
+			return ReasonSecretKeyMissing
+		}
+	}
+	return ""
 }
 
 // NoAnnounceWarning est l'avertissement d'une proposition sans annonce, torrent privé ou public.

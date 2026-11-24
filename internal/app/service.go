@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
@@ -165,6 +166,8 @@ type Deps struct {
 	// ResolveCrossSeed, s'il est posé, redonne le mode cross-seed au début de chaque étape, acceptation et Status
 	// (production : sonde TCP mise en cache) ; nil garde CrossSeed, CrossSeedWarnings et Stages.Notifier fixes.
 	ResolveCrossSeed func(ctx context.Context) CrossSeedResolution
+	// Logger reçoit les lignes codées de la couche applicative (nil : slog.Default).
+	Logger *slog.Logger
 }
 
 // inspect et inspectionBudget remplacent, dans les tests seulement, l'examen d'un lien et le budget de ListLinks ;

@@ -12,7 +12,6 @@ import (
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
-	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 )
 
@@ -121,9 +120,9 @@ func (run seedRun) seedProposal(ctx context.Context, proposal store.Proposal, ca
 // dossier du torrent intacts (sinon échec et étape effacée, Link refera le dossier). Un torrent déjà dans le client
 // n'est repris en main que s'il pointe sur notre dossier.
 func (run seedRun) seedChecked(ctx context.Context, proposal store.Proposal, candidate store.Candidate, linkRoot string) error {
-	// Défense : Link a déjà refusé une proposition sans annonce ; rien n'est relu ni ajouté.
-	if AnnounceSourceOf(run.deps.Announces, candidate) == sources.AnnounceNone {
-		return refusal(ReasonNoAnnounce)
+	// Défense : Link a déjà refusé une proposition sans annonce ou sans clé ; rien n'est relu ni ajouté.
+	if reason := announceRefusal(run.deps, candidate); reason != "" {
+		return refusal(reason)
 	}
 	proven, reason, err := loadProven(ctx, run.deps, proposal, candidate)
 	switch {

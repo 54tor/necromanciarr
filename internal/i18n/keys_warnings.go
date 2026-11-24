@@ -28,6 +28,8 @@ const (
 	KeyWarningMultipleClients              Key = "warning.multiple_clients"
 	// KeyWarningNoAnnounce est calculé à la lecture (jamais stocké) : paramètre tracker.
 	KeyWarningNoAnnounce Key = "warning.no_announce"
+	// KeyWarningNoAnnounceUnknownTracker nomme un tracker vide dans warning.no_announce.
+	KeyWarningNoAnnounceUnknownTracker Key = "warning.no_announce.unknown_tracker"
 )
 
 // Conseils sur un montage réseau (doctor, contrôle rclone) : produits par hashsource sous forme de messages.
@@ -50,7 +52,7 @@ var warningKeys = []Key{
 	KeyWarningRecheckFailed, KeyWarningNoClientRecheck, KeyWarningLinkNotRecorded,
 	KeyWarningDedupeUnreliableInode, KeyWarningDedupeFullNetworkRead, KeyWarningDedupeSampledVerify,
 	KeyWarningDedupeRenameNotAtomic, KeyWarningCrossSeedDelegateNoDaemon, KeyWarningCrossSeedDelegateUnreachable,
-	KeyWarningCrossSeedFallbackNative, KeyWarningMultipleClients, KeyWarningNoAnnounce,
+	KeyWarningCrossSeedFallbackNative, KeyWarningMultipleClients, KeyWarningNoAnnounce, KeyWarningNoAnnounceUnknownTracker,
 	KeyAdviceMountStartRC, KeyAdviceMountNoHash, KeyAdviceMountNoModTime, KeyAdviceMountModTimeUnknown,
 	KeyAdviceMountVFSLinks, KeyAdviceMountRcloneError, KeyAdviceMountNoSample, KeyAdviceMountInvalid,
 }
