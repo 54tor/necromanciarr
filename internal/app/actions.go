@@ -89,7 +89,10 @@ var registry = []Action{
 		Name: "links list", Method: "ListLinks", Description: "list recorded links with their current state, read-only",
 		Options: []string{OptionState, OptionLimit, OptionOffset},
 	},
-	{Name: "doctor", Method: "Doctor", Description: "check that every configured component is reachable", Options: []string{OptionCheck}},
+	{
+		Name: "doctor", Method: "Doctor", Description: "check that every configured component is reachable (probes services and link directories)",
+		Mutating: true, Options: []string{OptionCheck},
+	},
 }
 
 // Actions renvoie une copie du registre, dans l'ordre d'affichage.

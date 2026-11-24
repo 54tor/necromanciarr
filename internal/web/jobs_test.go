@@ -3,8 +3,11 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,5 +136,29 @@ func TestJobs_refusedOnceTheServerStops(t *testing.T) {
 	handler.Wait()
 	if fake.called("RunStage") {
 		t.Fatal("gotValue a RunStage call, expectedValue none once stopping")
+	}
+}
+
+func TestJobs_aPanickingJobFailsWithAnInternalErrorAndTheServerStaysUp(t *testing.T) {
+	const providerToken = "fake-provider-token-value"
+	fake := &fakeService{panicValue: "boom near " + providerToken}
+	settings := loopbackSettings()
+	settings.LibraryProviderToken = providerToken
+	handler := newTestHandler(t, fake, settings)
+	var logged strings.Builder
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	failed := waitJob(t, handler, startJob(t, handler, "/api/stages/scan/run", `{}`).ID)
+
+	if failed.State != JobFailed || failed.Error == nil || failed.Error.Message != internalErrorMessage {
+		t.Fatalf("gotValue %+v, expectedValue a failed job with an internal error", failed)
+	}
+	if strings.Contains(logged.String(), providerToken) || !strings.Contains(logged.String(), "panic") {
+		t.Fatalf("gotValue log %q, expectedValue the panic logged without the secret", logged.String())
+	}
+	fake.panicValue = nil
+	if next := waitJob(t, handler, startJob(t, handler, "/api/stages/scan/run", `{}`).ID); next.State != JobDone {
+		t.Fatalf("gotValue %+v, expectedValue the runner still usable after a panic", next)
 	}
 }

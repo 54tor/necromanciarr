@@ -10,7 +10,7 @@ describe('OnboardingView', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it('OnboardingView_showsEveryCheckWithStatusAndHint', async () => {
-    installFakeApi({ 'GET /api/doctor': doctorReport, 'GET /api/status': busyStatus })
+    installFakeApi({ 'POST /api/doctor/run': doctorReport, 'GET /api/status': busyStatus })
 
     const wrapper = mount(OnboardingView)
     await flushPromises()
@@ -32,9 +32,9 @@ describe('OnboardingView', () => {
 
   it('OnboardingView_rerunsOneCheckThroughTheApi', async () => {
     const calls = installFakeApi({
-      'GET /api/doctor': doctorReport,
+      'POST /api/doctor/run': doctorReport,
       'GET /api/status': busyStatus,
-      'GET /api/doctor/{checkId}': {
+      'POST /api/doctor/checks/{checkId}': {
         worst: 'ok',
         checks: [
           {
@@ -53,7 +53,7 @@ describe('OnboardingView', () => {
     await wrapper.find('[data-check="qbit"] button').trigger('click')
     await flushPromises()
 
-    expect(calls.some((call) => call.method === 'GET' && call.path === '/api/doctor/qbit')).toBe(
+    expect(calls.some((call) => call.method === 'POST' && call.path === '/api/doctor/checks/qbit')).toBe(
       true,
     )
     expect(wrapper.find('[data-check="qbit"]').text()).toContain('Connecté.')
@@ -61,19 +61,19 @@ describe('OnboardingView', () => {
   })
 
   it('OnboardingView_rerunsEverythingFromTheGlobalButton', async () => {
-    const calls = installFakeApi({ 'GET /api/doctor': doctorReport, 'GET /api/status': busyStatus })
+    const calls = installFakeApi({ 'POST /api/doctor/run': doctorReport, 'GET /api/status': busyStatus })
     const wrapper = mount(OnboardingView)
     await flushPromises()
-    const before = calls.filter((call) => call.path === '/api/doctor').length
+    const before = calls.filter((call) => call.path === '/api/doctor/run').length
 
     await wrapper.find('button[data-action="doctor"]').trigger('click')
     await flushPromises()
 
-    expect(calls.filter((call) => call.path === '/api/doctor').length).toBe(before + 1)
+    expect(calls.filter((call) => call.path === '/api/doctor/run').length).toBe(before + 1)
   })
 
   it('OnboardingView_redirectsWhenAFailRemains', async () => {
-    installFakeApi({ 'GET /api/doctor': doctorReport, 'GET /api/status': busyStatus })
+    installFakeApi({ 'POST /api/doctor/run': doctorReport, 'GET /api/status': busyStatus })
     window.location.hash = '#/propositions'
 
     mount(App)
@@ -85,7 +85,7 @@ describe('OnboardingView', () => {
   it('OnboardingView_skipRemembersTheChoiceForTheSessionOnly', async () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem')
     installFakeApi({
-      'GET /api/doctor': doctorReport,
+      'POST /api/doctor/run': doctorReport,
       'GET /api/status': busyStatus,
       'GET /api/proposals': [],
     })
@@ -107,7 +107,7 @@ describe('OnboardingView', () => {
 
   it('OnboardingView_redirectsOnFirstLaunchEvenWithoutFail', async () => {
     installFakeApi({
-      'GET /api/doctor': okReport,
+      'POST /api/doctor/run': okReport,
       'GET /api/status': { candidates: {}, proposals: {}, steps: {}, cross_seed_mode: 'disabled' },
     })
     window.location.hash = '#/propositions'
@@ -121,7 +121,7 @@ describe('OnboardingView', () => {
 
   it('OnboardingView_neverRedirectsAwayFromStages', async () => {
     installFakeApi({
-      'GET /api/doctor': doctorReport,
+      'POST /api/doctor/run': doctorReport,
       'GET /api/status': busyStatus,
       'GET /api/jobs': [],
     })
@@ -135,7 +135,7 @@ describe('OnboardingView', () => {
 
   it('OnboardingView_translatesStateKeysAndKeepsUnknownOnes', async () => {
     installFakeApi({
-      'GET /api/doctor': okReport,
+      'POST /api/doctor/run': okReport,
       'GET /api/status': {
         candidates: { verified: 3, odd_state: 1 },
         proposals: { pending: 2 },
@@ -156,7 +156,7 @@ describe('OnboardingView', () => {
 
   it('OnboardingView_doesNotRedirectWhenEverythingIsFineAndUsed', async () => {
     installFakeApi({
-      'GET /api/doctor': okReport,
+      'POST /api/doctor/run': okReport,
       'GET /api/status': busyStatus,
       'GET /api/proposals': [],
     })

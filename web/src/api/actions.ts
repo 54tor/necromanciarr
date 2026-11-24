@@ -42,8 +42,8 @@ export const API_ROUTES: readonly ApiRoute[] = [
   { method: 'POST', path: '/api/repair/scan', action: 'repair scan', mutating: true },
   { method: 'POST', path: '/api/repair/{id}/apply', action: 'repair apply', mutating: true },
   { method: 'GET', path: '/api/links', action: 'links list', mutating: false },
-  { method: 'GET', path: '/api/doctor', action: 'doctor', mutating: false },
-  { method: 'GET', path: '/api/doctor/{checkId}', action: 'doctor', mutating: false },
+  { method: 'POST', path: '/api/doctor/run', action: 'doctor', mutating: true },
+  { method: 'POST', path: '/api/doctor/checks/{checkId}', action: 'doctor', mutating: true },
   { method: 'GET', path: '/api/jobs', action: '', mutating: false },
   { method: 'GET', path: '/api/jobs/{id}', action: '', mutating: false },
 ]

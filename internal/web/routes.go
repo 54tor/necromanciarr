@@ -38,8 +38,8 @@ var apiRoutes = []route{
 	{http.MethodPost, "/api/repair/scan", "repair scan", "", scanRepair},
 	{http.MethodPost, "/api/repair/{id}/apply", "repair apply", "", applyRepair},
 	{http.MethodGet, "/api/links", "links list", "", listLinks},
-	{http.MethodGet, "/api/doctor", "doctor", "", runDoctor},
-	{http.MethodGet, "/api/doctor/{checkId}", "doctor", "", runDoctorCheck},
+	{http.MethodPost, "/api/doctor/run", "doctor", "", runDoctor},
+	{http.MethodPost, "/api/doctor/checks/{checkId}", "doctor", "", runDoctorCheck},
 	{http.MethodGet, "/api/jobs", "", "follow the long actions started by the action routes", listJobs},
 	{http.MethodGet, "/api/jobs/{id}", "", "follow one long action started by an action route", getJob},
 }
@@ -50,7 +50,6 @@ const (
 	queryKind        = "kind"
 	queryGroup       = "group"
 	queryCurrentOnly = "current_only"
-	queryCheck       = "check"
 	queryState       = "state"
 	queryLimit       = "limit"
 	queryOffset      = "offset"
@@ -354,17 +353,26 @@ func scanRepair(handler *Handler, request *http.Request) (any, int, error) {
 	})
 }
 
-// runDoctor est synchrone : chaque contrôle est borné par le délai par contrôle du diagnostic.
+// doctorRunBody choisit les contrôles du diagnostic complet ; vide = tous.
+type doctorRunBody struct {
+	Checks []string `json:"checks"`
+}
+
+// runDoctor est synchrone : chaque contrôle est borné par le délai par contrôle du diagnostic. C'est un POST : le
+// diagnostic joint les services configurés et écrit des fichiers de sonde dans les dossiers de liens.
 func runDoctor(handler *Handler, request *http.Request) (any, int, error) {
-	query := request.URL.Query()
-	if err := requireKnownQuery(query, queryCheck); err != nil {
+	var body doctorRunBody
+	if err := decodeBody(request, &body); err != nil {
 		return nil, 0, err
 	}
-	report, err := handler.service.Doctor(request.Context(), app.DoctorOptions{CheckIDs: query[queryCheck]})
+	report, err := handler.service.Doctor(request.Context(), app.DoctorOptions{CheckIDs: body.Checks})
 	return report, http.StatusOK, err
 }
 
 func runDoctorCheck(handler *Handler, request *http.Request) (any, int, error) {
+	if err := decodeBody(request, &struct{}{}); err != nil {
+		return nil, 0, err
+	}
 	options := app.DoctorOptions{CheckIDs: []string{request.PathValue("checkId")}}
 	report, err := handler.service.Doctor(request.Context(), options)
 	return report, http.StatusOK, err

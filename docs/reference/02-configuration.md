@@ -139,7 +139,7 @@ Contrat HTTP défini dans [`docs/contract/openapi.yaml`](../contract/openapi.yam
 
 ## Diagnostic (`doctor`)
 
-`necromanciarr doctor [--check ID]… [--json]` et `GET /api/doctor[/{id}]`. Chaque contrôle est borné à 10 secondes et ne rend aucun secret. Statuts : `ok`, `warn`, `skipped`, `fail`. Le code de sortie vaut 1 s'il y a au moins un `fail`, 0 sinon. Avec une configuration invalide, `doctor` rend un seul contrôle `config` en échec au lieu de s'arrêter.
+`necromanciarr doctor [--check ID]… [--json]`, et côté web `POST /api/doctor/run` (corps `{"checks": […]}`) ou `POST /api/doctor/checks/{id}` : le diagnostic joint les services et écrit des fichiers de sonde dans les dossiers de liens, il n'est donc jamais servi en `GET` (action `doctor` marquée modifiante au registre). Chaque contrôle est borné à 10 secondes et ne rend aucun secret. Statuts : `ok`, `warn`, `skipped`, `fail`. Le code de sortie vaut 1 s'il y a au moins un `fail`, 0 sinon. Avec une configuration invalide, `doctor` rend un seul contrôle `config` en échec au lieu de s'arrêter.
 
 | Identifiant | Vérifie | `fail` quand |
 |---|---|---|

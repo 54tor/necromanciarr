@@ -48,6 +48,8 @@ type fakeService struct {
 	lastFilter  app.ProposalFilter
 	lastLinks   app.LinkFilter
 	linkPage    app.LinkPage
+	// panicValue fait paniquer RunStage avec cette valeur (job qui plante).
+	panicValue any
 }
 
 func (fake *fakeService) record(method string, arguments ...any) error {
@@ -67,6 +69,9 @@ func (fake *fakeService) called(call string) bool {
 
 func (fake *fakeService) RunStage(ctx context.Context, stage pipeline.Stage) (pipeline.Result, error) {
 	err := fake.record("RunStage", stage)
+	if fake.panicValue != nil {
+		panic(fake.panicValue)
+	}
 	if fake.stageGate != nil {
 		select {
 		case <-fake.stageGate:

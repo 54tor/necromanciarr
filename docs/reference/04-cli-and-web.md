@@ -92,12 +92,12 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 | POST | `/api/repair/scan` | `repair scan` | `{"directory": "..."}` | 202, job |
 | POST | `/api/repair/{id}/apply` | `repair apply` | `{"dry_run": bool, "accept_pending": bool}` | 202, job |
 | GET | `/api/links` | `links list` | `state`, `limit`, `offset` | 200, page |
-| GET | `/api/doctor` | `doctor` | `check` (répétable) | 200, rapport |
-| GET | `/api/doctor/{checkId}` | `doctor` | | 200, rapport |
+| POST | `/api/doctor/run` | `doctor` | `{"checks": ["config", …]}` (vide : tous) | 200, rapport |
+| POST | `/api/doctor/checks/{checkId}` | `doctor` | `{}` | 200, rapport |
 | GET | `/api/jobs`, `/api/jobs/{id}` | suivi des jobs (hors registre) | | 200 |
 | GET | `/healthz` | sonde | | 200 ou 503 |
 
-Un paramètre de requête inconnu est un 400 `usage`. Un chemin inconnu sous `/api/` est un 404 `not_found` ; une méthode inadaptée sur un chemin connu, un 405 avec `Allow`. Le `accept` du web répond `"action": "accepted"` là où la CLI répond le nom de la commande. `dedupe apply` du web applique une proposition ; le web n'a pas de `--all-accepted` : l'interface enchaîne les jobs depuis le navigateur, un par proposition acceptée.
+Un job dont l'action panique passe `failed` avec `internal error` ; la valeur de la panique n'est écrite que masquée, dans le journal du serveur, qui reste en service. Un paramètre de requête inconnu est un 400 `usage`. Un chemin inconnu sous `/api/` est un 404 `not_found` ; une méthode inadaptée sur un chemin connu, un 405 avec `Allow`. Le `accept` du web répond `"action": "accepted"` là où la CLI répond le nom de la commande. `dedupe apply` du web applique une proposition ; le web n'a pas de `--all-accepted` : l'interface enchaîne les jobs depuis le navigateur, un par proposition acceptée.
 
 ### Jobs
 

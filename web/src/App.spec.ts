@@ -22,7 +22,7 @@ describe('App', () => {
 
   it('renders the product name and the five tabs', async () => {
     installFakeApi({
-      'GET /api/doctor': okReport,
+      'POST /api/doctor/run': okReport,
       'GET /api/status': busyStatus,
       'GET /api/proposals': [],
     })
@@ -37,7 +37,7 @@ describe('App', () => {
 
   it('marks the current tab with aria-current', async () => {
     installFakeApi({
-      'GET /api/doctor': okReport,
+      'POST /api/doctor/run': okReport,
       'GET /api/status': busyStatus,
       'GET /api/jobs': [],
     })
@@ -52,7 +52,7 @@ describe('App', () => {
 
   it('App_asksForTheTokenOnA401AndReloadsAfterwards', async () => {
     const calls = installFakeApi({
-      'GET /api/doctor': (call) =>
+      'POST /api/doctor/run': (call) =>
         call.headers.Authorization ? okReport : failure(401, 'unauthorized'),
       'GET /api/status': (call) =>
         call.headers.Authorization ? busyStatus : failure(401, 'unauthorized'),
@@ -78,7 +78,7 @@ describe('App', () => {
 
   it('App_tellsWhenTheTypedTokenIsRefused', async () => {
     installFakeApi({
-      'GET /api/doctor': () => failure(401, 'unauthorized'),
+      'POST /api/doctor/run': () => failure(401, 'unauthorized'),
       'GET /api/status': () => failure(401, 'unauthorized'),
     })
     mount(App, { attachTo: document.body })
@@ -100,7 +100,7 @@ describe('App', () => {
 
   it('App_reloadsTheCurrentViewAfterTheTokenIsAccepted', async () => {
     const calls = installFakeApi({
-      'GET /api/doctor': (call) =>
+      'POST /api/doctor/run': (call) =>
         call.headers.Authorization ? okReport : failure(401, 'unauthorized'),
       'GET /api/status': (call) =>
         call.headers.Authorization ? busyStatus : failure(401, 'unauthorized'),
@@ -131,7 +131,7 @@ describe('App', () => {
 
   it('App_doesNotShowTheLoginDialogWhenTheServerAnswers', async () => {
     installFakeApi({
-      'GET /api/doctor': okReport,
+      'POST /api/doctor/run': okReport,
       'GET /api/status': busyStatus,
       'GET /api/proposals': [],
     })

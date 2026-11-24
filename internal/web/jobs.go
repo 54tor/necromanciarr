@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"slices"
@@ -87,7 +89,7 @@ func (runner *jobRunner) start(action string, work func(ctx context.Context) (an
 }
 
 func (runner *jobRunner) finish(job *Job, work func(ctx context.Context) (any, error), secrets []string) {
-	result, err := work(runner.ctx)
+	result, err := runRecovering(runner.ctx, job, work, secrets)
 	runner.mutex.Lock()
 	defer runner.mutex.Unlock()
 	finishedAt := time.Now().UTC()
@@ -100,6 +102,21 @@ func (runner *jobRunner) finish(job *Job, work func(ctx context.Context) (any, e
 		job.State, job.Result, job.Error = JobFailed, nil, &body
 	}
 	runner.running = false
+}
+
+// errJobPanicked : le job a paniqué ; le serveur reste debout et le job échoue sans rien révéler.
+var errJobPanicked = errors.New("job panicked")
+
+// runRecovering exécute work et transforme une panique en échec du job ; la valeur de la panique n'est écrite que
+// masquée, dans le journal du serveur.
+func runRecovering(ctx context.Context, job *Job, work func(ctx context.Context) (any, error), secrets []string) (result any, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("job %d (%s): panic: %s", job.ID, job.Action, config.RedactText(fmt.Sprint(recovered), secrets...))
+			result, err = nil, errJobPanicked
+		}
+	}()
+	return work(ctx)
 }
 
 // list renvoie une copie de l'historique, le plus récent d'abord.

@@ -78,16 +78,16 @@
     "mutating": false
   },
   {
-    "method": "GET",
-    "path": "/api/doctor",
+    "method": "POST",
+    "path": "/api/doctor/run",
     "action": "doctor",
-    "mutating": false
+    "mutating": true
   },
   {
-    "method": "GET",
-    "path": "/api/doctor/{checkId}",
+    "method": "POST",
+    "path": "/api/doctor/checks/{checkId}",
     "action": "doctor",
-    "mutating": false
+    "mutating": true
   },
   {
     "method": "GET",

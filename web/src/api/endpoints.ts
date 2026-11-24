@@ -63,9 +63,9 @@ export const api = {
     }),
   listLinks: (filters: LinkFilters = {}) =>
     request<LinkPage>('GET', `/api/links${linkQueryOf(filters)}`),
-  doctor: () => request<DoctorReport>('GET', '/api/doctor'),
+  doctor: () => post<DoctorReport>('/api/doctor/run', {}),
   doctorCheck: (checkId: string) =>
-    request<DoctorReport>('GET', `/api/doctor/${encodeURIComponent(checkId)}`),
+    post<DoctorReport>(`/api/doctor/checks/${encodeURIComponent(checkId)}`, {}),
   listJobs: () => request<Job[]>('GET', '/api/jobs'),
   getJob: (jobId: number) => request<Job>('GET', `/api/jobs/${jobId}`),
 }

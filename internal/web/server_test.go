@@ -255,18 +255,23 @@ func TestServer_proposalActionsCallTheService(t *testing.T) {
 	expectError(t, "unknown field", readBody(t, unknownField), unknownField.Code, http.StatusBadRequest, app.ErrorCodeUsage)
 }
 
-func TestServer_doctorRunsSynchronously(t *testing.T) {
+func TestServer_doctorRunsSynchronouslyOnlyByPost(t *testing.T) {
 	fake := &fakeService{}
 	handler := newTestHandler(t, fake, loopbackSettings())
 
-	all := serve(handler, apiRequest(http.MethodGet, "/api/doctor?check=config&check=database", ""))
-	single := serve(handler, apiRequest(http.MethodGet, "/api/doctor/config", ""))
+	all := serve(handler, apiRequest(http.MethodPost, "/api/doctor/run", `{"checks": ["config", "database"]}`))
+	single := serve(handler, apiRequest(http.MethodPost, "/api/doctor/checks/config", `{}`))
 
 	if all.Code != http.StatusOK || single.Code != http.StatusOK || !fake.called("Doctor [config database]") || !fake.called("Doctor [config]") {
 		t.Fatalf("gotValue %d %d, calls %v, expectedValue both doctor calls", all.Code, single.Code, fake.calls)
 	}
+	for _, target := range []string{"/api/doctor", "/api/doctor/run", "/api/doctor/checks/config", "/api/doctor/config"} {
+		if response := serve(handler, apiRequest(http.MethodGet, target, "")); response.Code == http.StatusOK {
+			t.Fatalf("GET %s: gotValue 200, expectedValue the probing diagnostic refused without POST", target)
+		}
+	}
 	fake.errors = map[string]error{"Doctor": fmt.Errorf("%w %q", app.ErrUnknownCheck, "nope")}
-	unknown := serve(handler, apiRequest(http.MethodGet, "/api/doctor/nope", ""))
+	unknown := serve(handler, apiRequest(http.MethodPost, "/api/doctor/checks/nope", `{}`))
 	expectError(t, "unknown check", readBody(t, unknown), unknown.Code, http.StatusBadRequest, app.ErrorCodeUsage)
 }
 

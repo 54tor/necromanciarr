@@ -30,7 +30,7 @@ const VIEWS: Record<string, Component> = {
 
 async function actionsRenderedBy(view: Component): Promise<Set<string>> {
   installFakeApi({
-    'GET /api/doctor': doctorReport,
+    'POST /api/doctor/run': doctorReport,
     'GET /api/status': busyStatus,
     'GET /api/jobs': [],
     'GET /api/proposals': (call) => {
