@@ -155,6 +155,35 @@ describe('LinksView', () => {
       expect(linkRequests(calls).at(-1)?.query.get('offset')).toBe(String(LINKS_PAGE_SIZE))
       expect(wrapper.find('tr[data-row-key="201"]').exists()).toBe(true)
       expect(wrapper.find('tr[data-row-key="1"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="table-page-status"]').text()).toContain('201 à 201 sur 201')
+
+      await wrapper.get('button[aria-label="Page précédente"]').trigger('click')
+      await flushPromises()
+
+      expect(linkRequests(calls).at(-1)?.query.get('offset')).toBeNull()
+      expect(wrapper.find('tr[data-row-key="1"]').exists()).toBe(true)
+    })
+
+    it('keeps the table, the pager and the previous offset when a page change fails', async () => {
+      const { wrapper, calls } = await mountView({
+        links: (call) =>
+          call.query.get('offset') === String(LINKS_PAGE_SIZE)
+            ? failure(409, 'inspection_busy')
+            : linkPage(recorded, { total: 450, next: LINKS_PAGE_SIZE }),
+      })
+
+      await wrapper.get('button[aria-label="Page suivante"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('tr[data-row-key="1"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="links-panel"] [role="alert"]').exists()).toBe(true)
+      expect(wrapper.get('[data-testid="table-page-status"]').text()).toContain('1 à 4 sur 450')
+
+      await wrapper.get('[data-action="links list"]').trigger('click')
+      await flushPromises()
+
+      expect(linkRequests(calls).at(-1)?.query.get('offset')).toBeNull()
+      expect(wrapper.find('[data-testid="links-panel"] [role="alert"]').exists()).toBe(false)
     })
 
     it('has no own page title, the shell owns it', async () => {
@@ -163,15 +192,27 @@ describe('LinksView', () => {
       expect(wrapper.find('h2').exists()).toBe(false)
     })
 
-    it('shows the seven columns of the links table', async () => {
+    it('shows the six columns of the links table, without Volume until it exists', async () => {
       const { wrapper } = await mountView()
 
       const gotHeaders = wrapper
         .findAll('[data-testid="links-panel"] thead th')
         .map((th) => th.text())
 
-      for (const expectedValue of ['Lien', 'Sorte', 'Cible', 'Volume', 'État', 'Comparé', 'Taille'])
+      for (const expectedValue of ['Lien', 'Sorte', 'Cible', 'État', 'Comparé', 'Taille'])
         expect(gotHeaders).toContain(expectedValue)
+      expect(gotHeaders).not.toContain('Volume')
+    })
+
+    it('shows a Volume column once the server sends a volume', async () => {
+      const { wrapper } = await mountView({
+        links: () => linkPage([linkItem(1, { volume: 'seedbox' })]),
+      })
+
+      expect(
+        wrapper.findAll('[data-testid="links-panel"] thead th').map((th) => th.text()),
+      ).toContain('Volume')
+      expect(rowOf(wrapper, 1).text()).toContain('seedbox')
     })
 
     it('shows state labels with an icon and the label of a reason, never the raw code', async () => {
@@ -185,7 +226,6 @@ describe('LinksView', () => {
       expect(rowOf(wrapper, 3).text()).toContain('the link target is missing')
       expect(rowOf(wrapper, 3).text()).not.toContain('link_target_missing')
       expect(rowOf(wrapper, 2).text()).toContain('lien physique')
-      expect(rowOf(wrapper, 1).text()).toContain('Local')
     })
 
     it('does not offer a sort, the server order is kept', async () => {
@@ -327,6 +367,7 @@ describe('LinksView', () => {
       expect(posts(calls).map((call) => [call.path, call.body])).toEqual([
         ['/api/repair/scan', { directory: '' }],
       ])
+      expect(wrapper.get('[data-testid="tab-repairs"]').attributes('aria-selected')).toBe('true')
     })
 
     it('shows cards below 768 px with the state label and the same repair action', async () => {
@@ -348,9 +389,7 @@ describe('LinksView', () => {
         .findAll('[data-testid="links-panel"] thead th')
         .map((th) => th.text())
 
-      expect(gotHeaders).toEqual(
-        expect.arrayContaining(['Link', 'Kind', 'Target', 'Volume', 'State']),
-      )
+      expect(gotHeaders).toEqual(expect.arrayContaining(['Link', 'Kind', 'Target', 'State']))
       expect(rowOf(wrapper, 1).get('[data-state]').text()).toBe('Compliant')
     })
   })
@@ -434,8 +473,19 @@ describe('LinksView', () => {
       expect(rowOf(wrapper, 31).text()).toContain('no client recheck')
     })
 
+    it('shows the dry run box only on the repairs tab', async () => {
+      const { wrapper } = await mountView()
+
+      expect(wrapper.find('[data-testid="dry-run"]').exists()).toBe(false)
+
+      await openRepairsTab(wrapper)
+
+      expect(wrapper.find('[data-testid="dry-run"]').exists()).toBe(true)
+    })
+
     it('keeps the dry run box checked by default', async () => {
       const { wrapper } = await mountView()
+      await openRepairsTab(wrapper)
 
       expect(dryRunBox(wrapper).element.checked).toBe(true)
     })

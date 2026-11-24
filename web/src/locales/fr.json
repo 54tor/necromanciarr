@@ -463,7 +463,6 @@
     "empty": "Aucun lien enregistré.",
     "emptyFiltered": "Aucun lien enregistré dans cet état.",
     "loadFailed": "Impossible de charger les liens.",
-    "volumeLocal": "Local",
     "compared": "Comparé",
     "notCompared": "Non comparé",
     "columns": {
@@ -519,5 +518,8 @@
         "confirmReal": "Appliquer pour de bon"
       }
     }
+  },
+  "jobs": {
+    "done": "Tâche terminée."
   }
 }

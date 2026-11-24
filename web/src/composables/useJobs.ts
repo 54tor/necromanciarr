@@ -3,6 +3,7 @@ import { toast } from 'vue-sonner'
 import { api } from '@/api/endpoints'
 import { messageForCode } from '@/api/errors'
 import type { Job } from '@/api/types'
+import { t } from '@/i18n'
 import { useApi } from './useApi'
 import { usePolling } from './usePolling'
 
@@ -28,7 +29,7 @@ function announceFinished(previous: Job[], current: Job[]): void {
     if (job.state === 'running' || !wasRunning.has(job.id)) continue
     lastFinished.value = job
     waiters.get(job.id)?.(job)
-    if (job.state === 'done') toast.success('Tâche terminée.')
+    if (job.state === 'done') toast.success(t('jobs.done'))
     else toast.error(messageForCode(job.error?.code ?? 'failure'))
   }
 }

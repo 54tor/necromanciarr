@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { ESLint } from 'eslint'
 import { describe, expect, it } from 'vitest'
@@ -66,5 +66,64 @@ describe('raw-text lint applies to every file', () => {
 
   it('passes on a translated text', async () => {
     expect(await rawTextMessages('<p>{{ t("nav.label") }}</p>')).toHaveLength(0)
+  })
+})
+
+const SCRIPT_FILES = vueFilesUnder('src')
+  .concat(tsFilesUnder('src'))
+  .filter((path) => !path.startsWith('src/components/ui/') && !path.startsWith('src/test/'))
+
+function tsFilesUnder(directory: string): string[] {
+  return readdirSync(`${webRoot}${directory}`, { withFileTypes: true }).flatMap((entry) => {
+    const path = `${directory}/${entry.name}`
+    if (entry.isDirectory()) return tsFilesUnder(path)
+    return entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts') ? [path] : []
+  })
+}
+
+const IGNORE_MARKER = 'i18n-ignore:'
+const NOTIFICATION_CALL =
+  /\b(?:toast(?:\.(?:success|error|warning|info|message))?|alert|confirm)\s*\(/g
+const LITERAL_START = /^\s*['"`]/
+const OBJECT_LITERAL_TEXT = /\b(?:title|description)\s*:\s*['"`]/
+const OBJECT_LOOKAHEAD = 160
+
+/** Lignes (1-based) où une notification reçoit un texte en dur : littéral direct ou `title:`/`description:`. */
+export function literalNotificationLines(source: string): number[] {
+  const lines = source.split('\n')
+  const hits = new Set<number>()
+  for (const match of source.matchAll(NOTIFICATION_CALL)) {
+    const argsStart = match.index + match[0].length
+    const lineNumber = source.slice(0, match.index).split('\n').length
+    const args = source.slice(argsStart, argsStart + OBJECT_LOOKAHEAD)
+    const isLiteral =
+      LITERAL_START.test(args) || OBJECT_LITERAL_TEXT.test(args.split(/\)\s*(?:\n|;|$)/)[0] ?? '')
+    if (isLiteral && !lines[lineNumber - 1]!.includes(IGNORE_MARKER)) hits.add(lineNumber)
+  }
+  return [...hits]
+}
+
+describe('user-facing string literals in scripts', () => {
+  it.each(SCRIPT_FILES)('%s passes a translated text to every notification', (file) => {
+    const source = readFileSync(`${webRoot}${file}`, 'utf8')
+
+    expect(literalNotificationLines(source)).toEqual([])
+  })
+
+  it.each([
+    "toast.success('Fait.')",
+    'toast.error("Echec")',
+    'toast(`Fait`)',
+    "alert('Attention')",
+    "confirm('Sûr ?')",
+    "toast.error({ title: 'Echec' })",
+    "toast.success(t('a.b'), { description: 'Detail' })",
+  ])('detects the planted literal %s', (planted) => {
+    expect(literalNotificationLines(planted)).toEqual([1])
+  })
+
+  it('accepts a translated text and an ignore marker with its reason', () => {
+    expect(literalNotificationLines("toast.success(t('jobs.done'))")).toEqual([])
+    expect(literalNotificationLines("toast.info('ok') // i18n-ignore: technical")).toEqual([])
   })
 })

@@ -39,6 +39,12 @@ function allOf(): string {
 watch(links.state, () => void links.reloadFirstPage())
 watch(lastFinished, () => void links.load())
 
+// Une recherche de réparation lancée depuis un lien ouvre l'onglet qui recevra ses résultats.
+async function searchRepairFromLink(): Promise<void> {
+  const launched = await scanRepairs()
+  if (launched) activeTab.value = 'repairs'
+}
+
 onMounted(() => {
   void links.load()
   void load()
@@ -84,7 +90,7 @@ onMounted(() => {
             {{ t('links.scan') }}
           </Button>
         </form>
-        <label class="flex items-center gap-2 text-sm">
+        <label v-if="activeTab === 'repairs'" class="flex items-center gap-2 text-sm">
           <input
             v-model="dryRun"
             type="checkbox"
@@ -128,8 +134,8 @@ onMounted(() => {
           :load-failed="links.loadFailed.value"
           :is-filtered="links.state.value !== ''"
           :busy="isBlocked"
-          @page="links.goTo"
-          @repair="scanRepairs"
+          @page="links.load"
+          @repair="searchRepairFromLink"
         />
       </TabsContent>
       <TabsContent value="repairs" class="min-w-0 outline-none">

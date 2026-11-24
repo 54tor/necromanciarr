@@ -463,7 +463,6 @@
     "empty": "No recorded link.",
     "emptyFiltered": "No recorded link in this state.",
     "loadFailed": "Unable to load the links.",
-    "volumeLocal": "Local",
     "compared": "Compared",
     "notCompared": "Not compared",
     "columns": {
@@ -519,5 +518,8 @@
         "confirmReal": "Apply for real"
       }
     }
+  },
+  "jobs": {
+    "done": "Task done."
   }
 }

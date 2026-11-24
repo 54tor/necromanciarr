@@ -21,28 +21,24 @@ export function useRecordedLinks() {
   // Numéro de la dernière requête : une réponse plus ancienne (filtre changé en cours de route) est ignorée.
   let latestRequest = 0
 
-  async function load(): Promise<void> {
+  /** load charge la page commençant au décalage donné ; en cas d'échec, le décalage et la page affichés restent. */
+  async function load(targetOffset = offset.value): Promise<void> {
     const request = ++latestRequest
     const loaded = await call(() =>
-      api.listLinks({ state: state.value, offset: offset.value, limit: LINKS_PAGE_SIZE }),
+      api.listLinks({ state: state.value, offset: targetOffset, limit: LINKS_PAGE_SIZE }),
     )
     if (request !== latestRequest) return
     loadFailed.value = loaded === undefined
     if (!loaded) return
+    offset.value = targetOffset
     page.value = loaded
     items.value = loaded.items
   }
 
-  /** goTo charge la page commençant au décalage donné. */
-  function goTo(newOffset: number): Promise<void> {
-    offset.value = newOffset
-    return load()
-  }
-
   /** reloadFirstPage revient au début : changement de filtre ou nouvel examen. */
   function reloadFirstPage(): Promise<void> {
-    return goTo(0)
+    return load(0)
   }
 
-  return { state, offset, items, page, pending, loadFailed, load, goTo, reloadFirstPage }
+  return { state, offset, items, page, pending, loadFailed, load, reloadFirstPage }
 }

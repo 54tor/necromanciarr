@@ -115,6 +115,8 @@ export interface LinkItem {
   reason?: string
   /** Libellé traduit de `reason`. */
   label?: string
+  /** Volume du lien : le serveur ne l'envoie pas encore (phase C). */
+  volume?: string
   /** Faux quand rien n'a été comparé (reflink ou copie sans taille enregistrée). */
   compared: boolean
 }

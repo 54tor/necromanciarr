@@ -7,6 +7,7 @@ import LinkStateBadge from '@/components/LinkStateBadge.vue'
 import RowActionButton from '@/components/RowActionButton.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import { LINKS_PAGE_SIZE, LINK_STATES } from '@/composables/useRecordedLinks'
+import { hasVolumeField } from '@/lib/linkFields'
 import { codeLabel, t } from '@/i18n'
 import type { DataColumn } from '@/lib/dataTable'
 import { formatBytes, formatExactBytes } from '@/lib/format'
@@ -31,6 +32,22 @@ const comparedPill = (link: LinkItem) =>
     ? t('links.compared')
     : h(StatusPill, { tone: 'muted', labelKey: 'links.notCompared', 'data-testid': 'not-compared' })
 
+const hasVolume = computed(() => hasVolumeField(props.items))
+
+const volumeColumn = computed<DataColumn<LinkItem>[]>(() =>
+  hasVolume.value
+    ? [
+        {
+          id: 'volume',
+          meta: { className: 'w-[7%] whitespace-normal' },
+          header: t('links.columns.volume'),
+          accessorFn: (link) => link.volume ?? EMPTY_CELL,
+          cell: (context) => context.getValue<string>(),
+        },
+      ]
+    : [],
+)
+
 const columns = computed<DataColumn<LinkItem>[]>(() => [
   {
     id: 'link',
@@ -53,13 +70,7 @@ const columns = computed<DataColumn<LinkItem>[]>(() => [
     accessorFn: (link) => link.target_path,
     cell: (context) => pathCell(context.getValue<string>()),
   },
-  {
-    id: 'volume',
-    meta: { className: 'w-[7%] whitespace-normal' },
-    header: t('links.columns.volume'),
-    accessorFn: () => t('links.volumeLocal'),
-    cell: (context) => context.getValue<string>(),
-  },
+  ...volumeColumn.value,
   {
     id: 'state',
     meta: { className: 'w-[17%] whitespace-normal' },
@@ -130,6 +141,14 @@ const serverPage = computed(() => ({
       </p>
     </div>
 
+    <p
+      v-if="loadFailed && page"
+      role="alert"
+      class="rounded-md border border-destructive p-3 text-destructive"
+    >
+      {{ t('links.loadFailed') }}
+    </p>
+
     <DataTable
       caption-key="links.caption"
       caption-hidden
@@ -138,7 +157,7 @@ const serverPage = computed(() => ({
       :row-key="rowKey"
       :page-size="LINKS_PAGE_SIZE"
       :server-page="serverPage"
-      :error="loadFailed ? t('links.loadFailed') : undefined"
+      :error="loadFailed && !page ? t('links.loadFailed') : undefined"
       :empty-key="isFiltered ? 'links.emptyFiltered' : 'links.empty'"
     >
       <template #card="{ row }">
@@ -148,8 +167,10 @@ const serverPage = computed(() => ({
           <dd class="[overflow-wrap:anywhere]">{{ row.target_path }}</dd>
           <dt class="text-muted-foreground">{{ t('links.columns.kind') }}</dt>
           <dd>{{ codeLabel('kind', row.kind) }}</dd>
-          <dt class="text-muted-foreground">{{ t('links.columns.volume') }}</dt>
-          <dd>{{ t('links.volumeLocal') }}</dd>
+          <template v-if="hasVolume">
+            <dt class="text-muted-foreground">{{ t('links.columns.volume') }}</dt>
+            <dd>{{ row.volume ?? EMPTY_CELL }}</dd>
+          </template>
           <dt class="text-muted-foreground">{{ t('links.columns.state') }}</dt>
           <dd>
             <LinkStateBadge :state="row.state" />
