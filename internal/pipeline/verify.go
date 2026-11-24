@@ -8,6 +8,7 @@ import (
 
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/matcher"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
 )
@@ -34,11 +35,15 @@ const (
 	ReasonMissingPiecesAboveCap = "missing_pieces_above_cap"
 )
 
-// runVerify vérifie, un candidat à la fois, chaque candidat matched ou fetched (reprise), applique le plafond de
-// pièces manquantes courant (reevaluateCap), puis met à jour les propositions de groupe ; une annulation enregistre l'avancement cohérent et arrête l'étape, une perte du verrou
-// arrête toute écriture.
+// runVerify efface d'abord les blocs scellés plus vieux que store.SealedRetention, puis vérifie, un candidat à la fois,
+// chaque candidat matched ou fetched (reprise), applique le plafond de pièces manquantes courant (reevaluateCap), puis
+// met à jour les propositions de groupe ; une annulation enregistre l'avancement cohérent et arrête l'étape, une perte
+// du verrou arrête toute écriture.
 func runVerify(ctx context.Context, deps Deps) (Result, error) {
 	var result Result
+	if _, err := deps.Store.PurgeSealedOlderThan(ctx, deps.now(), store.SealedRetention); err != nil {
+		return result, err
+	}
 	candidates, err := deps.Store.ListCandidatesByState(ctx, store.CandidateMatched, store.CandidateFetched)
 	if err != nil {
 		return result, err
@@ -179,7 +184,11 @@ func (run candidateRun) loadTorrent(ctx context.Context, candidate store.Candida
 	if failure != "" {
 		return nil, failure, nil
 	}
-	if err := run.deps.Store.SaveCandidateTorrent(ctx, candidate.ID, raw, run.deps.now()); err != nil {
+	sanitized, failure := sanitizedTorrent(raw)
+	if failure != "" {
+		return nil, failure, nil
+	}
+	if err := run.deps.Store.SaveCandidateTorrent(ctx, candidate.ID, sanitized, run.deps.now()); err != nil {
 		return nil, "", err
 	}
 	return torrent, "", run.deps.Store.SetCandidateState(ctx, candidate.ID, store.CandidateFetched, run.deps.now())
@@ -198,6 +207,16 @@ func fetchFailure(err error) (string, error) {
 		return ReasonTorrentTooLarge, nil
 	}
 	return ReasonTorrentFetchFailed, nil
+}
+
+// sanitizedTorrent rend la seule copie conservée, sans annonce ; info est recopié à l'identique, l'infohash ne change
+// pas. Un .torrent que l'assainissement refuse est un échec du candidat, jamais de l'étape.
+func sanitizedTorrent(raw []byte) ([]byte, string) {
+	sanitized, err := sources.Sanitize(raw)
+	if err != nil {
+		return nil, ReasonInvalidTorrent
+	}
+	return sanitized, ""
 }
 
 // parseCandidateTorrent refuse un .torrent v2 seul, invalide, ou dont l'infohash n'est pas celui du candidat.

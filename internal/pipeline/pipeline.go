@@ -68,6 +68,7 @@ type Store interface {
 	SetCandidateState(ctx context.Context, candidateID int64, state store.CandidateState, now time.Time) error
 	SaveCandidateTorrent(ctx context.Context, candidateID int64, raw []byte, now time.Time) error
 	CandidateTorrent(ctx context.Context, candidateID int64) ([]byte, error)
+	PurgeSealedOlderThan(ctx context.Context, now time.Time, olderThan time.Duration) (int, error)
 	LoadVerification(ctx context.Context, candidateID int64) (store.Verification, bool, error)
 	SaveVerification(ctx context.Context, verification store.Verification, now time.Time) error
 	ListVerifiedFiles(ctx context.Context, candidateID int64) ([]store.VerifiedFile, error)
