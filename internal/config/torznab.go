@@ -27,9 +27,15 @@ const (
 	defaultTorznabMaxDownloadsPerRun = 10
 	defaultTorznabMaxQueriesPerDay   = 200
 	defaultTorznabMaxDownloadsPerDay = 50
-	maxTorznabNameLength             = 64
-	maxTorznabTrackerLength          = 128
-	errInvalidIndexerURLFormat       = "%s: invalid url (expected http(s)://host[:port]/path?apikey=…, no credentials, no fragment)"
+	// minTorznabMinInterval protège l'indexeur : en dessous d'une requête par seconde, un tracker ban ou limite.
+	minTorznabMinInterval      = time.Second
+	maxTorznabMinInterval      = time.Hour
+	minTorznabTimeout          = time.Second
+	maxTorznabTimeout          = 5 * time.Minute
+	maxTorznabCount            = 100000
+	maxTorznabNameLength       = 64
+	maxTorznabTrackerLength    = 128
+	errInvalidIndexerURLFormat = "%s: invalid url (expected http(s)://host[:port]/path?apikey=…, no credentials, no fragment)"
 )
 
 var (
@@ -40,8 +46,10 @@ var (
 // TorznabIndexer décrit un indexeur Torznab (flux Prowlarr, Jackett ou natif). URL porte la clé dans apikey : c'est un
 // secret, masqué par String, GoString, LogValue et MarshalJSON.
 type TorznabIndexer struct {
-	URL     string
-	Name    string
+	URL  string
+	Name string
+	// Tracker est gardé tel que saisi (rogné) ; les rapprochements ultérieurs le comparent sans casse, après rognage
+	// (strings.EqualFold sur strings.TrimSpace), jamais en changeant la valeur stockée.
 	Tracker string
 	// Categories vide : celles des capacités de l'indexeur.
 	Categories                                                                 []int
@@ -226,10 +234,10 @@ func lastNumericSegment(path string) (string, bool) {
 
 func applyTorznabLimits(indexer *TorznabIndexer, rawFile torznabFile) error {
 	var err error
-	if indexer.MinInterval, err = positiveDuration("minInterval", rawFile.MinInterval, defaultTorznabMinInterval); err != nil {
+	if indexer.MinInterval, err = boundedDuration("minInterval", rawFile.MinInterval, defaultTorznabMinInterval, minTorznabMinInterval, maxTorznabMinInterval); err != nil {
 		return err
 	}
-	if indexer.Timeout, err = positiveDuration("timeout", rawFile.Timeout, defaultTorznabTimeout); err != nil {
+	if indexer.Timeout, err = boundedDuration("timeout", rawFile.Timeout, defaultTorznabTimeout, minTorznabTimeout, maxTorznabTimeout); err != nil {
 		return err
 	}
 	counters := []struct {
@@ -248,21 +256,21 @@ func applyTorznabLimits(indexer *TorznabIndexer, rawFile torznabFile) error {
 		if counter.raw == nil {
 			continue
 		}
-		if *counter.raw <= 0 {
-			return fmt.Errorf("%s must be a positive integer", counter.name)
+		if *counter.raw <= 0 || *counter.raw > maxTorznabCount {
+			return fmt.Errorf("%s must be an integer between 1 and %d", counter.name, maxTorznabCount)
 		}
 		*counter.target = *counter.raw
 	}
 	return nil
 }
 
-func positiveDuration(name, raw string, fallback time.Duration) (time.Duration, error) {
+func boundedDuration(name, raw string, fallback, floor, ceiling time.Duration) (time.Duration, error) {
 	if raw == "" {
 		return fallback, nil
 	}
 	parsed, err := time.ParseDuration(raw)
-	if err != nil || parsed <= 0 {
-		return 0, fmt.Errorf("%s: %q is not a positive Go duration", name, truncateRunes(raw, maxEchoedLanguageRunes))
+	if err != nil || parsed < floor || parsed > ceiling {
+		return 0, fmt.Errorf("%s: %q is not a Go duration between %s and %s", name, truncateRunes(raw, maxEchoedLanguageRunes), floor, ceiling)
 	}
 	return parsed, nil
 }

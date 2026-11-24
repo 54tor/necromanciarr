@@ -172,12 +172,14 @@ Un indexeur Torznab est une source de secours de `.torrent`, après le fournisse
 | `torznab[].name` | dernier segment numérique du chemin (`12`), sinon le rang dans la liste | `[a-z0-9-]+`, unique |
 | `torznab[].tracker` | vide | nom du tracker tel que le fournisseur l'écrit ; sert au secours `.torrent` et à l'unicité (infohash, tracker) |
 | `torznab[].categories` | celles des capacités de l'indexeur (films, séries) | entiers strictement positifs |
-| `torznab[].minInterval` | `3s` | durée Go supérieure à 0 : délai minimal entre deux requêtes à cet indexeur |
-| `torznab[].timeout` | `30s` | durée Go supérieure à 0 |
-| `torznab[].maxQueriesPerRun`, `maxDownloadsPerRun` | `30`, `10` | entiers supérieurs à 0 |
-| `torznab[].maxQueriesPerDay`, `maxDownloadsPerDay` | `200`, `50` | entiers supérieurs à 0 |
+| `torznab[].minInterval` | `3s` | durée Go de `1s` à `1h` : délai minimal entre deux requêtes à cet indexeur (le plancher de `1s` évite qu'il limite ou bannisse l'outil) |
+| `torznab[].timeout` | `30s` | durée Go de `1s` à `5m` |
+| `torznab[].maxQueriesPerRun`, `maxDownloadsPerRun` | `30`, `10` | entiers de 1 à `100000` |
+| `torznab[].maxQueriesPerDay`, `maxDownloadsPerDay` | `200`, `50` | entiers de 1 à `100000` |
 | `prowlarr` | vide | URL de l'API native de Prowlarr (`http(s)://host:9696[/base]?apikey=KEY`, mêmes règles que `torznab[].url`) ; seulement pour `doctor` (liste et état des indexeurs), jamais pour chercher |
 | `sourceOrder` | `provider`, puis les entrées de `torznab` dans l'ordre de la liste | `provider` doit rester premier (un `provider` mal placé ou absent est refusé, jamais réordonné) ; chaque source est `provider` ou `torznab:<name>` d'un indexeur configuré, citée une fois |
+
+Un indexeur absent de `sourceOrder` n'est jamais interrogé (`doctor` avertit avec `torznab_not_in_source_order`). Une clé qui contient `&`, `#`, `%` ou `;` doit être encodée en pourcentage dans l'URL (`%26`, `%23`, `%25`, `%3B`) : `?apikey=ab%26cd` vaut `ab&cd`. Une URL refusée reçoit un message générique qui ne la reprend jamais.
 
 Avec Prowlarr, donner le flux Torznab de chaque indexeur (`/<id>/api`, `<id>` étant l'identifiant de l'indexeur dans Prowlarr) et laisser son option `Redirect` désactivée (mode Proxy) : avec une redirection, les liens de téléchargement désignent le tracker d'origine et sont refusés. `doctor` avertit quand une entrée `torznab` ne correspond à aucun indexeur activé de `prowlarr`.
 
@@ -187,7 +189,7 @@ Contrat HTTP défini dans [`docs/contract/openapi.yaml`](../contract/openapi.yam
 
 ## Diagnostic (`doctor`)
 
-`necromanciarr doctor [--check ID]… [--json]`, et côté web `POST /api/doctor/run` (corps `{"checks": […]}`) ou `POST /api/doctor/checks/{id}` : le diagnostic joint les services et écrit des fichiers de sonde dans les dossiers de liens, il n'est donc jamais servi en `GET` (action `doctor` marquée modifiante au registre). Chaque contrôle est borné à 10 secondes et ne rend aucun secret. Statuts : `ok`, `warn`, `skipped`, `fail`. Le code de sortie vaut 1 s'il y a au moins un `fail`, 0 sinon. Avec une configuration invalide, `doctor` rend un seul contrôle `config` en échec au lieu de s'arrêter.
+`necromanciarr doctor [--check ID]… [--json]`, et côté web `POST /api/doctor/run` (corps `{"checks": […]}`) ou `POST /api/doctor/checks/{id}` : le diagnostic joint les services et écrit des fichiers de sonde dans les dossiers de liens, il n'est donc jamais servi en `GET` (action `doctor` marquée modifiante au registre). Chaque contrôle est borné à 10 secondes et ne rend aucun secret. Le résultat des capacités d'un indexeur Torznab, réussi ou non, est gardé 5 minutes par le serveur (un changement de configuration l'invalide) : relancer `doctor` dans ce délai n'interroge pas de nouveau l'indexeur. Statuts : `ok`, `warn`, `skipped`, `fail`. Le code de sortie vaut 1 s'il y a au moins un `fail`, 0 sinon. Avec une configuration invalide, `doctor` rend un seul contrôle `config` en échec au lieu de s'arrêter.
 
 | Identifiant | Vérifie | `fail` quand |
 |---|---|---|

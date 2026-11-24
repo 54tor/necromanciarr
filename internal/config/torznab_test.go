@@ -200,7 +200,9 @@ func TestConfig_torznabLimitsDefaults(t *testing.T) {
 
 func TestConfig_torznabRefusesNonPositiveLimits(t *testing.T) {
 	for _, field := range []string{
-		`"minInterval": "0s"`, `"minInterval": "-1s"`, `"minInterval": "soon"`, `"timeout": "0s"`,
+		`"minInterval": "0s"`, `"minInterval": "999ms"`, `"minInterval": "-1s"`, `"minInterval": "soon"`, `"minInterval": "2h"`,
+		`"timeout": "0s"`, `"timeout": "500ms"`, `"timeout": "6m"`,
+		`"maxQueriesPerRun": 100001`, `"maxQueriesPerDay": 100001`, `"maxDownloadsPerRun": 100001`, `"maxDownloadsPerDay": 100001`,
 		`"maxQueriesPerRun": 0`, `"maxDownloadsPerRun": -1`, `"maxQueriesPerDay": 0`, `"maxDownloadsPerDay": 0`,
 		`"categories": [0]`, `"categories": [-5]`,
 	} {
@@ -289,5 +291,35 @@ func TestConfig_torznabAndProwlarrKeysAreNeverRendered(t *testing.T) {
 	}
 	if !strings.Contains(string(redactedJSON), "tracker-a") || !strings.Contains(string(redactedJSON), "prowlarr.example.com") {
 		t.Fatalf("gotValue %s, expectedValue names and hosts kept", redactedJSON)
+	}
+}
+
+func TestConfig_torznabAcceptsTheLimitBoundsAndNamesTheFloorInTheError(t *testing.T) {
+	loadedConfig, err := loadTorznabConfig(t, `{"torznab": [{"url": "https://a.example.com/1/api?apikey=k", "minInterval": "1s", "timeout": "5m",
+		"maxQueriesPerRun": 100000, "maxQueriesPerDay": 1}]}`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loadedConfig.Torznab[0].MinInterval != time.Second || loadedConfig.Torznab[0].Timeout != 5*time.Minute {
+		t.Fatalf("gotValue %v", loadedConfig.Torznab[0])
+	}
+
+	_, err = loadTorznabConfig(t, `{"torznab": [{"url": "https://a.example.com/1/api?apikey=k", "minInterval": "500ms"}]}`, nil)
+
+	if err == nil || !strings.Contains(err.Error(), "minInterval") || !strings.Contains(err.Error(), "1s") {
+		t.Fatalf("gotValue %v, expectedValue an error naming minInterval and its 1s floor", err)
+	}
+}
+
+func TestConfig_torznabTrackerKeepsTheOperatorSpellingTrimmed(t *testing.T) {
+	loadedConfig, err := loadTorznabConfig(t, `{"torznab": [{"url": "https://a.example.com/1/api?apikey=k", "tracker": "  Tracker-A "}]}`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotValue := loadedConfig.Torznab[0].Tracker
+
+	if gotValue != "Tracker-A" || !strings.EqualFold(gotValue, "tracker-a") {
+		t.Fatalf("gotValue %q, expectedValue the trimmed spelling, compared case-insensitively by later lookups", gotValue)
 	}
 }
