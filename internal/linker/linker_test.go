@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"necromanciarr/internal/config"
@@ -149,6 +150,9 @@ func TestApply_hardlinkSameDevice(t *testing.T) {
 	destinationInfo, _ := os.Stat(destination)
 	if !os.SameFile(sourceInfo, destinationInfo) {
 		t.Fatal("destination is not a hardlink to the source")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits of the created parent are not meaningful on Windows")
 	}
 	expectedMode := os.FileMode(0o755)
 	parentInfo, _ := os.Stat(filepath.Dir(destination))
