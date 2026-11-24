@@ -15,7 +15,7 @@
 
 ### Types de volumes
 
-`linker` classe le volume d'un chemin par `statfs` (Linux) : `local`, `fuse` (rclone, sshfs…), `network` (NFS, SMB/CIFS, 9p, Ceph, AFS, Lustre, GFS2, OCFS2, Coda, NCP, OrangeFS) ou `unknown` (autres plateformes). Seul `local` a des inodes stables : sur les autres, l'inode n'est pas conservé en base, la réparation « par inode » est impossible et la déduplication ajoute les avertissements `inode non fiable`, `lecture complète d'un montage réseau` ou `vérification par échantillons, plus faible que la comparaison complète`. Sous Windows, seuls un lecteur réseau ou un partage UNC sont reconnus `network` ; un montage rclone (WinFsp) y apparaît en lecteur fixe et n'est pas détecté.
+`linker` classe le volume d'un chemin par `statfs` (Linux) : `local`, `fuse` (rclone, sshfs…), `network` (NFS, SMB/CIFS, 9p, Ceph, AFS, Lustre, GFS2, OCFS2, Coda, NCP, OrangeFS) ou `unknown` (autres plateformes). Seul `local` a des inodes stables : sur les autres, l'inode n'est pas conservé en base, la réparation « par inode » est impossible et la déduplication ajoute les avertissements `warning.dedupe.unreliable_inode`, `warning.dedupe.full_network_read` ou `warning.dedupe.sampled_verify` (texte traduit dans `warnings` de la proposition). Sous Windows, seuls un lecteur réseau ou un partage UNC sont reconnus `network` ; un montage rclone (WinFsp) y apparaît en lecteur fixe et n'est pas détecté.
 
 ### Liens
 
@@ -131,7 +131,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `fs-providers` | `no_fs_provider` | `skipped` | aucun fournisseur configuré |
 | `fs-providers` | `fs_providers_build_failed` | `fail` | `fsProviders` de `config.json` |
 | `fs-providers` | `mount_ok` | `ok` | montage décrit |
-| `fs-providers` | `mount_advice` | `warn` | le conseil du fournisseur (texte de `hashsource`, non traduit) : démarrer rclone avec `--rc`, backend sans MD5 ou sans date (la comparaison relit les fichiers) |
+| `fs-providers` | `mount_advice` | `warn` | le conseil du fournisseur (clés `advice.mount.*` de `hashsource`, rendues dans la langue) : démarrer rclone avec `--rc`, backend sans MD5 ou sans date (la comparaison relit les fichiers) |
 | `cross-seed` | `cross_seed_unset` | `skipped` | cross-seed non configuré |
 | `cross-seed` | `cross_seed_mode_invalid` | `fail` | `crossSeedMode` inconnu |
 | `cross-seed` | `cross_seed_warning` | `warn` | démon injoignable : repli `native` en mode `auto`, désactivé en `delegate` |
