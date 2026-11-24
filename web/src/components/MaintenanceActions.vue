@@ -8,7 +8,13 @@ const emit = defineEmits<{ apply: [] }>()
 
 <template>
   <div class="flex flex-wrap gap-2">
-    <Button size="sm" :data-action="action" :disabled="!applicable || busy" @click="emit('apply')">
+    <Button
+      size="sm"
+      :data-action="action"
+      data-scope="row"
+      :disabled="!applicable || busy"
+      @click="emit('apply')"
+    >
       {{ decision === 'accepted' ? 'Appliquer' : 'Accepter et appliquer' }}
     </Button>
   </div>

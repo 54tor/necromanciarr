@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { api } from '@/api/endpoints'
 import type { DedupeDetails } from '@/api/types'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import MaintenanceActions from '@/components/MaintenanceActions.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -9,8 +10,26 @@ import { useMaintenance } from '@/composables/useMaintenance'
 import { formatBytes } from '@/lib/format'
 import { DECISION_LABELS, DEDUPE_METHOD_LABELS, LINK_KIND_LABELS, labelOf } from '@/lib/labels'
 
-const { items, dryRun, busy, pending, load, canApply, applyOne, applyAccepted, start } =
-  useMaintenance<DedupeDetails>('dedupe', api.dedupeApply)
+const {
+  items,
+  acceptedItems,
+  dryRun,
+  busy,
+  pending,
+  load,
+  canApply,
+  applyOne,
+  applyAccepted,
+  start,
+} = useMaintenance<DedupeDetails>('dedupe', api.dedupeApply)
+
+const confirmBulk = ref(false)
+
+// En simulation rien n'est modifié : la confirmation ne sert que pour une application réelle.
+function askBulk(): void {
+  if (dryRun.value) void applyAccepted()
+  else confirmBulk.value = true
+}
 
 onMounted(load)
 </script>
@@ -32,9 +51,10 @@ onMounted(load)
       <Button
         variant="secondary"
         data-action="dedupe apply"
+        data-scope="bulk"
         data-testid="apply-all"
         :disabled="busy || pending"
-        @click="applyAccepted"
+        @click="askBulk"
       >
         Appliquer toutes les acceptées
       </Button>
@@ -45,7 +65,7 @@ onMounted(load)
           class="size-4 accent-primary"
           data-testid="dry-run"
         />
-        Simulation : ne modifie rien
+        Simulation (aucun fichier modifié)
       </label>
     </div>
 
@@ -121,5 +141,12 @@ onMounted(load)
         />
       </li>
     </ul>
+    <ConfirmDialog
+      v-model:open="confirmBulk"
+      title="Appliquer les remplacements acceptés ?"
+      :description="`${acceptedItems.length} remplacement(s) vont modifier des fichiers de la bibliothèque, un par un. Décochez la simulation uniquement si vous êtes sûr.`"
+      confirm-label="Appliquer pour de bon"
+      @confirm="applyAccepted"
+    />
   </section>
 </template>

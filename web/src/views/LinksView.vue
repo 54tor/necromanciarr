@@ -47,7 +47,7 @@ onMounted(load)
           class="size-4 accent-primary"
           data-testid="dry-run"
         />
-        Simulation : ne modifie rien
+        Simulation (aucun fichier modifié)
       </label>
     </form>
 

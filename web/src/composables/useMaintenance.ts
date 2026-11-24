@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import { api } from '@/api/endpoints'
 import type { Job, MaintenanceProposal, Proposal } from '@/api/types'
 import { lastFinished, useJobs } from './useJobs'
@@ -17,7 +17,8 @@ export function useMaintenance<Details extends { actionable: boolean }>(
   const { call, pending } = useApi()
   const jobsState = useJobs()
   const items = ref([]) as Ref<MaintenanceProposal<Details>[]>
-  const dryRun = ref(false)
+  // Simulation activée par défaut : l'opérateur doit décocher pour modifier des fichiers.
+  const dryRun = ref(true)
 
   async function load(): Promise<void> {
     const list = await call(() => api.listProposals({ kind }))
@@ -33,20 +34,26 @@ export function useMaintenance<Details extends { actionable: boolean }>(
   const canApply = (item: MaintenanceProposal<Details>) =>
     item.details.actionable && ['pending', 'accepted', 'failed'].includes(item.decision)
 
-  async function applyOne(item: MaintenanceProposal<Details>): Promise<Job | undefined> {
+  async function applyOne(
+    item: MaintenanceProposal<Details>,
+    dryRunAtStart = dryRun.value,
+  ): Promise<Job | undefined> {
     const acceptPending = item.decision !== 'accepted'
-    return jobsState.start(() => route(item.id, dryRun.value, acceptPending))
+    return jobsState.start(() => route(item.id, dryRunAtStart, acceptPending))
   }
 
-  /** applyAccepted applique à la suite les propositions déjà acceptées ; s'arrête au premier échec. */
+  const acceptedItems = computed(() =>
+    items.value.filter((candidate) => candidate.decision === 'accepted' && canApply(candidate)),
+  )
+
+  /** applyAccepted applique à la suite les propositions acceptées ; le mode simulation est figé au départ de la chaîne. */
   async function applyAccepted(): Promise<void> {
-    for (const item of items.value.filter(
-      (candidate) => candidate.decision === 'accepted' && canApply(candidate),
-    )) {
-      const job = await applyOne(item)
+    const dryRunAtStart = dryRun.value
+    for (const item of [...acceptedItems.value]) {
+      const job = await applyOne(item, dryRunAtStart)
       if (!job) return
       const finished = await jobsState.waitFor(job)
-      if (finished.state === 'failed') return
+      if (finished?.state !== 'done') return
     }
   }
 
@@ -54,6 +61,7 @@ export function useMaintenance<Details extends { actionable: boolean }>(
 
   return {
     items,
+    acceptedItems,
     dryRun,
     pending,
     busy: jobsState.busy,
