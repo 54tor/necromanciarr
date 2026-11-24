@@ -151,7 +151,18 @@
       "dedupe_inactive": "Déduplication inactive",
       "torrent_root_overlaps_library": "Racine des torrents dans la bibliothèque",
       "torrent_root_missing": "Racine des torrents absente",
-      "torrent_root_ok": "Racine des torrents conforme"
+      "torrent_root_ok": "Racine des torrents conforme",
+      "torznab_ok": "Indexeur Torznab opérationnel",
+      "torznab_access_denied": "Indexeur Torznab : clé refusée",
+      "torznab_unreachable": "Indexeur Torznab injoignable",
+      "torznab_hostile_response": "Indexeur Torznab : réponse hostile",
+      "torznab_bad_response": "Indexeur Torznab : réponse invalide",
+      "torznab_no_media_mode": "Indexeur Torznab sans recherche film ni série",
+      "prowlarr_ok": "Prowlarr opérationnel",
+      "prowlarr_access_denied": "Prowlarr : clé refusée",
+      "prowlarr_unreachable": "Prowlarr injoignable",
+      "prowlarr_bad_response": "Prowlarr : réponse invalide",
+      "prowlarr_indexer_missing_or_disabled": "Indexeur absent ou désactivé dans Prowlarr"
     }
   },
   "table": {

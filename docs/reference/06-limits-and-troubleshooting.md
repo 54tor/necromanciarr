@@ -47,7 +47,7 @@
 ### Périmètre
 
 - Seul qBittorrent (et qui par son proxy) est pris en charge ; seul le premier client de `torrentClients` reçoit des torrents. Le tag `necromanciarr` est fixe ; la catégorie est `linkCategory`.
-- Match n'interroge que les fichiers qui ont un identifiant TMDB ou TVDB de Radarr ou Sonarr. SFTP, Torznab et Prowlarr ne sont pas pris en charge.
+- Match n'interroge que les fichiers qui ont un identifiant TMDB ou TVDB de Radarr ou Sonarr. SFTP n'est pas pris en charge ; Torznab et Prowlarr se configurent et `doctor` les vérifie, mais Match ne les interroge pas encore.
 - Une proposition acceptée ne s'annule pas ; une proposition rejetée ne se rouvre pas dans la même génération. Un candidat `failed` n'a pas de relance manuelle : il revient à `matched` seulement si ses associations changent.
 - Les jobs web ne sont pas persistés ; `dedupe apply` et `repair apply` du web s'appliquent un par un.
 - Les titres, détails et conseils de `doctor` suivent `language` ; ses codes ne changent jamais. Les motifs d'échec du serveur restent en anglais jusqu'à leur traduction, et `doctor` affiche des chemins absolus à l'opérateur authentifié.
@@ -110,6 +110,16 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `library-api` | `size_filter_unverifiable` | `ok` | aucun résultat exploitable pour vérifier le filtre |
 | `arr:radarr:0` | `api_key_rejected` | `fail` | `?apikey=` de l'instance |
 | `arr:radarr:0` | `timed_out`, `unreachable` | `fail` | URL, instance démarrée |
+| `torznab:12` | `torznab_ok` | `ok` | capacités lues, clé acceptée (seul `t=caps` est demandé : aucune recherche ni téléchargement n'est compté) |
+| `torznab:12` | `torznab_access_denied` | `fail` | `?apikey=` de l'entrée `torznab` (HTTP 401 ou 403, ou erreur Torznab 100 à 199) |
+| `torznab:12` | `torznab_unreachable` | `fail` | URL, indexeur ou Prowlarr démarré ; quota atteint (HTTP 429 ou 503, erreurs Torznab 429, 500, 501, 503, 900, 910) |
+| `torznab:12` | `torznab_hostile_response` | `fail` | réponse refusée (`DOCTYPE` ou `ENTITY`, imbrication trop profonde, plus de 500 éléments) : l'URL ne désigne pas un flux de confiance |
+| `torznab:12` | `torznab_bad_response` | `fail` | pas un flux Torznab : chemin erroné (Prowlarr : `/<id>/api`) |
+| `torznab:12` | `torznab_no_media_mode` | `warn` | ni `movie-search` ni `tv-search` : l'indexeur ne donnera aucun candidat |
+| `prowlarr` | `prowlarr_ok` | `ok` | liste des indexeurs lue, chaque entrée `torznab` de Prowlarr y est activée |
+| `prowlarr` | `prowlarr_access_denied` | `fail` | `?apikey=` de `prowlarr` (Settings > General > API Key) |
+| `prowlarr` | `prowlarr_unreachable`, `prowlarr_bad_response` | `fail` | `prowlarr` est la racine de l'API native (`http://host:9696`, plus la base d'URL), pas un flux ; Prowlarr démarré |
+| `prowlarr` | `prowlarr_indexer_missing_or_disabled` | `warn` | une entrée `torznab` dont l'identifiant du chemin est absent ou désactivé dans Prowlarr : l'activer ou la retirer ; le téléchargement exige que Prowlarr relaie le fichier (mode Proxy, option `Redirect` désactivée sur l'indexeur) |
 | `qbittorrent` | `no_torrent_client` | `skipped` | aucun client configuré |
 | `qbittorrent` | `client_build_failed` | `fail` | URL du client inutilisable |
 | `qbittorrent` | `client_login_rejected` | `fail` | identifiants de l'URL ; encoder en pourcentage `@ : / # ?` du mot de passe |

@@ -78,4 +78,16 @@ const (
 	CodeTorrentRootOverlap     = "torrent_root_overlaps_library"
 	CodeTorrentRootMissing     = "torrent_root_missing"
 	CodeTorrentRootOK          = "torrent_root_ok"
+
+	CodeTorznabOK                        = "torznab_ok"
+	CodeTorznabAccessDenied              = "torznab_access_denied"
+	CodeTorznabUnreachable               = "torznab_unreachable"
+	CodeTorznabHostileResponse           = "torznab_hostile_response"
+	CodeTorznabBadResponse               = "torznab_bad_response"
+	CodeTorznabNoMediaMode               = "torznab_no_media_mode"
+	CodeProwlarrOK                       = "prowlarr_ok"
+	CodeProwlarrAccessDenied             = "prowlarr_access_denied"
+	CodeProwlarrUnreachable              = "prowlarr_unreachable"
+	CodeProwlarrBadResponse              = "prowlarr_bad_response"
+	CodeProwlarrIndexerMissingOrDisabled = "prowlarr_indexer_missing_or_disabled"
 )

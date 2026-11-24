@@ -60,6 +60,10 @@ type Deps struct {
 	FilesystemKind   func(path string) (linker.FilesystemKind, error)
 	SameVolume       func(firstPath, secondPath string) (bool, error)
 	DescribeMounts   func(ctx context.Context, providers []config.FSProvider) ([]hashsource.ProviderMountReport, error)
+	// NewCapsReader crée le lecteur de capacités d'un indexeur Torznab ; NewIndexerLister celui de la liste des
+	// indexeurs de Prowlarr (URL de l'API native, clé comprise).
+	NewCapsReader    func(indexer config.TorznabIndexer) (CapsReader, error)
+	NewIndexerLister func(rawURL string) (IndexerLister, error)
 }
 
 func (deps Deps) withDefaults() Deps {
@@ -86,6 +90,12 @@ func (deps Deps) withDefaults() Deps {
 	}
 	if deps.SameVolume == nil {
 		deps.SameVolume = sameVolume
+	}
+	if deps.NewCapsReader == nil {
+		deps.NewCapsReader = newTorznabCapsReader
+	}
+	if deps.NewIndexerLister == nil {
+		deps.NewIndexerLister = newProwlarrLister
 	}
 	if deps.DescribeMounts == nil {
 		deps.DescribeMounts = describeMounts
@@ -118,6 +128,7 @@ func Build(settings config.Config, deps Deps) []Check {
 		newCheck(IDLibraryAPI, i18n.KeyDoctorTitleLibraryAPI, func(ctx context.Context) Result { return checkLibraryAPI(ctx, settings, deps) }),
 	}
 	checks = append(checks, arrChecks(settings, deps)...)
+	checks = append(checks, sourceChecks(settings, deps)...)
 	checks = append(checks,
 		newCheck(IDQbittorrent, i18n.KeyDoctorTitleQbittorrent, func(ctx context.Context) Result { return checkQbittorrent(ctx, settings, deps) }),
 		newCheck(IDLinks, i18n.KeyDoctorTitleLinks, func(context.Context) Result { return checkLinkFeasibility(settings, deps) }),

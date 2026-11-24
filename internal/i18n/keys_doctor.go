@@ -129,6 +129,29 @@ const (
 	KeyDoctorDedupeOverlapHint          Key = "doctor.dedupe.overlap.hint"
 	KeyDoctorDedupeMissing              Key = "doctor.dedupe.missing"
 	KeyDoctorDedupeOK                   Key = "doctor.dedupe.ok"
+	KeyDoctorTitleTorznab               Key = "doctor.title.torznab"
+	KeyDoctorTitleProwlarr              Key = "doctor.title.prowlarr"
+	KeyDoctorTorznabOK                  Key = "doctor.torznab.ok"
+	KeyDoctorTorznabBuildFailed         Key = "doctor.torznab.build_failed"
+	KeyDoctorTorznabAccessDenied        Key = "doctor.torznab.access_denied"
+	KeyDoctorTorznabAccessDeniedHint    Key = "doctor.torznab.access_denied.hint"
+	KeyDoctorTorznabUnreachable         Key = "doctor.torznab.unreachable"
+	KeyDoctorTorznabUnreachableHint     Key = "doctor.torznab.unreachable.hint"
+	KeyDoctorTorznabHostile             Key = "doctor.torznab.hostile"
+	KeyDoctorTorznabHostileHint         Key = "doctor.torznab.hostile.hint"
+	KeyDoctorTorznabBadResponse         Key = "doctor.torznab.bad_response"
+	KeyDoctorTorznabBadResponseHint     Key = "doctor.torznab.bad_response.hint"
+	KeyDoctorTorznabNoMediaMode         Key = "doctor.torznab.no_media_mode"
+	KeyDoctorTorznabNoMediaModeHint     Key = "doctor.torznab.no_media_mode.hint"
+	KeyDoctorProwlarrOK                 Key = "doctor.prowlarr.ok"
+	KeyDoctorProwlarrAccessDenied       Key = "doctor.prowlarr.access_denied"
+	KeyDoctorProwlarrAccessDeniedHint   Key = "doctor.prowlarr.access_denied.hint"
+	KeyDoctorProwlarrUnreachable        Key = "doctor.prowlarr.unreachable"
+	KeyDoctorProwlarrBadResponse        Key = "doctor.prowlarr.bad_response"
+	KeyDoctorProwlarrURLHint            Key = "doctor.prowlarr.url.hint"
+	KeyDoctorProwlarrIndexerMissing     Key = "doctor.prowlarr.indexer_missing"
+	KeyDoctorProwlarrIndexerDisabled    Key = "doctor.prowlarr.indexer_disabled"
+	KeyDoctorProwlarrIndexerHint        Key = "doctor.prowlarr.indexer.hint"
 )
 
 var doctorKeys = []Key{
@@ -164,4 +187,5 @@ var doctorKeys = []Key{
 	KeyDoctorCrossSeedBlockedEnv, KeyDoctorPathMappingsNone, KeyDoctorPathRuleUnreachable,
 	KeyDoctorPathRuleUnreachableHint, KeyDoctorPathRuleNoRoot, KeyDoctorPathRuleNoRootHint, KeyDoctorPathRuleOK,
 	KeyDoctorDedupeNone, KeyDoctorDedupeOverlap, KeyDoctorDedupeOverlapHint, KeyDoctorDedupeMissing, KeyDoctorDedupeOK,
+	KeyDoctorTitleTorznab, KeyDoctorTitleProwlarr, KeyDoctorTorznabOK, KeyDoctorTorznabBuildFailed, KeyDoctorTorznabAccessDenied, KeyDoctorTorznabAccessDeniedHint, KeyDoctorTorznabUnreachable, KeyDoctorTorznabUnreachableHint, KeyDoctorTorznabHostile, KeyDoctorTorznabHostileHint, KeyDoctorTorznabBadResponse, KeyDoctorTorznabBadResponseHint, KeyDoctorTorznabNoMediaMode, KeyDoctorTorznabNoMediaModeHint, KeyDoctorProwlarrOK, KeyDoctorProwlarrAccessDenied, KeyDoctorProwlarrAccessDeniedHint, KeyDoctorProwlarrUnreachable, KeyDoctorProwlarrBadResponse, KeyDoctorProwlarrURLHint, KeyDoctorProwlarrIndexerMissing, KeyDoctorProwlarrIndexerDisabled, KeyDoctorProwlarrIndexerHint,
 }
