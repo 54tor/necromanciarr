@@ -2,6 +2,7 @@ package linker
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -55,18 +56,38 @@ func writeVerifiedFile(root, relativePath string, data []byte, write dataWriter)
 	return nil
 }
 
-// writeExclusive crée le fichier avec O_EXCL, qui ne suit pas un lien symbolique posé à destination.
+// writeExclusive écrit d'abord un fichier temporaire créé avec O_EXCL dans le même dossier, le synchronise puis le
+// renomme : un arrêt en pleine écriture ne laisse jamais une annexe tronquée sous son vrai nom.
 func (run *transaction) writeExclusive(destination string, data []byte, write dataWriter) error {
-	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, verifiedFileMode) // #nosec G302 G304 -- chemin confiné sous la racine des liens
-	if errors.Is(err, fs.ErrExist) {
+	if _, err := os.Lstat(destination); err == nil {
 		return checkSameContent(destination, data)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
+	temporary := filepath.Join(filepath.Dir(destination), "."+filepath.Base(destination)+temporaryMarker+rand.Text())
+	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, verifiedFileMode) // #nosec G302 G304 -- nom aléatoire confiné sous la racine des liens
 	if err != nil {
 		return err
 	}
+	err = errors.Join(write(file, data), file.Sync(), file.Close())
+	if err == nil {
+		err = os.Rename(temporary, destination)
+	}
+	if err != nil {
+		return errors.Join(err, removeIfPresent(temporary))
+	}
 	run.created = append(run.created, destination)
-	writeErr := write(file, data)
-	return errors.Join(writeErr, file.Close())
+	return nil
+}
+
+// temporaryMarker distingue les fichiers temporaires de cet outil.
+const temporaryMarker = ".necromanciarr-tmp-"
+
+func removeIfPresent(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func checkSameContent(destination string, data []byte) error {

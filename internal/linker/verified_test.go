@@ -130,6 +130,21 @@ func TestWriteVerifiedFile_partialWriteFailureRemovesOnlyWhatItCreated(t *testin
 	assertExists(t, keptDir, true)
 }
 
+func TestWriteVerifiedFile_failureLeavesNoTemporaryNorTruncatedFile(t *testing.T) {
+	root := t.TempDir()
+	failAfterHalf := func(writer io.Writer, data []byte) error {
+		_, _ = writer.Write(data[:len(data)/2])
+		return errInjectedWrite
+	}
+	if err := writeVerifiedFile(root, "Movie.2020.nfo", verifiedContent, failAfterHalf); !errors.Is(err, errInjectedWrite) {
+		t.Fatalf("gotValue %v, expectedValue errInjectedWrite", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("gotValue %v %v, expectedValue an empty root", entries, err)
+	}
+}
+
 func TestRelativeDestination_matchesPlanLayout(t *testing.T) {
 	multiFile := &torrentcheck.Torrent{Root: "Movie.2020", Files: []torrentcheck.File{{Path: "Movie.2020.mkv"}, {Path: "Extras/Movie.2020.nfo"}}}
 	singleFile := &torrentcheck.Torrent{Root: "Movie.2020.mkv", Files: []torrentcheck.File{{Path: "Movie.2020.mkv"}}}
