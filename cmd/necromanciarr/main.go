@@ -1,4 +1,4 @@
-// Commande necromanciarr : point d'entrée de l'exécutable (api-key, config check ; les autres arriveront plus tard).
+// Commande necromanciarr : point d'entrée de l'exécutable (api-key, config check, doctor ; les autres arriveront plus tard).
 package main
 
 import (
@@ -18,7 +18,7 @@ const (
 	// usageExitCode est le code de sortie d'une ligne de commande invalide.
 	usageExitCode   = 2
 	failureExitCode = 1
-	usageText       = "usage: necromanciarr <api-key|config check|serve|scan|match|verify|link|seed>"
+	usageText       = "usage: necromanciarr <api-key|config check|doctor|serve|scan|match|verify|link|seed>"
 )
 
 func main() {
@@ -32,6 +32,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runAPIKey(args[1:], stdout, stderr)
 	case len(args) >= 2 && args[0] == "config" && args[1] == "check":
 		return runConfigCheck(args[2:], stdout, stderr)
+	case len(args) >= 1 && args[0] == "doctor":
+		return runDoctor(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintln(stderr, usageText)
 		return usageExitCode
