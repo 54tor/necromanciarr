@@ -228,7 +228,7 @@ func TestLoad_rejectsMissingExplicitConfigDirWithoutCreatingIt(t *testing.T) {
 	_, envErr := Load(nil, lookupFrom(map[string]string{envConfigDir: missingDir}), t.TempDir())
 
 	for _, err := range []error{flagErr, envErr} {
-		if err == nil || !strings.Contains(err.Error(), missingDir) {
+		if err == nil || !strings.Contains(err.Error(), strconv.Quote(missingDir)) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	}
@@ -303,6 +303,7 @@ func TestConfig_redactsUserinfoInRadarrAndLibraryApi(t *testing.T) {
 }
 
 func TestConfigExample_loadsFsProviders(t *testing.T) {
+	skipOnWindows(t)
 	configDir := t.TempDir()
 	exampleContent, err := os.ReadFile(filepath.Join("..", "..", "config.example.json"))
 	if err != nil {

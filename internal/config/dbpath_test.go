@@ -1,12 +1,17 @@
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestResolveDBPath_relativePathReadsFromConfigDir(t *testing.T) {
-	if gotValue := ResolveDBPath(Config{ConfigDir: "/home/u/cfg", DBPath: "a.db"}); gotValue != "/home/u/cfg/a.db" {
+	configDir, absoluteDB := absPath("home", "u", "cfg"), absPath("var", "a.db")
+
+	if gotValue := ResolveDBPath(Config{ConfigDir: configDir, DBPath: "a.db"}); gotValue != filepath.Join(configDir, "a.db") {
 		t.Fatalf("gotValue %q", gotValue)
 	}
-	if gotValue := ResolveDBPath(Config{ConfigDir: "/home/u/cfg", DBPath: "/var/a.db"}); gotValue != "/var/a.db" {
+	if gotValue := ResolveDBPath(Config{ConfigDir: configDir, DBPath: absoluteDB}); gotValue != absoluteDB {
 		t.Fatalf("gotValue %q", gotValue)
 	}
 }

@@ -252,6 +252,7 @@ func renderingsOf(t *testing.T, loadedConfig Config) []string {
 }
 
 func TestConfigExample_loadsWithCrossSeedOptions(t *testing.T) {
+	skipOnWindows(t)
 	configDir := t.TempDir()
 	exampleContent, err := os.ReadFile(filepath.Join("..", "..", "config.example.json"))
 	if err != nil {

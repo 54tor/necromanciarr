@@ -19,8 +19,10 @@ func loadFromJSON(t *testing.T, content string, environment map[string]string) (
 }
 
 func TestFsProviders_parsesRcloneEntryWithMounts(t *testing.T) {
+	remoteMount, otherMount := absPath("mnt", "remote"), absPath("mnt", "other")
 	content := `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://rcuser:${RCLONE_RC_PASS}@rclone:5572",
-		"binary": "/usr/bin/rclone", "timeout": "30s", "mounts": ["/mnt/remote=remote:bucket/prefix", "/mnt/other=other:"]}]}`
+		"binary": "/usr/bin/rclone", "timeout": "30s", "mounts": ["` + jsonText(remoteMount) + `=remote:bucket/prefix", "` +
+		jsonText(otherMount) + `=other:"]}]}`
 
 	loadedConfig, err := loadFromJSON(t, content, map[string]string{"RCLONE_RC_PASS": rcPasswordForTest})
 	if err != nil {
@@ -28,7 +30,7 @@ func TestFsProviders_parsesRcloneEntryWithMounts(t *testing.T) {
 	}
 	expectedValue := FSProvider{
 		Type: "rclone", Name: "remote", RC: "http://rcuser:" + rcPasswordForTest + "@rclone:5572", Binary: "/usr/bin/rclone",
-		Timeout: 30 * time.Second, Mounts: []FSMount{{LocalPath: "/mnt/remote", Target: "remote:bucket/prefix"}, {LocalPath: "/mnt/other", Target: "other:"}},
+		Timeout: 30 * time.Second, Mounts: []FSMount{{LocalPath: remoteMount, Target: "remote:bucket/prefix"}, {LocalPath: otherMount, Target: "other:"}},
 	}
 	if len(loadedConfig.FSProviders) != 1 || fmt.Sprint(loadedConfig.FSProviders[0]) != fmt.Sprint(expectedValue) {
 		t.Fatalf("gotValue %+v, expectedValue %+v", loadedConfig.FSProviders, expectedValue)
@@ -65,17 +67,19 @@ func TestFsProviders_rejectsUnknownKeyForType(t *testing.T) {
 }
 
 func TestFsProviders_rejectsDuplicateNameAndSharedMountPath(t *testing.T) {
+	mountX, mountY, mountA := jsonText(absPath("x")), jsonText(absPath("y")), jsonText(absPath("a"))
+	sharedX := fmt.Sprintf("local path %q", absPath("x"))
 	cases := []struct{ caseName, providers, expectedSubstring string }{
-		{"duplicate name", `[{"type":"rclone","name":"dup","mounts":["/x=r:"]},{"type":"rclone","name":"dup","mounts":["/y=r:"]}]`, `duplicate name "dup"`},
-		{"shared path", `[{"type":"rclone","name":"a","mounts":["/x=r:"]},{"type":"rclone","name":"b","mounts":["/x=s:"]}]`, `local path "/x" is mounted by both "a" and "b"`},
-		{"duplicate in one", `[{"type":"rclone","name":"a","mounts":["/x=r:","/x=s:"]}]`, `local path "/x" is mounted by both "a" and "a"`},
+		{"duplicate name", `[{"type":"rclone","name":"dup","mounts":["` + mountX + `=r:"]},{"type":"rclone","name":"dup","mounts":["` + mountY + `=r:"]}]`, `duplicate name "dup"`},
+		{"shared path", `[{"type":"rclone","name":"a","mounts":["` + mountX + `=r:"]},{"type":"rclone","name":"b","mounts":["` + mountX + `=s:"]}]`, sharedX + ` is mounted by both "a" and "b"`},
+		{"duplicate in one", `[{"type":"rclone","name":"a","mounts":["` + mountX + `=r:","` + mountX + `=s:"]}]`, sharedX + ` is mounted by both "a" and "a"`},
 		{"missing name", `[{"type":"rclone"}]`, `name "" is required`},
 		{"uppercase name", `[{"type":"rclone","name":"Remote"}]`, `name "Remote"`},
 		{"two separators", `[{"type":"rclone","name":"a","mounts":["/a=b=c:x"]}]`, `exactly one "="`},
 		{"relative local", `[{"type":"rclone","name":"a","mounts":["a/b=r:x"]}]`, `local path "a/b" must be absolute`},
 		{"parent segment", `[{"type":"rclone","name":"a","mounts":["/a/../b=r:x"]}]`, `local path "/a/../b" must be absolute`},
-		{"remote no colon", `[{"type":"rclone","name":"a","mounts":["/a=remote"]}]`, `remote "remote" must contain`},
-		{"remote is option", `[{"type":"rclone","name":"a","mounts":["/a=-x:y"]}]`, `remote "-x:y" must contain`},
+		{"remote no colon", `[{"type":"rclone","name":"a","mounts":["` + mountA + `=remote"]}]`, `remote "remote" must contain`},
+		{"remote is option", `[{"type":"rclone","name":"a","mounts":["` + mountA + `=-x:y"]}]`, `remote "-x:y" must contain`},
 		{"bad timeout", `[{"type":"rclone","name":"a","timeout":"soon"}]`, `timeout: "soon"`},
 		{"rc not http", `[{"type":"rclone","name":"a","rc":"ftp://u:` + rcPasswordForTest + `@h:1"}]`, "rc must be an http(s) url"},
 		{"rc without host", `[{"type":"rclone","name":"a","rc":"http://u:` + rcPasswordForTest + `@"}]`, "rc must be an http(s) url"},
@@ -120,7 +124,8 @@ func TestFSProvider_redactsRcCredentialsWhenPrintedAlone(t *testing.T) {
 }
 
 func TestFsProviders_nestedMountPathsAcrossProvidersAreAllowed(t *testing.T) {
-	_, err := loadFromJSON(t, `{"fsProviders": [{"type":"rclone","name":"a","mounts":["/x=r:"]},{"type":"rclone","name":"b","mounts":["/x/y=s:"]}]}`, nil)
+	outer, inner := jsonText(absPath("x")), jsonText(absPath("x", "y"))
+	_, err := loadFromJSON(t, `{"fsProviders": [{"type":"rclone","name":"a","mounts":["`+outer+`=r:"]},{"type":"rclone","name":"b","mounts":["`+inner+`=s:"]}]}`, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +143,7 @@ func TestFsProviders_oldRcloneKeyIsRefusedWithRenameHint(t *testing.T) {
 
 func TestFsProviders_redactsRcCredentials(t *testing.T) {
 	loadedConfig, err := loadFromJSON(t, `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://rcuser:${RCLONE_RC_PASS}@rclone:5572",
-		"mounts": ["/mnt/remote=remote:bucket"]}]}`, map[string]string{"RCLONE_RC_PASS": rcPasswordForTest})
+		"mounts": ["`+jsonText(absPath("mnt", "remote"))+`=remote:bucket"]}]}`, map[string]string{"RCLONE_RC_PASS": rcPasswordForTest})
 	if err != nil {
 		t.Fatal(err)
 	}
