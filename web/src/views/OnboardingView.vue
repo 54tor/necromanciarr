@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { RefreshCw } from '@lucide/vue'
-import { onMounted } from 'vue'
-import StatusBadge from '@/components/StatusBadge.vue'
+import { computed, h, onMounted } from 'vue'
+import type { DoctorCheck, DoctorStatus } from '@/api/types'
+import DataTable from '@/components/DataTable.vue'
+import PageToolbar from '@/components/PageToolbar.vue'
+import StatusPill from '@/components/StatusPill.vue'
 import { Button } from '@/components/ui/button'
 import { useOnboarding } from '@/composables/useOnboarding'
-import { warningText } from '@/lib/warnings'
+import { t } from '@/i18n'
+import { groupByFamily } from '@/lib/doctorFamily'
+import type { DataColumn } from '@/lib/dataTable'
 import {
   CANDIDATE_LABELS,
   DECISION_LABELS,
@@ -13,6 +18,7 @@ import {
   STEP_LABELS,
   labelOf,
 } from '@/lib/labels'
+import { warningText } from '@/lib/warnings'
 import { navigate } from '@/router'
 
 const { checks, status, worst, firstLaunch, pending, loadAll, rerunCheck, refreshStatus, skip } =
@@ -27,114 +33,179 @@ function skipOnboarding(): void {
   navigate('/propositions')
 }
 
+const PILL_TONES = { ok: 'ok', warn: 'warn', fail: 'fail', skipped: 'muted' } as const
+const EMPTY_CELL = '—'
+
+function pillOf(checkStatus: DoctorStatus) {
+  return h(StatusPill, { tone: PILL_TONES[checkStatus], labelKey: `codes.doctor.${checkStatus}` })
+}
+
+// Détail et conseil sont déjà rendus dans la langue du serveur : affichés tels quels, jamais retraduits.
+function wrappedText(text: string) {
+  return h(
+    'span',
+    { class: 'block max-w-prose py-1.5 whitespace-normal [overflow-wrap:anywhere]' },
+    text || EMPTY_CELL,
+  )
+}
+
+const columns = computed<DataColumn<DoctorCheck>[]>(() => [
+  {
+    id: 'title',
+    header: t('onboarding.columns.check'),
+    accessorFn: (check) => check.title,
+    enableSorting: false,
+    cell: (context) => wrappedText(context.row.original.title),
+  },
+  {
+    id: 'status',
+    header: t('onboarding.columns.status'),
+    accessorFn: (check) => check.status,
+    enableSorting: false,
+    cell: (context) => pillOf(context.row.original.status),
+  },
+  {
+    id: 'detail',
+    header: t('onboarding.columns.detail'),
+    accessorFn: (check) => check.detail,
+    enableSorting: false,
+    cell: (context) => wrappedText(context.row.original.detail),
+  },
+  {
+    id: 'hint',
+    header: t('onboarding.columns.hint'),
+    accessorFn: (check) => check.hint ?? '',
+    enableSorting: false,
+    cell: (context) => wrappedText(context.row.original.hint ?? ''),
+  },
+  {
+    id: 'duration',
+    header: t('onboarding.columns.duration'),
+    accessorFn: (check) => check.durationMs,
+    enableSorting: false,
+    cell: (context) => t('onboarding.durationMs', { ms: context.row.original.durationMs }),
+  },
+])
+
+const families = computed(() => groupByFamily(checks.value))
+
 const STATE_GROUPS = [
-  { key: 'candidates', label: 'Candidats', labels: CANDIDATE_LABELS },
-  { key: 'proposals', label: 'Propositions', labels: DECISION_LABELS },
-  { key: 'steps', label: 'Étapes d’application', labels: STEP_LABELS },
+  { key: 'candidates', labels: CANDIDATE_LABELS },
+  { key: 'proposals', labels: DECISION_LABELS },
+  { key: 'steps', labels: STEP_LABELS },
 ] as const
+
+function checkKey(check: DoctorCheck): string {
+  return check.id
+}
 </script>
 
 <template>
-  <section aria-labelledby="onboarding-title" class="grid gap-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <h2 id="onboarding-title" class="text-xl font-semibold">Démarrage</h2>
-      <div class="flex flex-wrap gap-2">
-        <Button data-action="doctor" :disabled="pending" @click="loadAll">
-          <RefreshCw aria-hidden="true" /> Tout relancer
+  <section
+    class="grid gap-6 [&_table]:table-fixed [&_th:first-child]:w-[20%] [&_th:nth-child(2)]:w-36 [&_th:nth-child(3)]:w-[28%] [&_th:nth-child(5)]:w-20 [&_th:last-child]:w-28"
+  >
+    <PageToolbar>
+      <template #actions>
+        <Button data-action="doctor" data-scope="toolbar" :disabled="pending" @click="loadAll">
+          <RefreshCw aria-hidden="true" /> {{ t('onboarding.runAll') }}
+        </Button>
+        <Button
+          variant="outline"
+          data-action="status"
+          data-scope="toolbar"
+          :disabled="pending"
+          @click="refreshStatus"
+        >
+          {{ t('onboarding.state.refresh') }}
         </Button>
         <Button
           v-if="worst === 'fail' || firstLaunch"
           variant="link"
+          data-scope="toolbar"
           data-testid="skip"
           @click="skipOnboarding"
         >
-          Passer
+          {{ t('onboarding.skip') }}
         </Button>
-      </div>
-    </div>
+      </template>
+    </PageToolbar>
 
     <p v-if="firstLaunch && worst !== 'fail'" class="rounded-lg border bg-card p-4">
-      Première utilisation : aucun candidat ni proposition. Lancez les étapes dans l’onglet « Étapes
-      ».
+      {{ t('onboarding.firstLaunch') }}
     </p>
     <p
       v-if="worst === 'fail'"
       class="rounded-lg border border-destructive bg-card p-4"
       role="alert"
     >
-      Au moins un contrôle est en échec : corrigez-le avant de lancer les étapes.
+      {{ t('onboarding.failBanner') }}
     </p>
 
     <p v-if="checks.length === 0 && !pending" class="text-muted-foreground">
-      Aucun contrôle chargé.
+      {{ t('onboarding.noChecks') }}
     </p>
-    <ol class="grid gap-3" aria-label="Contrôles du diagnostic">
-      <li
-        v-for="check in checks"
-        :key="check.id"
-        class="grid gap-2 rounded-lg border bg-card p-4"
-        :data-check="check.id"
-      >
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <h3 class="font-medium">{{ check.title }}</h3>
-          <div class="flex items-center gap-2">
-            <StatusBadge :status="check.status" />
-            <Button
-              size="sm"
-              variant="outline"
-              data-action="doctor"
-              :aria-label="`Relancer le contrôle : ${check.title}`"
-              :disabled="pending"
-              @click="rerunCheck(check.id)"
-            >
-              Relancer
-            </Button>
-          </div>
-        </div>
-        <p class="text-sm">{{ check.detail }}</p>
-        <p v-if="check.hint" class="text-sm text-muted-foreground">Conseil : {{ check.hint }}</p>
-      </li>
-    </ol>
-
-    <div class="grid gap-3 rounded-lg border bg-card p-4">
-      <div class="flex items-center justify-between gap-2">
-        <h3 class="font-medium">État</h3>
+    <DataTable
+      v-for="group in families"
+      :key="group.family"
+      :caption-key="`onboarding.family.${group.family}`"
+      :columns="columns"
+      :rows="group.checks"
+      :row-key="checkKey"
+      empty-key="onboarding.noChecks"
+    >
+      <template #row-actions="{ row }">
         <Button
           size="sm"
           variant="outline"
-          data-action="status"
+          data-action="doctor run"
+          data-scope="row"
+          :aria-label="t('onboarding.rerunCheck', { title: row.title })"
           :disabled="pending"
-          @click="refreshStatus"
+          @click="rerunCheck(row.id)"
         >
-          Actualiser
+          {{ t('onboarding.rerun') }}
         </Button>
-      </div>
-      <p v-if="!status" class="text-sm text-muted-foreground">État indisponible.</p>
+      </template>
+    </DataTable>
+
+    <section class="grid gap-3 rounded-lg border bg-card p-4" aria-labelledby="state-title">
+      <h2 id="state-title" class="font-medium">{{ t('onboarding.state.title') }}</h2>
+      <p v-if="!status" class="text-sm text-muted-foreground">
+        {{ t('onboarding.state.unavailable') }}
+      </p>
       <dl v-else class="grid gap-2 text-sm sm:grid-cols-2">
         <div v-for="group in STATE_GROUPS" :key="group.key">
-          <dt class="font-medium">{{ group.label }}</dt>
+          <dt class="font-medium">{{ t(`onboarding.state.${group.key}`) }}</dt>
           <dd class="text-muted-foreground">
-            <template v-if="Object.keys(status[group.key]).length === 0">Aucun</template>
+            <template v-if="Object.keys(status[group.key]).length === 0">
+              {{ t('onboarding.state.none') }}
+            </template>
             <span
               v-for="(count, state) in status[group.key]"
               :key="state"
               class="mr-3 whitespace-nowrap"
             >
-              {{ labelOf(group.labels, state) }} : {{ count }}
+              {{ t('common.labelValue', { label: labelOf(group.labels, state), value: count }) }}
             </span>
           </dd>
         </div>
         <div>
-          <dt class="font-medium">Mode cross-seed</dt>
+          <dt class="font-medium">{{ t('onboarding.state.crossSeed') }}</dt>
           <dd class="text-muted-foreground">{{ status.cross_seed_mode }}</dd>
         </div>
         <div v-if="(status.held ?? []).length > 0" class="sm:col-span-2" data-held>
-          <dt class="font-medium">Non proposés</dt>
+          <dt class="font-medium">{{ t('onboarding.state.held') }}</dt>
           <dd class="text-muted-foreground">
             <p v-for="held in status.held" :key="held.candidate_id">
-              {{ held.candidate_name }} ({{ labelOf(KIND_LABELS, held.kind) }}) :
-              {{ held.missing_pieces }}/{{ held.total_pieces }} pièces manquantes,
-              {{ labelOf(HELD_REASON_LABELS, held.reason) }}
+              {{
+                t('onboarding.state.heldLine', {
+                  name: held.candidate_name,
+                  kind: labelOf(KIND_LABELS, held.kind),
+                  missing: held.missing_pieces,
+                  total: held.total_pieces,
+                  reason: labelOf(HELD_REASON_LABELS, held.reason),
+                })
+              }}
             </p>
           </dd>
         </div>
@@ -144,9 +215,9 @@ const STATE_GROUPS = [
           class="sm:col-span-2"
           role="status"
         >
-          Avertissement : {{ warningText(warning) }}
+          {{ t('onboarding.state.warning', { text: warningText(warning) }) }}
         </div>
       </dl>
-    </div>
+    </section>
   </section>
 </template>

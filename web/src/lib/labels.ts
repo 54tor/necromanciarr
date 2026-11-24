@@ -37,7 +37,6 @@ export const STEP_LABELS = labelTable('state', [
   'seeded_paused_incomplete',
   'forced',
 ])
-export const DOCTOR_LABELS = labelTable('doctor', ['ok', 'warn', 'fail', 'skipped'])
 export const REPAIR_METHOD_LABELS = labelTable('reason', [
   'inode',
   'size-mtime',

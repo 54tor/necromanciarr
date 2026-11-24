@@ -19,7 +19,9 @@
   },
   "common": {
     "token": "Jeton",
-    "toolbar": "Actions de la page"
+    "toolbar": "Actions de la page",
+    "close": "Fermer",
+    "labelValue": "{label} : {value}"
   },
   "views": {
     "login": {
@@ -166,5 +168,98 @@
     "cancel": "Annuler",
     "items": "Éléments concernés ({count})",
     "confirmPhrase": "Saisissez « {phrase} » pour confirmer"
+  },
+  "onboarding": {
+    "runAll": "Tout relancer",
+    "skip": "Passer",
+    "firstLaunch": "Première utilisation : aucun candidat ni proposition. Lancez les étapes dans l’onglet « Étapes ».",
+    "failBanner": "Au moins un contrôle est en échec : corrigez-le avant de lancer les étapes.",
+    "noChecks": "Aucun contrôle chargé.",
+    "family": {
+      "configuration": "Configuration",
+      "services": "Services",
+      "storage": "Stockage",
+      "sources": "Sources",
+      "volumes": "Volumes",
+      "other": "Autres"
+    },
+    "columns": {
+      "check": "Contrôle",
+      "status": "Statut",
+      "detail": "Détail",
+      "hint": "Conseil",
+      "duration": "Durée"
+    },
+    "rerun": "Relancer",
+    "rerunCheck": "Relancer le contrôle : {title}",
+    "durationMs": "{ms} ms",
+    "state": {
+      "title": "État",
+      "refresh": "Actualiser",
+      "unavailable": "État indisponible.",
+      "none": "Aucun",
+      "candidates": "Candidats",
+      "proposals": "Propositions",
+      "steps": "Étapes d’application",
+      "crossSeed": "Mode cross-seed",
+      "held": "Non proposés",
+      "heldLine": "{name} ({kind}) : {missing}/{total} pièces manquantes, {reason}",
+      "warning": "Avertissement : {text}"
+    }
+  },
+  "stages": {
+    "caption": "Jobs d’étapes",
+    "empty": "Aucun job depuis le démarrage du serveur.",
+    "idle": "Aucune étape en cours.",
+    "unknown": "État inconnu.",
+    "running": "Une étape est en cours ({action} n° {id}).",
+    "unreachable": "Serveur injoignable : l’état de l’étape n’est plus à jour. Nouvelle tentative toutes les 2 secondes.",
+    "runStage": "Lancer l’étape {title}",
+    "noCounters": "Aucun élément",
+    "result": "Voir le résultat",
+    "resultOf": "Voir le résultat du job n° {id}",
+    "resultTitle": "Résultat du job n° {id}",
+    "resultDescription": "Compteurs et motifs de l’étape {stage}.",
+    "noResult": "Ce job n’a pas de résultat d’étape.",
+    "reasons": "Motifs",
+    "warnings": "Avertissements",
+    "jobNumber": "n° {id}",
+    "names": {
+      "scan": "Scan",
+      "match": "Correspondance",
+      "verify": "Vérification",
+      "link": "Liaison",
+      "seed": "Ensemencement"
+    },
+    "columns": {
+      "job": "Job",
+      "action": "Action",
+      "start": "Début",
+      "end": "Fin",
+      "state": "État",
+      "summary": "Résumé"
+    },
+    "state": {
+      "running": "En cours",
+      "done": "Terminé",
+      "failed": "En échec"
+    },
+    "counters": {
+      "processed": "traités",
+      "skipped": "ignorés",
+      "failed": "échecs",
+      "candidates_created": "candidats créés",
+      "candidates_updated": "mis à jour",
+      "candidates_stale": "périmés",
+      "unidentified_files": "fichiers non identifiés",
+      "verified": "complets",
+      "partial_annex": "partiels (annexes)",
+      "partial_pack": "packs partiels",
+      "conflicts": "conflits",
+      "proposals_created": "propositions créées",
+      "linked": "liés",
+      "seeded": "ensemencés",
+      "seeded_paused_incomplete": "en pause (incomplets)"
+    }
   }
 }

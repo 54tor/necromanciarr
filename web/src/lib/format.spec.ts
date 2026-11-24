@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, formatPercent } from './format'
+import { formatBytes, formatDateTime, formatPercent } from './format'
 
 describe('format', () => {
   it('formatBytes_humanisesWithBinaryUnits', () => {
@@ -17,5 +17,10 @@ describe('format', () => {
 
   it('formatPercent_keepsOneDecimal', () => {
     expect(formatPercent(99.54).replace(/\s/g, ' ')).toBe('99,5 %')
+  })
+
+  it('formatDateTime_keepsUnreadableValuesAsTheyAre', () => {
+    expect(formatDateTime('pas une date')).toBe('pas une date')
+    expect(formatDateTime('2026-01-01T10:00:00Z')).toContain('2026')
   })
 })

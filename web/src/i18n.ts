@@ -36,6 +36,11 @@ export function initialLanguage(navigatorLanguages: readonly string[]): Language
   return FALLBACK_LANGUAGE
 }
 
+/** currentLanguage rend la langue active de l'interface. */
+export function currentLanguage(): Language {
+  return composer.locale.value as Language
+}
+
 export type CodeGroup = 'kind' | 'state' | 'reason' | 'decision' | 'doctor'
 
 /** codeLabel traduit un code machine ; un code inconnu (ou vide) est rendu brut, jamais vide. */

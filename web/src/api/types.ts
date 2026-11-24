@@ -188,6 +188,8 @@ export interface StageResult {
   skipped: number
   failed: number
   reasons?: Record<string, number>
+  /** Libellés traduits des motifs, dans la langue du serveur. */
+  reason_labels?: Record<string, string>
   unidentified_files: number
   unidentified_samples?: string[]
   candidates_created: number

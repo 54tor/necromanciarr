@@ -1,3 +1,5 @@
+import { currentLanguage } from '@/i18n'
+
 const BYTE_UNITS = ['o', 'Kio', 'Mio', 'Gio', 'Tio'] as const
 const BYTES_PER_UNIT = 1024
 
@@ -16,4 +18,11 @@ export function formatBytes(bytes: number): string {
 /** formatPercent arrondit un pourcentage à une décimale (« 99,9 % »). */
 export function formatPercent(percent: number): string {
   return `${percent.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`
+}
+
+/** formatDateTime affiche un horodatage ISO dans la langue active ; une valeur illisible est rendue telle quelle. */
+export function formatDateTime(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleString(currentLanguage(), { dateStyle: 'short', timeStyle: 'medium' })
 }

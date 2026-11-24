@@ -43,6 +43,8 @@ Disposition : chaque ligne (proposition, remplacement, lien) est une carte empil
 
 `src/api/actions.ts` recopie la table des routes du serveur et déclare la vue qui porte le bouton de chaque action ; `src/ui-parity.spec.ts` échoue quand une action n'a pas de bouton (`data-action`). Les textes de `Démarrage` venant du diagnostic du serveur (titres et détails des contrôles) restent dans la langue du serveur.
 
+`Démarrage` et `Étapes` utilisent `DataTable` : les contrôles du diagnostic sont regroupés par famille (préfixe de l'identifiant, `src/lib/doctorFamily.ts` ; identifiant inconnu = « Autres »), un tableau par famille, avec le bouton `data-action="doctor run" data-scope="row"` pour relancer un contrôle ; les jobs sont triés par début décroissant et leur résumé vient de `src/lib/stageSummary.ts` (motifs : `reason_labels` du serveur).
+
 ## Limites v1
 
 L'état des liens enregistrés est recalculé à chaque affichage (Lstat et Stat seulement, 20 s au plus, liste marquée partielle au-delà). Un reflink ou une copie n'est comparé que par sa taille (aucun contenu lu) ; sans taille enregistrée, il est « Conforme » avec la mention « Non comparé ». Un lien symbolique repointé vers une autre cible existante n'est pas détecté (comme dans l'analyse de réparation). Après une liste partielle, « Charger plus » réexamine tout : ses pages peuvent ne pas se raccorder exactement.

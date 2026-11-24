@@ -19,7 +19,9 @@
   },
   "common": {
     "token": "Token",
-    "toolbar": "Page actions"
+    "toolbar": "Page actions",
+    "close": "Close",
+    "labelValue": "{label}: {value}"
   },
   "views": {
     "login": {
@@ -166,5 +168,98 @@
     "cancel": "Cancel",
     "items": "Affected items ({count})",
     "confirmPhrase": "Type “{phrase}” to confirm"
+  },
+  "onboarding": {
+    "runAll": "Rerun all",
+    "skip": "Skip",
+    "firstLaunch": "First use: no candidates or proposals yet. Run the stages from the “Stages” tab.",
+    "failBanner": "At least one check failed: fix it before running the stages.",
+    "noChecks": "No checks loaded.",
+    "family": {
+      "configuration": "Configuration",
+      "services": "Services",
+      "storage": "Storage",
+      "sources": "Sources",
+      "volumes": "Volumes",
+      "other": "Other"
+    },
+    "columns": {
+      "check": "Check",
+      "status": "Status",
+      "detail": "Detail",
+      "hint": "Hint",
+      "duration": "Duration"
+    },
+    "rerun": "Rerun",
+    "rerunCheck": "Rerun check: {title}",
+    "durationMs": "{ms} ms",
+    "state": {
+      "title": "State",
+      "refresh": "Refresh",
+      "unavailable": "State unavailable.",
+      "none": "None",
+      "candidates": "Candidates",
+      "proposals": "Proposals",
+      "steps": "Apply steps",
+      "crossSeed": "Cross-seed mode",
+      "held": "Not proposed",
+      "heldLine": "{name} ({kind}): {missing}/{total} missing pieces, {reason}",
+      "warning": "Warning: {text}"
+    }
+  },
+  "stages": {
+    "caption": "Stage jobs",
+    "empty": "No job since the server started.",
+    "idle": "No stage running.",
+    "unknown": "State unknown.",
+    "running": "A stage is running ({action} #{id}).",
+    "unreachable": "Server unreachable: the stage state is no longer up to date. Retrying every 2 seconds.",
+    "runStage": "Run the {title} stage",
+    "noCounters": "No items",
+    "result": "View result",
+    "resultOf": "View the result of job #{id}",
+    "resultTitle": "Result of job #{id}",
+    "resultDescription": "Counters and reasons of the {stage} stage.",
+    "noResult": "This job has no stage result.",
+    "reasons": "Reasons",
+    "warnings": "Warnings",
+    "jobNumber": "#{id}",
+    "names": {
+      "scan": "Scan",
+      "match": "Match",
+      "verify": "Verify",
+      "link": "Link",
+      "seed": "Seed"
+    },
+    "columns": {
+      "job": "Job",
+      "action": "Action",
+      "start": "Start",
+      "end": "End",
+      "state": "State",
+      "summary": "Summary"
+    },
+    "state": {
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed"
+    },
+    "counters": {
+      "processed": "processed",
+      "skipped": "skipped",
+      "failed": "failed",
+      "candidates_created": "candidates created",
+      "candidates_updated": "updated",
+      "candidates_stale": "stale",
+      "unidentified_files": "unidentified files",
+      "verified": "complete",
+      "partial_annex": "partial (annexes)",
+      "partial_pack": "partial packs",
+      "conflicts": "conflicts",
+      "proposals_created": "proposals created",
+      "linked": "linked",
+      "seeded": "seeded",
+      "seeded_paused_incomplete": "paused (incomplete)"
+    }
   }
 }

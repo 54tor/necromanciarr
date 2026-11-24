@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { failure, installFakeApi, resetAppState } from '@/test/fakeApi'
 import { job } from '@/test/fixtures'
+import { stubViewport } from '@/test/viewport'
 import StagesView from './StagesView.vue'
 
 const toastError = vi.fn()
@@ -33,6 +34,7 @@ const verifyResult = {
 describe('StagesView', () => {
   beforeEach(() => {
     resetAppState()
+    stubViewport(1280)
     vi.useFakeTimers()
     toastError.mockClear()
   })
@@ -162,5 +164,115 @@ describe('StagesView', () => {
 
     expect(wrapper.find('[data-testid="unreachable"]').text()).toContain('Serveur injoignable')
     expect(wrapper.find('[data-testid="job-state"]').text()).not.toContain('en cours')
+  })
+
+  it('StagesView_sortsJobsByStartDescendingByDefault', async () => {
+    installFakeApi({
+      'GET /api/jobs': () => [
+        job({ id: 1, state: 'done', started_at: '2026-01-01T10:00:00Z' }),
+        job({ id: 3, state: 'done', started_at: '2026-01-03T10:00:00Z' }),
+        job({ id: 2, state: 'done', started_at: '2026-01-02T10:00:00Z' }),
+      ],
+    })
+    const wrapper = mount(StagesView)
+    await flushPromises()
+
+    const gotOrder = wrapper.findAll('tbody tr').map((row) => row.attributes('data-row-key'))
+
+    expect(gotOrder).toEqual(['3', '2', '1'])
+    expect(wrapper.find('th[aria-sort="descending"]').text()).toContain('Début')
+  })
+
+  it('StagesView_showsTranslatedReasonLabelsInTheSummary', async () => {
+    installFakeApi({
+      'GET /api/jobs': () => [
+        job({
+          id: 5,
+          state: 'done',
+          result: {
+            ...verifyResult,
+            reasons: { no_candidate: 2, odd_reason: 1 },
+            reason_labels: { no_candidate: 'aucun candidat trouvé' },
+          },
+        }),
+      ],
+    })
+    const wrapper = mount(StagesView)
+    await flushPromises()
+
+    const gotSummary = wrapper.get('[data-row-key="5"]').text()
+
+    expect(gotSummary).toContain('aucun candidat trouvé : 2')
+    expect(gotSummary).toContain('odd_reason : 1')
+    expect(gotSummary).not.toContain('no_candidate')
+  })
+
+  it('StagesView_opensTheFullResultFromTheRow', async () => {
+    installFakeApi({
+      'GET /api/jobs': () => [job({ id: 5, state: 'done', result: verifyResult })],
+    })
+    const wrapper = mount(StagesView, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get('[data-row-key="5"] button[data-testid="job-result"]').trigger('click')
+    await flushPromises()
+
+    const gotDialog = document.body.querySelector('[role="dialog"]')?.textContent ?? ''
+    expect(gotDialog).toContain('Vérification')
+    expect(gotDialog).toMatch(/complets : 3/)
+    expect(gotDialog).toMatch(/packs partiels : 0/)
+    wrapper.unmount()
+    document.body.innerHTML = ''
+  })
+
+  it('StagesView_putsTheStageButtonsInTheToolbar', async () => {
+    installFakeApi({ 'GET /api/jobs': [] })
+    const wrapper = mount(StagesView)
+    await flushPromises()
+
+    const gotButtons = wrapper.findAll('[role="group"] button[data-action="run"]')
+
+    expect(gotButtons.map((button) => button.attributes('data-stage'))).toEqual([
+      'scan',
+      'match',
+      'verify',
+      'link',
+      'seed',
+    ])
+    expect(gotButtons.every((button) => button.attributes('data-scope') === 'toolbar')).toBe(true)
+    expect(wrapper.find('h2').exists()).toBe(false)
+  })
+
+  it('StagesView_summarisesFailedAndRunningJobsAndShowsWarningsInTheResult', async () => {
+    installFakeApi({
+      'GET /api/jobs': () => [
+        job({ id: 1, state: 'failed', error: { code: 'stage_running', message: 'raw' } }),
+        job({ id: 2, state: 'running' }),
+        job({
+          id: 3,
+          state: 'done',
+          result: {
+            ...verifyResult,
+            verified: 0,
+            warnings: [{ code: 'w', text: 'avis du serveur' }],
+          },
+        }),
+      ],
+    })
+    const wrapper = mount(StagesView, { attachTo: document.body })
+    await flushPromises()
+
+    expect(wrapper.get('[data-row-key="1"]').text()).toContain('Une étape est déjà en cours.')
+    expect(wrapper.get('[data-row-key="2"]').text()).toContain('—')
+    await wrapper.get('[data-row-key="3"] button[data-testid="job-result"]').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('avis du serveur')
+    document.body.querySelector<HTMLButtonElement>('[role="dialog"] button.border')?.click()
+    await flushPromises()
+    await wrapper.get('[data-row-key="2"] button[data-testid="job-result"]').trigger('click')
+    await flushPromises()
+    expect(document.body.textContent).toContain('Ce job n’a pas de résultat d’étape.')
+    wrapper.unmount()
+    document.body.innerHTML = ''
   })
 })
