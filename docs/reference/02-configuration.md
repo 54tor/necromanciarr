@@ -20,6 +20,7 @@ Du plus fort au plus faible : **options de ligne de commande**, **variables d'en
 | Langue d'affichage | `--language` | `NECROMANCIARR_LANGUAGE` | `language` |
 | Plafond de pièces manquantes | aucune | `NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT` | `partialMaxMissingPercent` |
 | Jeton de l'interface | aucune | `NECROMANCIARR_AUTH_TOKEN` | aucune (jamais dans un fichier JSON) |
+| Clé de scellement | aucune | `NECROMANCIARR_SECRET_KEY` | aucune (jamais dans un fichier JSON) |
 | Jeton du fournisseur | aucune | `LIBRARY_PROVIDER_TOKEN` | aucune |
 
 Une variable vide est ignorée. Ces options s'ajoutent à toute sous-commande ; une option inconnue est un défaut d'usage (exit 2).
@@ -178,6 +179,8 @@ Un indexeur Torznab est une source de secours de `.torrent`, après le fournisse
 | `torznab[].maxQueriesPerDay`, `maxDownloadsPerDay` | `200`, `50` | entiers de 1 à `100000` |
 | `prowlarr` | vide | URL de l'API native de Prowlarr (`http(s)://host:9696[/base]?apikey=KEY`, mêmes règles que `torznab[].url`) ; seulement pour `doctor` (liste et état des indexeurs), jamais pour chercher |
 | `sourceOrder` | `provider`, puis les entrées de `torznab` dans l'ordre de la liste | `provider` doit rester premier (un `provider` mal placé ou absent est refusé, jamais réordonné) ; chaque source est `provider` ou `torznab:<name>` d'un indexeur configuré, citée une fois |
+
+Un indexeur exige `NECROMANCIARR_SECRET_KEY` : sans elle, la configuration est refusée (« torznab exige NECROMANCIARR_SECRET_KEY »), car un `.torrent` d'indexeur porte la passkey du tracker et n'est gardé que scellé ([03](03-seed-safety.md#passkeys-des-torrent-dindexeur)). Générer la clé avec `necromanciarr api-key --secret`.
 
 Un indexeur absent de `sourceOrder` n'est jamais interrogé (`doctor` avertit avec `torznab_not_in_source_order`). Une clé qui contient `&`, `#`, `%` ou `;` doit être encodée en pourcentage dans l'URL (`%26`, `%23`, `%25`, `%3B`) : `?apikey=ab%26cd` vaut `ab&cd`. Une URL refusée reçoit un message générique qui ne la reprend jamais.
 

@@ -24,7 +24,7 @@ Syntaxe : `necromanciarr <command> [arguments] [options]`. Les arguments positio
 | `doctor` | diagnostic ([02-configuration.md](02-configuration.md)) | `--check ID` (répétable) |
 | `serve` | sert l'interface et l'API jusqu'à SIGINT ou SIGTERM | |
 | `healthcheck` | sonde `/healthz` sur la boucle locale | |
-| `api-key` | affiche un jeton aléatoire neuf | |
+| `api-key` | affiche un jeton aléatoire neuf ; `--secret` : une clé de scellement | |
 | `config check` | affiche la configuration effective, secrets masqués | |
 
 Valeurs : `--kind` parmi `full partial_annex partial_pack cross_seed conflict dedupe repair` ; `--state` d'une proposition parmi `pending accepted rejected applied failed superseded` ; `--state` d'un lien parmi `ok diverged lost unreadable` ; `--limit` vaut 200 par défaut et 1000 au plus, `--offset` part de 0. Une valeur inconnue est un défaut d'usage (exit 2), jamais une liste vide.
@@ -53,7 +53,7 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 
 - `serve` écrit la ligne de journal `server_listening` (`listening on http://<address>`, traduite) sur stdout et, hors boucle locale, la ligne `non_loopback_warning` (`listening outside loopback, every api request needs the bearer token`, traduite) sur stderr. `serve` refuse de démarrer hors boucle locale sans `NECROMANCIARR_AUTH_TOKEN`, avant d'ouvrir la base ; les autres commandes, `healthcheck` compris, chargent la même configuration sans jeton : `listen "0.0.0.0:8787" is not loopback: set NECROMANCIARR_AUTH_TOKEN (at least 32 characters, generate one with necromanciarr api-key)`. Arrêt propre à SIGINT/SIGTERM : requêtes en cours terminées sous 10 s, jobs annulés.
 - `healthcheck` charge la même configuration, interroge `GET /healthz` sur l'hôte d'écoute (`0.0.0.0`, `::` ou hôte vide sont sondés par `127.0.0.1`), 3 s au plus, sans proxy ni redirection. Il affiche `ok` (exit 0, identique dans les deux langues) ou la ligne `healthcheck_failed` (`healthcheck: unavailable`, traduite, exit 1) et rien d'autre.
-- `api-key` tire 256 bits d'aléa, les affiche en base64url sans remplissage (43 caractères) sur stdout et rappelle sur stderr de les mettre dans `.env`. Rien n'est écrit sur disque ni journalisé.
+- `api-key` tire 256 bits d'aléa, les affiche en base64url sans remplissage (43 caractères) sur stdout et rappelle sur stderr de les mettre dans `.env`. Rien n'est écrit sur disque ni journalisé. `api-key --secret` fait de même pour `NECROMANCIARR_SECRET_KEY` (32 octets, voir [03](03-seed-safety.md#passkeys-des-torrent-dindexeur)).
 
 ## Serveur web
 

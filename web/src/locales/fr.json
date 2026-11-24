@@ -163,7 +163,12 @@
       "prowlarr_access_denied": "Prowlarr : clé refusée",
       "prowlarr_unreachable": "Prowlarr injoignable",
       "prowlarr_bad_response": "Prowlarr : réponse invalide",
-      "prowlarr_indexer_missing_or_disabled": "Indexeur absent ou désactivé dans Prowlarr"
+      "prowlarr_indexer_missing_or_disabled": "Indexeur absent ou désactivé dans Prowlarr",
+      "secret_key_ok": "Clé de scellement conforme",
+      "secret_key_missing": "Clé de scellement absente",
+      "secret_key_wrong_length": "Clé de scellement de mauvaise longueur",
+      "sealed_torrent_unreadable": ".torrent scellé illisible",
+      "sealed_torrents_unchecked": ".torrent scellés non vérifiés"
     }
   },
   "table": {

@@ -11,12 +11,18 @@ import (
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/prowlarr"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/torznab"
 )
 
 const (
 	// IDProwlarr identifie le contrôle de Prowlarr ; celui d'un indexeur est « torznab:<nom> ».
-	IDProwlarr         = "prowlarr"
+	IDProwlarr = "prowlarr"
+	// IDSecretKey identifie le contrôle de NECROMANCIARR_SECRET_KEY et des .torrent scellés.
+	IDSecretKey = "secret-key"
+	// maxSealedProbed borne les blocs descellés par diagnostic.
+	// ponytail: 1000 premiers blocs seulement ; paginer si une base en garde plus.
+	maxSealedProbed    = 1000
 	torznabCheckPrefix = "torznab:"
 	noModes            = "-"
 )
@@ -205,4 +211,92 @@ func servedByProwlarr(indexerURL, prowlarrURL string) bool {
 	}
 	basePath := strings.TrimSuffix(prowlarrParsed.Path, "/")
 	return basePath == "" || indexerParsed.Path == basePath || strings.HasPrefix(indexerParsed.Path, basePath+"/")
+}
+
+// SealedTorrent est un .torrent scellé en base, avec sa liaison et le candidat qui le porte.
+type SealedTorrent struct {
+	CandidateID int64
+	Binding     sources.Binding
+	Blob        []byte
+}
+
+// SealedProbe lit au plus limit .torrent scellés en base ; app le fournit quand le store les garde.
+type SealedProbe interface {
+	SealedTorrents(ctx context.Context, limit int) ([]SealedTorrent, error)
+}
+
+// secretKeyChecks crée le contrôle secret-key quand un indexeur est configuré ou qu'une clé est donnée.
+func secretKeyChecks(settings config.Config, deps Deps) []Check {
+	if len(settings.Torznab) == 0 && settings.SecretKey == nil {
+		return nil
+	}
+	return []Check{newCheck(IDSecretKey, i18n.KeyDoctorTitleSecretKey,
+		func(ctx context.Context) Result { return checkSecretKey(ctx, settings.SecretKey, deps.SealedProbe) })}
+}
+
+// SecretKeyFailure traduit un refus de chargement dû à la clé en contrôle secret-key, pour que doctor nomme la cause
+// même quand la configuration est refusée.
+func SecretKeyFailure(loadErr error) (Check, bool) {
+	var result Result
+	switch {
+	case errors.Is(loadErr, config.ErrSecretKeyRequired):
+		result = secretKeyMissing()
+	case errors.As(loadErr, new(config.InvalidSecretKeyError)):
+		result = secretKeyWrongLength()
+	default:
+		return Check{}, false
+	}
+	return newCheck(IDSecretKey, i18n.KeyDoctorTitleSecretKey, func(context.Context) Result { return result }), true
+}
+
+func secretKeyMissing() Result {
+	return Result{
+		Status: Fail, Code: CodeSecretKeyMissing,
+		Detail: message(i18n.KeyDoctorSecretKeyMissing), Hint: message(i18n.KeyDoctorSecretKeyGenerateHint),
+	}
+}
+
+func secretKeyWrongLength() Result {
+	return Result{
+		Status: Fail, Code: CodeSecretKeyWrongLength,
+		Detail: message(i18n.KeyDoctorSecretKeyWrongLength), Hint: message(i18n.KeyDoctorSecretKeyGenerateHint),
+	}
+}
+
+// checkSecretKey contrôle la clé puis tente de desceller les blocs existants ; la clé n'apparaît dans aucun message.
+func checkSecretKey(ctx context.Context, key []byte, probe SealedProbe) Result {
+	if key == nil {
+		return secretKeyMissing()
+	}
+	sealer, err := sources.NewSealer(key)
+	if err != nil {
+		return secretKeyWrongLength()
+	}
+	if probe == nil {
+		return Result{Status: OK, Code: CodeSecretKeyOK, Detail: message(i18n.KeyDoctorSecretKeyOKUnprobed)}
+	}
+	sealed, err := probe.SealedTorrents(ctx, maxSealedProbed)
+	if err != nil {
+		return Result{Status: Warn, Code: CodeSealedTorrentsUnchecked, Detail: message(i18n.KeyDoctorSealedUnchecked, "error", err.Error())}
+	}
+	unreadable := unreadableCandidates(sealer, sealed)
+	if len(unreadable) > 0 {
+		return Result{
+			Status: Fail, Code: CodeSealedTorrentUnreadable,
+			Detail: message(i18n.KeyDoctorSealedUnreadable, "count", strconv.Itoa(len(unreadable)), "ids", strings.Join(unreadable, ", ")),
+			Hint:   message(i18n.KeyDoctorSealedUnreadableHint),
+		}
+	}
+	return Result{Status: OK, Code: CodeSecretKeyOK, Detail: message(i18n.KeyDoctorSecretKeyOK, "count", strconv.Itoa(len(sealed)))}
+}
+
+// unreadableCandidates nomme chaque candidat dont le bloc ne se descelle pas ; le contenu descellé est aussitôt jeté.
+func unreadableCandidates(sealer *sources.Sealer, sealed []SealedTorrent) []string {
+	var unreadable []string
+	for _, torrent := range sealed {
+		if _, err := sealer.Unseal(torrent.Blob, torrent.Binding); err != nil {
+			unreadable = append(unreadable, strconv.FormatInt(torrent.CandidateID, 10))
+		}
+	}
+	return unreadable
 }

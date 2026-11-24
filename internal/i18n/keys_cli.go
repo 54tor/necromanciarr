@@ -17,6 +17,7 @@ const (
 	KeyCLIConfirmationRequired   Key = "cli.confirmation_required"
 	KeyCLIErrorInternal          Key = "cli.error.internal"
 	KeyCLIAPIKeyHint             Key = "cli.api_key.hint"
+	KeyCLIAPIKeySecretHint       Key = "cli.api_key.secret_hint"
 	KeyCLICounterUnidentified    Key = "cli.counter.unidentified_files"
 	KeyCLICounterCreated         Key = "cli.counter.candidates_created"
 	KeyCLICounterUpdated         Key = "cli.counter.candidates_updated"
@@ -100,7 +101,7 @@ var cliKeys = []Key{
 	KeyConfigCheckLanguage,
 	KeyCLIStageResult, KeyCLIStageReason, KeyCLIStageSamples, KeyCLIStageProcessedOne, KeyCLIStageProcessedMany,
 	KeyCLIStageSkippedOne, KeyCLIStageSkippedMany, KeyCLIStageFailedCount, KeyCLIStageFailedWarningOne, KeyCLIStageFailedWarningMany,
-	KeyCLIConfirmationRequired, KeyCLIErrorInternal, KeyCLIAPIKeyHint,
+	KeyCLIConfirmationRequired, KeyCLIErrorInternal, KeyCLIAPIKeyHint, KeyCLIAPIKeySecretHint,
 	KeyCLICounterUnidentified, KeyCLICounterCreated, KeyCLICounterUpdated, KeyCLICounterUnchanged, KeyCLICounterStale,
 	KeyCLICounterVerified, KeyCLICounterPartialAnnex, KeyCLICounterPartialPack, KeyCLICounterConflicts, KeyCLICounterResumed,
 	KeyCLICounterProposals, KeyCLICounterLinked, KeyCLICounterSeeded, KeyCLICounterSeededPaused,

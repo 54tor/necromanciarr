@@ -26,6 +26,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - The Links page has two tabs: recorded links (paged by the server, state filter, not-compared marker, partial-inspection notice) and repairs (dry run by default, a typed word before a real repair; ambiguous, lost and recheck-pending repairs are listed but not applicable).
 - English version of the reference documentation (`docs/reference/en/`).
 - Torznab indexers (`torznab`, Prowlarr feeds) and `sourceOrder`: URLs and keys are masked everywhere; `doctor` checks each indexer (`torznab:<name>`, capabilities only, no quota spent) and Prowlarr (`prowlarr`, indexers missing or disabled). Match does not query them yet.
+- `NECROMANCIARR_SECRET_KEY` (`api-key --secret`) seals indexer torrents at rest (AES-256-GCM); a configured `torznab` indexer now requires it, and `doctor` checks it (`secret-key`).
 
 ### Changed
 - Web interface redesigned: sidebar navigation, page toolbars, dense sortable tables, status pills; cards only on narrow screens; fully translated (fr/en).

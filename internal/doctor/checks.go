@@ -66,6 +66,8 @@ type Deps struct {
 	NewIndexerLister func(rawURL string) (IndexerLister, error)
 	// CapsCache réutilise le résultat des capacités d'un indexeur (nil : une requête à chaque diagnostic).
 	CapsCache *CapsCache
+	// SealedProbe lit les .torrent scellés en base pour tenter de les desceller (nil : contrôle de la clé seul).
+	SealedProbe SealedProbe
 }
 
 func (deps Deps) withDefaults() Deps {
@@ -131,6 +133,7 @@ func Build(settings config.Config, deps Deps) []Check {
 	}
 	checks = append(checks, arrChecks(settings, deps)...)
 	checks = append(checks, sourceChecks(settings, deps)...)
+	checks = append(checks, secretKeyChecks(settings, deps)...)
 	checks = append(checks,
 		newCheck(IDQbittorrent, i18n.KeyDoctorTitleQbittorrent, func(ctx context.Context) Result { return checkQbittorrent(ctx, settings, deps) }),
 		newCheck(IDLinks, i18n.KeyDoctorTitleLinks, func(context.Context) Result { return checkLinkFeasibility(settings, deps) }),

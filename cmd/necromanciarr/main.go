@@ -25,6 +25,8 @@ const (
 	// usageExitCode est le code de sortie d'une ligne de commande invalide.
 	usageExitCode   = 2
 	failureExitCode = 1
+	// flagSecret fait tirer à api-key la clé de scellement au lieu du jeton d'authentification.
+	flagSecret = "--secret"
 )
 
 // lookupEnv lit l'environnement pour config.Load.
@@ -101,19 +103,23 @@ func defaultConfigDir() string {
 	return filepath.Join(userConfigDir, "necromanciarr")
 }
 
-// runAPIKey tire un jeton neuf pour NECROMANCIARR_AUTH_TOKEN et l'affiche sur stdout seulement ; il n'est jamais écrit
-// sur le disque ni consigné dans un log.
+// runAPIKey tire un jeton neuf pour NECROMANCIARR_AUTH_TOKEN, ou avec --secret une clé pour NECROMANCIARR_SECRET_KEY,
+// et l'affiche sur stdout seulement ; rien n'est écrit sur le disque ni consigné dans un log.
 func runAPIKey(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 {
+	generate, hint := config.GenerateAuthToken, i18n.KeyCLIAPIKeyHint
+	switch {
+	case len(args) == 1 && args[0] == flagSecret:
+		generate, hint = config.GenerateSecretKey, i18n.KeyCLIAPIKeySecretHint
+	case len(args) > 0:
 		_, _ = fmt.Fprint(stderr, usageText(i18n.New(languageFromArguments(args), nil)))
 		return usageExitCode
 	}
-	token, err := config.GenerateAuthToken()
+	value, err := generate()
 	if err != nil {
 		return reportError(stderr, args, err)
 	}
-	_, _ = fmt.Fprintln(stdout, token)
-	_, _ = fmt.Fprintln(stderr, i18n.New(languageFromArguments(args), nil).Text(i18n.KeyCLIAPIKeyHint, nil))
+	_, _ = fmt.Fprintln(stdout, value)
+	_, _ = fmt.Fprintln(stderr, i18n.New(languageFromArguments(args), nil).Text(hint, nil))
 	return 0
 }
 

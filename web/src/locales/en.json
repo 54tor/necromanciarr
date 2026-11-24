@@ -163,7 +163,12 @@
       "prowlarr_access_denied": "Prowlarr: key rejected",
       "prowlarr_unreachable": "Prowlarr unreachable",
       "prowlarr_bad_response": "Prowlarr: invalid response",
-      "prowlarr_indexer_missing_or_disabled": "Indexer missing or disabled in Prowlarr"
+      "prowlarr_indexer_missing_or_disabled": "Indexer missing or disabled in Prowlarr",
+      "secret_key_ok": "Sealing key valid",
+      "secret_key_missing": "Sealing key missing",
+      "secret_key_wrong_length": "Sealing key of the wrong length",
+      "sealed_torrent_unreadable": "Sealed torrent unreadable",
+      "sealed_torrents_unchecked": "Sealed torrents not checked"
     }
   },
   "table": {

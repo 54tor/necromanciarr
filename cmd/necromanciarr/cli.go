@@ -72,6 +72,12 @@ func errorMessage(translator i18n.Translator, err error) string {
 	if unknownLanguage, isUnknown := errors.AsType[*config.UnknownLanguageError](err); isUnknown {
 		return translator.Text(i18n.KeyErrorUsageUnknownLanguage, textParams("value", unknownLanguage.Value))
 	}
+	if _, isInvalidKey := errors.AsType[config.InvalidSecretKeyError](err); isInvalidKey {
+		return translator.Text(i18n.KeyErrorUsageInvalidSecretKey, nil)
+	}
+	if errors.Is(err, config.ErrSecretKeyRequired) {
+		return translator.Text(i18n.KeyErrorConfigSecretKeyRequired, nil)
+	}
 	_, typed := app.Classify(err)
 	if typed == nil {
 		return translator.Text(i18n.KeyCLIErrorInternal, nil) + " (" + err.Error() + ")"

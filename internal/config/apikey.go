@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 )
 
@@ -21,4 +22,14 @@ func GenerateAuthToken() (string, error) {
 		return "", fmt.Errorf("generate auth token: %w", err)
 	}
 	return base64.RawURLEncoding.EncodeToString(randomBytes), nil
+}
+
+// GenerateSecretKey tire une clé de scellement neuve (32 octets de crypto/rand, base64url sans remplissage) ; elle
+// n'est écrite nulle part, l'opérateur la recopie lui-même dans son .env.
+func GenerateSecretKey() (string, error) {
+	randomBytes := make([]byte, SecretKeySize)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", errors.New("generate secret key: random source failed")
+	}
+	return secretKeyEncoding.EncodeToString(randomBytes), nil
 }

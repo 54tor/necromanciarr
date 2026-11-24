@@ -32,9 +32,11 @@ func RedactText(text string, knownSecrets ...string) string {
 }
 
 // KnownSecrets liste les valeurs secrètes de la configuration (jetons, clés, mots de passe, clé de proxy qui suit
-// « /proxy/ », identifiants rc) pour que RedactText les masque même hors d'une URL.
+// « /proxy/ », identifiants rc, clé de scellement sous ses écritures probables) pour que RedactText les masque même
+// hors d'une URL.
 func (loadedConfig Config) KnownSecrets() []string {
 	secrets := append([]string{loadedConfig.AuthToken, loadedConfig.LibraryProviderToken}, urlSecrets(loadedConfig.LibraryAPI)...)
+	secrets = append(secrets, secretKeyForms(loadedConfig.SecretKey)...)
 	for _, service := range append(append([]ArrService{}, loadedConfig.Radarr...), loadedConfig.Sonarr...) {
 		secrets = append(secrets, service.APIKey, service.Password, proxyKeyOf(service.BaseURL))
 	}

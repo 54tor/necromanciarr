@@ -155,6 +155,15 @@ const (
 	KeyDoctorTorznabNotInSourceOrder     Key = "doctor.torznab.not_in_source_order"
 	KeyDoctorTorznabNotInSourceOrderHint Key = "doctor.torznab.not_in_source_order.hint"
 	KeyDoctorProwlarrBuildFailed         Key = "doctor.prowlarr.build_failed"
+	KeyDoctorTitleSecretKey              Key = "doctor.title.secret_key"
+	KeyDoctorSecretKeyOK                 Key = "doctor.secret_key.ok"
+	KeyDoctorSecretKeyOKUnprobed         Key = "doctor.secret_key.ok_unprobed"
+	KeyDoctorSecretKeyMissing            Key = "doctor.secret_key.missing"
+	KeyDoctorSecretKeyWrongLength        Key = "doctor.secret_key.wrong_length"
+	KeyDoctorSecretKeyGenerateHint       Key = "doctor.secret_key.generate.hint"
+	KeyDoctorSealedUnreadable            Key = "doctor.sealed.unreadable"
+	KeyDoctorSealedUnreadableHint        Key = "doctor.sealed.unreadable.hint"
+	KeyDoctorSealedUnchecked             Key = "doctor.sealed.unchecked"
 )
 
 var doctorKeys = []Key{
@@ -191,4 +200,7 @@ var doctorKeys = []Key{
 	KeyDoctorPathRuleUnreachableHint, KeyDoctorPathRuleNoRoot, KeyDoctorPathRuleNoRootHint, KeyDoctorPathRuleOK,
 	KeyDoctorDedupeNone, KeyDoctorDedupeOverlap, KeyDoctorDedupeOverlapHint, KeyDoctorDedupeMissing, KeyDoctorDedupeOK,
 	KeyDoctorTitleTorznab, KeyDoctorTitleProwlarr, KeyDoctorTorznabOK, KeyDoctorTorznabBuildFailed, KeyDoctorTorznabAccessDenied, KeyDoctorTorznabAccessDeniedHint, KeyDoctorTorznabUnreachable, KeyDoctorTorznabUnreachableHint, KeyDoctorTorznabHostile, KeyDoctorTorznabHostileHint, KeyDoctorTorznabBadResponse, KeyDoctorTorznabBadResponseHint, KeyDoctorTorznabNoMediaMode, KeyDoctorTorznabNoMediaModeHint, KeyDoctorProwlarrOK, KeyDoctorProwlarrAccessDenied, KeyDoctorProwlarrAccessDeniedHint, KeyDoctorProwlarrUnreachable, KeyDoctorProwlarrBadResponse, KeyDoctorProwlarrURLHint, KeyDoctorProwlarrIndexerMissing, KeyDoctorProwlarrIndexerDisabled, KeyDoctorProwlarrIndexerHint, KeyDoctorTorznabNotInSourceOrder, KeyDoctorTorznabNotInSourceOrderHint, KeyDoctorProwlarrBuildFailed,
+	KeyDoctorTitleSecretKey, KeyDoctorSecretKeyOK, KeyDoctorSecretKeyOKUnprobed, KeyDoctorSecretKeyMissing,
+	KeyDoctorSecretKeyWrongLength, KeyDoctorSecretKeyGenerateHint, KeyDoctorSealedUnreadable, KeyDoctorSealedUnreadableHint,
+	KeyDoctorSealedUnchecked,
 }

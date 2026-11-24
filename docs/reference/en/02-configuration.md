@@ -20,6 +20,7 @@ From strongest to weakest: **command-line options**, **environment variables**, 
 | Display language | `--language` | `NECROMANCIARR_LANGUAGE` | `language` |
 | Cap on missing pieces | none | `NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT` | `partialMaxMissingPercent` |
 | Interface token | none | `NECROMANCIARR_AUTH_TOKEN` | none (never in a JSON file) |
+| Sealing key | none | `NECROMANCIARR_SECRET_KEY` | none (never in a JSON file) |
 | Provider token | none | `LIBRARY_PROVIDER_TOKEN` | none |
 
 An empty variable is ignored. These options apply to every subcommand; an unknown option is a usage error (exit 2).
@@ -178,6 +179,8 @@ A Torznab indexer is a fallback source of `.torrent` files, after the library pr
 | `torznab[].maxQueriesPerDay`, `maxDownloadsPerDay` | `200`, `50` | integers from 1 to `100000` |
 | `prowlarr` | empty | URL of the native API of Prowlarr (`http(s)://host:9696[/base]?apikey=KEY`, same rules as `torznab[].url`); only for `doctor` (indexer list and state), never to search |
 | `sourceOrder` | `provider`, then the `torznab` entries in list order | `provider` must stay first (a misplaced or missing `provider` is refused, never reordered); every source is `provider` or `torznab:<name>` of a configured indexer, listed once |
+
+An indexer requires `NECROMANCIARR_SECRET_KEY`: without it the configuration is refused ("torznab requires NECROMANCIARR_SECRET_KEY"), because an indexer `.torrent` carries the tracker passkey and is only kept sealed ([03](03-seed-safety.md#passkeys-of-indexer-torrents)). Generate the key with `necromanciarr api-key --secret`.
 
 An indexer absent from `sourceOrder` is never queried (`doctor` warns with `torznab_not_in_source_order`). A key that contains `&`, `#`, `%` or `;` must be percent-encoded in the URL (`%26`, `%23`, `%25`, `%3B`): `?apikey=ab%26cd` stands for `ab&cd`. A refused URL gets a generic message that never repeats it.
 

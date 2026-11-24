@@ -2,6 +2,8 @@ package config
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -595,5 +597,90 @@ func TestLanguage_sourceIsNotPartOfTheConfigurationJSON(t *testing.T) {
 
 	if err != nil || strings.Contains(string(encoded), "languageSource") || !strings.Contains(string(encoded), `"language": "en"`) {
 		t.Fatalf("gotValue %q (%v), expectedValue the language without its source", encoded, err)
+	}
+}
+
+// testSecretKeyBytes est une clé de test à faible entropie, jamais une vraie clé.
+var testSecretKeyBytes = bytes.Repeat([]byte{0x01}, SecretKeySize)
+
+var testSecretKey = base64.RawURLEncoding.EncodeToString(testSecretKeyBytes)
+
+const torznabOnly = `{"torznab": ["https://prowlarr.example.com/12/api?apikey=secret-indexer-key"]}`
+
+func TestConfig_torznabRequiresSecretKey(t *testing.T) {
+	_, err := loadTorznabConfig(t, torznabOnly, map[string]string{envSecretKey: ""})
+
+	if !errors.Is(err, ErrSecretKeyRequired) || err.Error() != "torznab requires NECROMANCIARR_SECRET_KEY" {
+		t.Fatalf("gotValue %v, expectedValue ErrSecretKeyRequired", err)
+	}
+	loadedConfig, err := loadTorznabConfig(t, torznabOnly, map[string]string{envSecretKey: testSecretKey})
+	if err != nil || !bytes.Equal(loadedConfig.SecretKey, testSecretKeyBytes) {
+		t.Fatalf("gotValue %v, %v, expectedValue the decoded 32-byte key", loadedConfig.SecretKey, err)
+	}
+	withoutTorznab, err := loadTorznabConfig(t, `{}`, map[string]string{envSecretKey: ""})
+	if err != nil || withoutTorznab.SecretKey != nil {
+		t.Fatalf("gotValue %v, %v, expectedValue no key needed without torznab", withoutTorznab.SecretKey, err)
+	}
+}
+
+func TestConfig_secretKeyWrongLengthNamesVariableOnly(t *testing.T) {
+	invalidValues := map[string]string{
+		"16 bytes":            base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x02}, 16)),
+		"33 bytes":            base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x02}, 33)),
+		"padded":              base64.URLEncoding.EncodeToString(bytes.Repeat([]byte{0x02}, 32)),
+		"standard alphabet":   base64.RawStdEncoding.EncodeToString(bytes.Repeat([]byte{0xfb}, 32)),
+		"hex":                 strings.Repeat("0f", 32),
+		"non canonical bits":  testSecretKey[:42] + "F",
+		"surrounding space":   " " + testSecretKey + " ",
+		"not base64":          strings.Repeat("$", 43),
+		"newline inside":      testSecretKey[:20] + "\n" + testSecretKey[20:],
+		"twice the valid key": testSecretKey + testSecretKey,
+	}
+	for name, value := range invalidValues {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadTorznabConfig(t, `{}`, map[string]string{envSecretKey: value})
+
+			if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), envSecretKey) {
+				t.Fatalf("gotValue %v, expectedValue a usage error naming %s", err, envSecretKey)
+			}
+			for start := 0; start+6 <= len(value); start++ {
+				if fragment := strings.TrimSpace(value[start : start+6]); len(fragment) == 6 && strings.Contains(err.Error(), fragment) {
+					t.Fatalf("gotValue %q, expectedValue no fragment of the value (%q)", err, fragment)
+				}
+			}
+		})
+	}
+}
+
+func TestConfig_secretKeyIsAKnownSecretAndNeverRendered(t *testing.T) {
+	loadedConfig, err := loadTorznabConfig(t, torznabOnly, map[string]string{envSecretKey: testSecretKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forms := []string{
+		testSecretKey, base64.URLEncoding.EncodeToString(testSecretKeyBytes), base64.StdEncoding.EncodeToString(testSecretKeyBytes),
+		base64.RawStdEncoding.EncodeToString(testSecretKeyBytes), hex.EncodeToString(testSecretKeyBytes), string(testSecretKeyBytes),
+	}
+	for _, form := range forms {
+		if !slices.Contains(loadedConfig.KnownSecrets(), form) {
+			t.Fatalf("gotValue KnownSecrets without the form %q", form)
+		}
+		if redacted := RedactText("key="+form+" end", loadedConfig.KnownSecrets()...); strings.Contains(redacted, form) {
+			t.Fatalf("gotValue %q, expectedValue the form masked", redacted)
+		}
+	}
+	var logged bytes.Buffer
+	slog.New(slog.NewTextHandler(&logged, nil)).Info("config", "value", loadedConfig)
+	encoded, err := json.Marshal(loadedConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renderings := []string{fmt.Sprint(loadedConfig), fmt.Sprintf("%+v", loadedConfig), fmt.Sprintf("%#v", loadedConfig), string(encoded), logged.String()}
+	for _, rendering := range renderings {
+		for _, leaked := range []string{testSecretKey[:12], "[1 1 1 1", "0x01, 0x01", "AQEBAQEB", "SecretKey:[1"} {
+			if strings.Contains(rendering, leaked) {
+				t.Fatalf("gotValue %q in %q", leaked, rendering)
+			}
+		}
 	}
 }

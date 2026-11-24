@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -20,6 +21,14 @@ func loadTorznabConfig(t *testing.T, content string, environment map[string]stri
 	t.Helper()
 	configDir := t.TempDir()
 	writeFile(t, configDir, configFileName, content)
+	// Un indexeur exige la clé de scellement : fournie par défaut, une valeur vide la retire.
+	if _, given := environment[envSecretKey]; !given {
+		environment = maps.Clone(environment)
+		if environment == nil {
+			environment = map[string]string{}
+		}
+		environment[envSecretKey] = testSecretKey
+	}
 	return Load(nil, lookupFrom(environment), configDir)
 }
 

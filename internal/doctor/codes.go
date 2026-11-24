@@ -91,4 +91,12 @@ const (
 	CodeProwlarrUnreachable              = "prowlarr_unreachable"
 	CodeProwlarrBadResponse              = "prowlarr_bad_response"
 	CodeProwlarrIndexerMissingOrDisabled = "prowlarr_indexer_missing_or_disabled"
+
+	CodeSecretKeyOK          = "secret_key_ok"
+	CodeSecretKeyMissing     = "secret_key_missing"
+	CodeSecretKeyWrongLength = "secret_key_wrong_length"
+	// CodeSealedTorrentUnreadable : un bloc scellé en base ne se descelle plus (clé changée) ; Seed le refusera.
+	CodeSealedTorrentUnreadable = "sealed_torrent_unreadable"
+	// CodeSealedTorrentsUnchecked : les blocs scellés n'ont pas pu être lus en base.
+	CodeSealedTorrentsUnchecked = "sealed_torrents_unchecked"
 )

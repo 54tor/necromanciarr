@@ -98,6 +98,9 @@ type Config struct {
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`
+	// SecretKey est NECROMANCIARR_SECRET_KEY décodée (32 octets) : elle scelle les .torrent d'indexeur. Jamais
+	// sérialisée ni rendue ; sa remise à zéro n'est qu'un effort, Go ne garantit pas l'absence de copie.
+	SecretKey []byte `json:"-"`
 }
 
 // fileConfig est le contenu brut de config.json, avant interpolation et analyse des chaînes de service.
@@ -210,6 +213,9 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir
 		return Config{}, err
 	}
 	if err := resolveLanguage(&loadedConfig, rawFile.Language, options, lookup); err != nil {
+		return Config{}, err
+	}
+	if loadedConfig.SecretKey, err = readSecretKey(lookup); err != nil {
 		return Config{}, err
 	}
 	if err := validate(loadedConfig); err != nil {
@@ -484,6 +490,9 @@ func validate(loadedConfig Config) error {
 		return fmt.Errorf("%s must be at least %d characters (generate one with necromanciarr api-key)",
 			envAuthToken, MinAuthTokenLength)
 	}
+	if len(loadedConfig.Torznab) > 0 && loadedConfig.SecretKey == nil {
+		return ErrSecretKeyRequired
+	}
 	return nil
 }
 
@@ -569,6 +578,7 @@ func (loadedConfig Config) redacted() plainConfig {
 	if redactedCopy.LibraryProviderToken != "" {
 		redactedCopy.LibraryProviderToken = redactedSecret
 	}
+	redactedCopy.SecretKey = nil
 	return plainConfig(redactedCopy)
 }
 

@@ -24,7 +24,7 @@ Syntax: `necromanciarr <command> [arguments] [options]`. Positional arguments co
 | `doctor` | diagnostics ([02-configuration.md](02-configuration.md)) | `--check ID` (repeatable) |
 | `serve` | serves the interface and the API until SIGINT or SIGTERM | |
 | `healthcheck` | probes `/healthz` on loopback | |
-| `api-key` | prints a new random token | |
+| `api-key` | prints a new random token; `--secret`: a sealing key | |
 | `config check` | prints the effective configuration, secrets masked | |
 
 Values: `--kind` among `full partial_annex partial_pack cross_seed conflict dedupe repair`; a proposal's `--state` among `pending accepted rejected applied failed superseded`; a link's `--state` among `ok diverged lost unreadable`; `--limit` is 200 by default and 1000 at most, `--offset` starts at 0. An unknown value is a usage error (exit 2), never an empty list.
@@ -53,7 +53,7 @@ With `--all-accepted`: 3 if a proposal was stale, otherwise 1 if one failed.
 
 - `serve` writes the log line `server_listening` (`listening on http://<address>`, translated) on stdout and, outside loopback, the line `non_loopback_warning` (`listening outside loopback, every api request needs the bearer token`, translated) on stderr. `serve` refuses to start outside loopback without `NECROMANCIARR_AUTH_TOKEN`, before opening the database; the other commands, `healthcheck` included, load the same configuration without a token: `listen "0.0.0.0:8787" is not loopback: set NECROMANCIARR_AUTH_TOKEN (at least 32 characters, generate one with necromanciarr api-key)`. Clean shutdown on SIGINT/SIGTERM: in-flight requests finished within 10 s, jobs cancelled.
 - `healthcheck` loads the same configuration, queries `GET /healthz` on the listen host (`0.0.0.0`, `::` or an empty host are probed through `127.0.0.1`), 3 s at most, with no proxy or redirection. It prints `ok` (exit 0, identical in both languages) or the line `healthcheck_failed` (`healthcheck: unavailable`, translated, exit 1) and nothing else.
-- `api-key` draws 256 bits of randomness, prints them as unpadded base64url (43 characters) on stdout and reminds on stderr to put them in `.env`. Nothing is written to disk or logged.
+- `api-key` draws 256 bits of randomness, prints them as unpadded base64url (43 characters) on stdout and reminds on stderr to put them in `.env`. Nothing is written to disk or logged. `api-key --secret` does the same for `NECROMANCIARR_SECRET_KEY` (32 bytes, see [03](03-seed-safety.md#passkeys-of-indexer-torrents)).
 
 ## Web server
 

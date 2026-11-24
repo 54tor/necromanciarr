@@ -4,6 +4,9 @@ package i18n
 const (
 	KeyErrorUsageUnknownLanguage Key = "error.usage.unknown_language"
 	KeyErrorInternal             Key = "error.internal"
+	// KeyErrorUsageInvalidSecretKey et KeyErrorConfigSecretKeyRequired ne citent que le nom de la variable.
+	KeyErrorUsageInvalidSecretKey   Key = "error.usage.invalid_secret_key"
+	KeyErrorConfigSecretKeyRequired Key = "error.config.secret_key_required"
 
 	KeyErrorUsage                    Key = "error.usage"
 	KeyErrorUnknownCheck             Key = "error.unknown_check"
@@ -57,7 +60,7 @@ const (
 )
 
 var errorKeys = []Key{
-	KeyErrorUsageUnknownLanguage, KeyErrorInternal,
+	KeyErrorUsageUnknownLanguage, KeyErrorInternal, KeyErrorUsageInvalidSecretKey, KeyErrorConfigSecretKeyRequired,
 	KeyErrorUsage, KeyErrorUnknownCheck, KeyErrorStaleProposal, KeyErrorConflictNeedsChoose, KeyErrorPartialPackNeedsForce,
 	KeyErrorNotATorrentProposal, KeyErrorCandidateAlreadyAccepted, KeyErrorOneTorrentPerFile, KeyErrorNotFull, KeyErrorNotForceable,
 	KeyErrorNoPrimary, KeyErrorForceNotAllowed, KeyErrorForceIsolationImpossible, KeyErrorCrossSeedNotNative, KeyErrorNotAccepted,

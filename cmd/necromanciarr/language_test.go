@@ -342,3 +342,15 @@ func TestDoctorConfigFailure_codeIsStableAndTextFollowsTheLanguage(t *testing.T)
 		t.Fatalf("gotValue code %v, expectedValue config_invalid", code)
 	}
 }
+
+func TestDoctorConfigFailure_namesTheMissingSecretKey(t *testing.T) {
+	t.Setenv("NECROMANCIARR_SECRET_KEY", "")
+	configDir := writeDoctorConfig(t, `{"torznab": ["https://prowlarr.example.com/12/api?apikey=secret-indexer-a"]}`)
+
+	checks := jsonOf(t, configDir, "en", &fakeService{}, "doctor").(map[string]any)["checks"].([]any)
+
+	codes := []any{checks[0].(map[string]any)["code"], checks[len(checks)-1].(map[string]any)["code"]}
+	if len(checks) != 2 || codes[0] != "config_invalid" || codes[1] != "secret_key_missing" {
+		t.Fatalf("gotValue %v, expectedValue config_invalid then secret_key_missing", checks)
+	}
+}

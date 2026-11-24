@@ -121,6 +121,11 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `prowlarr` | `prowlarr_access_denied` | `fail` | the `?apikey=` of `prowlarr` (Settings > General > API Key) |
 | `prowlarr` | `prowlarr_unreachable`, `prowlarr_bad_response` | `fail` | `prowlarr` is the root of the native API (`http://host:9696`, plus the URL base), not a feed; Prowlarr started |
 | `prowlarr` | `prowlarr_indexer_missing_or_disabled` | `warn` | a `torznab` entry whose path id is missing or disabled in Prowlarr: enable it or remove it; downloading needs Prowlarr to proxy the file (Proxy mode, `Redirect` option disabled on the indexer) |
+| `secret-key` | `secret_key_ok` | `ok` | `NECROMANCIARR_SECRET_KEY` set (32 bytes) and every sealed `.torrent` in the database unseals |
+| `secret-key` | `secret_key_missing` | `fail` | `torznab` configured without `NECROMANCIARR_SECRET_KEY`: the configuration is refused; generate one with `necromanciarr api-key --secret` |
+| `secret-key` | `secret_key_wrong_length` | `fail` | the value is not 32 bytes in base64url without padding (only the `api-key --secret` spelling is accepted) |
+| `secret-key` | `sealed_torrent_unreadable` | `fail` | a sealed `.torrent` no longer unseals (key changed or blob altered): Seed will refuse it; run Verify again on this candidate |
+| `secret-key` | `sealed_torrents_unchecked` | `warn` | the sealed `.torrent` files could not be read from the database; the key itself is valid |
 | `qbittorrent` | `no_torrent_client` | `skipped` | no client configured |
 | `qbittorrent` | `client_build_failed` | `fail` | client URL unusable |
 | `qbittorrent` | `client_login_rejected` | `fail` | credentials in the URL; percent-encode `@ : / # ?` of the password |

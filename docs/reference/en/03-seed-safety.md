@@ -77,6 +77,15 @@ A torrent that is not ours is never paused, deleted or moved. A single candidate
 - `dedupe` replaces files **on the torrent side**; `repair apply` only touches links under `linkDirs`, `dedupe.torrentRoots` or the scan folder.
 - A hardlink shares the inode of the library file: any client writer on that link writes into the file. That is why invariant 5 exists.
 
+## Passkeys of indexer torrents
+
+A `.torrent` downloaded from a Torznab indexer carries the tracker announce, hence its passkey. It is never kept in clear. Match does not download indexer `.torrent` files yet: what follows is the format in place for when it does.
+
+- **Sanitized copy** (in clear): the `info` dictionary copied byte for byte (never decoded then re-encoded: the infohash does not change, even for a non-canonical `info`), plus `creation date`, `encoding` and `piece layers` (hashes only). Everything else at the top level is removed: `announce`, `announce-list`, `comment`, `created by`, `url-list`, `httpseeds`, `nodes`, `publisher-url`, `azureus_properties` and any unknown key. A `.torrent` above 8 MiB, nested deeper than 64 levels or unreadable is refused, and the error never quotes its content.
+- **Sealed copy**: the full `.torrent` encrypted with AES-256-GCM under `NECROMANCIARR_SECRET_KEY`. A blob is version (1 byte, value 1) ‖ nonce (12 bytes) ‖ ciphertext ‖ tag (16 bytes); the nonce is drawn from `crypto/rand` for every seal, and a failing random source makes the seal fail. The associated data is exactly `infohash|tracker|source` (infohash as 40 lowercase hex characters, tracker possibly empty, source `provider` or `torznab:<name>`); `|`, control characters and invalid UTF-8 are refused in every component, so two distinct bindings never collide. A blob moved to another candidate, tracker or source, truncated, altered or opened with another key gives one single error, `sealed_torrent_unreadable`, which does not tell which of these causes.
+- **The key**: 32 bytes in base64url without padding (43 characters), drawn by `necromanciarr api-key --secret`, which prints it on stdout only. Only this spelling is accepted (no standard base64, no hex, no spaces); an invalid value is a usage error that names the variable only. The key is never serialized and is masked everywhere in its likely spellings (raw, base64, hex). Zeroing it in memory is best effort only: Go does not guarantee there is no copy.
+- **Key lost or changed**: candidates stay readable (the sanitized copy is enough for Verify), but Seed refuses a candidate whose blob no longer unseals and `doctor` (`secret-key`) reports it as `sealed_torrent_unreadable`. Running Verify again on this candidate fetches a fresh `.torrent` within the indexer budget. Back the key up with the `.env`.
+
 ## Resumption after an interruption
 
 | Moment of the interruption | Effect on rerun |

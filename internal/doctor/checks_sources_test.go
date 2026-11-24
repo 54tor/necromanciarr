@@ -1,7 +1,9 @@
 package doctor
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +20,7 @@ import (
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/prowlarr"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/torznab"
 )
 
@@ -274,7 +277,8 @@ func TestDoctor_redactsTorznabAndSFTPSecrets(t *testing.T) {
 	report := Run(context.Background(), Build(settings, deps))
 
 	for _, rendered := range []string{renderedJSON(t, report, frenchTranslator), renderedJSON(t, report, englishTranslator)} {
-		if strings.Contains(rendered, "secret-") {
+		// Les clés factices commencent par « secret- » ; l'identifiant du contrôle secret-key n'en est pas une.
+		if strings.Contains(strings.ReplaceAll(rendered, `"`+IDSecretKey+`"`, ""), "secret-") {
 			t.Fatalf("leaked a secret: %s", rendered)
 		}
 	}
@@ -393,5 +397,117 @@ func TestDoctor_torznabCachesTheCapsOutcomeForFiveMinutes(t *testing.T) {
 				t.Fatalf("gotValue %s then %s, expectedValue the same outcome", first.Result.Code, second.Result.Code)
 			}
 		})
+	}
+}
+
+// Clés de test à faible entropie, jamais de vraies clés.
+var (
+	doctorTestKey  = bytes.Repeat([]byte{0x01}, sources.KeySize)
+	doctorOtherKey = bytes.Repeat([]byte{0x02}, sources.KeySize)
+)
+
+const sealedInfohash = "0123456789abcdef0123456789abcdef01234567"
+
+type fakeSealedProbe struct {
+	sealed []SealedTorrent
+	err    error
+}
+
+func (probe fakeSealedProbe) SealedTorrents(context.Context, int) ([]SealedTorrent, error) {
+	return probe.sealed, probe.err
+}
+
+func sealedFor(t *testing.T, key []byte, candidateID int64) SealedTorrent {
+	t.Helper()
+	sealer, err := sources.NewSealer(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := sources.Binding{Infohash: sealedInfohash, Tracker: "tracker-a", Source: "torznab:12"}
+	blob, err := sealer.Seal([]byte("d8:announce22:https://example.com/fakee"), binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return SealedTorrent{CandidateID: candidateID, Binding: binding, Blob: blob}
+}
+
+func secretSettings(key []byte) config.Config {
+	settings := sourceSettings("http://example.com/12/api?apikey=" + fakeIndexerKey)
+	settings.SecretKey = key
+	return settings
+}
+
+func TestDoctor_secretKeyReportsUnreadableBlob(t *testing.T) {
+	probe := fakeSealedProbe{sealed: []SealedTorrent{sealedFor(t, doctorTestKey, 3), sealedFor(t, doctorOtherKey, 7)}}
+
+	outcome := runCheck(t, secretSettings(doctorTestKey), Deps{SealedProbe: probe}, IDSecretKey)
+
+	if outcome.Result.Status != Fail || outcome.Result.Code != CodeSealedTorrentUnreadable {
+		t.Fatalf("gotValue %v %s, expectedValue fail %s", outcome.Result.Status, outcome.Result.Code, CodeSealedTorrentUnreadable)
+	}
+	report := Report{Checks: []Outcome{outcome}}
+	french, english := renderedJSON(t, report, frenchTranslator), renderedJSON(t, report, englishTranslator)
+	if !strings.Contains(french, "relancer Verify sur ce candidat") || !strings.Contains(english, "run Verify again on this candidate") {
+		t.Fatalf("gotValue %s / %s, expectedValue the Verify hint in both languages", french, english)
+	}
+	if !strings.Contains(english, "7") || strings.Contains(english, "candidates 3") {
+		t.Fatalf("gotValue %s, expectedValue only candidate 7 named", english)
+	}
+	for _, leaked := range []string{base64.RawURLEncoding.EncodeToString(doctorTestKey), "example.com/fake"} {
+		if strings.Contains(french+english, leaked) {
+			t.Fatalf("gotValue %q in %s", leaked, french+english)
+		}
+	}
+}
+
+func TestDoctor_secretKeyCodes(t *testing.T) {
+	readable := fakeSealedProbe{sealed: []SealedTorrent{sealedFor(t, doctorTestKey, 3)}}
+	scenarios := []struct {
+		name           string
+		settings       config.Config
+		deps           Deps
+		expectedStatus Status
+		expectedCode   string
+	}{
+		{"key and readable blobs", secretSettings(doctorTestKey), Deps{SealedProbe: readable}, OK, CodeSecretKeyOK},
+		{"key without probe", secretSettings(doctorTestKey), Deps{}, OK, CodeSecretKeyOK},
+		{"torznab without key", secretSettings(nil), Deps{}, Fail, CodeSecretKeyMissing},
+		{"wrong length", secretSettings(doctorTestKey[:16]), Deps{SealedProbe: readable}, Fail, CodeSecretKeyWrongLength},
+		{"probe failure", secretSettings(doctorTestKey), Deps{SealedProbe: fakeSealedProbe{err: errors.New("database locked")}}, Warn, CodeSealedTorrentsUnchecked},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			outcome := runCheck(t, scenario.settings, scenario.deps, IDSecretKey)
+
+			if outcome.Result.Status != scenario.expectedStatus || outcome.Result.Code != scenario.expectedCode {
+				t.Fatalf("gotValue %v %s, expectedValue %v %s", outcome.Result.Status, outcome.Result.Code, scenario.expectedStatus, scenario.expectedCode)
+			}
+		})
+	}
+	if containsID(checkIDs(Build(config.Config{ListenAddr: "127.0.0.1:1"}, Deps{})), IDSecretKey) {
+		t.Fatal("gotValue a secret-key check without torznab nor key, expectedValue none")
+	}
+}
+
+func TestDoctor_secretKeyLoadFailureNamesItsCode(t *testing.T) {
+	scenarios := map[error]string{
+		config.ErrSecretKeyRequired:            CodeSecretKeyMissing,
+		config.InvalidSecretKeyError{}:         CodeSecretKeyWrongLength,
+		errors.New("readBytesPerSecond wrong"): "",
+	}
+	for loadErr, expectedCode := range scenarios {
+		check, found := SecretKeyFailure(loadErr)
+		if expectedCode == "" {
+			if found {
+				t.Fatalf("%v: gotValue a secret-key check, expectedValue none", loadErr)
+			}
+			continue
+		}
+		if !found || check.ID != IDSecretKey {
+			t.Fatalf("%v: gotValue %v %q, expectedValue the secret-key check", loadErr, found, check.ID)
+		}
+		if gotCode := Run(context.Background(), []Check{check}).Checks[0].Result.Code; gotCode != expectedCode {
+			t.Fatalf("%v: gotValue %s, expectedValue %s", loadErr, gotCode, expectedCode)
+		}
 	}
 }

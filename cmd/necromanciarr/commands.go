@@ -479,7 +479,11 @@ func doctorConfigFailure(translator i18n.Translator, loadErr error) output {
 			Hint:   i18n.Message{Key: i18n.KeyDoctorConfigLoadFailedHint},
 		}
 	}}
-	return doctorOutput(translator, doctor.Run(context.Background(), []doctor.Check{check}))
+	checks := []doctor.Check{check}
+	if secretKeyCheck, isSecretKeyFailure := doctor.SecretKeyFailure(loadErr); isSecretKeyFailure {
+		checks = append(checks, secretKeyCheck)
+	}
+	return doctorOutput(translator, doctor.Run(context.Background(), checks))
 }
 
 func nonNil[Element any](values []Element) []Element {
@@ -510,7 +514,7 @@ func usageText(translator i18n.Translator) string {
 	}{
 		{"serve", i18n.KeyCLIUsageServe},
 		{"healthcheck", i18n.KeyCLIUsageHealthcheck},
-		{"api-key", i18n.KeyCLIUsageAPIKey},
+		{"api-key [--secret]", i18n.KeyCLIUsageAPIKey},
 		{"config check", i18n.KeyCLIUsageConfigCheck},
 	} {
 		_, _ = fmt.Fprintf(&usage, "  %-23s %s\n", line.name, translator.Text(line.key, nil))
