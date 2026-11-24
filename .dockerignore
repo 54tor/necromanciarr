@@ -3,3 +3,8 @@
 !go.sum
 !cmd
 !internal
+!web
+web/node_modules
+web/coverage
+# Reconstruit par l'étape ui ; la copie locale éventuelle ne doit pas entrer dans le contexte.
+internal/web/ui/dist

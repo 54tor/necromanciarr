@@ -1,3 +1,14 @@
+# Interface web : étape indépendante de l'architecture cible (le JS construit est identique partout),
+# donc exécutée sur la machine de build. Tag Node exact, vérifié avec docker manifest inspect.
+# --ignore-scripts : aucune dépendance n'a besoin de script d'installation.
+FROM --platform=$BUILDPLATFORM node:26.13.1-trixie-slim AS ui
+WORKDIR /src/web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --ignore-scripts --no-audit --no-fund
+COPY web ./
+# vite.config.ts écrit dans ../internal/web/ui/dist, soit /src/internal/web/ui/dist.
+RUN npm run build
+
 # Compilation croisée native : l'étape Go tourne sur la machine de build, jamais sous émulation.
 # Tag Go aligné sur la version de go.mod.
 FROM --platform=$BUILDPLATFORM golang:1.27.4-trixie AS builder
@@ -8,6 +19,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
+# Remplace le marqueur de remplacement par l'interface construite.
+COPY --from=ui /src/internal/web/ui/dist ./internal/web/ui/dist
 # Binaire statique et reproductible ; /data est préparé ici car l'étape finale n'a aucun RUN.
 ENV CGO_ENABLED=0 GOFLAGS=-trimpath
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /out/necromanciarr ./cmd/necromanciarr \
