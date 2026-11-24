@@ -104,10 +104,16 @@ Les candidats qui se disputent un même fichier local forment un groupe (`group_
 | Colonne de `torrent_candidates` | Contenu | Effacement |
 |---|---|---|
 | `source` | `provider`, ou `torznab:<name>` pour un indexeur ; la première source qui a fourni le candidat, gardée ensuite. Les candidats d'une base antérieure valent `provider` | jamais |
-| `torrent` | `.torrent` sans annonce : celui du fournisseur, ou la copie assainie d'un indexeur. Un `.torrent` dont le premier niveau porte `announce` ou `announce-list`, ou illisible, est refusé (`ErrUnsanitizedTorrent`) ; un fichier nommé `announce` dans `info` est accepté. 8 Mio au plus | avec le candidat |
+| `torrent` | `.torrent` sans annonce : Verify n'y conserve que la copie assainie (`info` recopié à l'identique, donc même infohash), pour le fournisseur comme pour un indexeur ; un `.torrent` que l'assainissement refuse rend le candidat `failed` (`invalid_torrent`) sans arrêter l'étape. Garde-fou de la colonne : un premier niveau qui porte `announce`, `announce-list`, `url-list`, `httpseeds` ou `comment`, ou illisible, est refusé (`ErrUnsanitizedTorrent`) ; un fichier nommé `announce` dans `info` est accepté. 8 Mio au plus | avec le candidat |
 | `torrent_sealed` | `.torrent` complet d'un indexeur (il porte la passkey), scellé par `NECROMANCIARR_SECRET_KEY` et lié à `infohash`, `tracker` et `source` de la ligne ; 8 Mio + 128 octets au plus, garantis par la base | voir ci-dessous |
 
-Le bloc scellé est effacé par la base, dans l'instruction même qui passe une proposition du candidat à `applied`, `rejected` ou `superseded`, dès qu'il ne reste au candidat aucune proposition `pending`, `accepted` ou `failed` : une décision annulée le garde, et un litige rejeté ne l'efface pas tant que la `full` du même candidat reste ouverte. Péremption, échec, réassociation et suppression du fichier local passent par `superseded` et l'effacent donc aussi. Un candidat périmé sans proposition garde son bloc. Il est aussi effacé pour les candidats d'un tracker qu'une entrée `trackers` couvre désormais (tracker comparé octet pour octet à la valeur stockée).
+Le bloc scellé est effacé par la base, dans l'instruction même qui écrit l'un de ces changements, sans fenêtre où l'un irait sans l'autre :
+
+- le candidat passe `failed` ou `stale`, avec ou sans proposition (une relance retélécharge le `.torrent`) ;
+- une proposition du candidat passe `applied`, `rejected` ou `superseded` et il ne lui reste aucune autre proposition `pending`, `accepted` ou `failed` hors `conflict` (un litige ne se seed jamais) : un litige rejeté ne l'efface pas tant que la `full` du même candidat reste ouverte ;
+- un tracker qu'une entrée `trackers` couvre désormais (tracker comparé octet pour octet à la valeur stockée).
+
+Une proposition `pending` ou `failed` jamais décidée garde le bloc, puisque Seed en a besoin ; pour que rien ne reste indéfiniment, chaque Verify efface d'abord tout bloc dont le candidat n'a pas été mis à jour depuis 30 jours.
 
 ## Reprise, verrou, plafonds
 

@@ -411,10 +411,29 @@ const sealedInfohash = "0123456789abcdef0123456789abcdef01234567"
 type fakeSealedProbe struct {
 	sealed []SealedTorrent
 	err    error
+	// asked garde la limite et le budget demandés par le contrôle.
+	asked *[2]int64
 }
 
-func (probe fakeSealedProbe) SealedTorrents(context.Context, int) ([]SealedTorrent, error) {
-	return probe.sealed, probe.err
+// EachSealedTorrent applique limite et budget comme le store : arrêt au premier bloc qui ne tient plus.
+func (probe fakeSealedProbe) EachSealedTorrent(_ context.Context, limit int, maxBytes int64, visit func(SealedTorrent) error) (int, error) {
+	if probe.asked != nil {
+		*probe.asked = [2]int64{int64(limit), maxBytes}
+	}
+	if probe.err != nil {
+		return 0, probe.err
+	}
+	var visitedBytes int64
+	for visited, torrent := range probe.sealed {
+		visitedBytes += int64(len(torrent.Blob))
+		if visited >= limit || visitedBytes > maxBytes {
+			return len(probe.sealed) - visited, nil
+		}
+		if err := visit(torrent); err != nil {
+			return 0, err
+		}
+	}
+	return 0, nil
 }
 
 func sealedFor(t *testing.T, key []byte, candidateID int64) SealedTorrent {
@@ -510,5 +529,32 @@ func TestDoctor_secretKeyLoadFailureNamesItsCode(t *testing.T) {
 		if gotCode := Run(context.Background(), []Check{check}).Checks[0].Result.Code; gotCode != expectedCode {
 			t.Fatalf("%v: gotValue %s, expectedValue %s", loadErr, gotCode, expectedCode)
 		}
+	}
+}
+
+func TestDoctor_secretKeyUnsealsWithinACountAndByteBudget(t *testing.T) {
+	var asked [2]int64
+	readable := fakeSealedProbe{sealed: []SealedTorrent{sealedFor(t, doctorTestKey, 3)}, asked: &asked}
+	runCheck(t, secretSettings(doctorTestKey), Deps{SealedProbe: readable}, IDSecretKey)
+	if expectedValue := [2]int64{1000, 64 << 20}; asked != expectedValue {
+		t.Fatalf("gotValue limit and budget %v, expectedValue %v", asked, expectedValue)
+	}
+
+	oversized := sealedFor(t, doctorTestKey, 9)
+	oversized.Blob = append(oversized.Blob, make([]byte, 64<<20)...)
+	overBudget := fakeSealedProbe{sealed: []SealedTorrent{sealedFor(t, doctorTestKey, 3), oversized}}
+	outcome := runCheck(t, secretSettings(doctorTestKey), Deps{SealedProbe: overBudget}, IDSecretKey)
+	if outcome.Result.Status != Warn || outcome.Result.Code != CodeSealedTorrentsUnchecked {
+		t.Fatalf("over budget: gotValue %v %s, expectedValue warn %s", outcome.Result.Status, outcome.Result.Code, CodeSealedTorrentsUnchecked)
+	}
+	english := renderedJSON(t, Report{Checks: []Outcome{outcome}}, englishTranslator)
+	if !strings.Contains(english, "1 sealed") {
+		t.Fatalf("gotValue %s, expectedValue the unchecked count named", english)
+	}
+
+	unreadableOverBudget := fakeSealedProbe{sealed: []SealedTorrent{sealedFor(t, doctorOtherKey, 3), oversized}}
+	outcome = runCheck(t, secretSettings(doctorTestKey), Deps{SealedProbe: unreadableOverBudget}, IDSecretKey)
+	if outcome.Result.Status != Fail || outcome.Result.Code != CodeSealedTorrentUnreadable {
+		t.Fatalf("unreadable and over budget: gotValue %v %s, expectedValue fail %s", outcome.Result.Status, outcome.Result.Code, CodeSealedTorrentUnreadable)
 	}
 }

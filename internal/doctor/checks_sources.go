@@ -22,9 +22,11 @@ const (
 	IDSecretKey = "secret-key"
 	// maxSealedProbed borne les blocs descellés par diagnostic.
 	// ponytail: 1000 premiers blocs seulement ; paginer si une base en garde plus.
-	maxSealedProbed    = 1000
-	torznabCheckPrefix = "torznab:"
-	noModes            = "-"
+	maxSealedProbed = 1000
+	// maxSealedProbedBytes borne les octets scellés lus par diagnostic ; le reste est signalé non vérifié.
+	maxSealedProbedBytes = 64 << 20
+	torznabCheckPrefix   = "torznab:"
+	noModes              = "-"
 )
 
 // CapsReader lit les capacités d'un indexeur Torznab : la seule requête que doctor lui adresse, qui ne compte ni
@@ -220,9 +222,10 @@ type SealedTorrent struct {
 	Blob        []byte
 }
 
-// SealedProbe lit au plus limit .torrent scellés en base ; app le fournit quand le store les garde.
+// SealedProbe remet un à un au visiteur au plus limit .torrent scellés totalisant au plus maxBytes, et renvoie le
+// nombre de blocs non remis ; app le branche sur le store.
 type SealedProbe interface {
-	SealedTorrents(ctx context.Context, limit int) ([]SealedTorrent, error)
+	EachSealedTorrent(ctx context.Context, limit int, maxBytes int64, visit func(SealedTorrent) error) (unvisited int, err error)
 }
 
 // secretKeyChecks crée le contrôle secret-key quand un indexeur est configuré ou qu'une clé est donnée.
@@ -281,11 +284,10 @@ func checkSecretKey(ctx context.Context, key []byte, hasTorznab bool, probe Seal
 	if probe == nil {
 		return Result{Status: OK, Code: CodeSecretKeyOK, Detail: message(i18n.KeyDoctorSecretKeyOKUnprobed)}
 	}
-	sealed, err := probe.SealedTorrents(ctx, maxSealedProbed)
+	readable, unreadable, unvisited, err := unsealEach(ctx, sealer, probe)
 	if err != nil {
 		return Result{Status: Warn, Code: CodeSealedTorrentsUnchecked, Detail: message(i18n.KeyDoctorSealedUnchecked, "error", err.Error())}
 	}
-	unreadable := unreadableCandidates(sealer, sealed)
 	if len(unreadable) > 0 {
 		return Result{
 			Status: Fail, Code: CodeSealedTorrentUnreadable,
@@ -293,16 +295,23 @@ func checkSecretKey(ctx context.Context, key []byte, hasTorznab bool, probe Seal
 			Hint:   message(i18n.KeyDoctorSealedUnreadableHint),
 		}
 	}
-	return Result{Status: OK, Code: CodeSecretKeyOK, Detail: message(i18n.KeyDoctorSecretKeyOK, "count", strconv.Itoa(len(sealed)))}
+	if unvisited > 0 {
+		return Result{Status: Warn, Code: CodeSealedTorrentsUnchecked, Detail: message(i18n.KeyDoctorSealedOverBudget,
+			"count", strconv.Itoa(readable), "unchecked", strconv.Itoa(unvisited))}
+	}
+	return Result{Status: OK, Code: CodeSecretKeyOK, Detail: message(i18n.KeyDoctorSecretKeyOK, "count", strconv.Itoa(readable))}
 }
 
-// unreadableCandidates nomme chaque candidat dont le bloc ne se descelle pas ; le contenu descellé est aussitôt jeté.
-func unreadableCandidates(sealer *sources.Sealer, sealed []SealedTorrent) []string {
-	var unreadable []string
-	for _, torrent := range sealed {
-		if _, err := sealer.Unseal(torrent.Blob, torrent.Binding); err != nil {
+// unsealEach descelle les blocs un à un dans le budget du diagnostic et nomme chaque candidat dont le bloc ne se
+// descelle pas ; le contenu descellé est aussitôt jeté.
+func unsealEach(ctx context.Context, sealer *sources.Sealer, probe SealedProbe) (readable int, unreadable []string, unvisited int, err error) {
+	unvisited, err = probe.EachSealedTorrent(ctx, maxSealedProbed, maxSealedProbedBytes, func(torrent SealedTorrent) error {
+		if _, unsealErr := sealer.Unseal(torrent.Blob, torrent.Binding); unsealErr == nil {
+			readable++
+		} else {
 			unreadable = append(unreadable, strconv.FormatInt(torrent.CandidateID, 10))
 		}
-	}
-	return unreadable
+		return nil
+	})
+	return readable, unreadable, unvisited, err
 }

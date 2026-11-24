@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/anacrolix/torrent/bencode"
@@ -24,36 +23,10 @@ const MaxSealedBytes = MaxTorrentBytes + 128
 var (
 	// ErrSealedTooLarge refuse un bloc scellé au-delà de MaxSealedBytes.
 	ErrSealedTooLarge = errors.New("store: sealed torrent exceeds its size limit")
-	// ErrUnsanitizedTorrent refuse un .torrent dont le premier niveau porte une annonce (announce ou announce-list),
-	// ou illisible : la colonne torrent ne garde jamais de passkey en clair. L'erreur ne cite jamais le contenu.
+	// ErrUnsanitizedTorrent refuse un .torrent dont le premier niveau porte une clé qui peut contenir une passkey
+	// (announceKeys), ou illisible : la colonne torrent ne garde jamais de passkey en clair. L'erreur ne cite jamais le contenu.
 	ErrUnsanitizedTorrent = errors.New("store: torrent carries an announce or is not a bencoded dictionary")
 )
-
-// sealedClearingDecisions closent une proposition : quand plus aucune proposition du candidat n'est ouverte
-// (nonTerminalDecisions), son bloc scellé ne peut plus servir au seed et la base l'efface dans la même instruction.
-var sealedClearingDecisions = []ProposalDecision{ProposalApplied, ProposalRejected, ProposalSuperseded}
-
-// clearSealedTrigger efface le bloc scellé dans l'instruction même qui écrit la décision : aucun chemin d'écriture
-// (SetProposalDecision, ApplyProposal, péremption, réassociation) ne peut l'oublier, et un retour arrière le rend.
-// Recréé à chaque ouverture, il suit toujours les listes Go.
-func clearSealedTrigger() string {
-	return fmt.Sprintf(`DROP TRIGGER IF EXISTS proposals_clear_sealed;
-CREATE TRIGGER proposals_clear_sealed AFTER UPDATE OF decision ON proposals
-WHEN NEW.candidate_id IS NOT NULL AND NEW.decision IN (%s)
-BEGIN
-	UPDATE torrent_candidates SET torrent_sealed = NULL WHERE id = NEW.candidate_id AND torrent_sealed IS NOT NULL
-		AND NOT EXISTS (SELECT 1 FROM proposals WHERE candidate_id = NEW.candidate_id AND decision IN (%s));
-END;`, quotedDecisions(sealedClearingDecisions), quotedDecisions(nonTerminalDecisions))
-}
-
-// quotedDecisions rend une liste SQL de littéraux ; les décisions sont des constantes du paquet sans apostrophe.
-func quotedDecisions(decisions []ProposalDecision) string {
-	quoted := make([]string, 0, len(decisions))
-	for _, decision := range decisions {
-		quoted = append(quoted, "'"+string(decision)+"'")
-	}
-	return strings.Join(quoted, ", ")
-}
 
 // SealedTorrent est un bloc scellé en base avec les champs de sa liaison, tels que stockés sur la ligne du candidat :
 // le déscellement les reprend toujours de là, jamais de la configuration courante. Blob n'est jamais sérialisé.
@@ -113,30 +86,91 @@ WHERE torrent_sealed IS NOT NULL AND tracker IN (SELECT value FROM json_each(?))
 	return int(cleared), err
 }
 
-// SealedTorrents renvoie au plus limit blocs scellés, par identifiant de candidat (lecture du diagnostic secret-key).
-func (openedStore *Store) SealedTorrents(ctx context.Context, limit int) ([]SealedTorrent, error) {
-	rows, err := openedStore.database.QueryContext(ctx, `SELECT id, infohash, tracker, source, torrent_sealed FROM torrent_candidates
-WHERE torrent_sealed IS NOT NULL ORDER BY id LIMIT ?`, limit)
+// SealedRetention borne la conservation d'un bloc scellé : au-delà de 30 jours sans mise à jour du candidat, il est
+// effacé (PurgeSealedOlderThan, au début de chaque Verify), même si une proposition attend encore une décision.
+const SealedRetention = 30 * 24 * time.Hour
+
+// PurgeSealedOlderThan efface chaque bloc scellé dont le candidat n'a pas été mis à jour depuis olderThan, à partir de
+// now ; renvoie le nombre de blocs effacés.
+func (openedStore *Store) PurgeSealedOlderThan(ctx context.Context, now time.Time, olderThan time.Duration) (int, error) {
+	result, err := openedStore.database.ExecContext(ctx, `UPDATE torrent_candidates SET torrent_sealed = NULL
+WHERE torrent_sealed IS NOT NULL AND updated_at < ?`, now.Add(-olderThan).UnixNano())
 	if err != nil {
-		return nil, fmt.Errorf("list sealed torrents: %w", err)
+		return 0, fmt.Errorf("purge sealed torrents: %w", err)
 	}
-	defer func() { _ = rows.Close() }()
-	var sealed []SealedTorrent
-	for rows.Next() {
-		var torrent SealedTorrent
-		if err := rows.Scan(&torrent.CandidateID, &torrent.Infohash, &torrent.Tracker, &torrent.Source, &torrent.Blob); err != nil {
-			return nil, fmt.Errorf("scan sealed torrent: %w", err)
-		}
-		sealed = append(sealed, torrent)
-	}
-	return sealed, rows.Err()
+	purged, err := result.RowsAffected()
+	return int(purged), err
 }
 
-// announceKeys portent l'annonce, donc la passkey, au premier niveau d'un .torrent.
-var announceKeys = []string{"announce", "announce-list"}
+// sealedEntry décrit un bloc scellé sans le lire.
+type sealedEntry struct {
+	torrent SealedTorrent
+	size    int64
+}
+
+// EachSealedTorrent remet au visiteur, un à un et par identifiant de candidat, au plus limit blocs scellés totalisant
+// au plus maxBytes ; seul le bloc en cours est en mémoire. Renvoie le nombre de blocs non remis (limite ou budget
+// atteint) ; une erreur du visiteur arrête le parcours.
+func (openedStore *Store) EachSealedTorrent(ctx context.Context, limit int, maxBytes int64, visit func(SealedTorrent) error) (int, error) {
+	entries, total, err := openedStore.sealedEntries(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	var visited int
+	var visitedBytes int64
+	for _, entry := range entries {
+		if visitedBytes+entry.size > maxBytes {
+			break
+		}
+		torrent := entry.torrent
+		if err := openedStore.database.QueryRowContext(ctx, `SELECT torrent_sealed FROM torrent_candidates WHERE id = ?`,
+			torrent.CandidateID).Scan(&torrent.Blob); err != nil {
+			return 0, fmt.Errorf("load sealed torrent: %w", err)
+		}
+		visited++
+		visitedBytes += entry.size
+		if torrent.Blob == nil {
+			continue
+		}
+		if err := visit(torrent); err != nil {
+			return 0, err
+		}
+	}
+	return total - visited, nil
+}
+
+// sealedEntries lit la liaison et la taille des limit premiers blocs, sans leur contenu, et le nombre total de blocs.
+func (openedStore *Store) sealedEntries(ctx context.Context, limit int) ([]sealedEntry, int, error) {
+	var total int
+	if err := openedStore.database.QueryRowContext(ctx, `SELECT count(*) FROM torrent_candidates WHERE torrent_sealed IS NOT NULL`).
+		Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count sealed torrents: %w", err)
+	}
+	rows, err := openedStore.database.QueryContext(ctx, `SELECT id, infohash, tracker, source, length(torrent_sealed)
+FROM torrent_candidates WHERE torrent_sealed IS NOT NULL ORDER BY id LIMIT ?`, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list sealed torrents: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var entries []sealedEntry
+	for rows.Next() {
+		var entry sealedEntry
+		if err := rows.Scan(&entry.torrent.CandidateID, &entry.torrent.Infohash, &entry.torrent.Tracker, &entry.torrent.Source,
+			&entry.size); err != nil {
+			return nil, 0, fmt.Errorf("scan sealed torrent: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	return entries, total, rows.Err()
+}
+
+// announceKeys peuvent porter une passkey au premier niveau d'un .torrent (annonces, sources web, commentaire avec
+// lien) : ce garde-fou de la colonne torrent double l'assainissement (sources.Sanitize), qui ne garde que info,
+// creation date, encoding et piece layers.
+var announceKeys = []string{"announce", "announce-list", "url-list", "httpseeds", "comment"}
 
 // refuseUnsanitized lit les clés du premier niveau (valeurs gardées brutes, info jamais interprété) : un fichier
-// nommé « announce » dans info ne compte pas, une clé announce ou announce-list du premier niveau est refusée.
+// nommé « announce » dans info ne compte pas, une clé de announceKeys au premier niveau est refusée.
 func refuseUnsanitized(raw []byte) error {
 	var topLevel map[string]bencode.Bytes
 	if err := bencode.Unmarshal(raw, &topLevel); err != nil || topLevel == nil {

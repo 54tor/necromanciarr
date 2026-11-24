@@ -79,6 +79,7 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 		return Deps{}, fmt.Errorf("app: fs providers: %w", err)
 	}
 	deps.Stages, deps.HashSources = stages, registry
+	deps.DoctorDeps.SealedProbe = openStoreProbe{store: openedStore}
 	return deps, nil
 }
 

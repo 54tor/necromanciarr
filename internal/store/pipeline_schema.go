@@ -180,8 +180,8 @@ func upgradeInTransaction(ctx context.Context, connection *sql.Conn) error {
 	if _, err := connection.ExecContext(ctx, postUpgradeSchema); err != nil {
 		return fmt.Errorf("create post-upgrade schema: %w", err)
 	}
-	if _, err := connection.ExecContext(ctx, clearSealedTrigger()); err != nil {
-		return fmt.Errorf("create sealed clear trigger: %w", err)
+	if err := ensureTriggers(ctx, connection, sealedTriggers()); err != nil {
+		return fmt.Errorf("upgrade schema: %w", err)
 	}
 	return nil
 }

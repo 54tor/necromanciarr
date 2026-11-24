@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // testSealedBlob est un bloc opaque : le store ne déchiffre rien, seuls ses octets comptent ici.
@@ -406,37 +407,245 @@ func TestCandidateSealed_reportsMissingCandidateAndMissingBlob(t *testing.T) {
 	}
 }
 
-func TestSealedTorrents_listsBlobsWithTheStoredBindingUpToTheLimit(t *testing.T) {
-	ctx := context.Background()
-	openedStore := openTestStore(t)
+func saveSealedCandidates(t *testing.T, openedStore *Store, infohashes ...string) []int64 {
+	t.Helper()
 	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
 	files := []CandidateFile{{Path: "Film/film.mkv", Size: 10, MediaFileID: mediaFile.ID, MediaSize: 10, MediaModTime: mediaFile.ModTime}}
-	for _, infohash := range []string{"aa", "bb", "cc"} {
-		candidateID, _, err := openedStore.SaveCandidate(ctx, Candidate{
-			Infohash: infohash, Tracker: "tracker-a", Name: "Film", TotalSize: 10,
-			Source: "torznab:alpha",
+	var candidateIDs []int64
+	for _, infohash := range infohashes {
+		candidateID, _, err := openedStore.SaveCandidate(context.Background(), Candidate{
+			Infohash: infohash, Tracker: "tracker-a", Name: "Film", TotalSize: 10, Source: "torznab:alpha",
 		}, files, testNow)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if infohash != "bb" {
-			sealTestCandidate(t, openedStore, candidateID)
-		}
+		candidateIDs = append(candidateIDs, candidateID)
 	}
-	gotValue, err := openedStore.SealedTorrents(ctx, 10)
+	return candidateIDs
+}
+
+// visitedSealed parcourt les blocs scellés et compte les octets remis au visiteur.
+func visitedSealed(t *testing.T, openedStore *Store, limit int, maxBytes int64) (visited []SealedTorrent, visitedBytes int64, unvisited int) {
+	t.Helper()
+	unvisited, err := openedStore.EachSealedTorrent(context.Background(), limit, maxBytes, func(torrent SealedTorrent) error {
+		visited = append(visited, torrent)
+		visitedBytes += int64(len(torrent.Blob))
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return visited, visitedBytes, unvisited
+}
+
+func TestEachSealedTorrent_visitsBlobsOneAtATimeWithTheStoredBinding(t *testing.T) {
+	openedStore := openTestStore(t)
+	candidateIDs := saveSealedCandidates(t, openedStore, "aa", "bb", "cc")
+	sealTestCandidate(t, openedStore, candidateIDs[0])
+	sealTestCandidate(t, openedStore, candidateIDs[2])
+
+	gotValue, _, unvisited := visitedSealed(t, openedStore, 10, 1<<20)
+
 	expectedValue := []SealedTorrent{
-		{CandidateID: 1, Infohash: "aa", Tracker: "tracker-a", Source: "torznab:alpha", Blob: testSealedBlob},
-		{CandidateID: 3, Infohash: "cc", Tracker: "tracker-a", Source: "torznab:alpha", Blob: testSealedBlob},
+		{CandidateID: candidateIDs[0], Infohash: "aa", Tracker: "tracker-a", Source: "torznab:alpha", Blob: testSealedBlob},
+		{CandidateID: candidateIDs[2], Infohash: "cc", Tracker: "tracker-a", Source: "torznab:alpha", Blob: testSealedBlob},
 	}
-	if !reflect.DeepEqual(gotValue, expectedValue) {
-		t.Fatalf("gotValue %+v, expectedValue %+v", gotValue, expectedValue)
+	if !reflect.DeepEqual(gotValue, expectedValue) || unvisited != 0 {
+		t.Fatalf("gotValue %+v (unvisited %d), expectedValue %+v", gotValue, unvisited, expectedValue)
 	}
-	limited, err := openedStore.SealedTorrents(ctx, 1)
-	if err != nil || len(limited) != 1 {
-		t.Fatalf("gotValue %d blobs (err %v), expectedValue 1", len(limited), err)
+}
+
+func TestEachSealedTorrent_stopsAtTheCountOrByteBudgetAndCountsTheRest(t *testing.T) {
+	openedStore := openTestStore(t)
+	for _, candidateID := range saveSealedCandidates(t, openedStore, "aa", "bb", "cc") {
+		sealTestCandidate(t, openedStore, candidateID)
+	}
+	blobSize := int64(len(testSealedBlob))
+	testCases := []struct {
+		name                   string
+		limit                  int
+		maxBytes               int64
+		expectedVisited        int
+		expectedUnvisitedBlobs int
+	}{
+		{"count limit", 1, 1 << 20, 1, 2},
+		{"byte budget", 10, 2*blobSize + 1, 2, 1},
+		{"budget below one blob", 10, blobSize - 1, 0, 3},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			visited, visitedBytes, unvisited := visitedSealed(t, openedStore, testCase.limit, testCase.maxBytes)
+			if len(visited) != testCase.expectedVisited || unvisited != testCase.expectedUnvisitedBlobs || visitedBytes > testCase.maxBytes {
+				t.Fatalf("gotValue %d visited, %d bytes, %d unvisited, expectedValue %d visited, %d unvisited, at most %d bytes",
+					len(visited), visitedBytes, unvisited, testCase.expectedVisited, testCase.expectedUnvisitedBlobs, testCase.maxBytes)
+			}
+		})
+	}
+}
+
+func TestEachSealedTorrent_stopsOnVisitorErrorAndOnCancellation(t *testing.T) {
+	openedStore := openTestStore(t)
+	for _, candidateID := range saveSealedCandidates(t, openedStore, "aa", "bb") {
+		sealTestCandidate(t, openedStore, candidateID)
+	}
+	expectedValue := errors.New("visitor stopped")
+	visits := 0
+	_, err := openedStore.EachSealedTorrent(context.Background(), 10, 1<<20, func(SealedTorrent) error {
+		visits++
+		return expectedValue
+	})
+	if !errors.Is(err, expectedValue) || visits != 1 {
+		t.Fatalf("gotValue %v after %d visits, expectedValue the visitor error after 1", err, visits)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := openedStore.EachSealedTorrent(cancelled, 10, 1<<20, func(SealedTorrent) error { return nil }); err == nil {
+		t.Fatal("gotValue no error on a cancelled context, expectedValue the cancellation")
+	}
+}
+
+func TestStore_clearsSealedWhenTheCandidateFailsOrGoesStale(t *testing.T) {
+	ctx := context.Background()
+	transitions := map[string]struct {
+		withProposal bool
+		transition   func(openedStore *Store, candidateID int64) error
+	}{
+		"failed without proposal": {false, func(openedStore *Store, candidateID int64) error {
+			return openedStore.SetCandidateState(ctx, candidateID, CandidateFailed, testNow)
+		}},
+		"failed with a pending proposal": {true, func(openedStore *Store, candidateID int64) error {
+			return openedStore.SetCandidateState(ctx, candidateID, CandidateFailed, testNow)
+		}},
+		"stale without proposal": {false, func(openedStore *Store, candidateID int64) error {
+			return openedStore.SetCandidateState(ctx, candidateID, CandidateStale, testNow)
+		}},
+		"local file invalidated without proposal": {false, func(openedStore *Store, candidateID int64) error {
+			files, err := openedStore.ListCandidateFiles(ctx, candidateID)
+			if err != nil {
+				return err
+			}
+			_, err = openedStore.InvalidateCandidatesForFile(ctx, files[0].MediaFileID, testNow)
+			return err
+		}},
+	}
+	for transitionName, scenario := range transitions {
+		t.Run(transitionName, func(t *testing.T) {
+			openedStore := openTestStore(t)
+			candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+			if scenario.withProposal {
+				markVerified(t, openedStore, candidateID)
+				if _, err := openedStore.CreateProposal(ctx, Proposal{CandidateID: candidateID, Kind: ProposalFull}, testNow); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sealTestCandidate(t, openedStore, candidateID)
+
+			if err := scenario.transition(openedStore, candidateID); err != nil {
+				t.Fatal(err)
+			}
+			if hasSealed(t, openedStore, candidateID) {
+				t.Fatal("gotValue a sealed torrent kept on a failed or stale candidate, expectedValue none")
+			}
+		})
+	}
+}
+
+func TestStore_keepsTheSealedOnMatchedFetchedAndVerifiedCandidates(t *testing.T) {
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	sealTestCandidate(t, openedStore, candidateID)
+	markVerified(t, openedStore, candidateID)
+	if !hasSealed(t, openedStore, candidateID) {
+		t.Fatal("gotValue the sealed cleared by fetched or verified, expectedValue kept")
+	}
+}
+
+func TestStore_purgesSealedTorrentsOlderThanTheRetention(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateIDs := saveSealedCandidates(t, openedStore, "aa", "bb")
+	sealedAt := map[int64]time.Time{candidateIDs[0]: testNow, candidateIDs[1]: testNow.Add(20 * 24 * time.Hour)}
+	for candidateID, moment := range sealedAt {
+		if err := openedStore.SaveCandidateSealed(ctx, candidateID, testSealedBlob, moment); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fakeNow := testNow.Add(SealedRetention + time.Hour)
+
+	gotValue, err := openedStore.PurgeSealedOlderThan(ctx, fakeNow, SealedRetention)
+	if err != nil || gotValue != 1 {
+		t.Fatalf("gotValue %d purged (err %v), expectedValue 1", gotValue, err)
+	}
+	if hasSealed(t, openedStore, candidateIDs[0]) || !hasSealed(t, openedStore, candidateIDs[1]) {
+		t.Fatal("gotValue the wrong blob purged, expectedValue only the one older than the retention")
+	}
+	if SealedRetention != 30*24*time.Hour {
+		t.Fatalf("gotValue retention %s, expectedValue the documented 30 days", SealedRetention)
+	}
+}
+
+func TestStore_ignoresConflictProposalsWhenKeepingTheSealed(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, fullID := pendingTestProposal(t, openedStore)
+	if _, err := openedStore.CreateProposal(ctx, Proposal{CandidateID: candidateID, Kind: ProposalConflict}, testNow); err != nil {
+		t.Fatal(err)
+	}
+	sealTestCandidate(t, openedStore, candidateID)
+
+	if err := openedStore.SetProposalDecision(ctx, fullID, ProposalRejected, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if hasSealed(t, openedStore, candidateID) {
+		t.Fatal("gotValue the sealed kept by a pending conflict, expectedValue cleared: a conflict is never seeded")
+	}
+}
+
+func schemaVersion(t *testing.T, databasePath string) int {
+	t.Helper()
+	database, err := sql.Open("sqlite", dataSourceName(databasePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = database.Close() }()
+	return countRows(t, database, `PRAGMA schema_version`)
+}
+
+func TestOpen_leavesAnUpToDateSchemaUntouched(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "necromanciarr.db")
+	for range 2 {
+		openedStore, err := Open(databasePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = openedStore.Close()
+	}
+	before := schemaVersion(t, databasePath)
+	openedStore, err := Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = openedStore.Close()
+	if gotValue := schemaVersion(t, databasePath); gotValue != before {
+		t.Fatalf("gotValue schema version %d after reopening, expectedValue %d (no trigger rewrite)", gotValue, before)
+	}
+}
+
+func TestOpenReadOnly_neverWritesTheSchemaNorTheRows(t *testing.T) {
+	ctx := context.Background()
+	databasePath := createV1Database(t)
+	before := schemaVersion(t, databasePath)
+
+	readOnly, err := OpenReadOnly(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = readOnly.Close() })
+	if gotValue := schemaVersion(t, databasePath); gotValue != before {
+		t.Fatalf("gotValue schema version %d, expectedValue %d: a read-only open must not upgrade", gotValue, before)
+	}
+	if _, err := readOnly.database.ExecContext(ctx, `UPDATE torrent_candidates SET name = 'x'`); err == nil {
+		t.Fatal("gotValue a write accepted by a read-only store, expectedValue refused")
 	}
 }
 
@@ -469,6 +678,9 @@ func TestStore_sealedColumnNeverHoldsPlaintextAnnounce(t *testing.T) {
 		"announce after info": "d4:infod4:name1:ae8:announce20:http://example.com/ae",
 		"not bencode":         "8:announce",
 		"not a dictionary":    "l8:announcee",
+		"url-list":            "d4:infod4:name1:ae8:url-list20:http://example.com/ae",
+		"httpseeds":           "d9:httpseedsl20:http://example.com/ae4:infod4:name1:aee",
+		"comment":             "d7:comment20:http://example.com/a4:infod4:name1:aee",
 	}
 	for caseName, raw := range accepted {
 		t.Run(caseName, func(t *testing.T) {

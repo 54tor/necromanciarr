@@ -321,6 +321,7 @@ var english = map[Key]string{
 	KeyDoctorSealedUnreadable:              "{count} sealed torrent(s) unreadable (key changed or blob altered): candidate(s) {ids}",
 	KeyDoctorSealedUnreadableHint:          "run Verify again on this candidate",
 	KeyDoctorSealedNotProbed:               "key set; sealed torrents not checked (database read not wired yet)",
+	KeyDoctorSealedOverBudget:              "key set; {count} sealed torrent(s) readable, {unchecked} sealed torrent(s) beyond the diagnostic budget (1000 blobs, 64 MiB) not checked",
 	KeyDoctorSealedUnchecked:               "sealed torrents not checked: {error}",
 	KeyReasonAddFailed:                     "the client refused the torrent",
 	KeyReasonAlreadyInClient:               "the torrent is already in the client",

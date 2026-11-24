@@ -321,6 +321,7 @@ var french = map[Key]string{
 	KeyDoctorSealedUnreadable:              "{count} .torrent scellé(s) illisible(s) (clé changée ou bloc altéré) : candidat(s) {ids}",
 	KeyDoctorSealedUnreadableHint:          "relancer Verify sur ce candidat",
 	KeyDoctorSealedNotProbed:               "clé présente ; .torrent scellés non vérifiés (lecture de la base pas encore branchée)",
+	KeyDoctorSealedOverBudget:              "clé présente ; {count} .torrent scellé(s) lisible(s), {unchecked} au-delà du budget du diagnostic (1000 blocs, 64 Mio) non vérifié(s)",
 	KeyDoctorSealedUnchecked:               ".torrent scellés non vérifiés : {error}",
 	KeyReasonAddFailed:                     "le client a refusé le torrent",
 	KeyReasonAlreadyInClient:               "le torrent est déjà dans le client",

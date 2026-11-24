@@ -84,11 +84,15 @@ const pragmaQuery = "_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=
 // dataSourceName construit une URI SQLite : `?`, `#` et `%` du chemin sont échappés,
 // et la lettre de lecteur Windows reste dans le chemin (`file:C:/x/y.db`).
 func dataSourceName(path string) string {
+	return sourceNameWith(path, pragmaQuery)
+}
+
+func sourceNameWith(path, query string) string {
 	sourceURL := url.URL{
 		Scheme:   "file",
 		OmitHost: true,
 		Path:     filepath.ToSlash(path),
-		RawQuery: pragmaQuery,
+		RawQuery: query,
 	}
 	return sourceURL.String()
 }
@@ -101,6 +105,19 @@ func Open(path string) (*Store, error) {
 	}
 	if err := upgradeSchema(database); err != nil {
 		return nil, errors.Join(err, database.Close())
+	}
+	return &Store{database: database}, nil
+}
+
+// readOnlyQuery ouvre la base en lecture seule (mode=ro) et refuse toute écriture (query_only).
+const readOnlyQuery = "mode=ro&_pragma=busy_timeout(5000)&_pragma=query_only(1)"
+
+// OpenReadOnly ouvre une base existante sans la créer, sans mise à niveau du schéma et sans rien y écrire (lecture
+// du diagnostic) ; une base d'avant les colonnes demandées fait échouer les lectures qui en dépendent.
+func OpenReadOnly(path string) (*Store, error) {
+	database, err := sql.Open("sqlite", sourceNameWith(path, readOnlyQuery))
+	if err != nil {
+		return nil, fmt.Errorf("open store read-only: %w", err)
 	}
 	return &Store{database: database}, nil
 }

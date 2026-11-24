@@ -39,7 +39,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - A link kind failure (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) now tells the cause and the setting to change.
 
 ### Security
-- A sealed indexer torrent is erased in the same database statement that closes the last open proposal of its candidate (`applied`, `rejected`, `superseded`); the plain `torrent` column refuses a `.torrent` carrying `announce` or `announce-list`.
+- A sealed indexer torrent is erased in the same database statement that fails or invalidates its candidate or closes its last open proposal (`applied`, `rejected`, `superseded`), and after 30 days without update; Verify keeps only an announce-free copy of every `.torrent` (a `.torrent` it cannot sanitize fails that candidate only), and the `torrent` column refuses `announce`, `announce-list`, `url-list`, `httpseeds` and `comment`.
 - Force copies each linked media sharing a missing piece out of the library before starting, or refuses.
 - Rechecks resume only torrents that were running; an incomplete torrent added by Seed must show paused.
 - Text output strips terminal control characters; `config.js` cannot read this tool's variables; response bodies are capped; redirects are refused.

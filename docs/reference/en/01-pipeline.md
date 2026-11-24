@@ -104,10 +104,16 @@ Candidates competing for the same local file form a group (`group_id`): a single
 | `torrent_candidates` column | Content | Cleared |
 |---|---|---|
 | `source` | `provider`, or `torznab:<name>` for an indexer; the first source that supplied the candidate, kept afterwards. Candidates of an earlier database read `provider` | never |
-| `torrent` | `.torrent` without announce: the provider's, or the sanitized copy of an indexer's. A `.torrent` whose top level carries `announce` or `announce-list`, or that cannot be read, is refused (`ErrUnsanitizedTorrent`); a file named `announce` inside `info` is accepted. At most 8 MiB | with the candidate |
+| `torrent` | `.torrent` without announce: Verify keeps only the sanitized copy (`info` copied byte for byte, so the same infohash), for the provider as for an indexer; a `.torrent` that sanitizing refuses makes the candidate `failed` (`invalid_torrent`) without stopping the stage. Column backstop: a top level carrying `announce`, `announce-list`, `url-list`, `httpseeds` or `comment`, or that cannot be read, is refused (`ErrUnsanitizedTorrent`); a file named `announce` inside `info` is accepted. At most 8 MiB | with the candidate |
 | `torrent_sealed` | an indexer's complete `.torrent` (it carries the passkey), sealed with `NECROMANCIARR_SECRET_KEY` and bound to the row's `infohash`, `tracker` and `source`; at most 8 MiB + 128 bytes, enforced by the database | see below |
 
-The database clears the sealed blob, in the very statement that moves a proposal of the candidate to `applied`, `rejected` or `superseded`, as soon as the candidate has no `pending`, `accepted` or `failed` proposal left: a rolled back decision keeps it, and a rejected conflict does not clear it while the same candidate's `full` stays open. Staleness, failure, reassociation and removal of the local file go through `superseded`, so they clear it too. A stale candidate without proposals keeps its blob. It is also cleared for the candidates of a tracker that a `trackers` entry now covers (tracker compared byte for byte with the stored value).
+The database clears the sealed blob in the very statement that writes one of these changes, with no window where one goes without the other:
+
+- the candidate becomes `failed` or `stale`, with or without proposals (a retry downloads the `.torrent` again);
+- a proposal of the candidate becomes `applied`, `rejected` or `superseded` and the candidate has no other `pending`, `accepted` or `failed` proposal left apart from `conflict` (a conflict is never seeded): a rejected conflict does not clear it while the same candidate's `full` stays open;
+- a tracker that a `trackers` entry now covers (tracker compared byte for byte with the stored value).
+
+A `pending` or `failed` proposal that is never decided keeps the blob, since Seed needs it; so that nothing stays forever, every Verify first clears any blob whose candidate has not been updated for 30 days.
 
 ## Resumption, lock, caps
 

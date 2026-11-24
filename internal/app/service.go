@@ -146,7 +146,7 @@ type Resumer interface {
 // aucun client), CrossSeed et CrossSeedWarnings viennent de crossseed.ResolveMode, Now nil vaut time.Now. HashSources
 // est le registre des fournisseurs d'empreintes, construit une fois pour les actions dedupe et repair. Config donne
 // au diagnostic et à dedupe et repair leurs réglages (racines, section dedupe, dossiers de liens) ; DoctorDeps remplace
-// les accès extérieurs du diagnostic (vide en production) ; Maintenance est le client torrent de dedupe et repair
+// les accès extérieurs du diagnostic (en production, seule la sonde des blocs scellés y est posée) ; Maintenance est le client torrent de dedupe et repair
 // (nil = ni recontrôle ni recherche par torrent). dedupe et repair prennent le verrou des étapes de Stages.Store.
 type Deps struct {
 	Store             Store
@@ -184,7 +184,7 @@ func New(deps Deps) Service {
 		deps.DoctorDeps.CapsCache = doctor.NewCapsCache(doctor.DefaultCapsCacheTTL, deps.Now)
 	}
 	if deps.DoctorDeps.SealedProbe == nil {
-		deps.DoctorDeps.SealedProbe = sealedProbe{databasePath: config.ResolveDBPath(deps.Config)}
+		deps.DoctorDeps.SealedProbe = pathProbe{databasePath: config.ResolveDBPath(deps.Config)}
 	}
 	return &service{deps: deps}
 }
