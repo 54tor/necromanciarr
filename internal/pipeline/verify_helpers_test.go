@@ -317,7 +317,7 @@ func (fixture *verifyFixture) candidate(infohash string) store.Candidate {
 
 func (fixture *verifyFixture) deps() Deps {
 	deps := Deps{
-		Store: fixture.store, Fetcher: fixture.fetcher, OpenLocal: fixture.opener.open, CrossSeed: fixture.crossSeed,
+		Store: fixture.store, Sources: fakeChain{fetcher: fixture.fetcher}, OpenLocal: fixture.opener.open, CrossSeed: fixture.crossSeed,
 		ReadLimiter: fixture.limiter, ReadBudget: fixture.readBudget, ProgressEvery: 1,
 		PartialMaxMissingPercent: fixture.partialCap, Now: func() time.Time { return fixedNow },
 		Announces: sources.NewResolver(fixture.trackers), Sealer: fixture.sealer,

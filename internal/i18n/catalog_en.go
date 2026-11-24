@@ -433,6 +433,7 @@ var english = map[Key]string{
 	KeyReasonSealedTorrentUnreadable:       "sealed .torrent unreadable (key changed): run Verify again on this candidate",
 	KeyReasonSecretKeyMissing:              "sealing key missing: set NECROMANCIARR_SECRET_KEY",
 	KeyReasonInfohashChangedAfterInject:    "the infohash changed when injecting the announce: nothing is added",
+	KeyReasonIndexerBudgetExhausted:        "indexer request quota reached: the rest resumes on the next run",
 	KeyLogJobFailed:                        "job {id} ({action}) failed: {error}",
 	KeyLogSealedClearFailed:                "clearing the sealed .torrent files covered by trackers postponed: {error}",
 	KeyLogJobPanicked:                      "job {id} ({action}) panicked: {error}",

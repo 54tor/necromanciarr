@@ -105,15 +105,14 @@ type ItemsSource interface {
 	Items(ctx context.Context) ([]arr.Item, error)
 }
 
-// Searcher cherche des releases chez le fournisseur de bibliothèque.
-type Searcher interface {
+// SourceChain est la chaîne de sources : le fournisseur de bibliothèque d'abord, puis les indexeurs Torznab ;
+// *sources.Chain convient. Les .nfo et la recherche par release restent au seul fournisseur.
+type SourceChain interface {
 	Search(ctx context.Context, query libraryprovider.Query) ([]libraryprovider.Release, error)
-}
-
-// TorrentFetcher télécharge le .torrent et les .nfo d'une release chez le fournisseur de bibliothèque.
-type TorrentFetcher interface {
-	Torrent(ctx context.Context, infohash, tracker string) ([]byte, error)
 	Nfos(ctx context.Context, infohash, tracker string) ([]libraryprovider.Nfo, error)
+	FetchTorrent(ctx context.Context, release sources.Release, budget *sources.Budget) (sources.Fetched, error)
+	SearchCandidates(ctx context.Context, media sources.MediaQuery, budget *sources.Budget) ([]sources.Found, sources.Report, error)
+	NewBudget() *sources.Budget
 }
 
 // PathMapper traduit un chemin vu par un service externe (côté To des règles) vers la vue de ce processus (côté From).
@@ -166,8 +165,7 @@ type Deps struct {
 	ScanRoot         RootScanner
 	LibraryRoots     []string
 	ArrSources       []ItemsSource
-	Provider         Searcher
-	Fetcher          TorrentFetcher
+	Sources          SourceChain
 	Mapper           PathMapper
 	ReadLimiter      torrentcheck.Limiter
 	ReadBudget       int64

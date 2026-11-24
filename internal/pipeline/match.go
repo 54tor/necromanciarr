@@ -94,7 +94,7 @@ func searchGroups(ctx context.Context, deps Deps, result *Result, groups map[ext
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		releases, err := deps.Provider.Search(ctx, groupQuery(ids, groups[ids]))
+		releases, err := deps.Sources.Search(ctx, groupQuery(ids, groups[ids]))
 		if err != nil {
 			if stopErr := stopError(StageMatch, err); stopErr != nil {
 				return stopErr

@@ -321,8 +321,8 @@ func TestRun_unknownStageIsAnError(t *testing.T) {
 	}
 }
 
-func lockLostDeps(stealing *lockStealingStore, provider Searcher) Deps {
-	return Deps{Store: stealing, Provider: provider, Now: func() time.Time { return fixedNow }, LockTTL: 30 * time.Millisecond}
+func lockLostDeps(stealing *lockStealingStore, provider providerSearcher) Deps {
+	return Deps{Store: stealing, Sources: fakeChain{searcher: provider}, Now: func() time.Time { return fixedNow }, LockTTL: 30 * time.Millisecond}
 }
 
 func TestRun_stopsTheStageWhenTheLockIsStolen(t *testing.T) {

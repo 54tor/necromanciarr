@@ -17,6 +17,7 @@ import (
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/qbit"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 )
 
@@ -44,15 +45,27 @@ func singleFileTorrent(t *testing.T, name string, content []byte) ([]byte, strin
 	return raw, metaInfo.HashInfoBytes().HexString()
 }
 
-type singleTorrentFetcher struct{ raw []byte }
+// singleTorrentChain est une chaîne de sources qui ne sert que ce .torrent (rendu tel quel dans Sanitized : Verify
+// l'assainit lui-même).
+type singleTorrentChain struct{ raw []byte }
 
-func (fetcher singleTorrentFetcher) Torrent(context.Context, string, string) ([]byte, error) {
-	return fetcher.raw, nil
+func (singleTorrentChain) Search(context.Context, libraryprovider.Query) ([]libraryprovider.Release, error) {
+	return nil, nil
 }
 
-func (singleTorrentFetcher) Nfos(context.Context, string, string) ([]libraryprovider.Nfo, error) {
+func (singleTorrentChain) Nfos(context.Context, string, string) ([]libraryprovider.Nfo, error) {
 	return nil, libraryprovider.ErrNotFound
 }
+
+func (chain singleTorrentChain) FetchTorrent(context.Context, sources.Release, *sources.Budget) (sources.Fetched, error) {
+	return sources.Fetched{Source: sources.ProviderID, Sanitized: chain.raw}, nil
+}
+
+func (singleTorrentChain) SearchCandidates(context.Context, sources.MediaQuery, *sources.Budget) ([]sources.Found, sources.Report, error) {
+	return nil, nil, nil
+}
+
+func (singleTorrentChain) NewBudget() *sources.Budget { return nil }
 
 // completeClient accepte tout ajout ; un torrent ajouté sans recontrôle est vu à 100 %.
 type completeClient struct {
@@ -171,7 +184,7 @@ func TestApp_neverWritesLibraryFiles(t *testing.T) {
 		Dedupe: config.Dedupe{TorrentRoots: []string{torrentRoot}, Kinds: []string{"symlink"}, RelativeSymlinks: true, Verify: "full"},
 	}
 	service := New(Deps{Store: openedStore, Client: client, Config: settings, Stages: pipeline.Deps{
-		Store: openedStore, Fetcher: singleTorrentFetcher{raw: raw}, LinkDirs: []string{linkDir},
+		Store: openedStore, Sources: singleTorrentChain{raw: raw}, LinkDirs: []string{linkDir},
 		LinkKinds: []linker.Kind{linker.Hardlink}, Client: client, SkipRecheck: true,
 	}})
 

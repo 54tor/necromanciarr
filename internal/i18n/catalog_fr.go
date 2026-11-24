@@ -433,6 +433,7 @@ var french = map[Key]string{
 	KeyReasonSealedTorrentUnreadable:       ".torrent scellé illisible (clé changée) : relancer Verify sur ce candidat",
 	KeyReasonSecretKeyMissing:              "clé de scellement absente : définir NECROMANCIARR_SECRET_KEY",
 	KeyReasonInfohashChangedAfterInject:    "l'infohash a changé à l'injection de l'annonce : rien n'est ajouté",
+	KeyReasonIndexerBudgetExhausted:        "quota de requêtes à l'indexeur atteint : la suite reprend à la prochaine exécution",
 	KeyLogJobFailed:                        "le job {id} ({action}) a échoué : {error}",
 	KeyLogSealedClearFailed:                "effacement des .torrent scellés couverts par trackers reporté : {error}",
 	KeyLogJobPanicked:                      "le job {id} ({action}) a paniqué : {error}",

@@ -101,7 +101,7 @@ func newForceFixture(t *testing.T, prepareCopy func(source, destination, root st
 	client := &completeClient{added: map[string]bool{}}
 	settings := config.Config{Trackers: []config.Tracker{trackerAEntry}}
 	service := New(Deps{Store: openedStore, Client: client, Config: settings, Stages: pipeline.Deps{
-		Store: openedStore, Fetcher: singleTorrentFetcher{raw: raw}, LinkDirs: []string{linkDir}, LibraryRoots: []string{libraryDir},
+		Store: openedStore, Sources: singleTorrentChain{raw: raw}, LinkDirs: []string{linkDir}, LibraryRoots: []string{libraryDir},
 		LinkKinds: []linker.Kind{linker.Hardlink}, Client: client, PrepareCopy: prepareCopy,
 	}})
 	fixture := &forceFixture{t: t, libraryDir: libraryDir, moviePath: moviePath, client: client, service: service}

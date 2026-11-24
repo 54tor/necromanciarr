@@ -1,0 +1,107 @@
+package sources
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+	"time"
+
+	"necromanciarr/internal/libraryprovider"
+	"necromanciarr/internal/torznab"
+)
+
+// IndexerSource est la part de *torznab.Client que la chaîne utilise.
+type IndexerSource interface {
+	Caps(ctx context.Context) (torznab.Caps, error)
+	Search(ctx context.Context, query torznab.Query) (torznab.Results, error)
+	Download(ctx context.Context, item torznab.Item) ([]byte, error)
+}
+
+// Chain interroge les sources dans l'ordre de la configuration, fournisseur toujours premier. Elle tient UN SEUL
+// client Torznab par indexeur et par processus : le limiteur et le cache des capacités vivent dans le client, deux
+// clients pour un même indexeur doubleraient le débit. L'appelant les construit une fois et les passe à NewChain.
+type Chain struct {
+	provider ProviderSource
+	indexers map[ID]IndexerSource
+	order    []ID
+	limits   map[ID]Limits
+	usage    UsageStore
+	sealer   *Sealer
+	now      func() time.Time
+}
+
+// NewChain vérifie l'ordre (fournisseur en tête, une fois, chaque indexeur cité présent avec ses limites) et refuse
+// sinon. Les indexeurs absents de order sont ignorés. usage est obligatoire dès qu'un indexeur est cité ; sealer peut
+// être nil (pas de clé de scellement) ; now nil vaut time.Now.
+func NewChain(provider ProviderSource, indexers map[ID]IndexerSource, order []ID, limits map[ID]Limits,
+	usage UsageStore, sealer *Sealer, now func() time.Time,
+) (*Chain, error) {
+	if provider == nil {
+		return nil, errors.New("sources: the chain needs the library provider")
+	}
+	if len(order) == 0 || order[0] != ProviderID {
+		return nil, errors.New("sources: the provider must be the first source of the chain")
+	}
+	cited := map[ID]IndexerSource{}
+	for position, identifier := range order[1:] {
+		if identifier == ProviderID || slices.Contains(order[1:position+1], identifier) {
+			return nil, fmt.Errorf("sources: source %q is listed twice", identifier)
+		}
+		indexer, known := indexers[identifier]
+		if !known || indexer == nil {
+			return nil, fmt.Errorf("sources: source %q has no indexer", identifier)
+		}
+		if _, hasLimits := limits[identifier]; !hasLimits {
+			return nil, fmt.Errorf("sources: source %q has no limits", identifier)
+		}
+		cited[identifier] = indexer
+	}
+	if len(cited) > 0 && usage == nil {
+		return nil, errors.New("sources: indexers need a usage store for their daily quotas")
+	}
+	if now == nil {
+		now = time.Now
+	}
+	return &Chain{provider: provider, indexers: cited, order: slices.Clone(order), limits: limits, usage: usage, sealer: sealer, now: now}, nil
+}
+
+// Order renvoie l'ordre des sources, fournisseur en tête.
+func (chain *Chain) Order() []ID { return slices.Clone(chain.order) }
+
+// NewBudget ouvre les décomptes d'une exécution ; les quotas par jour viennent du store, partagés entre exécutions.
+func (chain *Chain) NewBudget() *Budget {
+	return newBudget(chain.limits, chain.usage, chain.now, sleepContext)
+}
+
+// Search cherche chez le fournisseur.
+func (chain *Chain) Search(ctx context.Context, query libraryprovider.Query) ([]libraryprovider.Release, error) {
+	return chain.provider.Search(ctx, query)
+}
+
+// Nfos renvoie les .nfo du fournisseur : Torznab n'expose pas de .nfo.
+func (chain *Chain) Nfos(ctx context.Context, infohash, tracker string) ([]libraryprovider.Nfo, error) {
+	return chain.provider.Nfos(ctx, infohash, tracker)
+}
+
+// FetchTorrent obtient le .torrent chez le fournisseur ; le budget n'est pas consulté pour lui (nil accepté).
+// Le secours par les indexeurs vient avec B10.
+func (chain *Chain) FetchTorrent(ctx context.Context, release Release, _ *Budget) (Fetched, error) {
+	return fetchFromProvider(ctx, chain.provider, release)
+}
+
+// SearchCandidates ne cherche rien tant que B12 n'a pas ajouté la recherche par indexeur.
+func (chain *Chain) SearchCandidates(_ context.Context, _ MediaQuery, budget *Budget) ([]Found, Report, error) {
+	return nil, budget.Report(), nil
+}
+
+func sleepContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}

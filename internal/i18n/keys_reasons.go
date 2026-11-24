@@ -79,6 +79,7 @@ const (
 	KeyReasonSealedTorrentUnreadable    Key = "reason.sealed_torrent_unreadable"
 	KeyReasonSecretKeyMissing           Key = "reason.secret_key_missing"
 	KeyReasonInfohashChangedAfterInject Key = "reason.infohash_changed_after_inject"
+	KeyReasonIndexerBudgetExhausted     Key = "reason.indexer_budget_exhausted"
 )
 
 var reasonKeys = []Key{
@@ -103,4 +104,5 @@ var reasonKeys = []Key{
 	KeyReasonLinkInspectionFailed, KeyReasonHashUnavailable, KeyReasonNoLinkKind, KeyReasonLinkKindUnsupported,
 	KeyReasonLinkProbeFailed,
 	KeyReasonNoAnnounce, KeyReasonSealedTorrentUnreadable, KeyReasonSecretKeyMissing, KeyReasonInfohashChangedAfterInject,
+	KeyReasonIndexerBudgetExhausted,
 }

@@ -22,6 +22,7 @@ import (
 	"necromanciarr/internal/qbit"
 	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
+	"necromanciarr/internal/torznab"
 )
 
 const (
@@ -66,10 +67,10 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 		LinkDirs: settings.LinkDirs, LinkKinds: linkKinds, Category: settings.LinkCategory,
 		Tags: settings.SeedTags, SkipRecheck: settings.SkipRecheck,
 	}
-	if err := wireProvider(settings, &stages); err != nil {
+	if err := wireSealer(settings, &stages); err != nil {
 		return Deps{}, err
 	}
-	if err := wireSealer(settings, &stages); err != nil {
+	if err := wireSources(settings, &stages, openedStore); err != nil {
 		return Deps{}, err
 	}
 	deps := Deps{Store: openedStore, Config: settings, Translator: i18n.New(settings.Language, func(text string) string {
@@ -136,8 +137,10 @@ func arrSources(settings config.Config) []pipeline.ItemsSource {
 	return sources
 }
 
-// wireProvider : sans libraryApi, Match et Verify refusent avec ErrNotConfigured (les autres étapes restent utilisables).
-func wireProvider(settings config.Config, stages *pipeline.Deps) error {
+// wireSources bâtit la chaîne de sources : le fournisseur (libraryApi) d'abord, puis les indexeurs Torznab dans l'ordre
+// de sourceOrder, un seul client par indexeur pour tout le processus. Sans libraryApi il n'y a pas de chaîne : Match et
+// Verify refusent avec ErrNotConfigured (les autres étapes restent utilisables), même si des indexeurs sont configurés.
+func wireSources(settings config.Config, stages *pipeline.Deps, usage sources.UsageStore) error {
 	if settings.LibraryAPI == "" {
 		return nil
 	}
@@ -145,8 +148,48 @@ func wireProvider(settings config.Config, stages *pipeline.Deps) error {
 	if err != nil {
 		return fmt.Errorf("app: library provider: %w", err)
 	}
-	stages.Provider, stages.Fetcher = provider, provider
+	order, indexers, limits, err := indexerSources(settings)
+	if err != nil {
+		return err
+	}
+	chain, err := sources.NewChain(provider, indexers, order, limits, usage, stages.Sealer, time.Now)
+	if err != nil {
+		return fmt.Errorf("app: source chain: %w", err)
+	}
+	stages.Sources = chain
 	return nil
+}
+
+// indexerSources construit les clients Torznab cités par sourceOrder (vide : fournisseur puis tous les indexeurs, dans
+// l'ordre de la configuration) avec leurs limites.
+func indexerSources(settings config.Config) ([]sources.ID, map[sources.ID]sources.IndexerSource, map[sources.ID]sources.Limits, error) {
+	order := []sources.ID{sources.ProviderID}
+	if len(settings.SourceOrder) == 0 {
+		for _, indexer := range settings.Torznab {
+			order = append(order, sources.ID(config.SourceTorznabPrefix+indexer.Name))
+		}
+	} else {
+		for _, name := range settings.SourceOrder[1:] {
+			order = append(order, sources.ID(name))
+		}
+	}
+	indexers, limits := map[sources.ID]sources.IndexerSource{}, map[sources.ID]sources.Limits{}
+	for _, indexer := range settings.Torznab {
+		identifier := sources.ID(config.SourceTorznabPrefix + indexer.Name)
+		if !slices.Contains(order, identifier) {
+			continue
+		}
+		client, err := torznab.New(torznab.Endpoint{Name: indexer.Name, URL: indexer.URL, MinInterval: indexer.MinInterval, Timeout: indexer.Timeout}, torznab.Deps{})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("app: torznab indexer %q: %w", indexer.Name, err)
+		}
+		indexers[identifier] = client
+		limits[identifier] = sources.Limits{
+			MinInterval: indexer.MinInterval, MaxQueriesPerRun: indexer.MaxQueriesPerRun, MaxDownloadsPerRun: indexer.MaxDownloadsPerRun,
+			MaxQueriesPerDay: indexer.MaxQueriesPerDay, MaxDownloadsPerDay: indexer.MaxDownloadsPerDay,
+		}
+	}
+	return order, indexers, limits, nil
 }
 
 func wireTorrentClient(settings config.Config, stages *pipeline.Deps, deps *Deps) error {

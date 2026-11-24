@@ -139,7 +139,7 @@ func (run candidateRun) completeNfos(ctx context.Context, candidate store.Candid
 	if len(missing) == 0 {
 		return source, nil
 	}
-	nfos, err := run.deps.Fetcher.Nfos(ctx, candidate.Infohash, candidate.Tracker)
+	nfos, err := run.deps.Sources.Nfos(ctx, candidate.Infohash, candidate.Tracker)
 	if err != nil {
 		return source, nfoFetchError(run.result, err)
 	}

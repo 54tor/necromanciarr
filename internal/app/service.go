@@ -218,7 +218,7 @@ func (svc *service) RunStage(ctx context.Context, stage pipeline.Stage) (pipelin
 func (svc *service) checkStageDeps(stage pipeline.Stage) error {
 	stages := svc.deps.Stages
 	switch {
-	case stage == pipeline.StageMatch && stages.Provider == nil, stage == pipeline.StageVerify && stages.Fetcher == nil:
+	case (stage == pipeline.StageMatch || stage == pipeline.StageVerify) && stages.Sources == nil:
 		return fmt.Errorf("%w: library provider", ErrNotConfigured)
 	case stage == pipeline.StageSeed && stages.Client == nil:
 		return fmt.Errorf("%w: torrent client", ErrNotConfigured)

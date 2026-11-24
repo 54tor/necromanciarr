@@ -11,6 +11,7 @@ import (
 
 	"necromanciarr/internal/arr"
 	"necromanciarr/internal/libraryprovider"
+	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 )
 
@@ -106,9 +107,47 @@ func addMediaFile(t *testing.T, mediaStore *store.Store, path string, size int64
 	}
 }
 
-func matchDeps(mediaStore *store.Store, provider *fakeProvider) Deps {
-	return Deps{Store: mediaStore, Provider: provider, Now: func() time.Time { return fixedNow }}
+func matchDeps(mediaStore *store.Store, provider providerSearcher) Deps {
+	return Deps{Store: mediaStore, Sources: fakeChain{searcher: provider}, Now: func() time.Time { return fixedNow }}
 }
+
+type providerSearcher interface {
+	Search(ctx context.Context, query libraryprovider.Query) ([]libraryprovider.Release, error)
+}
+
+type providerFetcher interface {
+	Torrent(ctx context.Context, infohash, tracker string) ([]byte, error)
+	Nfos(ctx context.Context, infohash, tracker string) ([]libraryprovider.Nfo, error)
+}
+
+// fakeChain adapte les faux fournisseur de ces tests (recherche, .torrent, .nfo) à SourceChain. Le .torrent est rendu tel quel
+// dans Sanitized, annonce comprise : l'assainissement reste vérifié par l'étape Verify elle-même.
+type fakeChain struct {
+	searcher providerSearcher
+	fetcher  providerFetcher
+}
+
+func (chain fakeChain) Search(ctx context.Context, query libraryprovider.Query) ([]libraryprovider.Release, error) {
+	return chain.searcher.Search(ctx, query)
+}
+
+func (chain fakeChain) Nfos(ctx context.Context, infohash, tracker string) ([]libraryprovider.Nfo, error) {
+	return chain.fetcher.Nfos(ctx, infohash, tracker)
+}
+
+func (chain fakeChain) FetchTorrent(ctx context.Context, release sources.Release, _ *sources.Budget) (sources.Fetched, error) {
+	raw, err := chain.fetcher.Torrent(ctx, release.Infohash, release.Tracker)
+	if err != nil {
+		return sources.Fetched{}, err
+	}
+	return sources.Fetched{Source: sources.ProviderID, Sanitized: raw}, nil
+}
+
+func (chain fakeChain) SearchCandidates(context.Context, sources.MediaQuery, *sources.Budget) ([]sources.Found, sources.Report, error) {
+	return nil, nil, nil
+}
+
+func (chain fakeChain) NewBudget() *sources.Budget { return nil }
 
 func candidatesByHash(t *testing.T, mediaStore *store.Store) map[string]store.Candidate {
 	t.Helper()

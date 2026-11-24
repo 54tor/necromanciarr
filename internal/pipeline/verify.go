@@ -11,6 +11,7 @@ import (
 	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
+	"necromanciarr/internal/torznab"
 )
 
 // Raisons comptées par l'étape Verify (des noms, jamais un chemin ni un secret).
@@ -20,9 +21,12 @@ const (
 	ReasonTorrentTooLarge    = "torrent_too_large"
 	ReasonInvalidTorrent     = "invalid_torrent"
 	ReasonV2Only             = "v2_only"
-	ReasonInfohashMismatch   = "infohash_mismatch"
-	ReasonNoFileMatched      = "no_file_matched"
-	ReasonChangedFile        = "changed_file_stale"
+	// ReasonIndexerBudgetExhausted : un plafond de requêtes à un indexeur est atteint ; pas un échec, la suite attend
+	// la prochaine exécution.
+	ReasonIndexerBudgetExhausted = "indexer_budget_exhausted"
+	ReasonInfohashMismatch       = "infohash_mismatch"
+	ReasonNoFileMatched          = "no_file_matched"
+	ReasonChangedFile            = "changed_file_stale"
 	// ReasonReadError compte une lecture locale en échec : le candidat garde son avancement et sera repris.
 	ReasonReadError        = "read_error"
 	ReasonReadBudget       = "read_budget_exceeded"
@@ -52,7 +56,7 @@ func runVerify(ctx context.Context, deps Deps) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-	run := candidateRun{deps: deps, result: &result, mediaByID: map[int64]store.MediaFile{}}
+	run := candidateRun{deps: deps, result: &result, mediaByID: map[int64]store.MediaFile{}, budget: deps.Sources.NewBudget()}
 	for _, mediaFile := range mediaFiles {
 		run.mediaByID[mediaFile.ID] = mediaFile
 	}
@@ -78,6 +82,8 @@ type candidateRun struct {
 	deps      Deps
 	result    *Result
 	mediaByID map[int64]store.MediaFile
+	// budget borne les requêtes aux indexeurs pendant cette exécution ; le fournisseur ne le consulte pas.
+	budget *sources.Budget
 }
 
 func (run candidateRun) verify(ctx context.Context, candidate store.Candidate) error {
@@ -172,19 +178,21 @@ func (run candidateRun) loadTorrent(ctx context.Context, candidate store.Candida
 			return torrent, failure, nil
 		}
 	}
-	raw, err := run.deps.Fetcher.Torrent(ctx, candidate.Infohash, candidate.Tracker)
+	fetched, err := run.deps.Sources.FetchTorrent(ctx, sources.Release{Infohash: candidate.Infohash, Tracker: candidate.Tracker, Name: candidate.Name}, run.budget)
 	if err != nil {
 		failure, stopErr := fetchFailure(err)
 		return nil, failure, stopErr
 	}
-	if len(raw) > store.MaxTorrentBytes {
+	if len(fetched.Sanitized) > store.MaxTorrentBytes {
 		return nil, ReasonTorrentTooLarge, nil
 	}
-	torrent, failure := parseCandidateTorrent(raw, candidate)
+	torrent, failure := parseCandidateTorrent(fetched.Sanitized, candidate)
 	if failure != "" {
 		return nil, failure, nil
 	}
-	sanitized, failure := sanitizedTorrent(raw)
+	// La chaîne livre déjà une copie assainie ; l'assainissement est idempotent et garde la colonne sans annonce même
+	// si une source l'oubliait.
+	sanitized, failure := sanitizedTorrent(fetched.Sanitized)
 	if failure != "" {
 		return nil, failure, nil
 	}
@@ -199,6 +207,16 @@ func (run candidateRun) loadTorrent(ctx context.Context, candidate store.Candida
 func fetchFailure(err error) (string, error) {
 	if stopErr := stopError(StageVerify, err); stopErr != nil {
 		return "", stopErr
+	}
+	// Le v2 seul avant tout le reste : torznab.ErrBadResponse l'englobe.
+	if errors.Is(err, torrentcheck.ErrV2Only) {
+		return ReasonV2Only, nil
+	}
+	if errors.Is(err, sources.ErrInvalidTorrent) || errors.Is(err, torrentcheck.ErrInvalidTorrent) {
+		return ReasonInvalidTorrent, nil
+	}
+	if errors.Is(err, torznab.ErrInfohashMismatch) {
+		return ReasonInfohashMismatch, nil
 	}
 	if errors.Is(err, libraryprovider.ErrNotFound) {
 		return ReasonTorrentNotFound, nil
