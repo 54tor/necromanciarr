@@ -148,7 +148,7 @@ func (client *Client) hashAction(ctx context.Context, verb, infoHash string, act
 	return err
 }
 
-// TorrentPageSize est la taille d'une page de torrents/info lue par les parcours complets (recontrôle, repair).
+// TorrentPageSize est la taille d'une page de torrents/info lue par les lectures de toute la liste (recontrôle, repair).
 const TorrentPageSize = 500
 
 // maxListedTorrents borne un parcours complet : au-delà, la liste est tenue pour anormale et le parcours refusé.
@@ -218,7 +218,7 @@ func (client *Client) readTorrentPages(ctx context.Context, visit func(page []To
 }
 
 // Torrents liste les torrents du client en une seule requête, plafonnée à 8 Mio (petits clients et tests) ; les
-// parcours complets passent par eachTorrentPage.
+// lectures de toute la liste passent par eachTorrentPage.
 func (client *Client) Torrents(ctx context.Context) ([]TorrentInfo, error) {
 	return client.listTorrents(ctx, "list torrents", qbittorrent.TorrentFilterOptions{})
 }
