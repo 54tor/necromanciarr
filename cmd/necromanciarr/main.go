@@ -30,9 +30,7 @@ const (
 var lookupEnv = os.LookupEnv
 
 // openService ouvre le Service de production ; les tests le remplacent par un faux.
-var openService = func(ctx context.Context, settings config.Config) (app.Service, io.Closer, error) {
-	return app.NewFromConfig(ctx, settings)
-}
+var openService = app.NewFromConfig
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))

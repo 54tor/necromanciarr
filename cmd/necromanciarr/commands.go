@@ -14,7 +14,7 @@ import (
 	"necromanciarr/internal/store"
 )
 
-// Options propres aux sous-commandes ; toute autre option va à la configuration (--config-dir, --db-path...).
+// Options propres à chaque sous-commande ; toute autre option va à la configuration (--config-dir, --db-path...).
 const (
 	flagJSON             = "json"
 	flagYes              = "yes"
@@ -29,7 +29,7 @@ const (
 	flagCheck            = "check"
 )
 
-// Noms des actions du registre appelées par les sous-commandes (parité CLI et web).
+// Noms des actions du registre appelées par chaque sous-commande (parité CLI et web).
 const (
 	actionRun                = "run"
 	actionStatus             = "status"
@@ -416,7 +416,7 @@ func joinIDs(identifiers []int64) string {
 	return strings.Join(texts, ", ")
 }
 
-// usageText est construit depuis la table des commandes : une ligne par commande, moins de 100 colonnes.
+// usageText est construit depuis la table de commande : une ligne par commande, moins de 100 colonnes.
 var usageText = buildUsage()
 
 func buildUsage() string {
