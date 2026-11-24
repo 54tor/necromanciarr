@@ -34,7 +34,7 @@ func resolveLanguage(target *Config, fileValue string, options commandLine, look
 	}
 	language, err := i18n.ParseLanguage(rawValue)
 	if err != nil {
-		return fmt.Errorf("%w: unknown language %q (%s): allowed values are fr, en", ErrUsage, truncateRunes(rawValue, maxEchoedLanguageRunes), source)
+		return &UnknownLanguageError{Value: truncateRunes(rawValue, maxEchoedLanguageRunes), Source: source}
 	}
 	target.Language, target.LanguageSource = language, source
 	return nil
@@ -47,3 +47,17 @@ func truncateRunes(text string, limit int) string {
 	}
 	return string(runes[:limit])
 }
+
+// UnknownLanguageError signale une langue hors de fr et en ; Value est tronquée, Source dit d'où elle vient. C'est une
+// erreur d'usage : la CLI la rend avec le message traduit error.usage.unknown_language.
+type UnknownLanguageError struct {
+	Value  string
+	Source string
+}
+
+func (failure *UnknownLanguageError) Error() string {
+	return fmt.Sprintf("%s: unknown language %q (%s): allowed values are fr, en", ErrUsage.Error(), failure.Value, failure.Source)
+}
+
+// Is rattache l'erreur à ErrUsage.
+func (failure *UnknownLanguageError) Is(target error) bool { return target == ErrUsage }
