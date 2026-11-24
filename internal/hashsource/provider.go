@@ -128,3 +128,31 @@ func (registry Registry) DescribeMounts(ctx context.Context) []ProviderMountRepo
 	})
 	return reports
 }
+
+// CachedHashAlgorithms renvoie, dans l'ordre d'AllAlgorithms, les algorithmes qu'au moins un montage rclone fournit :
+// les capacités sont lues dans le cache (mount_capabilities) et un montage n'est sondé, sur un fichier d'essai, que
+// s'il n'y figure pas encore. Un montage sans fichier d'essai ou dont la sonde échoue est ignoré (rien n'est mémorisé).
+func (registry Registry) CachedHashAlgorithms(ctx context.Context, cache CapabilityCache) ([]Algorithm, error) {
+	offered := map[Algorithm]bool{}
+	for _, provider := range registry.providers {
+		if provider.spec.Type != config.FSProviderTypeRclone {
+			continue
+		}
+		for _, mount := range provider.spec.Mounts {
+			probe := func(probeCtx context.Context) (Capabilities, error) {
+				return ProbeCapabilities(probeCtx, provider.source, findSampleFile(probeCtx, mount.LocalPath), "")
+			}
+			capabilities, err := CachedCapabilities(ctx, cache, provider.spec.Name, mount.LocalPath, probe)
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if err != nil {
+				continue
+			}
+			for _, algorithm := range capabilities.Hashes {
+				offered[algorithm] = true
+			}
+		}
+	}
+	return slices.DeleteFunc(slices.Clone(AllAlgorithms), func(algorithm Algorithm) bool { return !offered[algorithm] }), nil
+}

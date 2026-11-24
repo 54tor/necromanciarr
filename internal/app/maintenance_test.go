@@ -16,6 +16,7 @@ import (
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/dedupe"
 	"necromanciarr/internal/doctor"
+	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/qbit"
@@ -624,5 +625,29 @@ func TestApp_dedupePlanWarnsWhenNoClientWillRecheckALinkToTheLibrary(t *testing.
 				t.Fatalf("gotValue %v, expectedValue warning %v", proposal.Warnings, testCase.expectedWarning)
 			}
 		})
+	}
+}
+
+func TestApp_dedupeAsksTheStorageForTheHashesRecordedInTheCapabilityCache(t *testing.T) {
+	fixture := newMaintenanceFixture(t)
+	mountPath := filepath.Join(t.TempDir(), "remote")
+	fixture.settings.FSProviders = []config.FSProvider{{
+		Type: config.FSProviderTypeRclone, Name: "remote", Mounts: []config.FSMount{{LocalPath: mountPath, Target: "remote:bucket/prefix"}},
+		Binary: filepath.Join(t.TempDir(), "absent-rclone"),
+	}}
+	registry, err := hashsource.NewFromConfig(fixture.settings.FSProviders, hashsource.Deps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded := store.MountCapabilities{MountPath: mountPath, Provider: "remote", Hashes: []string{string(hashsource.SHA1)}, ProbedAt: fixedNow}
+	if err := fixture.store.SaveMountCapabilities(context.Background(), recorded); err != nil {
+		t.Fatal(err)
+	}
+	built := New(Deps{Store: fixture.store, Stages: pipeline.Deps{Store: fixture.store}, Config: fixture.settings, HashSources: registry}).(*service)
+
+	gotAlgorithms := built.dedupeOptions(context.Background()).HashAlgorithms
+
+	if expectedAlgorithms := []hashsource.Algorithm{hashsource.SHA1}; !slices.Equal(gotAlgorithms, expectedAlgorithms) {
+		t.Fatalf("gotValue %v, expectedValue %v read from the capability cache", gotAlgorithms, expectedAlgorithms)
 	}
 }

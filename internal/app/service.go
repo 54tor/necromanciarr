@@ -130,6 +130,8 @@ type Store interface {
 	SetLinkState(ctx context.Context, linkPath string, state store.LinkState, verifiedAt time.Time) error
 	LookupFingerprint(ctx context.Context, path string, size int64, modTime time.Time) (string, bool, error)
 	RecordFingerprint(ctx context.Context, entry store.CachedFingerprint) error
+	LoadMountCapabilities(ctx context.Context, mountPath string) (store.MountCapabilities, bool, error)
+	SaveMountCapabilities(ctx context.Context, capabilities store.MountCapabilities) error
 }
 
 // Resumer démarre un torrent du client ; *qbit.Client convient.

@@ -133,6 +133,8 @@ Donnent l'empreinte de contenu d'un fichier sans le relire, pour la déduplicati
 
 Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer rclone avec `--rc --rc-addr :5572 --rc-user <utilisateur> --rc-pass <motdepasse>` et ne jamais exposer `rc` hors d'un réseau privé : qui l'atteint pilote rclone. Sans `rc` ni binaire, aucune empreinte n'est disponible et la comparaison relit les fichiers.
 
+`dedupe plan` et `dedupe apply` demandent au stockage les algorithmes que ses montages fournissent : la première fois, chaque montage est sondé sur un fichier d'essai (MD5, SHA-1, SHA-256) et le résultat est gardé en base (table `mount_capabilities`, une ligne par montage) ; ensuite seule la base est lue. Une sonde en échec n'est pas gardée. Sans algorithme connu, dedupe demande MD5. Le cache ne se rafraîchit pas seul : après un changement de backend ou de `rc`, supprimer la base ou la ligne du montage. Le contrôle `rclone` de `doctor` sonde toujours de nouveau, sans écrire ce cache.
+
 ## Fournisseur de bibliothèque
 
 Contrat HTTP défini dans [`docs/contract/openapi.yaml`](../contract/openapi.yaml), sous la base `libraryApi` : `GET /v1/releases` (filtres `tmdb`, `imdb`, `tvdb`, `q`, `size` répétable 50 fois, `tracker`, `limit` ≤ 100, pagination par curseur), `GET /v1/releases/{infohash}`, `…/torrent`, `…/nfos`. Authentification `Authorization: Bearer <LIBRARY_PROVIDER_TOKEN>`, erreurs `application/problem+json`, `429` avec `Retry-After`. Un fournisseur qui ignore `size` fonctionne : un filtre local de défense écarte les releases sans fichier de la bonne taille, mais il télécharge beaucoup plus de candidats (`doctor` le signale).

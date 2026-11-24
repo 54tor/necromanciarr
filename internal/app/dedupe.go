@@ -147,20 +147,23 @@ func (svc *service) planDedupe(ctx context.Context) ([]dedupe.Replacement, error
 	if err != nil {
 		return nil, err
 	}
-	return dedupe.Plan(ctx, torrentRoots, library, svc.dedupeOptions())
+	return dedupe.Plan(ctx, torrentRoots, library, svc.dedupeOptions(ctx))
 }
 
-func (svc *service) dedupeOptions() dedupe.Options {
+// dedupeOptions demande au stockage les algorithmes que ses montages fournissent, d'après le cache des capacités
+// (une sonde par montage, la première fois seulement) ; sans réponse, dedupe garde MD5.
+func (svc *service) dedupeOptions(ctx context.Context) dedupe.Options {
 	settings := svc.deps.Config.Dedupe
 	kinds := make([]linker.Kind, 0, len(settings.Kinds))
 	for _, kindName := range settings.Kinds {
 		kinds = append(kinds, linkKindByName[kindName])
 	}
+	algorithms, _ := svc.deps.HashSources.CachedHashAlgorithms(ctx, svc.deps.Store)
 	return dedupe.Options{
 		Kinds: kinds, RelativeSymlinks: settings.RelativeSymlinks, MinFileAge: settings.MinFileAge,
 		RecheckAfter: settings.RecheckAfter, Verify: dedupe.Verification(settings.Verify), TorrentRoots: settings.TorrentRoots,
 		Limiter: svc.deps.Stages.ReadLimiter, Fingerprints: svc.deps.Store, Recorder: svc.deps.Store,
-		Backend: svc.deps.HashSources,
+		Backend: svc.deps.HashSources, HashAlgorithms: algorithms,
 	}
 }
 
@@ -180,7 +183,7 @@ func (svc *service) applyDedupe(ctx context.Context, details DedupeDetails, resu
 	if err := checkOutsideLibrary(svc.deps.Config.Dedupe.TorrentRoots, svc.deps.Config.LibraryRoots, dedupe.ErrTorrentRootOverlapsLibrary); err != nil {
 		return err
 	}
-	options := svc.dedupeOptions()
+	options := svc.dedupeOptions(ctx)
 	options.DryRun = result.DryRun
 	if svc.deps.Maintenance != nil {
 		options.Rechecker = clientView{client: svc.deps.Maintenance, mapper: svc.deps.Stages.ClientMapper}
