@@ -35,6 +35,9 @@ const (
 	WarningPausedIncompleteAfterRecheck = "paused_incomplete_after_recheck"
 	// WarningRecheckFailed : le recontrôle a échoué ; le client a laissé le torrent en pause.
 	WarningRecheckFailed = "recheck_failed"
+	// WarningNoClientRecheck : dedupe remplacera le fichier par un lien dur ou symbolique vers la bibliothèque sans
+	// recontrôle du client (aucun client configuré, ou recheckAfter faux) ; un torrent qui tourne pourrait y écrire.
+	WarningNoClientRecheck = "no_client_recheck"
 	// WarningLinkNotRecorded : le lien est posé mais la base ne l'a pas enregistré.
 	WarningLinkNotRecorded  = "link_not_recorded"
 	applicationFailedPrefix = "application failed: "

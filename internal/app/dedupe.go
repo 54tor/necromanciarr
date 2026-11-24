@@ -53,7 +53,8 @@ type DedupeProposal struct {
 func (details DedupeDetails) identity() (key, signature string) {
 	key = details.TorrentPath + "\x00" + details.LibraryPath
 	signature = fmt.Sprint(details.Size, details.TorrentModTime.UnixNano(), details.LibraryModTime.UnixNano(), details.Fingerprint,
-		details.LibraryFingerprint, details.Kind, details.LibraryInode, strings.Join(details.Ambiguous, "\x00"), details.Actionable)
+		details.LibraryFingerprint, details.Kind, details.LibraryInode, strings.Join(details.Ambiguous, "\x00"), details.Actionable,
+		slices.Contains(details.Warnings, WarningNoClientRecheck))
 	return key, signature
 }
 
@@ -103,7 +104,11 @@ func (svc *service) DedupePlan(ctx context.Context) ([]DedupeProposal, error) {
 		}
 		entries := make([]DedupeDetails, 0, len(replacements))
 		for _, replacement := range replacements {
-			entries = append(entries, dedupeDetailsOf(replacement))
+			details := dedupeDetailsOf(replacement)
+			if svc.linksWithoutRecheck(details) {
+				details.Warnings = append(details.Warnings, WarningNoClientRecheck)
+			}
+			entries = append(entries, details)
 		}
 		persisted, err := persistMaintenance(ctx, svc, store.ProposalDedupe, entries, dedupeWarnings, neverOutOfScope)
 		for _, stored := range persisted {
@@ -114,6 +119,14 @@ func (svc *service) DedupePlan(ctx context.Context) ([]DedupeProposal, error) {
 		return err
 	})
 	return proposals, err
+}
+
+// linksWithoutRecheck : un lien dur ou symbolique fait pointer le torrent sur le fichier de la bibliothèque ; sans
+// recontrôle du client, rien ne garantit qu'un torrent incomplet n'y écrira pas.
+func (svc *service) linksWithoutRecheck(details DedupeDetails) bool {
+	sharesLibraryFile := details.Kind == linker.Hardlink.String() || details.Kind == linker.Symlink.String()
+	recheckPlanned := svc.deps.Maintenance != nil && svc.deps.Config.Dedupe.RecheckAfter
+	return details.Actionable && sharesLibraryFile && !recheckPlanned
 }
 
 // planDedupe refuse des racines torrent qui recouvrent la bibliothèque avant toute écriture, reprend les entrées

@@ -166,6 +166,9 @@ func writeDedupeProposals(writer io.Writer, proposals []app.DedupeProposal) {
 		}
 		writeRow(writer, dedupeColumns, fmt.Sprint(proposal.ID), string(proposal.Decision), kind, humanBytes(details.SavedBytes),
 			humanBytes(details.BytesToRead), details.Method, details.TorrentPath)
+		for _, warning := range proposal.Warnings {
+			_, _ = fmt.Fprintln(writer, fitText("       warning: "+warning, tableWidth))
+		}
 		if isOpenForApply(proposal) {
 			totalRead += details.BytesToRead
 		}

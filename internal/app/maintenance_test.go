@@ -103,10 +103,14 @@ func (fixture *maintenanceFixture) addMedia(path string) {
 
 func (fixture *maintenanceFixture) service() Service {
 	mapper := linker.NewMapper([]config.PathRule{{From: fixture.torrentRoot, To: clientTorrentRoot}})
-	return New(Deps{
+	deps := Deps{
 		Store: fixture.store, Stages: pipeline.Deps{Store: fixture.store, ClientMapper: mapper}, Client: fixture.resumer,
-		Config: fixture.settings, Maintenance: fixture.client, Now: func() time.Time { return fixedNow },
-	})
+		Config: fixture.settings, Now: func() time.Time { return fixedNow },
+	}
+	if fixture.client != nil {
+		deps.Maintenance = fixture.client
+	}
+	return New(deps)
 }
 
 func (fixture *maintenanceFixture) proposalsOfKind(kind store.ProposalKind) []store.Proposal {
@@ -592,5 +596,33 @@ func TestApp_repairWithoutClientKeepsHeuristicMethodsNonActionable(t *testing.T)
 	}
 	if err := service.Accept(ctx, repairable.ID); !errors.Is(err, ErrNotActionable) {
 		t.Fatalf("gotValue %v, expectedValue ErrNotActionable", err)
+	}
+}
+
+func TestApp_dedupePlanWarnsWhenNoClientWillRecheckALinkToTheLibrary(t *testing.T) {
+	testCases := map[string]struct {
+		withClient      bool
+		recheckAfter    bool
+		expectedWarning bool
+	}{
+		"client and recheck":   {withClient: true, recheckAfter: true, expectedWarning: false},
+		"no client":            {withClient: false, recheckAfter: true, expectedWarning: true},
+		"recheck switched off": {withClient: true, recheckAfter: false, expectedWarning: true},
+	}
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			fixture := newMaintenanceFixture(t)
+			fixture.settings.Dedupe.RecheckAfter = testCase.recheckAfter
+			if !testCase.withClient {
+				fixture.client = nil
+			}
+
+			proposal := fixture.planOne(fixture.service())
+
+			gotWarning := slices.Contains(proposal.Warnings, WarningNoClientRecheck)
+			if gotWarning != testCase.expectedWarning {
+				t.Fatalf("gotValue %v, expectedValue warning %v", proposal.Warnings, testCase.expectedWarning)
+			}
+		})
 	}
 }

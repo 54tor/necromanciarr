@@ -642,3 +642,16 @@ func TestCli_repairScanShowsWhyARepairIsNotActionable(t *testing.T) {
 		t.Fatalf("gotValue %+v, expectedValue the reason printed under the repair", scan)
 	}
 }
+
+func TestCli_dedupePlanPrintsEachProposalWarning(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{}`)
+	fake := &fakeService{dedupePlan: []app.DedupeProposal{{ID: 8, Decision: store.ProposalPending, Warnings: []string{app.WarningNoClientRecheck},
+		Details: app.DedupeDetails{TorrentPath: "/home/u/torrents/b.mkv", Actionable: true, Kind: "hardlink"}}}}
+	useFakeService(t, fake)
+
+	plan := runCli(t, configDir, "dedupe", "plan")
+
+	if plan.exitCode != 0 || !strings.Contains(plan.stdout, "warning: "+app.WarningNoClientRecheck) {
+		t.Fatalf("gotValue %+v, expectedValue the warning printed under the proposal", plan)
+	}
+}

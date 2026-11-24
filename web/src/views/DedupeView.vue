@@ -126,7 +126,7 @@ onMounted(load)
           Raison : {{ item.details.reason }}
         </p>
         <p
-          v-for="warning in [...item.warnings, ...(item.details.warnings ?? [])]"
+          v-for="warning in [...new Set([...item.warnings, ...(item.details.warnings ?? [])])]"
           :key="warning"
           class="text-sm"
         >
