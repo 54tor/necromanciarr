@@ -15,6 +15,9 @@ import (
 	"necromanciarr/internal/store"
 )
 
+// recordTimeout borne l'enregistrement d'un lien déjà remplacé, fait même après une annulation.
+const recordTimeout = 30 * time.Second
+
 // Erreurs typées d'Apply.
 var (
 	// ErrChangedSinceScan : le lien n'est plus le lien symbolique vu par Scan.
@@ -121,7 +124,10 @@ func applyOne(ctx context.Context, repair Repair, options ApplyOptions, roots []
 		return outcome
 	}
 	outcome.Done = true
-	outcome.Err = recordRepair(ctx, repair, options.Store)
+	// Le lien est remplacé : l'enregistrement doit suivre même si l'appelant annule.
+	recordCtx, cancelRecord := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+	defer cancelRecord()
+	outcome.Err = recordRepair(recordCtx, repair, options.Store)
 	return outcome
 }
 

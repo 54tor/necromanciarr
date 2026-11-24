@@ -23,6 +23,9 @@ const (
 	temporarySeparator = "-"
 )
 
+// recordTimeout borne l'enregistrement d'un lien déjà posé, fait même après une annulation.
+const recordTimeout = 30 * time.Second
+
 // Erreurs typées d'Apply.
 var (
 	ErrChangedSincePlan    = errors.New("dedupe: file changed since plan")
@@ -122,7 +125,10 @@ func applyOne(ctx context.Context, replacement Replacement, options Options, roo
 		return outcome
 	}
 	outcome.Done = true
-	if err := options.Recorder.RecordLink(ctx, linkRecord(replacement, relative, proven)); err != nil {
+	// Le renommage est fait : l'enregistrement doit suivre même si l'appelant annule, sinon la base ignore le lien.
+	recordCtx, cancelRecord := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
+	defer cancelRecord()
+	if err := options.Recorder.RecordLink(recordCtx, linkRecord(replacement, relative, proven)); err != nil {
 		outcome.Err = fmt.Errorf("dedupe: link created but not recorded: %w", err)
 	}
 	if options.RecheckAfter && options.Rechecker != nil {
