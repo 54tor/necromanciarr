@@ -66,15 +66,22 @@ func classify(err error) errorClass {
 // chaîne (anglais, masqué à l'affichage) quand l'erreur en porte un. Le détail reste ici, contrairement au web : la CLI
 // est locale à l'opérateur et n'a pas de journal serveur où le retrouver.
 func errorMessage(translator i18n.Translator, err error) string {
+	if errors.Is(err, errConfirmationRequired) {
+		return translator.Text(i18n.KeyCLIConfirmationRequired, nil)
+	}
+	if unknownLanguage, isUnknown := errors.AsType[*config.UnknownLanguageError](err); isUnknown {
+		return translator.Text(i18n.KeyErrorUsageUnknownLanguage, textParams("value", unknownLanguage.Value))
+	}
+	_, typed := app.Classify(err)
+	if typed == nil {
+		return translator.Text(i18n.KeyCLIErrorInternal, nil) + " (" + err.Error() + ")"
+	}
 	message := translator.Render(app.MessageOf(err))
 	detail := err.Error()
-	if _, typed := app.Classify(err); typed != nil {
-		if detail == typed.Error() {
-			return message
-		}
-		detail = strings.TrimPrefix(detail, typed.Error()+": ")
+	if detail == typed.Error() {
+		return message
 	}
-	return message + " (" + detail + ")"
+	return message + " (" + strings.TrimPrefix(detail, typed.Error()+": ") + ")"
 }
 
 // languageFromArguments devine la langue avant que la configuration soit chargée (ligne invalide, aide) : --language,

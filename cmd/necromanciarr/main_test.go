@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"necromanciarr/internal/i18n"
 )
 
 func TestRun_unknownSubcommandPrintsUsageAndExits2(t *testing.T) {
@@ -64,7 +66,7 @@ func TestRun_apiKeyPrintsAFreshTokenAndWritesNothing(t *testing.T) {
 	if firstExit != 0 || secondExit != 0 || len(firstToken) < 43 || firstToken == strings.TrimSpace(second.String()) {
 		t.Fatalf("gotValue exits %d %d, tokens %q %q, expectedValue two distinct tokens", firstExit, secondExit, first.String(), second.String())
 	}
-	if strings.TrimSpace(stderr.String()) != apiKeyHint || strings.Contains(stderr.String(), firstToken) {
+	if strings.TrimSpace(stderr.String()) != i18n.New(i18n.French, nil).Text(i18n.KeyCLIAPIKeyHint, nil) || strings.Contains(stderr.String(), firstToken) {
 		t.Fatalf("gotValue stderr %q, expectedValue only the hint", stderr.String())
 	}
 	if entries, err := os.ReadDir(workingDir); err != nil || len(entries) != 0 {

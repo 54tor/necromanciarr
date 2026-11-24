@@ -71,8 +71,10 @@ func textParams(pairs ...string) map[string]string {
 
 func writeStageResult(writer io.Writer, translator i18n.Translator, result pipeline.Result) {
 	_, _ = fmt.Fprintln(writer, translator.Text(i18n.KeyCLIStageResult, textParams(
-		"stage", string(result.Stage), "processed", strconv.Itoa(result.Processed),
-		"skipped", strconv.Itoa(result.Skipped), "failed", strconv.Itoa(result.Failed))))
+		"stage", string(result.Stage),
+		"processed", translator.Count(i18n.KeyCLIStageProcessedOne, i18n.KeyCLIStageProcessedMany, result.Processed, nil),
+		"skipped", translator.Count(i18n.KeyCLIStageSkippedOne, i18n.KeyCLIStageSkippedMany, result.Skipped, nil),
+		"failed", translator.Text(i18n.KeyCLIStageFailedCount, textParams("count", strconv.Itoa(result.Failed))))))
 	counters := []struct {
 		labelKey i18n.Key
 		value    int

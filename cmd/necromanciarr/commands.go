@@ -161,7 +161,7 @@ func stageCommand(stage pipeline.Stage) command {
 func stageWarnings(translator i18n.Translator, result pipeline.Result) []string {
 	warnings := slices.Clone(result.Warnings)
 	if result.Failed > 0 {
-		warnings = append(warnings, translator.Text(i18n.KeyCLIStageFailedWarning, textParams("count", strconv.Itoa(result.Failed))))
+		warnings = append(warnings, translator.Count(i18n.KeyCLIStageFailedWarningOne, i18n.KeyCLIStageFailedWarningMany, result.Failed, nil))
 	}
 	return warnings
 }

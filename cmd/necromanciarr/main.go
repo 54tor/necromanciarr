@@ -25,7 +25,6 @@ const (
 	// usageExitCode est le code de sortie d'une ligne de commande invalide.
 	usageExitCode   = 2
 	failureExitCode = 1
-	apiKeyHint      = "put it in .env as NECROMANCIARR_AUTH_TOKEN"
 )
 
 // lookupEnv lit l'environnement pour config.Load.
@@ -85,7 +84,7 @@ func findCommand(args []string) (command, []string, bool) {
 // reportError affiche l'erreur ; une ligne de commande invalide affiche l'usage et donne le code 2.
 func reportError(stderr io.Writer, args []string, err error) int {
 	translator := i18n.New(languageFromArguments(args), nil)
-	_, _ = fmt.Fprintln(stderr, "error:", errorMessage(translator, err))
+	_, _ = fmt.Fprintln(stderr, "error:", stripControlCharacters(config.RedactText(errorMessage(translator, err))))
 	if errors.Is(err, config.ErrUsage) {
 		_, _ = fmt.Fprint(stderr, usageText(translator))
 		return usageExitCode
@@ -114,7 +113,7 @@ func runAPIKey(args []string, stdout, stderr io.Writer) int {
 		return reportError(stderr, args, err)
 	}
 	_, _ = fmt.Fprintln(stdout, token)
-	_, _ = fmt.Fprintln(stderr, apiKeyHint)
+	_, _ = fmt.Fprintln(stderr, i18n.New(languageFromArguments(args), nil).Text(i18n.KeyCLIAPIKeyHint, nil))
 	return 0
 }
 
