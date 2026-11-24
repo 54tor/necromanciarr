@@ -36,13 +36,13 @@ var (
 // bit de poids faible i%8. Une pièce contrôlée et non vérifiée est manquante. Generation est celle du candidat au moment
 // de l'écriture (posée par le store) ; MappingFingerprint n'est rempli que par CompleteVerification.
 type Verification struct {
-	CandidateID    int64
-	TotalPieces    int
-	VerifiedPieces int
-	CheckedBitset  []byte
-	VerifiedBitset []byte
-	MediaComplete  bool
-	Percent        float64
+	CandidateID        int64
+	TotalPieces        int
+	VerifiedPieces     int
+	CheckedBitset      []byte
+	VerifiedBitset     []byte
+	MediaComplete      bool
+	Percent            float64
 	State              VerificationState
 	Generation         int64
 	MappingFingerprint string
@@ -207,18 +207,18 @@ var (
 // objet JSON propre à la nature (pourcentage, pièces manquantes, torrents en litige), vide vaut {}. Generation est
 // celle du candidat à la création (posée par UpsertProposal).
 type Proposal struct {
-	ID          int64
-	CandidateID int64
-	GroupID     int64
-	Kind        ProposalKind
-	Decision    ProposalDecision
-	Warnings    []string
+	ID            int64
+	CandidateID   int64
+	GroupID       int64
+	Kind          ProposalKind
+	Decision      ProposalDecision
+	Warnings      []string
 	Primary       bool
 	PrimarySource PrimarySource
 	Generation    int64
 	Details       json.RawMessage
-	CreatedAt   time.Time
-	DecidedAt   time.Time
+	CreatedAt     time.Time
+	DecidedAt     time.Time
 }
 
 func checkProposalKind(kind ProposalKind) error {
