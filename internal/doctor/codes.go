@@ -10,7 +10,9 @@ const (
 	CodePanic        = "panic"
 
 	CodeWorkingDirDotEnv = "working_dir_dotenv"
-	CodeConfigInvalid    = "config_invalid"
+	// CodeTrackerValueTooShort : une variable de trackers fait moins de 8 octets ; elle n'est masquée que dans une URL.
+	CodeTrackerValueTooShort = "tracker_value_too_short"
+	CodeConfigInvalid        = "config_invalid"
 
 	CodeConfigDirMissing      = "config_dir_missing"
 	CodeDatabaseDirUnresolved = "database_dir_unresolved"

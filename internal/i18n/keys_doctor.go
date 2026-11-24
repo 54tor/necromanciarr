@@ -21,6 +21,8 @@ const (
 	KeyDoctorConfigLoaded                Key = "doctor.config.loaded"
 	KeyDoctorConfigDotEnv                Key = "doctor.config.dotenv"
 	KeyDoctorConfigDotEnvHint            Key = "doctor.config.dotenv.hint"
+	KeyDoctorTrackerValueTooShort        Key = "doctor.config.tracker_value_too_short"
+	KeyDoctorTrackerValueTooShortHint    Key = "doctor.config.tracker_value_too_short.hint"
 	KeyDoctorConfigLoadFailed            Key = "doctor.config.load_failed"
 	KeyDoctorConfigLoadFailedHint        Key = "doctor.config.load_failed.hint"
 	KeyDoctorConfigDirMissing            Key = "doctor.config_dir.missing"
@@ -173,7 +175,7 @@ var doctorKeys = []Key{
 	KeyDoctorTitleLibraryAPI, KeyDoctorTitleArr, KeyDoctorTitleQbittorrent, KeyDoctorTitleLinks,
 	KeyDoctorTitleFSProviders, KeyDoctorTitleCrossSeed, KeyDoctorTitlePathMappings, KeyDoctorTitleDedupe,
 	KeyDoctorCancelled, KeyDoctorTimeout, KeyDoctorTimeoutHint, KeyDoctorPanic, KeyDoctorConfigLoaded,
-	KeyDoctorConfigDotEnv, KeyDoctorConfigDotEnvHint, KeyDoctorConfigLoadFailed, KeyDoctorConfigLoadFailedHint,
+	KeyDoctorConfigDotEnv, KeyDoctorConfigDotEnvHint, KeyDoctorTrackerValueTooShort, KeyDoctorTrackerValueTooShortHint, KeyDoctorConfigLoadFailed, KeyDoctorConfigLoadFailedHint,
 	KeyDoctorConfigDirMissing, KeyDoctorConfigDirMissingHint, KeyDoctorDatabaseDirUnresolved,
 	KeyDoctorDatabaseDirUnresolvedHint, KeyDoctorDatabaseInLibrary, KeyDoctorDatabaseInLibraryHint,
 	KeyDoctorDatabaseUnwritable, KeyDoctorDatabaseUnwritableHint, KeyDoctorDatabaseOK, KeyDoctorAuthLoopback,

@@ -88,6 +88,7 @@
       "check_timeout": "Délai du contrôle dépassé",
       "panic": "Contrôle interrompu par une erreur",
       "working_dir_dotenv": "Fichier .env dans le dossier courant",
+      "tracker_value_too_short": "Variable de trackers trop courte pour être masquée partout",
       "config_invalid": "Configuration invalide",
       "config_dir_missing": "Dossier de configuration absent",
       "database_dir_unresolved": "Dossier de la base introuvable",

@@ -85,6 +85,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | all | `cancelled` | `skipped` | diagnostic interrupted before this check |
 | all | `panic` | `fail` | bug: the type and a masked message are given; report it |
 | `config` | `working_dir_dotenv` | `warn` | a working-directory `.env` was read: move it to the configuration folder, or delete it |
+| `config` | `tracker_value_too_short` | `warn` | a `trackers` variable is shorter than 8 characters: its value is masked only inside announce URLs, never in free text; `config check` names it too |
 | `config` | `config_invalid` | `fail` | invalid `config.json` (`unknown field …`, `parse config.json`, `undefined variable X`, `linkDirs[i] … overlaps libraryRoots[j]`): fix, then `config check` |
 | `config-dir` | `config_dir_missing` | `fail` | configuration folder missing: create it or pass `--config-dir` |
 | `config-dir` | `database_dir_unresolved` | `fail` | database folder not found: create it or fix `dbPath` |

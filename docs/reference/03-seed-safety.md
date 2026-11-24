@@ -92,7 +92,7 @@ Toute sortie (CLI texte et `--json`, API web, interface, `doctor`, journal du se
 
 | Règle | Exemple masqué | Rendu |
 |---|---|---|
-| Secret connu (valeur interpolée dans `trackers`, clés `torznab` et `prowlarr`, `NECROMANCIARR_SECRET_KEY`…), sous toutes ses formes | une passkey nue dans un message | `***` |
+| Secret connu (valeur interpolée dans `trackers` d'au moins 8 caractères, clés `torznab` et `prowlarr`, `NECROMANCIARR_SECRET_KEY`…), sous toutes ses formes | une passkey nue dans un message | `***` |
 | URL d'annonce rendue par la configuration | `https://u:p@tracker-a.example.com:8443/abc/announce?pk=x` | `https://tracker-a.example.com:8443/***` |
 | Paramètre à nom de passkey dans une URL, quelle que soit sa longueur (`passkey`, `pk`, `authkey`, `torrent_pass`, `key`, `uid`, `apikey`, `secret`, `token`, casse et encodage ignorés, séparateur `&` ou `;`, fragment compris) | `?pk=x` | `?pk=***` |
 | Segment de chemin qui suit un tel nom | `/passkey/x/announce` | `/passkey/***/announce` |

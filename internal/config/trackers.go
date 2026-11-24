@@ -13,6 +13,9 @@ import (
 )
 
 const (
+	// MinKnownSecretLength : une valeur de trackers (ou découverte) plus courte n'entre pas dans les secrets connus,
+	// car la masquer littéralement couperait des mots ordinaires ; elle reste masquée dans les URL d'annonce.
+	MinKnownSecretLength = 8
 	maxTrackerNameLength = 128
 	errTrackersShape     = `trackers: must be an object mapping each tracker name to an announce URL or to {"announce": [URL, …], "aliases": [name, …]}`
 	errTrackerEntryShape = `must be an announce URL or an object with "announce" (a list of URLs) and optional "aliases"`
@@ -23,12 +26,14 @@ var announceSchemes = []string{"http", "https", "udp"}
 
 // Tracker décrit l'annonce d'un tracker, injectée au seed. Announce porte la passkey de l'opérateur : c'est un secret,
 // rendu seulement en schéma://hôte[:port]/*** par String, GoString, LogValue et MarshalJSON. Plusieurs URL forment un
-// seul palier d'announce-list. Variables ne garde que les noms des variables interpolées, jamais leur valeur.
+// seul palier d'announce-list. Variables ne garde que les noms des variables interpolées, jamais leur valeur ;
+// ShortVariables nomme celles dont la valeur fait moins de MinKnownSecretLength octets (masquées seulement dans une URL).
 type Tracker struct {
-	Key       string
-	Announce  []string
-	Aliases   []string
-	Variables []string
+	Key            string
+	Announce       []string
+	Aliases        []string
+	Variables      []string
+	ShortVariables []string
 	// secrets retient les valeurs interpolées (et les mots littéraux qui ont l'allure d'une passkey) pour
 	// KnownSecrets ; jamais rendu.
 	secrets []string
@@ -71,7 +76,8 @@ func RedactAnnounce(rawURL string) string {
 }
 
 // WithDiscoveredSecrets renvoie les secrets connus plus des valeurs passagères (passkey lue dans l'annonce d'un
-// .torrent d'indexeur), sous les mêmes formes que les valeurs de trackers ; la configuration n'est pas modifiée.
+// .torrent d'indexeur), sous les mêmes formes que les valeurs de trackers ; une valeur de moins de
+// MinKnownSecretLength octets est ignorée. La configuration n'est pas modifiée.
 func (loadedConfig Config) WithDiscoveredSecrets(values ...string) []string {
 	return append(loadedConfig.KnownSecrets(), passkeyForms(values)...)
 }
@@ -159,6 +165,7 @@ func parseTrackerEntry(key string, rawEntry json.RawMessage, lookup func(string)
 		tracker.secrets = append(tracker.secrets, literalPasskeys(announce)...)
 	}
 	tracker.Variables = uniqueInOrder(recorder.names)
+	tracker.ShortVariables = shortVariableNames(recorder)
 	tracker.secrets = append(passkeyForms(recorder.values), tracker.secrets...)
 	return tracker, nil
 }
@@ -218,12 +225,12 @@ func claimTrackerNames(owners map[string]string, tracker Tracker) error {
 	return nil
 }
 
-// passkeyForms donne chaque valeur brute, en capitales, en minuscules, et chacune encodée pour une requête ou un
-// chemin ; les formes échappées JSON sont ajoutées par RedactJSON.
+// passkeyForms donne chaque valeur d'au moins MinKnownSecretLength octets brute, en capitales, en minuscules, et chacune
+// encodée pour une requête ou un chemin ; les formes échappées JSON sont ajoutées par RedactJSON.
 func passkeyForms(values []string) []string {
 	var forms []string
 	for _, value := range values {
-		if value == "" {
+		if len(value) < MinKnownSecretLength {
 			continue
 		}
 		for _, variant := range []string{value, strings.ToUpper(value), strings.ToLower(value)} {
@@ -248,6 +255,16 @@ func literalPasskeys(announce string) []string {
 		}
 	}
 	return passkeyForms(passkeys)
+}
+
+func shortVariableNames(recorder variableRecorder) []string {
+	var names []string
+	for valueIndex, value := range recorder.values {
+		if len(value) < MinKnownSecretLength {
+			names = append(names, recorder.names[valueIndex])
+		}
+	}
+	return uniqueInOrder(names)
 }
 
 func uniqueInOrder(values []string) []string {

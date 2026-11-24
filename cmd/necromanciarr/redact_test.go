@@ -145,3 +145,18 @@ func TestConfigCheck_showsTrackerHostsAndVariableNamesOnly(t *testing.T) {
 	}
 	expectNoPasskey(t, "config check", result.stdout+result.stderr)
 }
+
+func TestConfigCheck_namesATrackerValueTooShortToMask(t *testing.T) {
+	setTrackerPasskeys(t)
+	t.Setenv("UID", "a")
+	configDir := writeDoctorConfig(t, `{"trackers": {"tracker-a": "https://tracker-a.example.com/announce?uid=${UID}&pk=${PASSKEY_TRACKER_A}"}}`)
+
+	result := runCli(t, configDir, "config", "check")
+
+	if result.exitCode != successExitCode || !strings.Contains(result.stderr, "UID") || !strings.Contains(result.stderr, "8") {
+		t.Fatalf("gotValue exit %d stderr %q, expectedValue a warning naming UID and the 8-character minimum", result.exitCode, result.stderr)
+	}
+	if !strings.Contains(result.stderr, "(source: --language)") {
+		t.Fatalf("gotValue %q, expectedValue ordinary text (the language source) untouched by the short value", result.stderr)
+	}
+}

@@ -139,5 +139,10 @@ func runConfigCheck(args []string, stdout, stderr io.Writer) int {
 	_, _ = fmt.Fprintln(stderr, translator.Text(i18n.KeyConfigCheckLanguage, map[string]string{
 		"language": string(loadedConfig.Language), "source": loadedConfig.LanguageSource,
 	}))
+	for _, tracker := range loadedConfig.Trackers {
+		for _, name := range tracker.ShortVariables {
+			_, _ = fmt.Fprintln(stderr, "warning:", translator.Text(i18n.KeyDoctorTrackerValueTooShort, map[string]string{"name": name}))
+		}
+	}
 	return 0
 }

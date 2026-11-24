@@ -175,6 +175,8 @@ var french = map[Key]string{
 	KeyDoctorConfigLoaded:                  "chargée depuis {dir} ; sources : radarr={radarr}, sonarr={sonarr}, torrentClients={torrent_clients}, linkDirs={link_dirs}",
 	KeyDoctorConfigDotEnv:                  "chargée depuis {dir} ; sources : radarr={radarr}, sonarr={sonarr}, torrentClients={torrent_clients}, linkDirs={link_dirs} ; variables lues dans le .env du dossier de travail",
 	KeyDoctorConfigDotEnvHint:              "déplacer ce .env dans le dossier de configuration, ou le supprimer s'il appartient à un autre outil",
+	KeyDoctorTrackerValueTooShort:          "{name} fait moins de 8 caractères : sa valeur n'est masquée que dans les URL d'annonce",
+	KeyDoctorTrackerValueTooShortHint:      "une valeur aussi courte, masquée partout, couperait des mots ordinaires ; ne pas la recopier ailleurs que dans trackers",
 	KeyDoctorConfigLoadFailed:              "{error}",
 	KeyDoctorConfigLoadFailedHint:          "corriger la configuration, puis lancer `necromanciarr config check`",
 	KeyDoctorConfigDirMissing:              "dossier de configuration introuvable : {path}",

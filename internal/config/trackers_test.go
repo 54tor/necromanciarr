@@ -244,3 +244,33 @@ func TestConfig_trackersRenderHostsAndVariableNamesOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestConfig_shortTrackerValueIsNotALiteralSecret(t *testing.T) {
+	environment := map[string]string{"UID": "a", "PASSKEY_TRACKER_A": fakePasskeyA}
+	loadedConfig, err := loadTrackerConfig(t, `{"tracker-a": "https://tracker-a.example.com/announce?uid=${UID}&passkey=${PASSKEY_TRACKER_A}"}`, environment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const ordinaryText = "Radarr scan has a problem"
+
+	gotText := RedactText(ordinaryText, loadedConfig.KnownSecrets()...)
+	gotURL := RedactText("announce https://tracker-a.example.com/announce?uid=a&x=1", loadedConfig.KnownSecrets()...)
+
+	if gotText != ordinaryText || strings.Contains(gotURL, "uid=a") {
+		t.Fatalf("gotValue %q and %q, expectedValue the text untouched and the uid masked inside the URL", gotText, gotURL)
+	}
+	if gotValue := loadedConfig.Trackers[0].ShortVariables; !slices.Equal(gotValue, []string{"UID"}) {
+		t.Fatalf("gotValue %v, expectedValue [UID] named as too short", gotValue)
+	}
+	if !slices.Contains(loadedConfig.KnownSecrets(), fakePasskeyA) {
+		t.Fatal("gotValue the long passkey missing from the known secrets, expectedValue it kept")
+	}
+}
+
+func TestWithDiscoveredSecrets_ignoresValuesShorterThanEightBytes(t *testing.T) {
+	gotValue := Config{}.WithDiscoveredSecrets("1234567", "12345678")
+
+	if slices.Contains(gotValue, "1234567") || !slices.Contains(gotValue, "12345678") {
+		t.Fatalf("gotValue %v, expectedValue only the value of at least 8 bytes", gotValue)
+	}
+}

@@ -92,7 +92,7 @@ Every output (CLI text and `--json`, web API, interface, `doctor`, server log, j
 
 | Rule | Masked example | Rendered |
 |---|---|---|
-| Known secret (value interpolated in `trackers`, `torznab` and `prowlarr` keys, `NECROMANCIARR_SECRET_KEY`…), in every form | a bare passkey in a message | `***` |
+| Known secret (value interpolated in `trackers` of at least 8 characters, `torznab` and `prowlarr` keys, `NECROMANCIARR_SECRET_KEY`…), in every form | a bare passkey in a message | `***` |
 | Announce URL rendered from the configuration | `https://u:p@tracker-a.example.com:8443/abc/announce?pk=x` | `https://tracker-a.example.com:8443/***` |
 | Parameter with a passkey name in a URL, whatever its length (`passkey`, `pk`, `authkey`, `torrent_pass`, `key`, `uid`, `apikey`, `secret`, `token`, case and encoding ignored, separator `&` or `;`, fragment included) | `?pk=x` | `?pk=***` |
 | Path segment following such a name | `/passkey/x/announce` | `/passkey/***/announce` |
