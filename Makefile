@@ -21,7 +21,7 @@ GOFUMPT_CMD ?= $(GO_RUN) tool gofumpt
 GOIMPORTS_CMD ?= $(GO_RUN) tool goimports
 DEADCODE_CMD ?= $(GO_RUN) tool deadcode
 PACKAGE_LIST_CMD ?= $(GO_RUN) list ./...
-QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode shell hadolint gitleaks actionlint docs-check ui-lint ui-test ui-audit ui-csp
+QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode shell hadolint gitleaks actionlint docs-check ui-lint ui-test ui-audit ui-csp ui-licences
 
 # Chaîne front (web/) : tout est no-op tant que web/package.json n'existe pas.
 # Quand il existe, l'absence de Node/npm fait échouer la cible avec un message explicite.
@@ -35,7 +35,7 @@ UI_GUARD = @test -f $(WEB_DIR)/package.json || { echo "web/package.json absent :
 	node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1)' \
 		|| { echo "Node trop ancien : version >= 22.12 requise"; exit 1; }
 
-.PHONY: ui ui-deps ui-lint ui-test ui-audit ui-csp build cross-build docker-buildx quality hooks docker-build docker-lint site docs-check $(QUALITY_TARGETS)
+.PHONY: ui ui-deps ui-lint ui-test ui-audit ui-csp ui-licences build cross-build docker-buildx quality hooks docker-build docker-lint site docs-check $(QUALITY_TARGETS)
 
 build: ui
 	CGO_ENABLED=0 $(GO_RUN) build -p $(QUALITY_PARALLELISM) ./cmd/necromanciarr
@@ -153,6 +153,11 @@ ui-test: ui-deps
 ui-audit: ui-deps
 	$(UI_GUARD); \
 	$(NPM) run audit
+
+# Aucune dépendance copyleft ni asset issu des applications *arr (GPL-3.0) : le dépôt est MIT.
+ui-licences:
+	$(UI_GUARD); \
+	node --test scripts/check-licences.test.mjs && node scripts/check-licences.mjs $(WEB_DIR)
 
 # La CSP du serveur interdit unsafe-eval : le bundle construit ne doit ni évaluer ni compiler de texte, et
 # index.html ne doit porter aucun script en ligne (le test Go de internal/web ne couvre que les builds présents).
