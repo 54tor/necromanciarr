@@ -60,7 +60,7 @@ const reducedMotion = 'motion-reduce:animate-none motion-reduce:transition-none'
       <aside
         v-if="mode !== 'drawer'"
         :data-mode="mode"
-        class="sticky top-0 flex h-screen shrink-0 flex-col gap-4 border-r border-sidebar-border bg-sidebar p-2 text-sidebar-foreground"
+        class="sticky top-0 flex h-screen shrink-0 flex-col gap-4 overflow-y-auto border-r border-sidebar-border bg-sidebar p-2 text-sidebar-foreground"
         :class="mode === 'wide' ? 'w-60' : 'w-16'"
       >
         <div class="px-2 pt-2" :class="mode === 'compact' ? 'flex justify-center px-0' : ''">

@@ -1,5 +1,4 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["src/components/ui/**/index.ts", "src/lib/utils.ts"],
-  "ignoreDependencies": ["@tanstack/vue-table"]
+  "entry": ["src/components/ui/**/index.ts", "src/lib/utils.ts"]
 }

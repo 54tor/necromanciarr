@@ -151,5 +151,20 @@
       "torrent_root_missing": "Torrent root missing",
       "torrent_root_ok": "Torrent root compliant"
     }
+  },
+  "table": {
+    "loading": "Loading…",
+    "selection": "Selection",
+    "actions": "Actions",
+    "selectRow": "Select row {row}",
+    "pagination": "Table pagination",
+    "pageStatus": "{from} to {to} of {total}",
+    "previous": "Previous page",
+    "next": "Next page"
+  },
+  "dialog": {
+    "cancel": "Cancel",
+    "items": "Affected items ({count})",
+    "confirmPhrase": "Type “{phrase}” to confirm"
   }
 }

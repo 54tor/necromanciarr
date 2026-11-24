@@ -40,8 +40,19 @@
   --sidebar-primary-foreground: #121416;
   --sidebar-accent: #2b3033;
   --sidebar-accent-foreground: #e6e8ea;
-  --sidebar-border: #3a4044;
+  --sidebar-border: #6b747b;
   --sidebar-ring: #4cc2a5;
+  /* Pastilles d'état : texte et fond teinté ; le sens porte aussi par l'icône et le libellé, jamais par la couleur seule. */
+  --state-ok: #7fdcc2;
+  --state-ok-surface: #153229;
+  --state-warn: #e8c470;
+  --state-warn-surface: #35290f;
+  --state-fail: #f0908a;
+  --state-fail-surface: #3a1b19;
+  --state-info: #8dbbe6;
+  --state-info-surface: #172a3b;
+  --state-muted: #b4bbc0;
+  --state-muted-surface: #2b3033;
 }
 
 @theme inline {
@@ -76,6 +87,16 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-state-ok: var(--state-ok);
+  --color-state-ok-surface: var(--state-ok-surface);
+  --color-state-warn: var(--state-warn);
+  --color-state-warn-surface: var(--state-warn-surface);
+  --color-state-fail: var(--state-fail);
+  --color-state-fail-surface: var(--state-fail-surface);
+  --color-state-info: var(--state-info);
+  --color-state-info-surface: var(--state-info-surface);
+  --color-state-muted: var(--state-muted);
+  --color-state-muted-surface: var(--state-muted-surface);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

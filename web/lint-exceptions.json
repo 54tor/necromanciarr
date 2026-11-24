@@ -8,7 +8,6 @@
     "src/views/ProposalsView.vue",
     "src/views/StagesView.vue",
     "src/components/ChooseDialog.vue",
-    "src/components/ConfirmDialog.vue",
     "src/components/MaintenanceActions.vue",
     "src/components/ProposalCard.vue",
     "src/components/RecordedLinks.vue"

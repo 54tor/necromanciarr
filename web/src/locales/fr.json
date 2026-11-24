@@ -151,5 +151,20 @@
       "torrent_root_missing": "Racine des torrents absente",
       "torrent_root_ok": "Racine des torrents conforme"
     }
+  },
+  "table": {
+    "loading": "Chargement…",
+    "selection": "Sélection",
+    "actions": "Actions",
+    "selectRow": "Sélectionner la ligne {row}",
+    "pagination": "Pagination du tableau",
+    "pageStatus": "{from} à {to} sur {total}",
+    "previous": "Page précédente",
+    "next": "Page suivante"
+  },
+  "dialog": {
+    "cancel": "Annuler",
+    "items": "Éléments concernés ({count})",
+    "confirmPhrase": "Saisissez « {phrase} » pour confirmer"
   }
 }

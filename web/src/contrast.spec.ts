@@ -45,6 +45,10 @@ describe('WCAG AA contrast', () => {
     ['--primary', '--card'],
     ['--destructive', '--background'],
     ['--destructive', '--card'],
+    ['--muted-foreground', '--sidebar'],
+    ['--sidebar-foreground', '--sidebar'],
+    ['--sidebar-accent-foreground', '--sidebar-accent'],
+    ['--sidebar-primary', '--sidebar'],
   ]
 
   it.each(textPairs)('text %s on %s reaches 4.5', (foregroundToken, backgroundToken) => {
@@ -59,11 +63,22 @@ describe('WCAG AA contrast', () => {
     ['--ring', '--background'],
     ['--ring', '--card'],
     ['--input', '--background'],
+    ['--sidebar-border', '--sidebar'],
   ]
 
   it.each(uiPairs)('UI component %s on %s reaches 3', (foregroundToken, backgroundToken) => {
     const gotValue = contrastRatio(token(foregroundToken), token(backgroundToken))
 
     expect(gotValue).toBeGreaterThanOrEqual(UI_COMPONENT_MINIMUM)
+  })
+})
+
+describe('status pills meet AA', () => {
+  const tones = ['ok', 'warn', 'fail', 'info', 'muted']
+
+  it.each(tones)('pill %s text on its surface reaches 4.5', (tone) => {
+    const gotValue = contrastRatio(token(`--state-${tone}`), token(`--state-${tone}-surface`))
+
+    expect(gotValue).toBeGreaterThanOrEqual(NORMAL_TEXT_MINIMUM)
   })
 })

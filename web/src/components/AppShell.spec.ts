@@ -88,6 +88,12 @@ describe('AppShell', () => {
     expect(document.body.querySelector('[role="dialog"][data-state="open"]')).toBeNull()
   })
 
+  it('lets the sidebar scroll so a long nav is never clipped', () => {
+    const wrapper = mountShell(1280)
+
+    expect(wrapper.get('aside').classes()).toContain('overflow-y-auto')
+  })
+
   it('hides zero badges', () => {
     const wrapper = mountShell(1280)
 

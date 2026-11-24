@@ -18,6 +18,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - CLI text and help, API error messages and action descriptions follow `language`; `GET /api/status` reports it; error codes never change.
 - The web interface switches to `language` once the server answers (browser language until then, French by default); navigation, access-token dialog and code labels are translated, with no script evaluation so the strict content security policy is unchanged.
 - The web interface has a left sidebar (icons only between 768 and 1023 px, a drawer on narrow screens) with count badges for pending proposals and failed diagnostic checks, a skip link, and a page header with a toolbar area.
+- The web interface gains an accessible data table (sortable columns, keyboard row navigation, stacked cards on narrow screens, paging), status pills that always show an icon and a label, and a confirmation dialog that can list the affected items and require a typed phrase; the sidebar scrolls on short screens and its border is more visible.
 
 ### Changed
 - Server log lines are translated and carry a stable `code` attribute (`job_failed`, `server_listening`, ...); the `serve` startup line is now a structured log line (`code=server_listening`) and follows `language`, as do the other `serve` messages; Go HTTP server errors and handler panics are logged through the same coded, redacted log.
