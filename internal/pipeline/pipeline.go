@@ -34,6 +34,8 @@ var (
 	ErrUnknownStage        = errors.New("pipeline: unknown stage")
 	ErrStageNotImplemented = errors.New("pipeline: stage not implemented yet")
 	ErrStageRunning        = errors.New("pipeline: another stage is running")
+	// ErrLockLost signale que le verrou d'étape a été repris ou n'a pas pu être prolongé : l'étape s'est arrêtée.
+	ErrLockLost = errors.New("pipeline: run lock lost")
 )
 
 // defaultLockTTL est le bail du verrou d'étape : un processus mort libère la place au plus tard après ce délai.
@@ -55,6 +57,7 @@ type Store interface {
 	DeleteMediaFile(ctx context.Context, mediaFileID int64, now time.Time) error
 	InvalidateCandidatesForFile(ctx context.Context, mediaFileID int64, now time.Time) (int, error)
 	MarkChangedCandidatesStale(ctx context.Context, now time.Time) (int, error)
+	ListCandidatesByState(ctx context.Context, states ...store.CandidateState) ([]store.Candidate, error)
 	SaveCandidate(ctx context.Context, candidate store.Candidate, files []store.CandidateFile, now time.Time) (int64, store.SaveOutcome, error)
 	RegroupCandidates(ctx context.Context) error
 	AcquireRunLock(ctx context.Context, holder, stage string, now, expiresAt time.Time) error
@@ -169,24 +172,34 @@ func notImplemented(context.Context, Deps) (Result, error) {
 }
 
 // Run exécute une étape sous le verrou exclusif du store ; le Result incomplet est renvoyé même en cas d'erreur.
+// Si le verrou est perdu en cours de route, le contexte de l'étape est annulé et Run renvoie ErrLockLost.
 func Run(ctx context.Context, stage Stage, deps Deps) (Result, error) {
 	runner, known := stageRunners[stage]
 	if !known {
 		return Result{}, fmt.Errorf("%w: %q", ErrUnknownStage, stage)
 	}
-	release, err := acquireLock(ctx, deps, stage)
+	runContext, cancelRun := context.WithCancelCause(ctx)
+	defer cancelRun(nil)
+	release, err := acquireLock(runContext, deps, stage, cancelRun)
 	if err != nil {
 		return Result{Stage: stage}, err
 	}
 	defer release()
-	result, err := runner(ctx, deps)
+	result, err := runner(runContext, deps)
 	result.Stage = stage
+	if lockLost(runContext) {
+		return result, fmt.Errorf("pipeline %s: %w", stage, ErrLockLost)
+	}
 	return result, err
 }
 
+func lockLost(ctx context.Context) bool {
+	return errors.Is(context.Cause(ctx), ErrLockLost)
+}
+
 // acquireLock prend le verrou et le prolonge tant que l'étape tourne ; la fonction renvoyée l'arrête et le rend,
-// même après annulation de ctx.
-func acquireLock(ctx context.Context, deps Deps, stage Stage) (func(), error) {
+// même après annulation de ctx. onLost annule l'étape si le verrou ne peut plus être prolongé.
+func acquireLock(ctx context.Context, deps Deps, stage Stage, onLost context.CancelCauseFunc) (func(), error) {
 	holder, err := newHolderID()
 	if err != nil {
 		return nil, err
@@ -199,9 +212,10 @@ func acquireLock(ctx context.Context, deps Deps, stage Stage) (func(), error) {
 		}
 		return nil, err
 	}
+	refresher := lockRefresher{deps: deps, holder: holder, ttl: ttl, onLost: onLost}
 	stopRefresh := make(chan struct{})
 	refreshDone := make(chan struct{})
-	go refreshLock(context.WithoutCancel(ctx), deps, holder, ttl, stopRefresh, refreshDone)
+	go refresher.run(context.WithoutCancel(ctx), stopRefresh, refreshDone)
 	return func() {
 		close(stopRefresh)
 		<-refreshDone
@@ -209,17 +223,41 @@ func acquireLock(ctx context.Context, deps Deps, stage Stage) (func(), error) {
 	}, nil
 }
 
-// refreshLock prolonge le bail toutes les ttl/3 ; un échec ponctuel est rattrapé au tour suivant, avant expiration.
-func refreshLock(ctx context.Context, deps Deps, holder string, ttl time.Duration, stop <-chan struct{}, done chan<- struct{}) {
+// maxRefreshFailures est le nombre d'échecs consécutifs de prolongation tolérés : à TTL/3 d'intervalle, le troisième
+// échec arrive juste avant l'expiration du bail.
+const maxRefreshFailures = 3
+
+// minRefreshInterval évite un intervalle nul (time.NewTicker panique) pour un bail très court.
+const minRefreshInterval = time.Millisecond
+
+type lockRefresher struct {
+	deps   Deps
+	holder string
+	ttl    time.Duration
+	onLost context.CancelCauseFunc
+}
+
+// run prolonge le bail toutes les TTL/3 ; verrou repris par un autre ou trois échecs de suite : l'étape est annulée.
+func (refresher lockRefresher) run(ctx context.Context, stop <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
-	ticker := time.NewTicker(ttl / 3)
+	ticker := time.NewTicker(max(refresher.ttl/3, minRefreshInterval))
 	defer ticker.Stop()
+	consecutiveFailures := 0
 	for {
 		select {
 		case <-stop:
 			return
 		case <-ticker.C:
-			_ = deps.Store.RefreshRunLock(ctx, holder, deps.now().Add(ttl))
+			err := refresher.deps.Store.RefreshRunLock(ctx, refresher.holder, refresher.deps.now().Add(refresher.ttl))
+			if err == nil {
+				consecutiveFailures = 0
+				continue
+			}
+			consecutiveFailures++
+			if errors.Is(err, store.ErrRunLocked) || consecutiveFailures >= maxRefreshFailures {
+				refresher.onLost(fmt.Errorf("%w: %w", ErrLockLost, err))
+				return
+			}
 		}
 	}
 }
