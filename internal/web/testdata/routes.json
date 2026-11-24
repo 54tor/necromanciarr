@@ -1,0 +1,98 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/status",
+    "action": "status",
+    "mutating": false
+  },
+  {
+    "method": "GET",
+    "path": "/api/proposals",
+    "action": "proposals list",
+    "mutating": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/proposals/{id}/accept",
+    "action": "proposals accept",
+    "mutating": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/proposals/{id}/reject",
+    "action": "proposals reject",
+    "mutating": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/proposals/{id}/choose",
+    "action": "proposals choose",
+    "mutating": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/proposals/{id}/force",
+    "action": "proposals force",
+    "mutating": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/groups/{id}/accept",
+    "action": "proposals accept-group",
+    "mutating": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/stages/{stage}/run",
+    "action": "run",
+    "mutating": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/dedupe/plan",
+    "action": "dedupe plan",
+    "mutating": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/dedupe/{id}/apply",
+    "action": "dedupe apply",
+    "mutating": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/repair/scan",
+    "action": "repair scan",
+    "mutating": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/repair/{id}/apply",
+    "action": "repair apply",
+    "mutating": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/doctor",
+    "action": "doctor",
+    "mutating": false
+  },
+  {
+    "method": "GET",
+    "path": "/api/doctor/{checkId}",
+    "action": "doctor",
+    "mutating": false
+  },
+  {
+    "method": "GET",
+    "path": "/api/jobs",
+    "action": "",
+    "mutating": false
+  },
+  {
+    "method": "GET",
+    "path": "/api/jobs/{id}",
+    "action": "",
+    "mutating": false
+  }
+]

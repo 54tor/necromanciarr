@@ -7,6 +7,8 @@ export default defineConfig({
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
+  // Le fichier d'or des routes (internal/web/testdata/routes.json) est dans le paquet Go, un niveau au-dessus de web/.
+  server: { fs: { allow: ['..'] } },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.spec.ts'],
