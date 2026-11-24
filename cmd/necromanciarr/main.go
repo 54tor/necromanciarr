@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"syscall"
 
 	// Fuseaux horaires embarqués : l'image finale n'a pas de paquet tzdata.
 	_ "time/tzdata"
@@ -36,11 +37,16 @@ func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
-// run dispatche la sous-commande demandée et renvoie le code de sortie du processus ; Ctrl-C annule l'action en
-// cours (une étape s'arrête proprement et reste rejouable).
+// run dispatche la sous-commande demandée et renvoie le code de sortie du processus ; Ctrl-C ou SIGTERM annule
+// l'action en cours (une étape s'arrête proprement et reste rejouable).
 func run(args []string, stdout, stderr io.Writer) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Après le premier signal, le comportement par défaut revient : un second Ctrl-C tue le processus.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 	switch {
 	case len(args) >= 1 && args[0] == "api-key":
 		return runAPIKey(args[1:], stdout, stderr)
