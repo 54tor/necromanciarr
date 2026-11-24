@@ -1,5 +1,5 @@
-// Package torznab est le client durci d'un indexeur Torznab (flux Prowlarr, Jackett ou indexeur natif) : capacités
-// et recherche. Context7 ne connaît que la spécification Torznab, aucune bibliothèque Go cliente maintenue ; le format
+// Package torznab est le client durci d'un indexeur Torznab (flux Prowlarr, Jackett ou indexeur natif) : capacités,
+// recherche et téléchargement du .torrent depuis la seule origine de l'indexeur. Context7 ne connaît que la spécification Torznab, aucune bibliothèque Go cliente maintenue ; le format
 // est un RSS 2.0 étendu de quelques torznab:attr, lu par encoding/xml de la bibliothèque standard, qui ne résout ni
 // DTD ni entité externe. Les réponses sont des données hostiles : corps plafonné avant analyse, directives refusées,
 // profondeur et nombre d'éléments bornés, aucune redirection, erreurs sans URL ni texte venu de l'indexeur.
@@ -203,44 +203,65 @@ func (client *Client) throttle(ctx context.Context) error {
 	return nil
 }
 
-// get envoie une requête de l'API et rend le corps XML plafonné et le délai Retry-After ; l'erreur d'un appel HTTP
-// est reconstruite sans l'URL, qui porte la clé.
+// get envoie une requête de l'API et rend le corps XML plafonné et le délai Retry-After.
 func (client *Client) get(ctx context.Context, parameters url.Values) ([]byte, time.Duration, error) {
-	if err := client.throttle(ctx); err != nil {
+	response, cancel, err := client.send(ctx, client.target(parameters), acceptXML)
+	if err != nil {
 		return nil, 0, err
 	}
-	requestContext, cancel := context.WithTimeout(ctx, client.timeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(requestContext, http.MethodGet, client.target(parameters), http.NoBody)
-	if err != nil {
-		return nil, 0, fmt.Errorf("%w: invalid request", ErrBadResponse)
-	}
-	request.Header.Set("Accept", acceptXML)
-	response, err := client.httpClient.Do(request)
-	if err != nil {
-		if contextErr := requestContext.Err(); contextErr != nil {
-			return nil, 0, fmt.Errorf("%w: %w", ErrUnavailable, contextErr)
-		}
-		return nil, 0, fmt.Errorf("%w: request failed", ErrUnavailable)
-	}
 	defer func() { _ = response.Body.Close() }()
-	retryAfter := httpsafe.ParseRetryAfter(response.Header.Get("Retry-After"), client.now())
-	isSuccess := response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices
-	if !isSuccess {
-		readBody := func() []byte {
-			content, _ := readCapped(response.Body)
-			return content
-		}
-		return nil, 0, statusError(response.StatusCode, readBody, retryAfter)
+	retryAfter, err := client.checkStatus(response)
+	if err != nil {
+		return nil, 0, err
 	}
 	if !isXMLContentType(response.Header.Get("Content-Type")) {
 		return nil, 0, fmt.Errorf("%w: content type is not XML", ErrBadResponse)
 	}
-	content, err := readCapped(response.Body)
+	content, err := readCapped(response.Body, maxXMLBytes)
 	if err != nil {
 		return nil, 0, err
 	}
 	return content, retryAfter, nil
+}
+
+// send attend le limiteur de l'indexeur puis envoie un GET borné par Timeout ; cancel libère ce délai une fois le
+// corps lu. L'erreur d'un appel HTTP est reconstruite sans l'URL, qui porte la clé.
+func (client *Client) send(ctx context.Context, target, accept string) (*http.Response, context.CancelFunc, error) {
+	if err := client.throttle(ctx); err != nil {
+		return nil, nil, err
+	}
+	requestContext, cancel := context.WithTimeout(ctx, client.timeout)
+	request, err := http.NewRequestWithContext(requestContext, http.MethodGet, target, http.NoBody)
+	if err != nil {
+		cancel()
+		return nil, nil, fmt.Errorf("%w: invalid request", ErrBadResponse)
+	}
+	request.Header.Set("Accept", accept)
+	response, err := client.httpClient.Do(request)
+	if err != nil {
+		contextErr := requestContext.Err()
+		cancel()
+		if contextErr != nil {
+			return nil, nil, fmt.Errorf("%w: %w", ErrUnavailable, contextErr)
+		}
+		return nil, nil, fmt.Errorf("%w: request failed", ErrUnavailable)
+	}
+	return response, cancel, nil
+}
+
+// checkStatus rend le délai Retry-After d'une réponse 2xx, ou l'erreur typée d'un autre statut.
+func (client *Client) checkStatus(response *http.Response) (time.Duration, error) {
+	retryAfter := httpsafe.ParseRetryAfter(response.Header.Get("Retry-After"), client.now())
+	isSuccess := response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices
+	if isSuccess {
+		return retryAfter, nil
+	}
+	readBody := func() []byte {
+		content, _ := readCapped(response.Body, maxXMLBytes)
+		return content
+	}
+	return 0, statusError(response.StatusCode, readBody, retryAfter)
 }
 
 func (client *Client) target(parameters url.Values) string {

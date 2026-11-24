@@ -29,14 +29,14 @@ type visitor interface {
 	end(path []string) error
 }
 
-// readCapped lit au plus maxXMLBytes octets avant toute analyse.
-func readCapped(body io.Reader) ([]byte, error) {
-	content, err := io.ReadAll(io.LimitReader(body, maxXMLBytes+1))
+// readCapped lit au plus limit octets avant toute analyse ; limit + 1 octets lus donnent ErrBadResponse.
+func readCapped(body io.Reader, limit int64) ([]byte, error) {
+	content, err := io.ReadAll(io.LimitReader(body, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("%w: body read failed", ErrUnavailable)
 	}
-	if len(content) > maxXMLBytes {
-		return nil, fmt.Errorf("%w: body larger than %d bytes", ErrBadResponse, maxXMLBytes)
+	if int64(len(content)) > limit {
+		return nil, fmt.Errorf("%w: body larger than %d bytes", ErrBadResponse, limit)
 	}
 	return content, nil
 }
