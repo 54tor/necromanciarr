@@ -1,0 +1,169 @@
+# Configuration
+
+The configuration lives in a folder (the "configuration folder") that contains `config.json`, `.env` and, by default, the SQLite database. `necromanciarr config check` prints the effective configuration, secrets masked.
+
+## Sources and priority
+
+From strongest to weakest: **command-line options**, **environment variables**, **`config.json`**, **cross-seed's `config.js`** (if a path is given), **defaults**.
+
+| Setting | Option | Variable | `config.json` key |
+|---|---|---|---|
+| Configuration folder | `--config-dir` | `CONFIG_DIR` | none |
+| Listen address | `--listen` | `NECROMANCIARR_LISTEN` | `listen` |
+| Library provider | `--library-api` | `LIBRARY_API` | `libraryApi` |
+| SQLite database | `--db-path` | none | `dbPath` |
+| Read rate | `--read-bytes-per-second` | none | `readBytesPerSecond` |
+| cross-seed mode | `--cross-seed-mode` | `CROSS_SEED_MODE` | `crossSeedMode` |
+| cross-seed `config.js` | `--cross-seed-config` | `CROSS_SEED_CONFIG` | `crossSeedConfig` |
+| Seed category | none | `NECROMANCIARR_SEED_CATEGORY` | `linkCategory` |
+| Seed tags | none | `NECROMANCIARR_SEED_TAGS` (comma-separated) | `seedTags` |
+| Display language | `--language` | `NECROMANCIARR_LANGUAGE` | `language` |
+| Cap on missing pieces | none | `NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT` | `partialMaxMissingPercent` |
+| Interface token | none | `NECROMANCIARR_AUTH_TOKEN` | none (never in a JSON file) |
+| Provider token | none | `LIBRARY_PROVIDER_TOKEN` | none |
+
+An empty variable is ignored. These options apply to every subcommand; an unknown option is a usage error (exit 2).
+
+The configuration folder must exist when it is given. With no option or variable, it is `<dossier de configuration utilisateur du système>/necromanciarr` (`~/.config/necromanciarr` on Linux). The Docker image sets `CONFIG_DIR=/data`.
+
+## `.env` and interpolation
+
+- Only one `.env` file is read: the one in the configuration folder. If it does not exist, the one in the current folder is read instead; `config check` flags it (`workingDirDotEnv: true`) and `doctor` warns (check `config`). Risk: launched from a folder that holds another tool's `.env`, Necromanciarr would pick up its variables (tokens included); placing its own `.env` in the configuration folder closes that door. The real environment always wins over `.env`.
+- Format: `NOM=valeur`, one per line, `#` comments, `export` prefix tolerated, single or double quotes removed. No multiline value, no interpolation in `.env`.
+- In `config.json`, any string (including in `dedupe` and `fsProviders`) can contain `${NOM}`; `$$` gives a `$`. A missing variable or an invalid name (outside `[A-Za-z_][A-Za-z0-9_]*`) is an error that quotes the name, never the value.
+- Interpolation comes before URL parsing: percent-encode the reserved characters (`@ : / # ?`) of a password placed in a URL.
+- `config.json` is read in strict mode: an unknown key is refused, and so is any text after the JSON object. A duplicated key is not detected (the last one wins). The old `rclone` section is refused with a message that points to `fsProviders`.
+
+## `config.json` keys
+
+| Key | Type | Default | Validation |
+|---|---|---|---|
+| `listen` | `hôte:port` | `127.0.0.1:8787` | outside loopback, `serve` requires `NECROMANCIARR_AUTH_TOKEN`; the other commands do not |
+| `dbPath` | path | `necromanciarr.db` | relative: resolved from the configuration folder. Must stay outside the library (`doctor`) |
+| `readBytesPerSecond` | integer (bytes/s) | `20971520` (20 MiB/s) | strictly positive |
+| `tieBreakReadBytes` | integer (bytes) | `53687091200` (50 GiB) | strictly positive. Maximum bytes read, per candidate, to tell same-size local files apart; coverage is not affected |
+| `libraryApi` | URL | empty | `http(s)`, no fragment. Empty: Match and Verify refuse (`not_configured`) |
+| `libraryRoots` | list of paths | empty | as seen by this process |
+| `pathMappings` | list of `{from, to}` | empty | `from`: this process's view; `to`: the view of Radarr, Sonarr and the torrent client |
+| `radarr`, `sonarr` | list of URLs | empty | `http(s)://hôte:port[/chemin]?apikey=CLÉ`, optional `utilisateur:mdp@` (basic-authentication proxy); only `apikey` is allowed |
+| `torrentClients` | list of strings | empty | `qbittorrent[:readonly]:http(s)://[utilisateur:mdp@]hôte:port[/chemin]`, no query parameter. Only the first client receives torrents (warning if there are several) |
+| `linkDirs` | list of paths | empty | never overlaps a `libraryRoots` root |
+| `linkType` | `hardlink`, `symlink`, `reflink` | `hardlink` | a single kind, no fallback; a failure states the cause and the setting to change |
+| `skipRecheck` | boolean | `true` | see [03-seed-safety.md](03-seed-safety.md) |
+| `linkCategory` | string | empty | qBittorrent category of the added torrents; `NECROMANCIARR_SEED_CATEGORY` wins (spaces removed) |
+| `seedTags` | list of strings | `["necromanciarr"]` | tags set together with the category on each added torrent. The list **replaces** the default: without `necromanciarr`, that tag is no longer set (qui or cross-seed filters that target it no longer see these torrents). Spaces removed, duplicates ignored, empty list = default; an empty tag, one containing a comma or longer than 64 characters, and more than 20 tags are refused |
+| `language` | `fr`, `en` | `fr` | language of the displayed texts; case and spaces ignored, any other value (`fr_FR` included) is a usage error that quotes the value (20 characters at most) and the accepted values. Applied at this stage: text output, help and errors of the CLI, web API errors and descriptions of the action registry. To come: diagnostics (`doctor`), warnings and the server log. `config check` writes the effective language and its source on stderr |
+| `partialMaxMissingPercent` | number from 0 to 100 | `100` (no cap) | maximum share of missing pieces of a `partial_annex` or `partial_pack`; above it, no proposal is created (reason `missing_pieces_above_cap`, see [01-pipeline.md](01-pipeline.md)). `0` keeps only complete torrents |
+| `crossSeedConfig` | path | empty | relative: from the configuration folder |
+| `crossSeed` | URL | empty | `http(s)://hôte:2468?apikey=CLÉ`, no user credentials |
+| `crossSeedMode` | `auto`, `delegate`, `native`, `off` | `auto` | case and spaces ignored |
+| `dedupe` | object | see below | |
+| `fsProviders` | list of objects | empty | see below |
+
+### Paths and mappings
+
+The paths of the library, link directories and torrent roots are those seen by **this process**. `pathMappings` translates to the other views: the torrent client receives the torrent folder translated from `from` to `to`; the paths returned by Radarr and Sonarr are translated from `to` to `from`. The longest prefix wins, matching happens on a segment boundary (`/data/tv` does not cover `/data/tvshows`), on a tie the first rule wins. A side that starts with a drive letter or `\\` is a Windows path: `\` or `/` separators accepted, case ignored. With no applicable rule, the service is assumed to see the same path.
+
+### Link directories
+
+- No `linkDirs[i]` equals a library root, contains it or is contained in it: refused at load time (lexical), then at the Link stage on resolved paths (symlinks followed).
+- For each torrent, Link picks the **first** `linkDirs` folder located on the same filesystem as the first source file. Hardlink and reflink require that same filesystem. With no matching folder, only a symlink is possible, and only if `linkType` is `symlink`: otherwise the proposal becomes `failed` (`no_link_dir_on_same_device`).
+- The torrent folder is named `<nom racine> [<infohash complet>]` under the link directory, with `0755` permissions so that the client, often under another account, can read it. A name longer than 255 bytes shortens the root name (without cutting a character), never the infohash. Seed and Force always use the folder recorded for the proposal (`proposal_steps.link_root`), including a `<nom racine> [<8 caractères>]` folder created by an earlier version. After damaged links, Seed erases the step but keeps this folder; Link reuses it only if it sits directly under the link directory chosen for this run, otherwise it creates a new folder named with the full infohash.
+- `linkType` is the only kind setting for Link: if the folder does not accept it (real probe), the proposal fails (`link_kind_refused`) instead of changing kind.
+- A link kind failure (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) leaves on the proposal a warning that names the cause and the expected action, for example "hardlink impossible between two mounts: put linkDirs under the same mount point as the library, or choose linkType symlink/reflink". After the fix, re-accept the proposal then rerun Link.
+
+### Torrent clients, qui, read-only mode
+
+- `readonly:` forbids any write: Seed stops (`ErrClientReadOnly`), deduplication cannot request a recheck (warning `recheck_failed`). Reading (list, doctor) remains allowed.
+- **qui** (autobrr) declares itself as a qBittorrent behind its proxy: `qbittorrent:http://hôte:7476/proxy/<clé>`, without credentials. The key after `/proxy/` is masked in all outputs.
+- The client is called without an environment proxy and without redirection to another host; response bodies are capped.
+- Only qBittorrent is supported. A `deluge`, `transmission` or `rtorrent` client imported from cross-seed is discarded and reported by rank and type.
+
+## Importing cross-seed's `config.js`
+
+With `crossSeedConfig`, `CROSS_SEED_CONFIG` or `--cross-seed-config`, the file is evaluated in a JavaScript sandbox with no input/output: no `require`, no `import`, no `eval`, no `Function`; only `process.env.NOM` exists, resolved like `${NOM}` (real environment then `.env`). This tool's variables (`NECROMANCIARR_*`, `LIBRARY_PROVIDER_*`) are always absent there (`undefined`, `in` false): a `config.js` that reads them gets nothing, `config check` names them under `crossSeedImport.blockedEnvironment` and `doctor` (check `cross-seed`) warns, never showing their value. Limits: ordinary file of at most 256 KiB, 2 seconds of evaluation, 256 entries per list. A relative path from the command line or the environment starts from the current folder, one from `config.json` from the configuration folder.
+
+| Imported key | Role | Merge rule |
+|---|---|---|
+| `radarr`, `sonarr`, `torrentClients`, `linkDirs` | lists | a non-empty `config.json` list replaces the imported list entirely; `[]` counts as absent |
+| `linkType`, `linkCategory` | strings | `config.json` if non-empty, otherwise the imported value |
+| `skipRecheck` | boolean | `config.json` if present, otherwise the imported value |
+| `host`, `port`, `apiKey` | cross-seed daemon | an explicit `crossSeed` wins; otherwise `http://host:port` (empty `host`, `0.0.0.0` or `::` becomes `localhost`, port 2468 by default) |
+
+The other keys (indexer search rules) are ignored; `config check` lists their names (`ignoredKeys`) but never their value, and shows the origin of each list (`sources`: `config.json`, `cross-seed` or `none`). In Docker, the `localhost` in `config.js` designates the cross-seed container: set `crossSeed` explicitly.
+
+### cross-seed modes
+
+| `crossSeedMode` | Effective behaviour |
+|---|---|
+| `auto` | `delegate` if the daemon is configured and reachable (TCP connection, 2 s), otherwise `native` (warning if the daemon is configured but unreachable) |
+| `delegate` | notifies the daemon after each seed; without a reachable daemon, search is disabled with a warning, never a fallback to `native` |
+| `native` | Necromanciarr creates `cross_seed` proposals for the other verified torrents of a group; the daemon is ignored |
+| `off` | no matching search: one torrent per group |
+
+In `delegate`, the notification is `POST /api/webhook` with the `X-Api-Key` header, sent only when the torrent has been resumed at 100%. Its failure adds a warning to the proposal, never a seed failure. `status` returns the effective behaviour (`delegate`, `native`, `disabled`). The daemon's reachability is probed again at the start of each stage, each acceptance (`accept`, `accept-group`) and each `status`, with a result kept for 30 seconds: a long-running `serve` follows the daemon stopping and coming back without restarting. The probe has its own 2-second timeout, independent of the request that triggers it; if that request is cancelled in the meantime, the result is not kept. A `cross_seed` proposal can only be accepted if the effective mode at that moment is `native` (`a cross_seed proposal can only be accepted in native cross-seed mode`, code `refused`).
+
+## Deduplication (`dedupe`)
+
+Replaces, on the torrent side, a copy of a library file with a link to it. Always proposed, never automatic; the library file is never opened for writing, moved or deleted.
+
+| Key | Type | Default | Role |
+|---|---|---|---|
+| `torrentRoots` | list of paths | empty | folders scanned. Empty: feature inactive (`not_configured`). Never overlaps a library root |
+| `kinds` | list among `symlink`, `hardlink`, `reflink` | `["symlink"]` | kinds tried in this order, depending on what the volume accepts (real probe) |
+| `relativeSymlinks` | boolean | `true` | relative symlink; if impossible (distinct Windows volumes), error, never a fallback to an absolute path |
+| `minFileAge` | Go duration ≥ 0 | `10m` | files modified more recently are ignored (being written) |
+| `recheckAfter` | boolean | `true` | asks the client to recheck every torrent that contains the file (list read page by page, see [06](06-limits-and-troubleshooting.md)): all are paused, rechecked, then only a complete torrent **that was running before** is resumed; an incomplete torrent, or one the user had left paused or stopped, stays paused |
+| `verify` | `auto`, `full`, `sampled`, `hash` | `auto` | identity proof |
+
+Identity proof: `full` compares every byte; `sampled` compares the start, the end and 8 blocks of 1 MiB (a difference elsewhere goes unnoticed); `hash` requires the storage fingerprint and fails without it; `auto` uses the storage fingerprint when both files have one, otherwise reads in full, never by sampling unless asked. The plan announces `bytes_to_read` before acceptance. In all cases, `plan` only keeps files of the same size and same start and end fingerprint (1 MiB each), and `apply` redoes this check, verifies that size and date have not moved since the plan, creates the link under a temporary name then renames it over. `dedupe plan` first picks up the temporary entries of an interrupted application.
+
+With no torrent client configured (or with a `readonly:` client), or with `recheckAfter: false`, a `symlink` or `hardlink` proposal carries the warning `no_client_recheck` (CLI: line `warning: no_client_recheck` under the proposal; web: "Warning"): the torrent will point to the library file without a recheck, and a running incomplete torrent could write to it. The proposal remains acceptable; a `reflink` is not affected (copy on write).
+
+A file recorded in `links` as `copy` or `reflink` (copy placed by Force, or reflink from Link) is never linked back to the library: `dedupe plan` lists it with `actionable: false` and `reason: isolated_copy`, and `dedupe apply` refuses it, so as not to undo the isolation of a `partial_annex`.
+
+## Link repair
+
+`repair scan` examines the recorded links, then the unknown links under `dedupe.torrentRoots` and under the folder given by `--dir` (refused if it overlaps the library). For a broken link it looks for the new target by inode (local disk only), then size and date, then start-end fingerprint (at most 5 reads per link), then the pieces of the client's torrent. Several candidates: `ambiguous`, nothing is chosen. Nothing found: `lost`. Only a `repairable` link can be accepted. `repair apply` only replaces a link under `linkDirs`, `dedupe.torrentRoots` or the scan folder, never under the library.
+
+With a torrent client configured, each replaced link makes the torrent that contains it be rechecked, under the same guard as dedupe (client view through `pathMappings`, pause, recheck, resume only at 100%): an incomplete torrent stays paused with the warning `paused_incomplete_after_recheck`, a torrent left paused by the user, or in the `error` or `missingFiles` state, is never resumed, an impossible recheck (no torrent covers the link) gives the warning `recheck_failed`, never a failure. A client declared `readonly:` counts as "no client". Without a client, only the `inode` and `torrent-pieces` methods, which prove the content, are applicable: a repair found by `size-mtime` or `fingerprint` is listed with `actionable: false` and `reason: needs_client_recheck` (CLI: line `not actionable: needs_client_recheck`; web: badge "Not applicable without a torrent client: the method waits for its recheck"). For these two methods, the torrents covering the link are listed before the rename: a failed read (unreachable client, page larger than 8 MiB, list that keeps moving, more than 200,000 torrents) refuses the application (`the torrents covering this link cannot be listed, repair refused`), nothing is replaced.
+
+## Filesystem providers (`fsProviders`)
+
+Give the content fingerprint of a file without rereading it, for deduplication and repair. Only the `rclone` type exists: `rclone hashsum`, never `--download`.
+
+| Key | Default | Rule |
+|---|---|---|
+| `type` | required | `rclone` |
+| `name` | required | `[a-z0-9-]+`, unique |
+| `mounts` | empty | `"/chemin/local=remote:sous/chemin"`, a single `=`, absolute local path without `..`, unique across providers. Nesting is allowed: the longest prefix wins |
+| `rc` | empty | `http(s)` URL of the `--rc` API of the rclone process that carries the mount; `utilisateur:mdp@` removed from the URL and sent as basic authentication; redirections refused. Takes priority over `binary` |
+| `binary` | `rclone` from the PATH | executable |
+| `timeout` | `60s` | strictly positive Go duration |
+
+The `rc` methods called form a closed, read-only list. Start rclone with `--rc --rc-addr :5572 --rc-user <utilisateur> --rc-pass <motdepasse>` and never expose `rc` outside a private network: whoever reaches it drives rclone. Without `rc` or binary, no fingerprint is available and the comparison rereads the files.
+
+`dedupe plan` and `dedupe apply` ask the storage for the algorithms its mounts provide: the first time, each mount is probed on a test file (MD5, SHA-1, SHA-256) and the result is kept in the database (table `mount_capabilities`, one row per mount); afterwards only the database is read. A failed probe is not kept. The cache does not refresh by itself: after a backend or `rc` change, delete the database or the mount's row. The `rclone` check of `doctor` always probes again, without writing this cache.
+
+## Library provider
+
+HTTP contract defined in [`docs/contract/openapi.yaml`](../../contract/openapi.yaml), under the `libraryApi` base: `GET /v1/releases` (filters `tmdb`, `imdb`, `tvdb`, `q`, `size` repeatable 50 times, `tracker`, `limit` ≤ 100, cursor pagination), `GET /v1/releases/{infohash}`, `…/torrent`, `…/nfos`. Authentication `Authorization: Bearer <LIBRARY_PROVIDER_TOKEN>`, errors `application/problem+json`, `429` with `Retry-After`. A provider that ignores `size` works: a local defensive filter discards releases with no file of the right size, but it downloads many more candidates (`doctor` flags it).
+
+## Diagnostics (`doctor`)
+
+`necromanciarr doctor [--check ID]… [--json]`, and on the web side `POST /api/doctor/run` (body `{"checks": […]}`) or `POST /api/doctor/checks/{id}`: the diagnostic reaches the services and writes probe files in the link directories, so it is never served as a `GET` (action `doctor` marked as modifying in the registry). Each check is bounded to 10 seconds and returns no secret. Statuses: `ok`, `warn`, `skipped`, `fail`. The exit code is 1 if there is at least one `fail`, 0 otherwise. With an invalid configuration, `doctor` returns a single failed `config` check instead of stopping.
+
+| Identifier | Checks | `fail` when |
+|---|---|---|
+| `config` | loading, origin of lists (`sources`) | invalid configuration (CLI) |
+| `config-dir` | existing folder, database openable for read-write | missing folder, database not openable, database in the library |
+| `auth` | loopback listening, or token present | outside loopback without `NECROMANCIARR_AUTH_TOKEN` |
+| `library-roots` | readable root, a media file found in the first 2000 entries | root missing, not a folder or unreadable; `warn` if no root or no media found |
+| `library-api` | authentication, search, `size` filter | access denied, unknown path, unavailable; `warn` if `size` is ignored |
+| `arr:radarr:<rang>`, `arr:sonarr:<rang>` | instance reachable, key accepted | unreachable, key refused |
+| `qbittorrent` | connection, list, read-only mode, discarded clients | connection or credentials refused; `warn` for an unsupported client |
+| `link-feasibility` | real probe of the link kinds in each link directory and torrent root; volume comparison with each library root (without writing anything in the library) | no wanted kind accepted, hardlink or reflink across different volumes; `warn` if only a symlink crosses |
+| `fs-providers` | rc/binary mode, fingerprints, modification date, symlinks | provider cannot be built; `warn` with advice |
+| `cross-seed` | `config.js`, daemon, effective mode | invalid mode; `warn` if daemon unreachable |
+| `path-mappings` | each rule exists and covers a root | `warn` only |
+| `dedupe` | torrent roots outside the library | root that overlaps the library |
