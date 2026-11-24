@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS torrent_candidates (
 	name TEXT NOT NULL,
 	total_size INTEGER NOT NULL,
 	provider_json TEXT NOT NULL DEFAULT '{}',
+	source TEXT NOT NULL DEFAULT 'provider',
 	torrent BLOB CHECK (torrent IS NULL OR length(torrent) <= 8388608),
+	torrent_sealed BLOB CHECK (torrent_sealed IS NULL OR length(torrent_sealed) <= 8388736),
 	state TEXT NOT NULL,
 	group_id INTEGER,
 	created_at INTEGER NOT NULL,
@@ -177,6 +179,9 @@ func upgradeInTransaction(ctx context.Context, connection *sql.Conn) error {
 	}
 	if _, err := connection.ExecContext(ctx, postUpgradeSchema); err != nil {
 		return fmt.Errorf("create post-upgrade schema: %w", err)
+	}
+	if _, err := connection.ExecContext(ctx, clearSealedTrigger()); err != nil {
+		return fmt.Errorf("create sealed clear trigger: %w", err)
 	}
 	return nil
 }

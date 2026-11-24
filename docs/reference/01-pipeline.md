@@ -99,6 +99,16 @@ Les candidats qui se disputent un même fichier local forment un groupe (`group_
 - **`accept-group`** : accepte la principale. En mode `native`, accepte aussi, pour chaque autre torrent vérifié, sa proposition `cross_seed` (à défaut sa `full`).
 - Une proposition ouverte rattachée à un autre groupe que son candidat bloque Link et Seed (refus `refused`, `proposal group differs from its candidate group`) tant que Match ou Verify n'a pas resynchronisé.
 
+## Stockage des `.torrent`
+
+| Colonne de `torrent_candidates` | Contenu | Effacement |
+|---|---|---|
+| `source` | `provider`, ou `torznab:<name>` pour un indexeur ; la première source qui a fourni le candidat, gardée ensuite. Les candidats d'une base antérieure valent `provider` | jamais |
+| `torrent` | `.torrent` sans annonce : celui du fournisseur, ou la copie assainie d'un indexeur. Un `.torrent` dont le premier niveau porte `announce` ou `announce-list`, ou illisible, est refusé (`ErrUnsanitizedTorrent`) ; un fichier nommé `announce` dans `info` est accepté. 8 Mio au plus | avec le candidat |
+| `torrent_sealed` | `.torrent` complet d'un indexeur (il porte la passkey), scellé par `NECROMANCIARR_SECRET_KEY` et lié à `infohash`, `tracker` et `source` de la ligne ; 8 Mio + 128 octets au plus, garantis par la base | voir ci-dessous |
+
+Le bloc scellé est effacé par la base, dans l'instruction même qui passe une proposition du candidat à `applied`, `rejected` ou `superseded`, dès qu'il ne reste au candidat aucune proposition `pending`, `accepted` ou `failed` : une décision annulée le garde, et un litige rejeté ne l'efface pas tant que la `full` du même candidat reste ouverte. Péremption, échec, réassociation et suppression du fichier local passent par `superseded` et l'effacent donc aussi. Un candidat périmé sans proposition garde son bloc. Il est aussi effacé pour les candidats d'un tracker qu'une entrée `trackers` couvre désormais (tracker comparé octet pour octet à la valeur stockée).
+
 ## Reprise, verrou, plafonds
 
 - **Verrou d'étape** : une seule étape, ou une action `dedupe plan/apply` ou `repair scan/apply`, tourne à la fois, quel que soit le processus (CLI, serveur). Le bail dure 2 minutes et est prolongé toutes les 40 secondes. Un second lancement échoue avec `stage_running` (CLI exit 1, HTTP 409). Un processus mort libère la place après le bail. Si le bail ne peut plus être prolongé (reprise par un autre, 3 échecs de suite), l'étape s'arrête avec `pipeline: run lock lost` et n'écrit plus.

@@ -48,6 +48,8 @@ var (
 // Candidate est une release candidate, identifiée par (Infohash, Tracker) ; GroupID regroupe chaque candidat qui se
 // dispute un même fichier de la bibliothèque (0 tant que RegroupCandidates n'est pas passé). Generation augmente à
 // chaque invalidation (stale, réassociation, relance) : une vérification et ses propositions valent pour une génération.
+// Source est la source qui l'a fourni (SourceProvider ou « torznab:<nom> ») ; le bloc scellé n'est jamais exposé ici
+// (CandidateSealed).
 type Candidate struct {
 	ID           int64
 	Infohash     string
@@ -55,6 +57,7 @@ type Candidate struct {
 	Name         string
 	TotalSize    int64
 	ProviderJSON string
+	Source       string
 	State        CandidateState
 	GroupID      int64
 	Generation   int64
@@ -201,7 +204,8 @@ WHERE decision IN (`+placeholders+`) AND candidate_id IN (`+selection+`)`, propo
 
 // SaveCandidate crée le candidat (état matched) ou met à jour celui de même (Infohash, Tracker) ; s'il est périmé ou
 // si ses associations de fichiers ont changé, elles sont remplacées, sa vérification effacée et il revient à matched ;
-// sinon son état est gardé. Rejouable : jamais de doublon.
+// sinon son état est gardé. Source vide vaut SourceProvider ; la source d'un candidat déjà en base reste la première
+// enregistrée. Rejouable : jamais de doublon.
 func (openedStore *Store) SaveCandidate(ctx context.Context, candidate Candidate, files []CandidateFile, now time.Time) (int64, SaveOutcome, error) {
 	var candidateID int64
 	var outcome SaveOutcome
@@ -247,9 +251,13 @@ func saveCandidate(ctx context.Context, transaction *sql.Tx, candidate Candidate
 }
 
 func insertCandidate(ctx context.Context, transaction *sql.Tx, candidate Candidate, providerJSON string, files []CandidateFile, now time.Time) (int64, SaveOutcome, error) {
+	source := candidate.Source
+	if source == "" {
+		source = SourceProvider
+	}
 	result, err := transaction.ExecContext(ctx, `INSERT INTO torrent_candidates
-	(infohash, tracker, name, total_size, provider_json, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		candidate.Infohash, candidate.Tracker, candidate.Name, candidate.TotalSize, providerJSON, string(CandidateMatched),
+	(infohash, tracker, name, total_size, provider_json, source, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		candidate.Infohash, candidate.Tracker, candidate.Name, candidate.TotalSize, providerJSON, source, string(CandidateMatched),
 		now.UnixNano(), now.UnixNano())
 	if err != nil {
 		return 0, "", err
@@ -359,8 +367,8 @@ FROM candidate_files WHERE candidate_id = ? ORDER BY file_index, media_file_id`,
 
 // ListCandidatesByState renvoie chaque candidat dans l'un des états donnés (tous si aucun), triés par identifiant.
 func (openedStore *Store) ListCandidatesByState(ctx context.Context, states ...CandidateState) ([]Candidate, error) {
-	query := `SELECT id, infohash, tracker, name, total_size, provider_json, state, group_id, generation, created_at, updated_at
-FROM torrent_candidates`
+	query := `SELECT id, infohash, tracker, name, total_size, provider_json, source, state, group_id, generation, created_at,
+	updated_at FROM torrent_candidates`
 	arguments := make([]any, 0, len(states))
 	if len(states) > 0 {
 		query += ` WHERE state IN (?` + strings.Repeat(", ?", len(states)-1) + `)`
@@ -380,7 +388,7 @@ FROM torrent_candidates`
 		var groupID sql.NullInt64
 		var createdAt, updatedAt int64
 		if err := rows.Scan(&candidate.ID, &candidate.Infohash, &candidate.Tracker, &candidate.Name, &candidate.TotalSize,
-			&candidate.ProviderJSON, &state, &groupID, &candidate.Generation, &createdAt, &updatedAt); err != nil {
+			&candidate.ProviderJSON, &candidate.Source, &state, &groupID, &candidate.Generation, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan candidate: %w", err)
 		}
 		candidate.State, candidate.GroupID = CandidateState(state), groupID.Int64
@@ -492,10 +500,15 @@ func candidateTransitionAllowed(from, to CandidateState) bool {
 	return false
 }
 
-// SaveCandidateTorrent conserve le .torrent téléchargé ; au-delà de MaxTorrentBytes, ErrTorrentTooLarge.
+// SaveCandidateTorrent conserve le .torrent téléchargé, sans annonce : au-delà de MaxTorrentBytes, ErrTorrentTooLarge ;
+// avec une clé announce ou announce-list au premier niveau, ou illisible, ErrUnsanitizedTorrent (le .torrent complet
+// d'un indexeur va, scellé, dans SaveCandidateSealed).
 func (openedStore *Store) SaveCandidateTorrent(ctx context.Context, candidateID int64, raw []byte, now time.Time) error {
 	if len(raw) > MaxTorrentBytes {
 		return ErrTorrentTooLarge
+	}
+	if err := refuseUnsanitized(raw); err != nil {
+		return err
 	}
 	result, err := openedStore.database.ExecContext(ctx, `UPDATE torrent_candidates SET torrent = ?, updated_at = ? WHERE id = ?`,
 		raw, now.UnixNano(), candidateID)

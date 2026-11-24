@@ -167,6 +167,8 @@ var columnUpgrades = []struct{ table, column, definition string }{
 	{"proposals", "generation", "INTEGER NOT NULL DEFAULT 0"},
 	{"proposals", "primary_source", "TEXT NOT NULL DEFAULT ''"},
 	{"torrent_candidates", "generation", "INTEGER NOT NULL DEFAULT 0"},
+	{"torrent_candidates", "source", "TEXT NOT NULL DEFAULT 'provider'"},
+	{"torrent_candidates", "torrent_sealed", "BLOB CHECK (torrent_sealed IS NULL OR length(torrent_sealed) <= 8388736)"},
 	{"verifications", "generation", "INTEGER NOT NULL DEFAULT 0"},
 	{"verifications", "mapping_fingerprint", "TEXT NOT NULL DEFAULT ''"},
 }

@@ -61,7 +61,8 @@ func encodeTestTorrent(t *testing.T, info metainfo.Info) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, err := bencode.Marshal(metainfo.MetaInfo{InfoBytes: infoBytes, Announce: "http://tracker.example.com/announce"})
+	// Comme celui du fournisseur, sans annonce : le store refuse d'en conserver une en clair.
+	raw, err := bencode.Marshal(metainfo.MetaInfo{InfoBytes: infoBytes})
 	if err != nil {
 		t.Fatal(err)
 	}

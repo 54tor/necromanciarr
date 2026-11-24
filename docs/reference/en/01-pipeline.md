@@ -99,6 +99,16 @@ Candidates competing for the same local file form a group (`group_id`): a single
 - **`accept-group`**: accepts the primary. In `native` mode, it also accepts, for each other verified torrent, its `cross_seed` proposal (or else its `full`).
 - An open proposal attached to a different group than its candidate blocks Link and Seed (`refused` refusal, `proposal group differs from its candidate group`) until Match or Verify has resynchronized.
 
+## `.torrent` storage
+
+| `torrent_candidates` column | Content | Cleared |
+|---|---|---|
+| `source` | `provider`, or `torznab:<name>` for an indexer; the first source that supplied the candidate, kept afterwards. Candidates of an earlier database read `provider` | never |
+| `torrent` | `.torrent` without announce: the provider's, or the sanitized copy of an indexer's. A `.torrent` whose top level carries `announce` or `announce-list`, or that cannot be read, is refused (`ErrUnsanitizedTorrent`); a file named `announce` inside `info` is accepted. At most 8 MiB | with the candidate |
+| `torrent_sealed` | an indexer's complete `.torrent` (it carries the passkey), sealed with `NECROMANCIARR_SECRET_KEY` and bound to the row's `infohash`, `tracker` and `source`; at most 8 MiB + 128 bytes, enforced by the database | see below |
+
+The database clears the sealed blob, in the very statement that moves a proposal of the candidate to `applied`, `rejected` or `superseded`, as soon as the candidate has no `pending`, `accepted` or `failed` proposal left: a rolled back decision keeps it, and a rejected conflict does not clear it while the same candidate's `full` stays open. Staleness, failure, reassociation and removal of the local file go through `superseded`, so they clear it too. A stale candidate without proposals keeps its blob. It is also cleared for the candidates of a tracker that a `trackers` entry now covers (tracker compared byte for byte with the stored value).
+
 ## Resumption, lock, caps
 
 - **Stage lock**: only one stage, or a `dedupe plan/apply` or `repair scan/apply` action, runs at a time, whatever the process (CLI, server). The lease lasts 2 minutes and is extended every 40 seconds. A second launch fails with `stage_running` (CLI exit 1, HTTP 409). A dead process frees the slot after the lease. If the lease can no longer be extended (taken over by another, 3 failures in a row), the stage stops with `pipeline: run lock lost` and writes nothing more.

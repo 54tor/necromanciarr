@@ -26,7 +26,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - The Links page has two tabs: recorded links (paged by the server, state filter, not-compared marker, partial-inspection notice) and repairs (dry run by default, a typed word before a real repair; ambiguous, lost and recheck-pending repairs are listed but not applicable).
 - English version of the reference documentation (`docs/reference/en/`).
 - Torznab indexers (`torznab`, Prowlarr feeds) and `sourceOrder`: URLs and keys are masked everywhere; `doctor` checks each indexer (`torznab:<name>`, capabilities only, no quota spent) and Prowlarr (`prowlarr`, indexers missing or disabled). Match does not query them yet.
-- `NECROMANCIARR_SECRET_KEY` (`api-key --secret`) seals indexer torrents at rest (AES-256-GCM); a configured `torznab` indexer now requires it, and `doctor` checks it (`secret-key`).
+- `NECROMANCIARR_SECRET_KEY` (`api-key --secret`) seals indexer torrents at rest (AES-256-GCM); a configured `torznab` indexer now requires it, and `doctor` checks it (`secret-key`) by unsealing the stored blobs. Candidates record their `source` (`provider` for existing ones).
 
 ### Changed
 - Web interface redesigned: sidebar navigation, page toolbars, dense sortable tables, status pills; cards only on narrow screens; fully translated (fr/en).
@@ -39,6 +39,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - A link kind failure (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) now tells the cause and the setting to change.
 
 ### Security
+- A sealed indexer torrent is erased in the same database statement that closes the last open proposal of its candidate (`applied`, `rejected`, `superseded`); the plain `torrent` column refuses a `.torrent` carrying `announce` or `announce-list`.
 - Force copies each linked media sharing a missing piece out of the library before starting, or refuses.
 - Rechecks resume only torrents that were running; an incomplete torrent added by Seed must show paused.
 - Text output strips terminal control characters; `config.js` cannot read this tool's variables; response bodies are capped; redirects are refused.
