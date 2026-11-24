@@ -96,3 +96,41 @@ func TestAddProposalWarning_appendsEachWarningOnce(t *testing.T) {
 		t.Fatalf("gotValue %v, expectedValue ErrProposalNotFound", err)
 	}
 }
+
+func TestAcceptProposals_acceptsAllOrNothing(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	markVerified(t, openedStore, candidateID)
+	identifiers := proposalsByDecision(t, openedStore, candidateID, map[string][]ProposalDecision{
+		"pending": nil, "failed": {ProposalAccepted, ProposalFailed}, "rejected": {ProposalRejected},
+	})
+
+	err := openedStore.AcceptProposals(ctx, []int64{identifiers["pending"], identifiers["rejected"]}, testNow)
+	if !errors.Is(err, ErrInvalidTransition) || decisionsByID(t, openedStore)[identifiers["pending"]] != ProposalPending {
+		t.Fatalf("gotValue %v, expectedValue a refusal that leaves the pending proposal untouched", err)
+	}
+	if err := openedStore.AcceptProposals(ctx, []int64{identifiers["pending"], identifiers["failed"]}, testNow); err != nil {
+		t.Fatal(err)
+	}
+	decisions := decisionsByID(t, openedStore)
+	if decisions[identifiers["pending"]] != ProposalAccepted || decisions[identifiers["failed"]] != ProposalAccepted {
+		t.Fatalf("gotValue %v, expectedValue both accepted", decisions)
+	}
+}
+
+func TestDeleteProposalProgress_removesTheStep(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	_, proposalID := acceptedTestProposal(t, openedStore)
+	if err := openedStore.SaveProposalProgress(ctx, ProposalProgress{ProposalID: proposalID, Step: StepLinked}, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := openedStore.DeleteProposalProgress(ctx, proposalID); err != nil {
+		t.Fatal(err)
+	}
+	progress, err := openedStore.ListProposalProgress(ctx)
+	if _, present := progress[proposalID]; err != nil || present {
+		t.Fatalf("gotValue %+v %v, expectedValue no step", progress, err)
+	}
+}

@@ -500,21 +500,55 @@ func decideProposal(ctx context.Context, transaction *sql.Tx, proposalID int64, 
 // proposition sans candidat en est exemptée). Sinon ErrInvalidTransition.
 func (openedStore *Store) RetryProposal(ctx context.Context, proposalID int64, now time.Time) error {
 	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
-		current, candidateState, err := proposalState(ctx, transaction, proposalID)
-		if err != nil {
+		return retryProposal(ctx, transaction, proposalID, now)
+	})
+}
+
+func retryProposal(ctx context.Context, transaction *sql.Tx, proposalID int64, now time.Time) error {
+	current, candidateState, err := proposalState(ctx, transaction, proposalID)
+	if err != nil {
+		return err
+	}
+	if current != ProposalFailed {
+		return fmt.Errorf("%w: retry from %s", ErrInvalidTransition, current)
+	}
+	if candidateState.Valid && CandidateState(candidateState.String) != CandidateVerified {
+		return fmt.Errorf("%w: retry needs a verified candidate, got %s", ErrInvalidTransition, candidateState.String)
+	}
+	if candidateState.stale() {
+		return fmt.Errorf("%w: retry", ErrStaleGeneration)
+	}
+	return writeDecision(ctx, transaction, proposalID, ProposalPending, now)
+}
+
+// AcceptProposals accepte toutes les propositions dans une seule transaction, ou aucune : une proposition failed est
+// d'abord remise en attente, une proposition déjà accepted ou applied est laissée telle quelle ; chaque passage subit
+// les contrôles de SetProposalDecision (candidat verified, génération courante).
+func (openedStore *Store) AcceptProposals(ctx context.Context, proposalIDs []int64, now time.Time) error {
+	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
+		for _, proposalID := range proposalIDs {
+			if err := acceptInTransaction(ctx, transaction, proposalID, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func acceptInTransaction(ctx context.Context, transaction *sql.Tx, proposalID int64, now time.Time) error {
+	current, _, err := proposalState(ctx, transaction, proposalID)
+	if err != nil {
+		return err
+	}
+	switch current {
+	case ProposalAccepted, ProposalApplied:
+		return nil
+	case ProposalFailed:
+		if err := retryProposal(ctx, transaction, proposalID, now); err != nil {
 			return err
 		}
-		if current != ProposalFailed {
-			return fmt.Errorf("%w: retry from %s", ErrInvalidTransition, current)
-		}
-		if candidateState.Valid && CandidateState(candidateState.String) != CandidateVerified {
-			return fmt.Errorf("%w: retry needs a verified candidate, got %s", ErrInvalidTransition, candidateState.String)
-		}
-		if candidateState.stale() {
-			return fmt.Errorf("%w: retry", ErrStaleGeneration)
-		}
-		return writeDecision(ctx, transaction, proposalID, ProposalPending, now)
-	})
+	}
+	return decideProposal(ctx, transaction, proposalID, ProposalAccepted, now)
 }
 
 // proposalCandidate est l'état du candidat d'une proposition ; Valid est faux si elle n'en a pas (dedupe, repair).

@@ -76,6 +76,15 @@ func (openedStore *Store) ApplyProposal(ctx context.Context, proposalID int64, s
 	})
 }
 
+// DeleteProposalProgress efface l'étape de la proposition (liens abîmés constatés par Seed : Link doit les refaire).
+func (openedStore *Store) DeleteProposalProgress(ctx context.Context, proposalID int64) error {
+	_, err := openedStore.database.ExecContext(ctx, `DELETE FROM proposal_steps WHERE proposal_id = ?`, proposalID)
+	if err != nil {
+		return fmt.Errorf("delete proposal step: %w", err)
+	}
+	return nil
+}
+
 // ListProposalProgress renvoie l'étape de chaque proposition qui en a une, par identifiant de proposition.
 func (openedStore *Store) ListProposalProgress(ctx context.Context) (map[int64]ProposalProgress, error) {
 	rows, err := openedStore.database.QueryContext(ctx, `SELECT proposal_id, step, link_root, updated_at FROM proposal_steps`)
