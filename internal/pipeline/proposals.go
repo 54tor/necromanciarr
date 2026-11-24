@@ -15,7 +15,7 @@ import (
 )
 
 // ProposalDetails est le contenu de Proposal.Details pour les propositions créées par Verify. MissingPieces compte les
-// pièces non vérifiées ; Candidates liste tous les candidats d'un groupe en conflit, sans en choisir aucun.
+// pièces non vérifiées ; Candidates liste chaque torrent d'un groupe en litige, sans en choisir aucun.
 type ProposalDetails struct {
 	Percent           float64         `json:"percent"`
 	VerifiedPieces    int             `json:"verified_pieces"`
@@ -32,7 +32,7 @@ type AmbiguousFile struct {
 	LocalFiles  []string `json:"local_files"`
 }
 
-// GroupMember décrit un candidat d'un groupe en conflit et la proposition qui le porte.
+// GroupMember décrit un candidat d'un groupe en litige et la proposition qui le porte.
 type GroupMember struct {
 	CandidateID int64                `json:"candidate_id"`
 	Name        string               `json:"name"`
@@ -50,8 +50,8 @@ type verdict struct {
 	details  ProposalDetails
 }
 
-// classify range un candidat vérifié : un fichier ambigu est un conflit (jamais départagé ici), un média absent de la
-// bibliothèque un pack partiel, 100 % des pièces un torrent complet, un média complet dont seules des pièces
+// classify range un candidat vérifié : un fichier ambigu est un litige (jamais départagé ici), un média absent de la
+// bibliothèque un pack incomplet, 100 % des pièces un torrent complet, un média complet dont seules des pièces
 // d'annexes manquent un partial_annex ; sinon aucune proposition.
 func classify(torrent *torrentcheck.Torrent, assignment matcher.Assignment, report torrentcheck.Report) verdict {
 	details := ProposalDetails{
@@ -145,15 +145,15 @@ func upsertProposal(ctx context.Context, deps Deps, proposal store.Proposal, det
 	return created, err
 }
 
-// proposalGroup rassemble les candidats d'un groupe et leurs propositions non closes.
+// proposalGroup rassemble chaque candidat d'un groupe et ses propositions non closes.
 type proposalGroup struct {
 	groupID int64
 	members []store.Candidate
 	open    map[int64][]store.Proposal
 }
 
-// refreshGroups recalcule, pour chaque groupe, la proposition principale par défaut, le conflit qui liste tous les
-// candidats et, en mode natif, les propositions cross_seed ; rejouable sans doublon.
+// refreshGroups recalcule, pour chaque groupe, la proposition principale par défaut, le litige qui liste chaque
+// torrent du groupe et, en mode natif, les propositions cross_seed ; rejouable sans doublon.
 func refreshGroups(ctx context.Context, deps Deps, result *Result) error {
 	candidates, err := deps.Store.ListCandidatesByState(ctx)
 	if err != nil {
@@ -201,7 +201,7 @@ func (group proposalGroup) refresh(ctx context.Context, deps Deps, result *Resul
 	return group.ensureCrossSeeds(ctx, deps, result, primaryCandidate)
 }
 
-// mainProposal est la proposition qui porte le verdict du candidat (pas le conflit de groupe ni un cross_seed).
+// mainProposal est la proposition qui porte le verdict du candidat (pas le litige de groupe ni un cross_seed).
 func (group proposalGroup) mainProposal(candidateID int64) (store.Proposal, ProposalDetails, bool) {
 	for _, proposal := range group.open[candidateID] {
 		details := parseDetails(proposal)
@@ -264,8 +264,8 @@ func (group proposalGroup) ensurePrimary(ctx context.Context, deps Deps) (int64,
 	return best.CandidateID, deps.Store.SetGroupPrimary(ctx, group.groupID, best.ID)
 }
 
-// ensureConflict liste tous les candidats d'un groupe dès que deux d'entre eux ont une proposition ; le conflit est
-// porté par le conflit de groupe existant, sinon par la principale, sinon par le premier candidat non ambigu.
+// ensureConflict liste chaque torrent d'un groupe dès que deux d'entre eux ont une proposition ; le litige est
+// porté par le litige de groupe déjà présent, sinon par la principale, sinon par le premier candidat non ambigu.
 func (group proposalGroup) ensureConflict(ctx context.Context, deps Deps, result *Result, primaryCandidate int64) error {
 	members := group.describeMembers()
 	withProposal := 0

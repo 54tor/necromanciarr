@@ -191,7 +191,7 @@ var (
 // Proposal est une action soumise à l'opérateur ; CandidateID vaut 0 pour une proposition sans torrent (dedupe,
 // repair) et DecidedAt est zéro tant qu'aucune décision n'est prise. Primary marque la proposition retenue par défaut
 // dans son groupe (une seule à la fois, voir SetGroupPrimary) ; Details est un objet JSON propre à la nature
-// (pourcentage, pièces manquantes, candidats en conflit), vide vaut {}.
+// (pourcentage, pièces manquantes, torrents en litige), vide vaut {}.
 type Proposal struct {
 	ID          int64
 	CandidateID int64

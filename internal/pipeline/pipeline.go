@@ -160,8 +160,8 @@ type Result struct {
 	CandidatesUpdated   int
 	CandidatesUnchanged int
 	CandidatesStale     int
-	// Compteurs de Verify : candidats vérifiés, classés partial_annex ou partial_pack, propositions de conflit créées,
-	// vérifications reprises, et propositions créées au total.
+	// Totaux de Verify : candidat vérifié, classé partial_annex ou partial_pack, proposition de litige créée,
+	// vérification reprise, et proposition créée (toute nature).
 	Verified         int
 	PartialAnnex     int
 	PartialPack      int

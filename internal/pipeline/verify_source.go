@@ -17,7 +17,7 @@ import (
 	"necromanciarr/internal/torrentcheck"
 )
 
-// errReadLocal marque une lecture locale en échec, distincte d'une erreur du store ou du fournisseur.
+// errReadLocal marque une lecture locale en échec, pour la séparer d'une erreur du store ou du fournisseur.
 var errReadLocal = errors.New("pipeline: local read failed")
 
 // LocalFile est un fichier de la bibliothèque ouvert en lecture seule.
@@ -172,7 +172,7 @@ func nfoFetchError(result *Result, err error) error {
 	return nil
 }
 
-// findVerifyingVariant essaie chaque .nfo du fournisseur sous chacune de ses variantes de même taille que le fichier
+// findVerifyingVariant essaie chaque .nfo du fournisseur sous chacune de ses versions de même taille que le fichier
 // du torrent ; une variante n'est retenue que si toutes les pièces contrôlables qui la recouvrent concordent.
 func (run candidateRun) findVerifyingVariant(ctx context.Context, torrent *torrentcheck.Torrent, fileIndex int,
 	nfos []libraryprovider.Nfo, source compositeSource,

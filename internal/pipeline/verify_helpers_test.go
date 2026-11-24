@@ -168,8 +168,10 @@ type verifyFixture struct {
 
 func newVerifyFixture(t *testing.T) *verifyFixture {
 	t.Helper()
-	return &verifyFixture{t: t, store: openTestStore(t), root: t.TempDir(), fetcher: newFakeFetcher(), opener: &countingOpener{},
-		crossSeed: crossseed.Delegate}
+	return &verifyFixture{
+		t: t, store: openTestStore(t), root: t.TempDir(), fetcher: newFakeFetcher(), opener: &countingOpener{},
+		crossSeed: crossseed.Delegate,
+	}
 }
 
 // writeLocal écrit le fichier de bibliothèque s'il n'existe pas encore et l'inventorie avec sa vraie taille et sa vraie date.

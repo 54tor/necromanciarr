@@ -214,7 +214,7 @@ func (run candidateRun) assign(ctx context.Context, candidate store.Candidate, t
 	switch {
 	case err == nil:
 	case errors.Is(err, matcher.ErrReadBudgetExceeded):
-		// Le reste est rangé dans Ambiguous : il deviendra un conflit, jamais un choix.
+		// Le reste est rangé dans Ambiguous : il deviendra un litige, jamais un choix.
 		run.result.count(ReasonReadBudget, 1)
 	case ctx.Err() != nil:
 		return assignment, false, err
