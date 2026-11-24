@@ -1,0 +1,92 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/*
+ * Thème unique noir anthracite : jetons shadcn définis directement dans :root,
+ * sans variante alternative, sans bascule, sans media query de préférence système.
+ * Correspondance avec la palette produit : accent #4cc2a5 = --primary et --ring ;
+ * --accent (survol shadcn) reste une surface anthracite pour ne pas teinter les menus.
+ */
+:root {
+  color-scheme: dark;
+  --background: #121416;
+  --foreground: #e6e8ea;
+  --card: #1c1f22;
+  --card-foreground: #e6e8ea;
+  --popover: #1c1f22;
+  --popover-foreground: #e6e8ea;
+  --primary: #4cc2a5;
+  --primary-foreground: #121416;
+  --secondary: #2b3033;
+  --secondary-foreground: #e6e8ea;
+  --muted: #2b3033;
+  --muted-foreground: #9aa2a8;
+  --accent: #2b3033;
+  --accent-foreground: #e6e8ea;
+  --destructive: #e5675d;
+  --border: #3a4044;
+  /* Les champs de saisie doivent atteindre 3:1 (WCAG 1.4.11), contrairement aux bordures décoratives. */
+  --input: #6b747b;
+  --ring: #4cc2a5;
+  --chart-1: #4cc2a5;
+  --chart-2: #e5675d;
+  --chart-3: #6ea8d8;
+  --chart-4: #d9b25f;
+  --chart-5: #a98bd6;
+  --radius: 0.5rem;
+  --sidebar: #1c1f22;
+  --sidebar-foreground: #e6e8ea;
+  --sidebar-primary: #4cc2a5;
+  --sidebar-primary-foreground: #121416;
+  --sidebar-accent: #2b3033;
+  --sidebar-accent-foreground: #e6e8ea;
+  --sidebar-border: #3a4044;
+  --sidebar-ring: #4cc2a5;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

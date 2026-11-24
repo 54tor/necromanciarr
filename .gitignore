@@ -9,3 +9,9 @@ docs/site/.vitepress/dist/
 docs/site/.vitepress/cache/
 docs/site/public/openapi.yaml
 docs/site/public/scalar-standalone.js
+
+web/node_modules/
+web/coverage/
+# Sortie de make ui : seul le marqueur de remplacement est suivi.
+internal/web/ui/dist/*
+!internal/web/ui/dist/index.html
