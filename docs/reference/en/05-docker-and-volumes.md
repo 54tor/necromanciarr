@@ -43,7 +43,7 @@ The torrent client must read the torrent folder. It sees it under its own path: 
 
 Mount the **folder** that contains `config.js`, read-only, never the file alone: a single-file mount breaks when an editor replaces the file (new inode, the container keeps the old one). Then `CROSS_SEED_CONFIG=/cross-seed/config.js` (or `crossSeedConfig`).
 
-Each `process.env.NOM` that this `config.js` references must also be provided to the Necromanciarr container (environment variable or line of `/data/.env`): the file is evaluated here, with these values, not with the cross-seed container's environment. The `localhost` in `config.js` designates the cross-seed container: set `crossSeed` (`http://cross-seed:2468?apikey=${CROSS_SEED_API_KEY}`) to reach the daemon.
+Each `process.env.NAME` that this `config.js` references must also be provided to the Necromanciarr container (environment variable or line of `/data/.env`): the file is evaluated here, with these values, not with the cross-seed container's environment. The `localhost` in `config.js` designates the cross-seed container: set `crossSeed` (`http://cross-seed:2468?apikey=${CROSS_SEED_API_KEY}`) to reach the daemon.
 
 ### `/data`
 

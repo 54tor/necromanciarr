@@ -43,7 +43,7 @@ Le client torrent doit lire le dossier du torrent. Il le voit sous son propre ch
 
 Monter le **dossier** qui contient `config.js`, en lecture seule, jamais le fichier seul : un montage de fichier unique se casse quand un éditeur remplace le fichier (nouvel inode, le conteneur garde l'ancien). Puis `CROSS_SEED_CONFIG=/cross-seed/config.js` (ou `crossSeedConfig`).
 
-Chaque `process.env.NOM` que ce `config.js` référence doit aussi être fourni au conteneur Necromanciarr (variable d'environnement ou ligne de `/data/.env`) : le fichier est évalué ici, avec ces valeurs, pas avec l'environnement du conteneur de cross-seed. Le `localhost` du `config.js` désigne le conteneur de cross-seed : renseigner `crossSeed` (`http://cross-seed:2468?apikey=${CROSS_SEED_API_KEY}`) pour joindre le démon.
+Chaque `process.env.NAME` que ce `config.js` référence doit aussi être fourni au conteneur Necromanciarr (variable d'environnement ou ligne de `/data/.env`) : le fichier est évalué ici, avec ces valeurs, pas avec l'environnement du conteneur de cross-seed. Le `localhost` du `config.js` désigne le conteneur de cross-seed : renseigner `crossSeed` (`http://cross-seed:2468?apikey=${CROSS_SEED_API_KEY}`) pour joindre le démon.
 
 ### `/data`
 
@@ -120,7 +120,7 @@ Une commande lancée dans un second processus partage la base et le verrou d'ét
 
 Une bibliothèque sur un montage rclone se lit comme un dossier local. Notes pour le montage de l'hôte :
 
-- Monter avec `--vfs-links` pour que les symlinks aient une cible ; sans lui `doctor` signale « symlinks refused » avec ce conseil. Un montage rclone n'accepte en pratique ni hardlink ni reflink (la sonde de `doctor` tranche) : les dossiers de liens ne sont pas sur ce montage (voir [06-limits-and-troubleshooting.md](06-limits-and-troubleshooting.md)).
+- Monter avec `--vfs-links` pour que les symlinks aient une cible ; sans lui `doctor` signale « les symlinks échouent sur ce montage : relancer rclone avec --vfs-links ». Un montage rclone n'accepte en pratique ni hardlink ni reflink (la sonde de `doctor` tranche) : les dossiers de liens ne sont pas sur ce montage (voir [06-limits-and-troubleshooting.md](06-limits-and-troubleshooting.md)).
 - Si rclone est relancé sur l'hôte, le conteneur ne voit le nouveau montage que si le montage de liaison propage les montages (`bind.propagation: rslave` dans Compose) ; sinon redémarrer le conteneur.
 - Lancer le processus qui porte le montage avec `--rc --rc-addr :5572 --rc-user <utilisateur> --rc-pass <motdepasse>` et déclarer `fsProviders[].rc` vers `rclone:5572` sur un réseau privé : sans rc, aucune empreinte n'est disponible et la déduplication relit les fichiers.
 - Le cache VFS de rclone peut faire croire à une date de modification restituée par le stockage : `doctor` l'écrit en conseil.

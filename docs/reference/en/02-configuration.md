@@ -24,13 +24,13 @@ From strongest to weakest: **command-line options**, **environment variables**, 
 
 An empty variable is ignored. These options apply to every subcommand; an unknown option is a usage error (exit 2).
 
-The configuration folder must exist when it is given. With no option or variable, it is `<dossier de configuration utilisateur du système>/necromanciarr` (`~/.config/necromanciarr` on Linux). The Docker image sets `CONFIG_DIR=/data`.
+The configuration folder must exist when it is given. With no option or variable, it is `<user config directory>/necromanciarr` (`~/.config/necromanciarr` on Linux). The Docker image sets `CONFIG_DIR=/data`.
 
 ## `.env` and interpolation
 
 - Only one `.env` file is read: the one in the configuration folder. If it does not exist, the one in the current folder is read instead; `config check` flags it (`workingDirDotEnv: true`) and `doctor` warns (check `config`). Risk: launched from a folder that holds another tool's `.env`, Necromanciarr would pick up its variables (tokens included); placing its own `.env` in the configuration folder closes that door. The real environment always wins over `.env`.
-- Format: `NOM=valeur`, one per line, `#` comments, `export` prefix tolerated, single or double quotes removed. No multiline value, no interpolation in `.env`.
-- In `config.json`, any string (including in `dedupe` and `fsProviders`) can contain `${NOM}`; `$$` gives a `$`. A missing variable or an invalid name (outside `[A-Za-z_][A-Za-z0-9_]*`) is an error that quotes the name, never the value.
+- Format: `NAME=value`, one per line, `#` comments, `export` prefix tolerated, single or double quotes removed. No multiline value, no interpolation in `.env`.
+- In `config.json`, any string (including in `dedupe` and `fsProviders`) can contain `${NAME}`; `$$` gives a `$`. A missing variable or an invalid name (outside `[A-Za-z_][A-Za-z0-9_]*`) is an error that quotes the name, never the value.
 - Interpolation comes before URL parsing: percent-encode the reserved characters (`@ : / # ?`) of a password placed in a URL.
 - `config.json` is read in strict mode: an unknown key is refused, and so is any text after the JSON object. A duplicated key is not detected (the last one wins). The old `rclone` section is refused with a message that points to `fsProviders`.
 
@@ -38,15 +38,15 @@ The configuration folder must exist when it is given. With no option or variable
 
 | Key | Type | Default | Validation |
 |---|---|---|---|
-| `listen` | `hôte:port` | `127.0.0.1:8787` | outside loopback, `serve` requires `NECROMANCIARR_AUTH_TOKEN`; the other commands do not |
+| `listen` | `host:port` | `127.0.0.1:8787` | outside loopback, `serve` requires `NECROMANCIARR_AUTH_TOKEN`; the other commands do not |
 | `dbPath` | path | `necromanciarr.db` | relative: resolved from the configuration folder. Must stay outside the library (`doctor`) |
 | `readBytesPerSecond` | integer (bytes/s) | `20971520` (20 MiB/s) | strictly positive |
 | `tieBreakReadBytes` | integer (bytes) | `53687091200` (50 GiB) | strictly positive. Maximum bytes read, per candidate, to tell same-size local files apart; coverage is not affected |
 | `libraryApi` | URL | empty | `http(s)`, no fragment. Empty: Match and Verify refuse (`not_configured`) |
 | `libraryRoots` | list of paths | empty | as seen by this process |
 | `pathMappings` | list of `{from, to}` | empty | `from`: this process's view; `to`: the view of Radarr, Sonarr and the torrent client |
-| `radarr`, `sonarr` | list of URLs | empty | `http(s)://hôte:port[/chemin]?apikey=CLÉ`, optional `utilisateur:mdp@` (basic-authentication proxy); only `apikey` is allowed |
-| `torrentClients` | list of strings | empty | `qbittorrent[:readonly]:http(s)://[utilisateur:mdp@]hôte:port[/chemin]`, no query parameter. Only the first client receives torrents (warning if there are several) |
+| `radarr`, `sonarr` | list of URLs | empty | `http(s)://host:port[/path]?apikey=KEY`, optional `user:password@` (basic-authentication proxy); only `apikey` is allowed |
+| `torrentClients` | list of strings | empty | `qbittorrent[:readonly]:http(s)://[user:password@]host:port[/path]`, no query parameter. Only the first client receives torrents (warning if there are several) |
 | `linkDirs` | list of paths | empty | never overlaps a `libraryRoots` root |
 | `linkType` | `hardlink`, `symlink`, `reflink` | `hardlink` | a single kind, no fallback; a failure states the cause and the setting to change |
 | `skipRecheck` | boolean | `true` | see [03-seed-safety.md](03-seed-safety.md) |
@@ -55,7 +55,7 @@ The configuration folder must exist when it is given. With no option or variable
 | `language` | `fr`, `en` | `fr` | language of the displayed texts; case and spaces ignored, any other value (`fr_FR` included) is a usage error that quotes the value (20 characters at most) and the accepted values. Applied at this stage: text output, help and errors of the CLI, web API errors and descriptions of the action registry. To come: diagnostics (`doctor`), warnings and the server log. `config check` writes the effective language and its source on stderr |
 | `partialMaxMissingPercent` | number from 0 to 100 | `100` (no cap) | maximum share of missing pieces of a `partial_annex` or `partial_pack`; above it, no proposal is created (reason `missing_pieces_above_cap`, see [01-pipeline.md](01-pipeline.md)). `0` keeps only complete torrents |
 | `crossSeedConfig` | path | empty | relative: from the configuration folder |
-| `crossSeed` | URL | empty | `http(s)://hôte:2468?apikey=CLÉ`, no user credentials |
+| `crossSeed` | URL | empty | `http(s)://host:2468?apikey=KEY`, no user credentials |
 | `crossSeedMode` | `auto`, `delegate`, `native`, `off` | `auto` | case and spaces ignored |
 | `dedupe` | object | see below | |
 | `fsProviders` | list of objects | empty | see below |
@@ -68,20 +68,20 @@ The paths of the library, link directories and torrent roots are those seen by *
 
 - No `linkDirs[i]` equals a library root, contains it or is contained in it: refused at load time (lexical), then at the Link stage on resolved paths (symlinks followed).
 - For each torrent, Link picks the **first** `linkDirs` folder located on the same filesystem as the first source file. Hardlink and reflink require that same filesystem. With no matching folder, only a symlink is possible, and only if `linkType` is `symlink`: otherwise the proposal becomes `failed` (`no_link_dir_on_same_device`).
-- The torrent folder is named `<nom racine> [<infohash complet>]` under the link directory, with `0755` permissions so that the client, often under another account, can read it. A name longer than 255 bytes shortens the root name (without cutting a character), never the infohash. Seed and Force always use the folder recorded for the proposal (`proposal_steps.link_root`), including a `<nom racine> [<8 caractères>]` folder created by an earlier version. After damaged links, Seed erases the step but keeps this folder; Link reuses it only if it sits directly under the link directory chosen for this run, otherwise it creates a new folder named with the full infohash.
+- The torrent folder is named `<root name> [<full infohash>]` under the link directory, with `0755` permissions so that the client, often under another account, can read it. A name longer than 255 bytes shortens the root name (without cutting a character), never the infohash. Seed and Force always use the folder recorded for the proposal (`proposal_steps.link_root`), including a `<root name> [<8 characters>]` folder created by an earlier version. After damaged links, Seed erases the step but keeps this folder; Link reuses it only if it sits directly under the link directory chosen for this run, otherwise it creates a new folder named with the full infohash.
 - `linkType` is the only kind setting for Link: if the folder does not accept it (real probe), the proposal fails (`link_kind_refused`) instead of changing kind.
 - A link kind failure (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) leaves on the proposal a warning that names the cause and the expected action, for example "hardlink impossible between two mounts: put linkDirs under the same mount point as the library, or choose linkType symlink/reflink". After the fix, re-accept the proposal then rerun Link.
 
 ### Torrent clients, qui, read-only mode
 
 - `readonly:` forbids any write: Seed stops (`ErrClientReadOnly`), deduplication cannot request a recheck (warning `recheck_failed`). Reading (list, doctor) remains allowed.
-- **qui** (autobrr) declares itself as a qBittorrent behind its proxy: `qbittorrent:http://hôte:7476/proxy/<clé>`, without credentials. The key after `/proxy/` is masked in all outputs.
+- **qui** (autobrr) declares itself as a qBittorrent behind its proxy: `qbittorrent:http://host:7476/proxy/<key>`, without credentials. The key after `/proxy/` is masked in all outputs.
 - The client is called without an environment proxy and without redirection to another host; response bodies are capped.
 - Only qBittorrent is supported. A `deluge`, `transmission` or `rtorrent` client imported from cross-seed is discarded and reported by rank and type.
 
 ## Importing cross-seed's `config.js`
 
-With `crossSeedConfig`, `CROSS_SEED_CONFIG` or `--cross-seed-config`, the file is evaluated in a JavaScript sandbox with no input/output: no `require`, no `import`, no `eval`, no `Function`; only `process.env.NOM` exists, resolved like `${NOM}` (real environment then `.env`). This tool's variables (`NECROMANCIARR_*`, `LIBRARY_PROVIDER_*`) are always absent there (`undefined`, `in` false): a `config.js` that reads them gets nothing, `config check` names them under `crossSeedImport.blockedEnvironment` and `doctor` (check `cross-seed`) warns, never showing their value. Limits: ordinary file of at most 256 KiB, 2 seconds of evaluation, 256 entries per list. A relative path from the command line or the environment starts from the current folder, one from `config.json` from the configuration folder.
+With `crossSeedConfig`, `CROSS_SEED_CONFIG` or `--cross-seed-config`, the file is evaluated in a JavaScript sandbox with no input/output: no `require`, no `import`, no `eval`, no `Function`; only `process.env.NAME` exists, resolved like `${NAME}` (real environment then `.env`). This tool's variables (`NECROMANCIARR_*`, `LIBRARY_PROVIDER_*`) are always absent there (`undefined`, `in` false): a `config.js` that reads them gets nothing, `config check` names them under `crossSeedImport.blockedEnvironment` and `doctor` (check `cross-seed`) warns, never showing their value. Limits: ordinary file of at most 256 KiB, 2 seconds of evaluation, 256 entries per list. A relative path from the command line or the environment starts from the current folder, one from `config.json` from the configuration folder.
 
 | Imported key | Role | Merge rule |
 |---|---|---|
@@ -137,7 +137,7 @@ Give the content fingerprint of a file without rereading it, for deduplication a
 | `type` | required | `rclone` |
 | `name` | required | `[a-z0-9-]+`, unique |
 | `mounts` | empty | `"/chemin/local=remote:sous/chemin"`, a single `=`, absolute local path without `..`, unique across providers. Nesting is allowed: the longest prefix wins |
-| `rc` | empty | `http(s)` URL of the `--rc` API of the rclone process that carries the mount; `utilisateur:mdp@` removed from the URL and sent as basic authentication; redirections refused. Takes priority over `binary` |
+| `rc` | empty | `http(s)` URL of the `--rc` API of the rclone process that carries the mount; `user:password@` removed from the URL and sent as basic authentication; redirections refused. Takes priority over `binary` |
 | `binary` | `rclone` from the PATH | executable |
 | `timeout` | `60s` | strictly positive Go duration |
 

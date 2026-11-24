@@ -187,5 +187,5 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `pipeline: run lock lost` | le verrou a été repris : relancer l'étape |
 | `inspection_busy` | un examen des liens est en cours : réessayer |
 | `confirmation_required` | `proposals force` sans `--yes`, ou `force` sans `{"confirm": true}` |
-| `unauthorized` | `Authorization: Bearer <jeton>` absent ou faux |
+| `unauthorized` | `Authorization: Bearer <token>` absent ou faux |
 | `forbidden` | `Host` inconnu (proxy qui réécrit `Host` sur une écoute en boucle locale), `Origin` étranger, `Sec-Fetch-Site: cross-site` |

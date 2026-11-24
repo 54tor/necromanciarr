@@ -84,7 +84,7 @@ A torrent that is not ours is never paused, deleted or moved. A single candidate
 | During Link, folder half filled | The entries present are compared with the source: identical content adopted and recorded (a reflink included); recorded but different entry removed; unknown entry: `destination_conflict` refusal and nothing is deleted. Stale entries are only removed if the folder contains only tool entries. A failure undoes what the run had created (links, annexes, folder). |
 | During the writing of an annex | Written under a temporary name `.necromanciarr-tmp-*` then renamed; a leftover temporary file is recognized as a tool entry and removed with the folder's stale entries |
 | Between the add to the client and `applied` | Seed finds the torrent at our path and takes it back (invariant 6) |
-| During `dedupe apply` | The link is created under `<fichier>.necromanciarr-tmp-<taille>-<aléa>` then renamed over; `dedupe plan` finishes the rename if the torrent file is missing and the entry has the right size, otherwise removes the temporary entry |
+| During `dedupe apply` | The link is created under `<file>.necromanciarr-tmp-<size>-<random>` then renamed over; `dedupe plan` finishes the rename if the torrent file is missing and the entry has the right size, otherwise removes the temporary entry |
 | During Verify | Progress recorded (64 pieces or 5 s): the rerun skips the pieces already verified if their files are still present |
 | Stage lock not released | Freed at most 2 minutes after the process dies |
 

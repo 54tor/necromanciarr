@@ -84,7 +84,7 @@ Un torrent qui n'est pas le nôtre n'est jamais pausé, supprimé ni déplacé. 
 | Pendant Link, dossier à moitié rempli | Les entrées présentes sont comparées à la source : contenu identique adopté et enregistré (un reflink compris) ; entrée enregistrée mais différente retirée ; entrée inconnue : refus `destination_conflict` et rien n'est supprimé. Les entrées périmées ne sont retirées que si le dossier ne contient que des entrées de l'outil. Un échec défait ce que l'exécution avait créé (liens, annexes, dossier). |
 | Pendant l'écriture d'une annexe | Écriture sous un nom temporaire `.necromanciarr-tmp-*` puis renommage ; un temporaire laissé est reconnu comme entrée de l'outil et retiré avec les entrées périmées du dossier |
 | Entre l'ajout au client et `applied` | Seed retrouve le torrent à notre chemin et le reprend en main (invariant 6) |
-| Pendant `dedupe apply` | Le lien est créé sous `<fichier>.necromanciarr-tmp-<taille>-<aléa>` puis renommé par-dessus ; `dedupe plan` termine le renommage si le fichier torrent manque et que l'entrée a la bonne taille, sinon retire l'entrée temporaire |
+| Pendant `dedupe apply` | Le lien est créé sous `<file>.necromanciarr-tmp-<size>-<random>` puis renommé par-dessus ; `dedupe plan` termine le renommage si le fichier torrent manque et que l'entrée a la bonne taille, sinon retire l'entrée temporaire |
 | Pendant Verify | Avancement enregistré (64 pièces ou 5 s) : la relance saute les pièces déjà vérifiées si leurs fichiers sont toujours présents |
 | Verrou d'étape non rendu | Libéré au plus 2 minutes après la mort du processus |
 
