@@ -44,7 +44,7 @@ func setSecurityHeaders(header http.Header) {
 }
 
 // allowedHosts est la liste des en-têtes Host admis ; nil = aucun contrôle (écoute hors boucle locale, le jeton
-// protège alors l'API quel que soit le nom par lequel on y arrive, derrière un mandataire par exemple).
+// protège alors l'API quel que soit le nom par lequel on y arrive, derrière un mandataire notamment).
 type allowedHosts []string
 
 // hostsFor dérive la liste de l'adresse d'écoute en boucle locale : l'adresse elle-même et localhost, 127.0.0.1 et

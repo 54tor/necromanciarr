@@ -74,7 +74,7 @@ func describe(err error) (int, ErrorBody) {
 // secrets liste les secrets de la configuration, masqués dans chaque sortie (corps JSON et journal).
 func (handler *Handler) secrets() []string { return handler.settings.KnownSecrets() }
 
-// writeError écrit l'erreur ; une erreur interne est journalisée masquée, pour l'opérateur, sans être renvoyée.
+// writeError écrit l'erreur ; une erreur interne part masquée dans le journal du serveur, pour l'opérateur, sans être renvoyée.
 func (handler *Handler) writeError(writer http.ResponseWriter, err error) {
 	status, body := describe(err)
 	if status == http.StatusInternalServerError {
