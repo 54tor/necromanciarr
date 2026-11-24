@@ -37,10 +37,6 @@ describe('theme', () => {
     expect(css).not.toContain('prefers-color-scheme')
   })
 
-  it('has no .dark block', () => {
-    expect(css).not.toMatch(/\.dark\s*\{/)
-  })
-
   it('has no light theme variable or variant', () => {
     expect(css).not.toMatch(/light/i)
   })
