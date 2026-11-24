@@ -35,9 +35,17 @@ describe('Router', () => {
     expect(currentPath.value).toBe('/etapes')
   })
 
-  it('Router_declaresTheFiveTabsInOrder', () => {
+  it('Router_declaresTheSevenPagesInOrder', () => {
     const gotKeys = ROUTES.map((route) => route.navKey)
 
-    expect(gotKeys).toEqual(['demarrage', 'propositions', 'deduplication', 'liens', 'etapes'])
+    expect(gotKeys).toEqual([
+      'demarrage',
+      'propositions',
+      'deduplication',
+      'liens',
+      'etapes',
+      'sources',
+      'volumes',
+    ])
   })
 })

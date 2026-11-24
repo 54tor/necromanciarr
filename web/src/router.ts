@@ -6,13 +6,15 @@ export interface AppRoute {
   navKey: string
 }
 
-/** Onglets de l'application, dans l'ordre d'affichage. */
+/** Pages de l'application, dans l'ordre d'affichage ; `/sources` et `/volumes` ne sont affichées que lorsqu'une vue les porte (App.vue). */
 export const ROUTES: readonly AppRoute[] = [
   { path: '/demarrage', navKey: 'demarrage' },
   { path: '/propositions', navKey: 'propositions' },
   { path: '/deduplication', navKey: 'deduplication' },
   { path: '/liens', navKey: 'liens' },
   { path: '/etapes', navKey: 'etapes' },
+  { path: '/sources', navKey: 'sources' },
+  { path: '/volumes', navKey: 'volumes' },
 ]
 
 const DEFAULT_PATH = '/propositions'

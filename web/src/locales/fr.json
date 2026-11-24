@@ -6,13 +6,20 @@
     "propositions": "Propositions",
     "deduplication": "Déduplication",
     "liens": "Liens",
-    "etapes": "Étapes"
+    "etapes": "Étapes",
+    "sources": "Sources",
+    "volumes": "Volumes",
+    "skip": "Aller au contenu",
+    "openMenu": "Ouvrir le menu",
+    "closeMenu": "Fermer le menu",
+    "drawerHint": "Choisissez une page de l’application."
   },
   "actions": {
     "signIn": "Se connecter"
   },
   "common": {
-    "token": "Jeton"
+    "token": "Jeton",
+    "toolbar": "Actions de la page"
   },
   "views": {
     "login": {

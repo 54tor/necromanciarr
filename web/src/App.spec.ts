@@ -4,6 +4,7 @@ import App from './App.vue'
 import { authToken, loginRequired } from './api/client'
 import { failure, installFakeApi, resetAppState } from './test/fakeApi'
 import { busyStatus, okReport } from './test/fixtures'
+import { stubViewport } from './test/viewport'
 
 const mounted: VueWrapper[] = []
 const mount: typeof mountComponent = (component, options) => {
@@ -13,7 +14,10 @@ const mount: typeof mountComponent = (component, options) => {
 }
 
 describe('App', () => {
-  beforeEach(resetAppState)
+  beforeEach(() => {
+    resetAppState()
+    stubViewport(1280)
+  })
   afterEach(() => {
     mounted.splice(0).forEach((wrapper) => wrapper.unmount())
     vi.unstubAllGlobals()
@@ -28,7 +32,7 @@ describe('App', () => {
     const wrapper = mount(App)
     await flushPromises()
 
-    const gotTabs = wrapper.findAll('nav a').map((link) => link.text())
+    const gotTabs = wrapper.findAll('nav [data-testid="nav-label"]').map((label) => label.text())
 
     expect(wrapper.text()).toContain('Necromanciarr')
     expect(gotTabs).toEqual(['Démarrage', 'Propositions', 'Déduplication', 'Liens', 'Étapes'])
@@ -43,9 +47,37 @@ describe('App', () => {
     const wrapper = mount(App)
     await flushPromises()
 
-    const gotTabs = wrapper.findAll('nav a').map((link) => link.text())
+    const gotTabs = wrapper.findAll('nav [data-testid="nav-label"]').map((label) => label.text())
 
     expect(gotTabs).toEqual(['Getting started', 'Proposals', 'Deduplication', 'Links', 'Stages'])
+  })
+
+  it('App_showsPendingProposalsAndFailedChecksAsBadges', async () => {
+    installFakeApi({
+      'POST /api/doctor/run': { checks: [{ ...okReport.checks[0], status: 'fail' }] },
+      'GET /api/status': { ...busyStatus, proposals: { pending: 4 } },
+      'GET /api/proposals': [],
+    })
+    window.location.hash = '#/etapes'
+    const wrapper = mount(App)
+    await flushPromises()
+
+    const gotBadges = wrapper.findAll('[data-testid="nav-badge"]').map((badge) => badge.text())
+
+    expect(gotBadges).toEqual(['1', '4'])
+  })
+
+  it('App_leavesAPageWithoutViewForTheDefaultOne', async () => {
+    installFakeApi({
+      'POST /api/doctor/run': okReport,
+      'GET /api/status': busyStatus,
+      'GET /api/proposals': [],
+    })
+    window.location.hash = '#/sources'
+    mount(App)
+    await flushPromises()
+
+    expect(window.location.hash).toBe('#/propositions')
   })
 
   it('marks the current tab with aria-current', async () => {
@@ -58,7 +90,9 @@ describe('App', () => {
     const wrapper = mount(App)
     await flushPromises()
 
-    const gotCurrent = wrapper.findAll('nav a[aria-current="page"]').map((link) => link.text())
+    const gotCurrent = wrapper
+      .findAll('nav a[aria-current="page"] [data-testid="nav-label"]')
+      .map((label) => label.text())
 
     expect(gotCurrent).toEqual(['Étapes'])
   })

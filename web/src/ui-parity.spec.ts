@@ -48,9 +48,15 @@ async function actionsRenderedBy(view: Component): Promise<Set<string>> {
     found.add(action)
     if (element.attributes('data-scope') === 'row') found.add(`${action}#row`)
   }
+  for (const element of wrapper.findAll('[data-scope]'))
+    seenScopes.add(element.attributes('data-scope') ?? '')
   wrapper.unmount()
   return found
 }
+
+/** `toolbar` : action de page, posée dans PageToolbar. */
+const ALLOWED_SCOPES = ['row', 'bulk', 'toolbar']
+const seenScopes = new Set<string>()
 
 describe('UiParity', () => {
   beforeEach(resetAppState)
@@ -75,6 +81,13 @@ describe('UiParity', () => {
         ).toBe(true)
       }
     }
+  })
+
+  it('UiParity_everyDataScopeIsRowBulkOrToolbar', async () => {
+    for (const view of Object.values(VIEWS)) await actionsRenderedBy(view)
+
+    expect([...seenScopes].filter((scope) => !ALLOWED_SCOPES.includes(scope))).toEqual([])
+    expect(seenScopes.has('row')).toBe(true)
   })
 
   it('UiParity_theTriggerMapDeclaresNoUnknownAction', () => {

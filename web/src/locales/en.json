@@ -6,13 +6,20 @@
     "propositions": "Proposals",
     "deduplication": "Deduplication",
     "liens": "Links",
-    "etapes": "Stages"
+    "etapes": "Stages",
+    "sources": "Sources",
+    "volumes": "Volumes",
+    "skip": "Skip to content",
+    "openMenu": "Open the menu",
+    "closeMenu": "Close the menu",
+    "drawerHint": "Choose a page of the application."
   },
   "actions": {
     "signIn": "Sign in"
   },
   "common": {
-    "token": "Token"
+    "token": "Token",
+    "toolbar": "Page actions"
   },
   "views": {
     "login": {

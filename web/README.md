@@ -29,11 +29,13 @@ Règle ESLint `no-raw-text` (texte et attributs `title`, `aria-label`, `alt`, `p
 
 ## Logo
 
-Pictogramme dessiné à la main en SVG inline dans `App.vue` ; aucun fichier externe.
+Pictogramme dessiné à la main en SVG inline dans `src/components/AppLogo.vue` ; aucun fichier externe.
 
 ## Interface
 
 Navigation par hash (`#/demarrage`, `#/propositions`, `#/deduplication`, `#/liens`, `#/etapes`, `src/router.ts`) : le serveur sert `index.html` pour tout chemin sans extension, un routeur de chemins n'apporterait rien. Le jeton d'accès est saisi dans une boîte de dialogue après un 401 et reste dans une variable de module (`src/api/client.ts`) : jamais dans un stockage, une URL ni un cookie.
+
+Coque (`AppShell.vue`) : barre latérale (`SidebarNav.vue`) complète dès 1024 px, réduite aux icônes de 768 à 1023 px (libellés en `sr-only`), tiroir (Reka UI `Dialog` : piège de focus, Échap, focus rendu au bouton) sous 768 px, via `useMediaQuery`. Lien d'évitement vers `main#main-content` (il déplace le focus sans toucher au hash du routeur). `PageHeader` porte le `h1` de la page, `PageToolbar` deux emplacements (`actions` à gauche, `filters` à droite) ; les boutons d'action de page portent `data-scope="toolbar"`. `App.vue` ne montre `#/sources` et `#/volumes` (déclarés dans `ROUTES`) que lorsqu'une vue existe. Les icônes viennent de `@lucide/vue` ; le mouvement respecte `prefers-reduced-motion` (`motion-reduce:`). Les tests simulent la largeur avec `src/test/viewport.ts` (`stubViewport`).
 
 Disposition : chaque ligne (proposition, remplacement, lien) est une carte empilée plutôt qu'une ligne de tableau, ce qui tient à 360 px sans défilement horizontal ni colonne figée ; les cartes se réorganisent en grille à partir de 640 px.
 
