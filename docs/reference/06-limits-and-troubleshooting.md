@@ -85,7 +85,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | tous | `cancelled` | `skipped` | diagnostic interrompu avant ce contrôle |
 | tous | `panic` | `fail` | bogue : le type et un message masqué sont donnés ; le signaler |
 | `config` | `working_dir_dotenv` | `warn` | un `.env` du dossier de travail a été lu : le déplacer dans le dossier de configuration, ou le supprimer |
-| `config` | `tracker_value_too_short` | `warn` | une variable de `trackers` fait moins de 8 caractères : sa valeur n'est masquée que dans les URL d'annonce, jamais dans le texte libre ; `config check` la nomme aussi |
+| `config` | `tracker_value_too_short` | `warn` | une variable de `trackers` fait moins de 8 caractères : sa valeur n'est masquée que dans les URL (quel que soit le nom du paramètre, à l'identique), jamais dans le texte libre ; `config check` la nomme aussi |
 | `config` | `config_invalid` | `fail` | `config.json` invalide (`unknown field …`, `parse config.json`, `undefined variable X`, `linkDirs[i] … overlaps libraryRoots[j]`) : corriger, puis `config check` |
 | `config-dir` | `config_dir_missing` | `fail` | dossier de configuration absent : le créer ou passer `--config-dir` |
 | `config-dir` | `database_dir_unresolved` | `fail` | dossier de la base introuvable : le créer ou corriger `dbPath` |

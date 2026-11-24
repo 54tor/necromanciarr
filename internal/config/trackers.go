@@ -27,7 +27,8 @@ var announceSchemes = []string{"http", "https", "udp"}
 // Tracker décrit l'annonce d'un tracker, injectée au seed. Announce porte la passkey de l'opérateur : c'est un secret,
 // rendu seulement en schéma://hôte[:port]/*** par String, GoString, LogValue et MarshalJSON. Plusieurs URL forment un
 // seul palier d'announce-list. Variables ne garde que les noms des variables interpolées, jamais leur valeur ;
-// ShortVariables nomme celles dont la valeur fait moins de MinKnownSecretLength octets (masquées seulement dans une URL).
+// ShortVariables nomme celles dont la valeur fait moins de MinKnownSecretLength octets : masquées seulement dans une
+// URL, quel que soit le nom du paramètre, à l'identique.
 type Tracker struct {
 	Key            string
 	Announce       []string
@@ -64,14 +65,14 @@ func NormalizeTracker(name string) string {
 }
 
 // RedactAnnounce rend une URL d'annonce sous la seule forme schéma://hôte[:port]/*** : chemin, requête, fragment et
-// identifiants disparaissent, où que soit la passkey. Une URL illisible ou sans hôte devient « *** ».
+// identifiants disparaissent, où que soit la passkey ; un mot d'hôte qui a l'allure d'un jeton devient « *** ». Une URL illisible ou sans hôte devient « *** ».
 func RedactAnnounce(rawURL string) string {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil || parsedURL.Scheme == "" || parsedURL.Opaque != "" || parsedURL.Hostname() == "" {
 		return redactedMark
 	}
 	// url.URL.String réencode l'hôte : une zone IPv6 (« %25eth0 ») reste une URL valide.
-	hostOnly := url.URL{Scheme: strings.ToLower(parsedURL.Scheme), Host: strings.ToLower(parsedURL.Host)}
+	hostOnly := url.URL{Scheme: strings.ToLower(parsedURL.Scheme), Host: maskHostWords(strings.ToLower(parsedURL.Host))}
 	return hostOnly.String() + "/" + redactedMark
 }
 
@@ -79,7 +80,7 @@ func RedactAnnounce(rawURL string) string {
 // .torrent d'indexeur), sous les mêmes formes que les valeurs de trackers ; une valeur de moins de
 // MinKnownSecretLength octets est ignorée. La configuration n'est pas modifiée.
 func (loadedConfig Config) WithDiscoveredSecrets(values ...string) []string {
-	return append(loadedConfig.KnownSecrets(), passkeyForms(values)...)
+	return append(loadedConfig.KnownSecrets(), valueSecrets(values)...)
 }
 
 // TrackerFor trouve l'entrée de trackers dont la clé ou un alias égale name sous NormalizeTracker : la seule règle de
@@ -180,7 +181,7 @@ func parseTrackerEntry(key string, rawEntry json.RawMessage, lookup func(string)
 	}
 	tracker.Variables = uniqueInOrder(recorder.names)
 	tracker.ShortVariables = shortVariableNames(recorder)
-	tracker.secrets = append(passkeyForms(recorder.values), tracker.secrets...)
+	tracker.secrets = append(valueSecrets(recorder.values), tracker.secrets...)
 	return tracker, nil
 }
 
@@ -237,6 +238,18 @@ func claimTrackerNames(owners map[string]string, tracker Tracker) error {
 		owners[normalized] = tracker.Key
 	}
 	return nil
+}
+
+// valueSecrets donne les formes d'une valeur assez longue pour le remplacement littéral, et marque une valeur courte
+// non vide comme secret réservé aux URL (comparée à l'identique aux segments et valeurs, quel que soit le nom).
+func valueSecrets(values []string) []string {
+	secrets := passkeyForms(values)
+	for _, value := range values {
+		if value != "" && len(value) < MinKnownSecretLength {
+			secrets = append(secrets, urlOnlySecret(value))
+		}
+	}
+	return secrets
 }
 
 // passkeyForms donne chaque valeur d'au moins MinKnownSecretLength octets brute, en capitales, en minuscules, et chacune

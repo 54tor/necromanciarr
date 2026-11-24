@@ -98,8 +98,11 @@ Toute sortie (CLI texte et `--json`, API web, interface, `doctor`, journal du se
 | Segment de chemin qui suit un tel nom | `/passkey/x/announce` | `/passkey/***/announce` |
 | Segment ou valeur qui contient, une fois décodé (jusqu'à quatre fois : `%252F`), un mot hexadécimal ou base64url de 16 caractères ou plus | `/0000aaaa0000aaaa0000aaaa0000aaaa/announce` | `/***/announce` |
 | Identifiants d'une URL | `https://alice:x@tracker-a.example.com/` | `https://***@tracker-a.example.com/` |
+| Valeur de `trackers` de moins de 8 caractères : segment ou valeur égal à l'identique, quel que soit le nom du paramètre | `/42/announce?id=42` | `/***/announce?id=***` |
+| Mot d'au moins 16 caractères avec un chiffre dans l'hôte (jeton en sous-domaine) | `https://0000aaaa0000aaaa0000aaaa0000aaaa.t.example/` | `https://***.t.example/` |
+| URL échappée pour JSON (`https:\/\/…`, corps PHP `json_encode`) | une URL d'annonce dans un corps de réponse | `***` |
 
-Limites : hors d'une URL, une passkey nue n'est masquée que si c'est un secret connu ; quand Seed lira l'annonce d'un `.torrent` d'indexeur, sa passkey rejoindra les secrets connus le temps de l'opération. Un infohash placé dans une URL est masqué par la règle des 16 caractères (sans dommage : il n'est pas secret) ; seul, hors d'une URL, il reste affiché. Le masquage est en temps linéaire et une seconde passe ne change rien.
+Limites acceptées : une passkey de moins de 16 caractères dans un chemin, ni après un nom de passkey ni valeur de `trackers`, reste visible ; une passkey en base64 standard (`+`, `/`) est coupée en morceaux de moins de 16 caractères et n'est masquée que si c'est un secret connu ; une URL sans `scheme://` n'est pas reconnue ; une URL coupée par une espace ou un saut de ligne n'est traitée que jusqu'à la coupure. Hors d'une URL, une passkey nue n'est masquée que si c'est un secret connu (8 caractères au moins) ; quand Seed lira l'annonce d'un `.torrent` d'indexeur, sa passkey rejoindra les secrets connus le temps de l'opération : seules des valeurs y entrent (8 octets au moins pour le remplacement partout, plus courtes réservées aux URL), jamais des mots de chemin ordinaires comme `announce`. Un infohash placé dans une URL est masqué par la règle des 16 caractères (sans dommage : il n'est pas secret) ; seul, hors d'une URL, il reste affiché. Le masquage est en temps linéaire et une seconde passe ne change rien.
 
 ## Reprise après coupure
 

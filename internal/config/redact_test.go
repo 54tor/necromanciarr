@@ -247,13 +247,15 @@ func FuzzRedactText(f *testing.F) {
 		"udp://[2001:db8::1]:6969/announce?passkey=%41%42;uid=7#pk=1",
 		"text a://b/%25252F0123456789abcdef0123 and https://h/x?key",
 		"http://h/a;b=c/d?e&f==g&&h=;",
+		`{"u":"https:\/\/h\/42?x=42"} https://0000aaaa0000aaaa.h.example:1/42?id=%34%32#k=42`,
 		"",
 	} {
 		f.Add(seed)
 	}
+	fuzzSecrets := []string{urlOnlySecret("42"), "fuzz-known-secret"}
 	f.Fuzz(func(t *testing.T, input string) {
-		once := RedactText(input)
-		if twice := RedactText(once); twice != once {
+		once := RedactText(input, fuzzSecrets...)
+		if twice := RedactText(once, fuzzSecrets...); twice != once {
 			t.Fatalf("gotValue %q then %q, expectedValue idempotence", once, twice)
 		}
 		planted := "https://tracker-a.example.com/" + url.PathEscape(input) + "/0123456789abcdef0123456789abcdef?pk=zq7x"
@@ -283,5 +285,37 @@ func TestRedactJSON_shortSecretsKeepTheJSONValidAndNumbersUntouched(t *testing.T
 	}
 	if gotValue.Sum != 1420 || gotValue.ID != 42 || gotValue.Level != 0.42 || strings.Contains(gotValue.Text, "42") {
 		t.Fatalf("gotValue %+v, expectedValue numbers untouched and the string masked", gotValue)
+	}
+}
+
+func TestRedact_jsonEscapedURLIsMaskedWhole(t *testing.T) {
+	body := `{"status":"error","announce":"https:\/\/tracker-a.example.com\/announce\/zq7x?pk=zq7x","next":"ok"}`
+
+	gotValue := RedactText("tracker answered " + body)
+
+	if strings.Contains(gotValue, "zq7x") || !strings.Contains(gotValue, `"next":"ok"`) || !strings.Contains(gotValue, `"announce":"***"`) {
+		t.Fatalf("gotValue %q, expectedValue the escaped URL masked whole and the rest kept", gotValue)
+	}
+}
+
+func TestRedact_tokenLikeHostLabelIsMasked(t *testing.T) {
+	const tokenHost = "0000aaaa0000aaaa0000aaaa0000aaaa.t.example"
+
+	gotText := RedactText("dial https://" + tokenHost + ":8443/announce failed")
+	gotAnnounce := RedactAnnounce("https://" + tokenHost + ":8443/announce")
+
+	if strings.Contains(gotText, "0000aaaa") || !strings.Contains(gotText, ".t.example:8443/announce") {
+		t.Fatalf("gotValue %q, expectedValue the token label masked and the rest of the host kept", gotText)
+	}
+	if gotAnnounce != "https://***.t.example:8443/***" {
+		t.Fatalf("gotValue %q, expectedValue https://***.t.example:8443/***", gotAnnounce)
+	}
+	if reparsed, err := url.Parse(gotAnnounce); err != nil || reparsed.Hostname() != "***.t.example" {
+		t.Fatalf("gotValue %q that does not parse back (%v)", gotAnnounce, err)
+	}
+	for _, kept := range []string{"https://tracker-a.example.com/x", "udp://[2001:db8::1]:6969/x"} {
+		if gotValue := RedactText(kept); gotValue != kept {
+			t.Fatalf("gotValue %q, expectedValue %q unchanged", gotValue, kept)
+		}
 	}
 }

@@ -98,8 +98,11 @@ Every output (CLI text and `--json`, web API, interface, `doctor`, server log, j
 | Path segment following such a name | `/passkey/x/announce` | `/passkey/***/announce` |
 | Segment or value that contains, once decoded (up to four times: `%252F`), a hex or base64url word of 16 characters or more | `/0000aaaa0000aaaa0000aaaa0000aaaa/announce` | `/***/announce` |
 | URL credentials | `https://alice:x@tracker-a.example.com/` | `https://***@tracker-a.example.com/` |
+| `trackers` value shorter than 8 characters: segment or value exactly equal, whatever the parameter name | `/42/announce?id=42` | `/***/announce?id=***` |
+| Word of at least 16 characters with a digit in the host (token as a subdomain) | `https://0000aaaa0000aaaa0000aaaa0000aaaa.t.example/` | `https://***.t.example/` |
+| JSON-escaped URL (`https:\/\/…`, PHP `json_encode` body) | an announce URL in a response body | `***` |
 
-Limits: outside a URL, a bare passkey is masked only if it is a known secret; once Seed reads the announce of an indexer `.torrent`, its passkey will join the known secrets for the time of the operation. An infohash placed in a URL is masked by the 16-character rule (harmless: it is not secret); alone, outside a URL, it stays visible. Masking runs in linear time and a second pass changes nothing.
+Accepted limits: a passkey shorter than 16 characters in a path, neither after a passkey name nor a `trackers` value, stays visible; a standard base64 passkey (`+`, `/`) is cut into pieces shorter than 16 characters and is masked only if it is a known secret; a URL without `scheme://` is not recognized; a URL split by a space or a newline is handled only up to the split. Outside a URL, a bare passkey is masked only if it is a known secret (8 characters at least); once Seed reads the announce of an indexer `.torrent`, its passkey will join the known secrets for the time of the operation: only values enter (8 bytes at least for replacement everywhere, shorter ones kept for URLs), never ordinary path words such as `announce`. An infohash placed in a URL is masked by the 16-character rule (harmless: it is not secret); alone, outside a URL, it stays visible. Masking runs in linear time and a second pass changes nothing.
 
 ## Resumption after an interruption
 

@@ -16,25 +16,52 @@ const (
 	minSecretSegmentLength = 16
 	// maxDecodeRounds borne le décodage d'une valeur encodée plusieurs fois (« %252F ») : temps linéaire garanti.
 	maxDecodeRounds = 4
+	// escapedSchemeSeparator est « :// » échappé pour JSON.
+	escapedSchemeSeparator = `:\/\/`
 )
 
 var (
 	// Expressions RE2 : temps linéaire en la taille du texte, aucun retour arrière possible.
-	urlInText    = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s"'<>]+`)
+	// urlInText reconnaît aussi une URL échappée pour JSON (« https:\/\/ »), telle qu'un corps PHP json_encode la rend.
+	urlInText    = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*:(?://|\\/\\/)[^\s"'<>]+`)
 	secretAssign = regexp.MustCompile(`(?i)((?:api[_-]?key|token|password|passwd|secret|passkey|authkey|torrent_pass)=)[^&\s"']+`)
 	// secretParameterNames nomme les paramètres de passkey des trackers, masqués quelle que soit la longueur.
 	secretParameterNames = []string{"passkey", "pk", "authkey", "torrent_pass", "key", "uid", "apikey", "secret", "token"}
 )
 
+// urlOnlySecretPrefix marque, dans une liste de secrets connus, une valeur trop courte pour le remplacement littéral
+// du texte entier : elle n'est comparée, à l'identique, qu'aux segments et valeurs des URL. Un octet NUL ne peut pas
+// figurer dans une variable d'environnement, donc jamais dans un vrai secret.
+const urlOnlySecretPrefix = "\x00url-only:"
+
+// urlOnlySecret marque value comme secret à ne masquer que dans les URL.
+func urlOnlySecret(value string) string { return urlOnlySecretPrefix + value }
+
+// splitSecrets sépare les secrets à remplacer partout de ceux qui ne valent que dans une URL.
+func splitSecrets(knownSecrets []string) (literal, urlOnly []string) {
+	for _, secret := range knownSecrets {
+		if value, isURLOnly := strings.CutPrefix(secret, urlOnlySecretPrefix); isURLOnly {
+			if value != "" {
+				urlOnly = append(urlOnly, value)
+			}
+			continue
+		}
+		literal = append(literal, secret)
+	}
+	return literal, urlOnly
+}
+
 // RedactText masque dans un texte libre les secrets connus, puis dans chaque URL les identifiants, les valeurs des
 // paramètres à nom sensible, le segment « /proxy/<clé> », tout segment ou valeur qui contient un mot de 16 caractères
-// base64url ou plus (après décodage, même répété), ainsi que les affectations « apikey=… ». Hors d'une URL, seule la
-// liste des secrets connus protège une passkey nue. Sert aux rapports destinés à l'affichage.
+// base64url ou plus (après décodage, même répété) ou qui égale un secret réservé aux URL, un mot d'au moins 16
+// caractères avec un chiffre dans l'hôte, ainsi que les affectations « apikey=… ». Une URL échappée pour JSON
+// (« https:\/\/… ») est masquée en entier. Hors d'une URL, seule la liste des secrets connus protège une passkey nue.
+// Sert aux rapports destinés à l'affichage.
 func RedactText(text string, knownSecrets ...string) string {
+	literal, urlOnly := splitSecrets(knownSecrets)
 	// Les plus longs d'abord : un secret court inclus dans un long ne doit pas en laisser un reste.
-	ordered := slices.Clone(knownSecrets)
-	slices.SortStableFunc(ordered, func(first, second string) int { return len(second) - len(first) })
-	for _, secret := range ordered {
+	slices.SortStableFunc(literal, func(first, second string) int { return len(second) - len(first) })
+	for _, secret := range literal {
 		if secret != "" {
 			text = strings.ReplaceAll(text, secret, redactedMark)
 		}
@@ -42,20 +69,27 @@ func RedactText(text string, knownSecrets ...string) string {
 	// Les affectations d'abord : masquées après, elles changeraient les bornes d'une URL déjà traitée (un « < » ou un
 	// « # » avalé) et une seconde passe ne rendrait plus le même texte.
 	text = secretAssign.ReplaceAllString(text, "${1}"+redactedMark)
-	return urlInText.ReplaceAllStringFunc(text, redactURLInText)
+	masker := urlMasker{urlOnlySecrets: urlOnly}
+	return urlInText.ReplaceAllStringFunc(text, masker.redactURLInText)
 }
 
-// redactURLInText masque une URL trouvée dans un texte ; illisible, elle est masquée en entier.
-func redactURLInText(rawURL string) string {
+// urlMasker masque la structure d'une URL ; urlOnlySecrets sont les valeurs courtes comparées à l'identique.
+type urlMasker struct{ urlOnlySecrets []string }
+
+// redactURLInText masque une URL trouvée dans un texte ; illisible ou échappée pour JSON, elle est masquée en entier.
+func (masker urlMasker) redactURLInText(rawURL string) string {
+	if strings.Contains(rawURL, escapedSchemeSeparator) {
+		return redactedMark
+	}
 	if _, err := url.Parse(rawURL); err != nil {
 		return redactedMark
 	}
-	return maskURLStructure(redactProxyKey(rawURL))
+	return masker.maskURLStructure(redactProxyKey(rawURL))
 }
 
-// maskURLStructure travaille sur le texte brut de l'URL (jamais réencodé) : identifiants, segments de chemin,
+// maskURLStructure travaille sur le texte brut de l'URL (jamais réencodé) : identifiants, hôte, segments de chemin,
 // paramètres de requête et de fragment, séparés par « & » ou « ; ».
-func maskURLStructure(rawURL string) string {
+func (masker urlMasker) maskURLStructure(rawURL string) string {
 	schemeEnd := strings.Index(rawURL, "://") + len("://")
 	beforeFragment, fragment, hasFragment := strings.Cut(rawURL[schemeEnd:], "#")
 	beforeQuery, query, hasQuery := strings.Cut(beforeFragment, "?")
@@ -68,24 +102,59 @@ func maskURLStructure(rawURL string) string {
 	if atIndex := strings.LastIndexByte(authority, '@'); atIndex >= 0 {
 		authority = redactedMark + authority[atIndex:]
 	}
-	masked.WriteString(authority)
-	masked.WriteString(maskPath(path))
+	masked.WriteString(maskHostWords(authority))
+	masked.WriteString(masker.maskPath(path))
 	if hasQuery {
-		masked.WriteString("?" + maskParameters(query))
+		masked.WriteString("?" + masker.maskParameters(query))
 	}
 	if hasFragment {
-		masked.WriteString("#" + maskParameters(fragment))
+		masked.WriteString("#" + masker.maskParameters(fragment))
 	}
 	return masked.String()
 }
 
-// maskPath masque un segment qui révèle un secret, et le segment qui suit un nom de passkey (« /passkey/<valeur> »).
-func maskPath(path string) string {
+// maskHostWords remplace, dans un hôte, chaque mot base64url d'au moins 16 caractères qui contient un chiffre : un
+// jeton en sous-domaine. L'exigence d'un chiffre épargne les noms d'hôte longs ordinaires (« seedbox-provider-eu »).
+func maskHostWords(host string) string {
+	var masked strings.Builder
+	maskedAWord := false
+	for start := 0; start < len(host); {
+		end := start
+		for end < len(host) && isBase64URLByte(host[end]) {
+			end++
+		}
+		if end == start {
+			masked.WriteByte(host[start])
+			start++
+			continue
+		}
+		word := host[start:end]
+		if len(word) >= minSecretSegmentLength && strings.ContainsAny(word, "0123456789") {
+			word, maskedAWord = redactedMark, true
+		}
+		masked.WriteString(word)
+		start = end
+	}
+	// Un mot coupé au milieu d'un « %XX » laisserait un échappement invalide : l'hôte entier est alors masqué.
+	if maskedAWord && strings.Contains(host, "%") {
+		return redactedMark
+	}
+	return masked.String()
+}
+
+// equalsURLOnlySecret compare une valeur décodée aux secrets réservés aux URL, casse ignorée (hexadécimal en capitales).
+func (masker urlMasker) equalsURLOnlySecret(decoded string) bool {
+	return slices.ContainsFunc(masker.urlOnlySecrets, func(secret string) bool { return strings.EqualFold(secret, decoded) })
+}
+
+// maskPath masque un segment qui révèle un secret ou égale un secret réservé aux URL, et le segment qui suit un nom de
+// passkey (« /passkey/<valeur> »).
+func (masker urlMasker) maskPath(path string) string {
 	segments := strings.Split(path, "/")
 	followsSecretName := false
 	for segmentIndex, segment := range segments {
 		decoded := decodeRepeatedly(segment)
-		if (followsSecretName && segment != "") || revealsSecret(decoded) {
+		if (followsSecretName && segment != "") || revealsSecret(decoded) || masker.equalsURLOnlySecret(decoded) {
 			segments[segmentIndex] = redactedMark
 		}
 		followsSecretName = slices.Contains(secretParameterNames, strings.ToLower(decoded))
@@ -94,31 +163,32 @@ func maskPath(path string) string {
 }
 
 // maskParameters masque chaque paramètre « nom=valeur » séparé par « & » ou « ; », séparateurs gardés.
-func maskParameters(rawParameters string) string {
+func (masker urlMasker) maskParameters(rawParameters string) string {
 	var masked strings.Builder
 	for rawParameters != "" {
 		separatorIndex := strings.IndexAny(rawParameters, "&;")
 		if separatorIndex < 0 {
-			masked.WriteString(maskParameter(rawParameters))
+			masked.WriteString(masker.maskParameter(rawParameters))
 			break
 		}
-		masked.WriteString(maskParameter(rawParameters[:separatorIndex]))
+		masked.WriteString(masker.maskParameter(rawParameters[:separatorIndex]))
 		masked.WriteByte(rawParameters[separatorIndex])
 		rawParameters = rawParameters[separatorIndex+1:]
 	}
 	return masked.String()
 }
 
-func maskParameter(parameter string) string {
+func (masker urlMasker) maskParameter(parameter string) string {
 	name, value, hasValue := strings.Cut(parameter, "=")
 	decodedName := decodeRepeatedly(name)
-	if revealsSecret(decodedName) {
+	if revealsSecret(decodedName) || masker.equalsURLOnlySecret(decodedName) {
 		return redactedMark
 	}
 	if !hasValue || value == "" {
 		return parameter
 	}
-	if isSecretParameterName(decodedName) || revealsSecret(decodeRepeatedly(value)) {
+	decodedValue := decodeRepeatedly(value)
+	if isSecretParameterName(decodedName) || revealsSecret(decodedValue) || masker.equalsURLOnlySecret(decodedValue) {
 		return name + "=" + redactedMark
 	}
 	return parameter
@@ -339,7 +409,8 @@ func redactTree(node any, knownSecrets []string) any {
 // escapedSecrets donne les formes échappées par JSON (avec et sans échappement HTML) qui diffèrent du secret brut.
 func escapedSecrets(knownSecrets []string) []string {
 	var forms []string
-	for _, secret := range knownSecrets {
+	literal, _ := splitSecrets(knownSecrets)
+	for _, secret := range literal {
 		if secret == "" {
 			continue
 		}

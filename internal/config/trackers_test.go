@@ -295,3 +295,30 @@ func TestConfig_torznabTrackerMatchesTrackersWithNormalizeTracker(t *testing.T) 
 		t.Fatalf("gotValue %q, expectedValue the stored spelling unchanged (trimmed)", gotValue)
 	}
 }
+
+func TestConfig_shortTrackerValueIsMaskedInsideAnyURLOnly(t *testing.T) {
+	environment := map[string]string{"UID": "42", "PASSKEY_TRACKER_A": fakePasskeyA}
+	loadedConfig, err := loadTrackerConfig(t, `{"tracker-a": "https://tracker-a.example.com/${UID}/announce?id=${UID}&pk=${PASSKEY_TRACKER_A}"}`, environment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := loadedConfig.KnownSecrets()
+
+	gotText := RedactText("count 42; https://tracker-a.example.com/42/announce?id=42&x=1 and http://other.example.com/x?ref=%34%32#n=42", secrets...)
+	encoded, err := RedactJSON(map[string]any{"id": 42, "url": "https://tracker-a.example.com/announce?id=42"}, secrets...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expectedText := "count 42; https://tracker-a.example.com/***/announce?id=***&x=1 and http://other.example.com/x?ref=***#n=***"
+	if gotText != expectedText {
+		t.Fatalf("gotValue %q, expectedValue %q", gotText, expectedText)
+	}
+	var decoded struct {
+		ID  int    `json:"id"`
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(encoded, &decoded); err != nil || decoded.ID != 42 || decoded.URL != "https://tracker-a.example.com/announce?id=***" {
+		t.Fatalf("gotValue %s (%v), expectedValue the number kept and the URL value masked", encoded, err)
+	}
+}
