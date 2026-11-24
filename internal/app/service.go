@@ -40,6 +40,8 @@ var (
 	ErrOneTorrentPerFile = errors.New("app: cross-seed is disabled, another torrent of this group is already accepted")
 	// ErrNotFull : seule une proposition full peut devenir la principale de son groupe.
 	ErrNotFull = errors.New("app: only a full proposal can be chosen")
+	// ErrCrossSeedNotNative : une proposition cross_seed ne s'accepte qu'en mode cross-seed natif effectif.
+	ErrCrossSeedNotNative = errors.New("app: a cross_seed proposal can only be accepted in native cross-seed mode")
 	// ErrNotForceable : Force ne démarre qu'un partial_annex déjà lié et laissé en pause par Seed.
 	ErrNotForceable = errors.New("app: only a linked partial_annex left paused by seed can be forced")
 	// ErrForceIsolationImpossible : un média à cheval sur une pièce manquante ne peut être remplacé par une copie

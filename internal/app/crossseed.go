@@ -13,6 +13,9 @@ import (
 // à chaque appel.
 const crossSeedResolutionTTL = 30 * time.Second
 
+// crossSeedProbeTimeout borne la sonde TCP, indépendante du contexte de l'appelant.
+const crossSeedProbeTimeout = 2 * time.Second
+
 // CrossSeedResolution est le mode cross-seed effectif à un instant : comportement, avertissement éventuel et
 // notificateur (le webhook en Delegate, sinon aucun).
 type CrossSeedResolution struct {
@@ -37,16 +40,22 @@ func newCrossSeedResolver(settings config.Config, webhook crossseed.Notifier, re
 }
 
 // resolve renvoie la résolution en cache, ou sonde le démon une fois le délai passé ; la sonde se fait sous le
-// verrou pour que des appels simultanés n'en lancent qu'une.
+// verrou pour que des appels simultanés n'en lancent qu'une. Un appelant déjà annulé ne fausse pas la sonde, mais son
+// résultat n'est pas gardé.
 func (resolver *crossSeedResolver) resolve(ctx context.Context) CrossSeedResolution {
 	resolver.mutex.Lock()
 	defer resolver.mutex.Unlock()
 	if resolver.now().Before(resolver.expiresAt) {
 		return resolver.cached
 	}
-	resolver.cached = resolver.probe(ctx)
-	resolver.expiresAt = resolver.now().Add(crossSeedResolutionTTL)
-	return resolver.cached
+	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), crossSeedProbeTimeout)
+	defer cancel()
+	resolution := resolver.probe(probeCtx)
+	if ctx.Err() != nil {
+		return resolution
+	}
+	resolver.cached, resolver.expiresAt = resolution, resolver.now().Add(crossSeedResolutionTTL)
+	return resolution
 }
 
 func (resolver *crossSeedResolver) probe(ctx context.Context) CrossSeedResolution {

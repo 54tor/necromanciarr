@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -74,5 +75,39 @@ func TestService_statusAndAcceptUseTheCurrentCrossSeedResolution(t *testing.T) {
 	}
 	if err := service.Accept(ctx, secondID); err == nil {
 		t.Fatal("expectedValue the second torrent of the group refused once cross-seed is disabled")
+	}
+}
+
+func TestCrossSeedResolver_probesDespiteACancelledCallerAndDoesNotCacheThatResult(t *testing.T) {
+	probeContextAlive := false
+	probes := 0
+	reachable := func(probeCtx context.Context, _ string) bool {
+		probes++
+		probeContextAlive = probeCtx.Err() == nil
+		return true
+	}
+	settings := config.Config{CrossSeedMode: crossseed.ModeAuto, CrossSeed: &config.CrossSeedDaemon{BaseURL: "http://127.0.0.1:2468"}}
+	resolver := newCrossSeedResolver(settings, nil, reachable, func() time.Time { return fixedNow })
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	first := resolver.resolve(cancelled)
+	resolver.resolve(context.Background())
+
+	if first.Behavior != crossseed.Delegate || !probeContextAlive || probes != 2 {
+		t.Fatalf("gotValue %v alive=%v probes=%d, expectedValue an independent probe whose result is not cached", first.Behavior, probeContextAlive, probes)
+	}
+}
+
+func TestApp_acceptRefusesACrossSeedProposalOutsideNativeMode(t *testing.T) {
+	fixture := newDecisionFixture(t)
+	ctx := context.Background()
+	crossSeedID := fixture.proposal(fixture.verifiedCandidate("aa"), "cross_seed")
+
+	if err := fixture.service(crossseed.Delegate).Accept(ctx, crossSeedID); !errors.Is(err, ErrCrossSeedNotNative) {
+		t.Fatalf("gotValue %v, expectedValue ErrCrossSeedNotNative", err)
+	}
+	if err := fixture.service(crossseed.Native).Accept(ctx, crossSeedID); err != nil {
+		t.Fatalf("native: gotValue %v, expectedValue accepted", err)
 	}
 }

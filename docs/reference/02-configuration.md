@@ -93,7 +93,7 @@ Les autres clés (règles de recherche par indexeurs) sont ignorées ; `config c
 | `native` | Necromanciarr crée des propositions `cross_seed` pour les autres torrents vérifiés d'un groupe ; le démon est ignoré |
 | `off` | aucune recherche de correspondance : un torrent par groupe |
 
-En `delegate`, la notification est `POST /api/webhook` avec l'en-tête `X-Api-Key`, envoyée seulement quand le torrent a été repris à 100 %. Son échec ajoute un avertissement à la proposition, jamais un échec du seed. `status` rend le comportement effectif (`delegate`, `native`, `disabled`). La joignabilité du démon est sondée de nouveau au début de chaque étape, de chaque acceptation (`accept`, `accept-group`) et de chaque `status`, avec un résultat gardé 30 secondes : un `serve` qui tourne longtemps suit l'arrêt et le retour du démon sans redémarrer.
+En `delegate`, la notification est `POST /api/webhook` avec l'en-tête `X-Api-Key`, envoyée seulement quand le torrent a été repris à 100 %. Son échec ajoute un avertissement à la proposition, jamais un échec du seed. `status` rend le comportement effectif (`delegate`, `native`, `disabled`). La joignabilité du démon est sondée de nouveau au début de chaque étape, de chaque acceptation (`accept`, `accept-group`) et de chaque `status`, avec un résultat gardé 30 secondes : un `serve` qui tourne longtemps suit l'arrêt et le retour du démon sans redémarrer. La sonde a son propre délai de 2 secondes, indépendant de la requête qui la déclenche ; si cette requête est annulée entre-temps, le résultat n'est pas gardé. Une proposition `cross_seed` ne s'accepte que si le mode effectif du moment est `native` (`a cross_seed proposal can only be accepted in native cross-seed mode`, code `refused`).
 
 ## Déduplication (`dedupe`)
 

@@ -152,7 +152,11 @@ func (svc *service) Accept(ctx context.Context, proposalID int64, options ...Dec
 	if err := checkAcceptable(proposal, slices.Contains(options, AllowPartialPack)); err != nil {
 		return err
 	}
-	if err := svc.checkFreeToAccept(state, proposal, svc.crossSeed(ctx).Behavior); err != nil {
+	behavior := svc.crossSeed(ctx).Behavior
+	if proposal.Kind == store.ProposalCrossSeed && behavior != crossseed.Native {
+		return ErrCrossSeedNotNative
+	}
+	if err := svc.checkFreeToAccept(state, proposal, behavior); err != nil {
 		return err
 	}
 	return svc.accept(ctx, proposal)
