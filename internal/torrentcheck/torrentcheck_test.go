@@ -611,3 +611,32 @@ func TestCoverage_reportsEachHashedPieceToProgressAndStopsOnItsError(t *testing.
 		t.Fatalf("gotValue %+v %v, expectedValue a stop after the first piece", report, err)
 	}
 }
+
+func TestCoverage_doesNotResumeAPieceWhoseFileIsNowAbsent(t *testing.T) {
+	parsed := parseStandardTorrent(t)
+	source := sourceFromFiles(standardFiles())
+	delete(source.contents, indexNfo)
+
+	report, err := Verifier{}.Coverage(context.Background(), parsed, source, map[int]struct{}{2: {}})
+	if err != nil {
+		t.Fatalf("coverage: %v", err)
+	}
+	if !slices.Equal(report.MissingPieces, []int{2}) || len(report.FailedPieces) != 0 {
+		t.Fatalf("gotValue %+v, expectedValue piece 2 missing (not failed) despite the resume set", report)
+	}
+}
+
+func TestCoverage_failedPiecesListOnlyHashedMismatches(t *testing.T) {
+	parsed := parseStandardTorrent(t)
+	source := sourceFromFiles(standardFiles())
+	delete(source.contents, indexNfo)
+	source.contents[indexBonus][0] ^= 0xFF
+
+	report, err := Coverage(parsed, source)
+	if err != nil {
+		t.Fatalf("coverage: %v", err)
+	}
+	if !slices.Equal(report.FailedPieces, []int{3}) || !slices.Equal(report.MissingPieces, []int{2, 3}) {
+		t.Fatalf("gotValue %+v, expectedValue piece 3 failed and piece 2 only missing", report)
+	}
+}

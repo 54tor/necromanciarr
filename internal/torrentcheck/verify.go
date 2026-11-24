@@ -44,11 +44,14 @@ type Verifier struct {
 }
 
 // Report résume la couverture : MissingPieces liste les pièces non vérifiées ; MediaComplete est vrai si tous les fichiers média sont présents
-// et si chacune de leurs pièces est vérifiée ou ne bloque que sur un fichier non média absent.
+// et si chacune de leurs pièces est vérifiée ou ne bloque que sur un fichier non média absent. FailedPieces, sous-ensemble
+// trié de MissingPieces, liste les pièces dont tous les fichiers étaient présents et dont le SHA1 ne concorde pas
+// (contenu faux, pas simplement absent).
 type Report struct {
 	VerifiedPieces int
 	TotalPieces    int
 	MissingPieces  []int
+	FailedPieces   []int
 	MediaComplete  bool
 }
 
@@ -86,6 +89,7 @@ type pieceSegment struct {
 
 type scanState struct {
 	verified          map[int]struct{}
+	failed            map[int]struct{}
 	blockedByAbsence  map[int]struct{}
 	absentFileIndexes map[int]struct{}
 }
@@ -93,6 +97,7 @@ type scanState struct {
 func newScanState() *scanState {
 	return &scanState{
 		verified:          map[int]struct{}{},
+		failed:            map[int]struct{}{},
 		blockedByAbsence:  map[int]struct{}{},
 		absentFileIndexes: map[int]struct{}{},
 	}
@@ -105,12 +110,13 @@ func (verifier Verifier) VerifyPieces(ctx context.Context, torrent *Torrent, sou
 }
 
 // Coverage vérifie les pièces absentes de alreadyVerified (reprise sans relire), puis renvoie le rapport ;
-// le rapport reflète le travail fait même si l'erreur est non nulle.
+// le rapport reflète le travail fait même si l'erreur est non nulle. Une pièce de alreadyVerified dont un fichier
+// manque à source n'est pas reprise : un octet n'est compté possédé que s'il est disponible.
 func (verifier Verifier) Coverage(ctx context.Context, torrent *Torrent, source Source, alreadyVerified map[int]struct{}) (Report, error) {
 	state := newScanState()
 	var pending []int
 	for pieceIndex := range torrent.Pieces {
-		if _, done := alreadyVerified[pieceIndex]; done {
+		if _, done := alreadyVerified[pieceIndex]; done && allFilesPresent(torrent, source, pieceIndex) {
 			state.verified[pieceIndex] = struct{}{}
 			continue
 		}
@@ -141,6 +147,8 @@ func (verifier Verifier) scan(ctx context.Context, torrent *Torrent, source Sour
 		if matches {
 			state.verified[pieceIndex] = struct{}{}
 			verified = append(verified, pieceIndex)
+		} else {
+			state.failed[pieceIndex] = struct{}{}
 		}
 		if verifier.Progress == nil {
 			continue
@@ -157,6 +165,11 @@ func (state *scanState) recordAbsence(pieceIndex int, absentFileIndexes []int) {
 	for _, fileIndex := range absentFileIndexes {
 		state.absentFileIndexes[fileIndex] = struct{}{}
 	}
+}
+
+func allFilesPresent(torrent *Torrent, source Source, pieceIndex int) bool {
+	_, absentFileIndexes := pieceSegments(torrent, source, pieceIndex)
+	return len(absentFileIndexes) == 0
 }
 
 func pieceSegments(torrent *Torrent, source Source, pieceIndex int) (segments []pieceSegment, absentFileIndexes []int) {
@@ -185,6 +198,9 @@ func buildReport(torrent *Torrent, state *scanState) Report {
 	for pieceIndex := range torrent.Pieces {
 		if _, isVerified := state.verified[pieceIndex]; !isVerified {
 			report.MissingPieces = append(report.MissingPieces, pieceIndex)
+		}
+		if _, hasFailed := state.failed[pieceIndex]; hasFailed {
+			report.FailedPieces = append(report.FailedPieces, pieceIndex)
 		}
 	}
 	report.MediaComplete = mediaComplete(torrent, state)
