@@ -2,6 +2,8 @@ module necromanciarr
 
 go 1.27
 
+toolchain go1.27.4
+
 require (
 	github.com/Masterminds/semver v1.5.0
 	github.com/anacrolix/torrent v1.63.0
