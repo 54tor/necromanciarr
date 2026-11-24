@@ -725,3 +725,20 @@ func TestChecks_qbittorrentCountsFromASinglePage(t *testing.T) {
 		t.Fatalf("gotValue %+v, expectedValue a count bounded by one page", got)
 	}
 }
+
+func TestChecks_qbittorrentShowsTheSeedCategoryAndTags(t *testing.T) {
+	settings := config.Config{
+		TorrentClients: []config.TorrentClient{{Type: "qbittorrent", BaseURL: "http://example.com"}},
+		LinkCategory:   "relinked", SeedTags: []string{"qui", "necromanciarr"},
+	}
+	deps := Deps{NewTorrentClient: func(config.TorrentClient) (TorrentClient, error) {
+		return fakeTorrentClient{version: "v5.1.0", count: 3}, nil
+	}}.withDefaults()
+	expectedValue := `seeds added with category "relinked" and tags qui, necromanciarr`
+
+	gotValue := checkQbittorrent(context.Background(), settings, deps)
+
+	if gotValue.Status != OK || !strings.Contains(gotValue.Detail, expectedValue) {
+		t.Fatalf("gotValue %+v, expectedValue a detail containing %q", gotValue, expectedValue)
+	}
+}

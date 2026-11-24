@@ -53,6 +53,10 @@ func checkQbittorrent(ctx context.Context, settings config.Config, deps Deps) Re
 	for clientIndex, client := range settings.TorrentClients {
 		collected.add(inspectTorrentClient(ctx, clientIndex, client, deps))
 	}
+	if len(settings.TorrentClients) > 0 {
+		collected.add(OK, fmt.Sprintf("seeds added with category %q and tags %s", settings.LinkCategory,
+			strings.Join(settings.SeedTags, ", ")), "")
+	}
 	for _, ignored := range unsupported {
 		collected.add(Warn, fmt.Sprintf("torrentClients[%d]: type %q is not supported", ignored.Index, ignored.Type),
 			"only qbittorrent is supported; this client is ignored")

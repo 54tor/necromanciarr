@@ -370,6 +370,28 @@ func TestBuildDeps_wiresTheTieBreakReadBudgetFromConfig(t *testing.T) {
 	}
 }
 
+func TestBuildDeps_wiresTheSeedTagsFromConfig(t *testing.T) {
+	expectedValue := []string{"qui", "relinked"}
+	openedStore, err := store.Open(filepath.Join(t.TempDir(), "necromanciarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	settings := config.Config{
+		ConfigDir: t.TempDir(), ReadBytesPerSecond: 1 << 20, TieBreakReadBytes: 1, LinkType: "hardlink",
+		CrossSeedMode: "off", SeedTags: expectedValue,
+	}
+
+	deps, err := buildDeps(context.Background(), settings, openedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if gotValue := deps.Stages.Tags; !slices.Equal(gotValue, expectedValue) {
+		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
+	}
+}
+
 func TestNewFromConfig_wiresAMinimalConfigAndNamesTheMissingComponent(t *testing.T) {
 	settings := config.Config{
 		ConfigDir: t.TempDir(), DBPath: "necromanciarr.db", ReadBytesPerSecond: 1 << 20, LinkType: "hardlink", CrossSeedMode: "off",

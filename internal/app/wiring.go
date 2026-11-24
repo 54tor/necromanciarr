@@ -27,8 +27,6 @@ const (
 	readBurstBytes = 1 << 20
 	// hashSourceTimeout borne une requête vers un fournisseur d'empreintes (rclone rc).
 	hashSourceTimeout = 30 * time.Second
-	// defaultTorrentTag permet à qui et à cross-seed de cibler nos torrents ; la configuration n'a pas encore de clé tags.
-	defaultTorrentTag = "necromanciarr"
 	// multipleClientsWarning : seul le premier client torrent configuré reçoit les seeds.
 	multipleClientsWarning = "several torrent clients are configured: only the first one is used"
 )
@@ -60,7 +58,7 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 		ReadLimiter: rate.NewLimiter(rate.Limit(settings.ReadBytesPerSecond), readBurstBytes),
 		ReadBudget:  settings.TieBreakReadBytes,
 		LinkDirs:    settings.LinkDirs, LinkKinds: linkKinds, Category: settings.LinkCategory,
-		Tags: []string{defaultTorrentTag}, SkipRecheck: settings.SkipRecheck,
+		Tags: settings.SeedTags, SkipRecheck: settings.SkipRecheck,
 	}
 	if err := wireProvider(settings, &stages); err != nil {
 		return Deps{}, err

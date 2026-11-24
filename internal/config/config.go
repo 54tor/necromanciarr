@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"necromanciarr/internal/crossseed"
@@ -38,6 +39,7 @@ const (
 	envListen               = "NECROMANCIARR_LISTEN"
 	envLibraryProviderToken = "LIBRARY_PROVIDER_TOKEN"
 	envCrossSeedMode        = "CROSS_SEED_MODE"
+	envSeedTags             = "NECROMANCIARR_SEED_TAGS"
 )
 
 // PathRule traduit un préfixe de chemin entre deux vues du même stockage (hôte, conteneur, client torrent).
@@ -74,6 +76,8 @@ type Config struct {
 	// CrossSeedMode : auto (défaut), delegate, native ou off ; voir crossseed.ResolveMode.
 	CrossSeedMode string  `json:"crossSeedMode"`
 	Sources       Sources `json:"sources"`
+	// SeedTags sont les tags posés avec la catégorie sur chaque torrent ajouté ; la liste remplace le défaut.
+	SeedTags []string `json:"seedTags"`
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`
@@ -100,6 +104,7 @@ type fileConfig struct {
 	CrossSeedConfig    string            `json:"crossSeedConfig"`
 	CrossSeed          string            `json:"crossSeed"`
 	CrossSeedMode      string            `json:"crossSeedMode"`
+	SeedTags           []string          `json:"seedTags"`
 	// LegacyRclone n'existe que pour refuser l'ancienne section avec un message utile.
 	LegacyRclone json.RawMessage `json:"rclone"`
 }
@@ -172,6 +177,9 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir
 	applyDefaults(&loadedConfig)
 	applyOverrides(&loadedConfig, options, lookup)
 	if loadedConfig.CrossSeedMode, err = crossseed.NormalizeMode(loadedConfig.CrossSeedMode); err != nil {
+		return Config{}, err
+	}
+	if loadedConfig.SeedTags, err = normalizeSeedTags(loadedConfig.SeedTags); err != nil {
 		return Config{}, err
 	}
 	if err := validate(loadedConfig); err != nil {
@@ -263,6 +271,7 @@ func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config
 		SkipRecheck:        rawFile.SkipRecheck == nil || *rawFile.SkipRecheck,
 		LinkCategory:       rawFile.LinkCategory,
 		CrossSeedMode:      rawFile.CrossSeedMode,
+		SeedTags:           rawFile.SeedTags,
 	}
 	var err error
 	if loadedConfig.Dedupe, err = parseDedupe(rawFile.Dedupe); err != nil {
@@ -368,6 +377,9 @@ func applyOverrides(target *Config, options commandLine, lookup func(string) (st
 	}
 	if options.set["cross-seed-mode"] {
 		target.CrossSeedMode = options.crossSeedMode
+	}
+	if value, found := lookup(envSeedTags); found && value != "" {
+		target.SeedTags = strings.Split(value, ",")
 	}
 	target.AuthToken, _ = lookup(envAuthToken)
 	target.LibraryProviderToken, _ = lookup(envLibraryProviderToken)
