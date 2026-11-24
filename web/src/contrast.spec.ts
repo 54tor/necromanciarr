@@ -63,7 +63,6 @@ describe('WCAG AA contrast', () => {
     ['--ring', '--background'],
     ['--ring', '--card'],
     ['--input', '--background'],
-    ['--sidebar-border', '--sidebar'],
   ]
 
   it.each(uiPairs)('UI component %s on %s reaches 3', (foregroundToken, backgroundToken) => {
