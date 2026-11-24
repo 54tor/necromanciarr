@@ -49,7 +49,9 @@ type PathRule struct {
 // Config est la configuration effective. Les jetons ne viennent que de l'environnement
 // et sont exclus de toute sérialisation.
 type Config struct {
-	ConfigDir          string          `json:"configDir"`
+	ConfigDir string `json:"configDir"`
+	// WorkingDirDotEnv dit que le .env du dossier courant a été lu (le dossier de configuration n'en a pas).
+	WorkingDirDotEnv   bool            `json:"workingDirDotEnv"`
 	ListenAddr         string          `json:"listen"`
 	DBPath             string          `json:"dbPath"`
 	ReadBytesPerSecond int64           `json:"readBytesPerSecond"`
@@ -149,7 +151,7 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir
 	if err != nil {
 		return Config{}, err
 	}
-	lookup, err := loadDotEnvLookup(configDir, lookupEnv)
+	lookup, workingDirDotEnv, err := loadDotEnvLookup(configDir, lookupEnv)
 	if err != nil {
 		return Config{}, err
 	}
@@ -165,7 +167,7 @@ func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir
 	if err != nil {
 		return Config{}, err
 	}
-	loadedConfig.ConfigDir = configDir
+	loadedConfig.ConfigDir, loadedConfig.WorkingDirDotEnv = configDir, workingDirDotEnv
 	loadedConfig.CrossSeed, loadedConfig.CrossSeedImport, loadedConfig.Sources = layer.daemon, layer.status, layer.sources
 	applyDefaults(&loadedConfig)
 	applyOverrides(&loadedConfig, options, lookup)

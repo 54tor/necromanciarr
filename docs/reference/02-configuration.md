@@ -24,7 +24,7 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 
 ## `.env` et interpolation
 
-- Deux fichiers `.env` sont lus : celui du dossier de configuration, puis celui du dossier courant. La première valeur trouvée gagne. L'environnement réel l'emporte toujours sur `.env`.
+- Un seul fichier `.env` est lu : celui du dossier de configuration. S'il n'existe pas, celui du dossier courant est lu à sa place ; `config check` le signale (`workingDirDotEnv: true`) et `doctor` avertit (contrôle `config`). Risque : lancé depuis un dossier qui contient le `.env` d'un autre outil, Necromanciarr en reprendrait les variables (jetons compris) ; placer son `.env` dans le dossier de configuration ferme cette porte. L'environnement réel l'emporte toujours sur `.env`.
 - Format : `NOM=valeur`, une par ligne, commentaires `#`, préfixe `export` toléré, guillemets simples ou doubles retirés. Pas de valeur multiligne, pas d'interpolation dans `.env`.
 - Dans `config.json`, toute chaîne (y compris dans `dedupe` et `fsProviders`) peut contenir `${NOM}` ; `$$` donne un `$`. Une variable absente ou un nom invalide (hors `[A-Za-z_][A-Za-z0-9_]*`) est une erreur qui cite le nom, jamais la valeur.
 - L'interpolation précède l'analyse des URL : encoder en pourcentage les caractères réservés (`@ : / # ?`) d'un mot de passe placé dans une URL.

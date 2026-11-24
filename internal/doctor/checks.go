@@ -161,6 +161,10 @@ func checkConfig(settings config.Config) Result {
 	sources := settings.Sources
 	detail := fmt.Sprintf("loaded from %s; sources: radarr=%s, sonarr=%s, torrentClients=%s, linkDirs=%s",
 		settings.ConfigDir, sources.Radarr, sources.Sonarr, sources.TorrentClients, sources.LinkDirs)
+	if settings.WorkingDirDotEnv {
+		return Result{Status: Warn, Detail: detail + "; variables read from the .env of the working directory",
+			Hint: "move that .env into the configuration directory, or delete it if it belongs to another tool"}
+	}
 	return Result{Status: OK, Detail: detail}
 }
 

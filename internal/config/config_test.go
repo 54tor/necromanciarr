@@ -139,17 +139,30 @@ func TestLoad_readsDotEnvFromConfigDirWithoutOverridingEnvironment(t *testing.T)
 	}
 }
 
-func TestLoad_readsDotEnvFromWorkingDirectoryAfterConfigDir(t *testing.T) {
+func TestLoad_ignoresTheWorkingDirectoryDotEnvWhenTheConfigDirHasOne(t *testing.T) {
 	configDir, workingDir := t.TempDir(), t.TempDir()
-	writeFile(t, workingDir, ".env", "ONLY_CWD=cwd-value\nBOTH=from-cwd\n")
+	writeFile(t, workingDir, ".env", "ONLY_CWD=cwd-value\n")
 	writeFile(t, configDir, ".env", "BOTH=from-config-dir\n")
-	writeFile(t, configDir, configFileName, `{"libraryRoots": ["${ONLY_CWD}", "${BOTH}"]}`)
+	writeFile(t, configDir, configFileName, `{"libraryRoots": ["${BOTH}", "${ONLY_CWD}"]}`)
+	t.Chdir(workingDir)
+
+	_, err := Load(nil, lookupFrom(nil), configDir)
+
+	if err == nil || !strings.Contains(err.Error(), "ONLY_CWD") {
+		t.Fatalf("gotValue %v, expectedValue ONLY_CWD undefined: the working directory .env is not read", err)
+	}
+}
+
+func TestLoad_readsTheWorkingDirectoryDotEnvOnlyWithoutAConfigDirOneAndSaysSo(t *testing.T) {
+	configDir, workingDir := t.TempDir(), t.TempDir()
+	writeFile(t, workingDir, ".env", "ONLY_CWD=cwd-value\n")
+	writeFile(t, configDir, configFileName, `{"libraryRoots": ["${ONLY_CWD}"]}`)
 	t.Chdir(workingDir)
 
 	loadedConfig := mustLoad(t, nil, nil, configDir)
 
-	if expectedValue := "cwd-value,from-config-dir"; strings.Join(loadedConfig.LibraryRoots, ",") != expectedValue {
-		t.Fatalf("gotValue %v, expectedValue %q", loadedConfig.LibraryRoots, expectedValue)
+	if loadedConfig.LibraryRoots[0] != "cwd-value" || !loadedConfig.WorkingDirDotEnv {
+		t.Fatalf("gotValue %v (cwd .env used %v), expectedValue the working directory .env used and flagged", loadedConfig.LibraryRoots, loadedConfig.WorkingDirDotEnv)
 	}
 }
 

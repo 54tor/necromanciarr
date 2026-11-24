@@ -704,3 +704,11 @@ func TestChecks_crossSeedWarnsWhenConfigJSReadThisToolsVariables(t *testing.T) {
 		t.Fatalf("gotValue %+v, expectedValue a warning naming the blocked variable", got)
 	}
 }
+
+func TestChecks_configWarnsWhenTheWorkingDirectoryDotEnvWasRead(t *testing.T) {
+	got := checkConfig(config.Config{ConfigDir: "/home/u/config", WorkingDirDotEnv: true})
+
+	if got.Status != Warn || !strings.Contains(got.Detail+got.Hint, ".env") {
+		t.Fatalf("gotValue %+v, expectedValue a warning about the working directory .env", got)
+	}
+}

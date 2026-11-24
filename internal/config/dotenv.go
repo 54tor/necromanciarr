@@ -48,26 +48,32 @@ func unquote(value string) string {
 	return value
 }
 
-// loadDotEnvLookup fusionne les .env du dossier de configuration puis du dossier courant (le premier gagne)
-// derrière l'environnement réel, qu'un .env ne surcharge jamais.
-func loadDotEnvLookup(configDir string, lookupEnv func(string) (string, bool)) (func(string) (string, bool), error) {
-	merged := map[string]string{}
-	for _, directory := range []string{filepath.Join(configDir, dotEnvFileName), dotEnvFileName} {
-		variables, err := readDotEnv(directory)
-		if err != nil {
-			return nil, err
+// loadDotEnvLookup lit le .env du dossier de configuration, ou à défaut celui du dossier courant (fromWorkingDir le
+// signale : un .env laissé dans le dossier d'où l'on lance la commande serait sinon lu sans le savoir), derrière
+// l'environnement réel, qu'un .env ne surcharge jamais.
+func loadDotEnvLookup(configDir string, lookupEnv func(string) (string, bool)) (lookup func(string) (string, bool), fromWorkingDir bool, err error) {
+	variables, err := readDotEnv(filepath.Join(configDir, dotEnvFileName))
+	if err != nil {
+		return nil, false, err
+	}
+	if variables == nil && !sameFile(filepath.Join(configDir, dotEnvFileName), dotEnvFileName) {
+		if variables, err = readDotEnv(dotEnvFileName); err != nil {
+			return nil, false, err
 		}
-		for name, value := range variables {
-			if _, alreadySet := merged[name]; !alreadySet {
-				merged[name] = value
-			}
-		}
+		fromWorkingDir = variables != nil
 	}
 	return func(name string) (string, bool) {
 		if value, found := lookupEnv(name); found {
 			return value, true
 		}
-		value, found := merged[name]
+		value, found := variables[name]
 		return value, found
-	}, nil
+	}, fromWorkingDir, nil
+}
+
+// sameFile dit si deux chemins désignent le même dossier de .env (dossier de configuration = dossier courant).
+func sameFile(left, right string) bool {
+	absoluteLeft, leftErr := filepath.Abs(left)
+	absoluteRight, rightErr := filepath.Abs(right)
+	return leftErr == nil && rightErr == nil && absoluteLeft == absoluteRight
 }
