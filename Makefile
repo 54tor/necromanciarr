@@ -21,11 +21,21 @@ GOFUMPT_CMD ?= $(GO_RUN) tool gofumpt
 GOIMPORTS_CMD ?= $(GO_RUN) tool goimports
 DEADCODE_CMD ?= $(GO_RUN) tool deadcode
 PACKAGE_LIST_CMD ?= $(GO_RUN) list ./...
-QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode shell hadolint gitleaks actionlint
+QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode shell hadolint gitleaks actionlint ui-lint ui-test ui-audit
 
-.PHONY: build cross-build docker-buildx quality hooks docker-build docker-lint site $(QUALITY_TARGETS)
+# Chaîne front (web/) : tout est no-op tant que web/package.json n'existe pas.
+# Quand il existe, l'absence de Node/npm fait échouer la cible avec un message explicite.
+# npm_config_maxsockets borne les téléchargements parallèles de npm.
+WEB_DIR = web
+NPM = nice -n 10 ionice -c3 env npm_config_maxsockets=$(QUALITY_PARALLELISM) npm --prefix $(WEB_DIR)
+UI_DIST_MARKER = internal/web/ui/dist/index.html
+# Rend la garde : sort 0 sans rien faire si web/ est absent, échoue si npm manque.
+UI_GUARD = @test -f $(WEB_DIR)/package.json || { echo "web/package.json absent : cible front ignorée"; exit 0; }; \
+	command -v npm >/dev/null || { echo "Node/npm requis (web/package.json existe) : installer Node >= 22.12"; exit 1; }
 
-build:
+.PHONY: ui ui-deps ui-lint ui-test ui-audit build cross-build docker-buildx quality hooks docker-build docker-lint site $(QUALITY_TARGETS)
+
+build: ui
 	CGO_ENABLED=0 $(GO_RUN) build -p $(QUALITY_PARALLELISM) ./cmd/necromanciarr
 
 # Plateformes livrées ; un seul processus à la fois, go vet par plateforme.
@@ -116,13 +126,38 @@ gitleaks:
 actionlint:
 	$(DOCKER_TOOL) $(ACTIONLINT_IMAGE) -color
 
+# Installation reproductible depuis le lockfile, sans scripts d'installation (aucune dépendance n'en a besoin).
+ui-deps:
+	$(UI_GUARD); \
+	if [ ! -f $(WEB_DIR)/node_modules/.package-lock.json ] || [ $(WEB_DIR)/package-lock.json -nt $(WEB_DIR)/node_modules/.package-lock.json ]; then \
+		$(NPM) ci --ignore-scripts --no-audit --no-fund; \
+	fi
+
+# Construit l'interface vers internal/web/ui/dist (embarqué dans le binaire).
+# skip-worktree : la construction écrase le marqueur index.html suivi par git ; on masque cette modification.
+ui: ui-deps
+	$(UI_GUARD); \
+	$(NPM) run build && { git update-index --skip-worktree $(UI_DIST_MARKER) 2>/dev/null || true; }
+
+ui-lint: ui-deps
+	$(UI_GUARD); \
+	$(NPM) run typecheck && $(NPM) run lint && $(NPM) run format:check && $(NPM) run knip
+
+ui-test: ui-deps
+	$(UI_GUARD); \
+	$(NPM) test -- --maxWorkers=$(QUALITY_PARALLELISM)
+
+ui-audit: ui-deps
+	$(UI_GUARD); \
+	$(NPM) run audit
+
 # Site de documentation (VitePress) : Node reste confiné à docs/site.
 site:
 	docs/site/garde-identite.test.sh docs/site
 	cd docs/site && nice -n 10 ionice -c3 npm ci && nice -n 10 ionice -c3 npm run build
 	cd docs/site && npm audit --audit-level=high
 
-docker-build:
+docker-build: ui
 	nice -n 10 ionice -c3 docker build -t $(IMAGE) .
 
 docker-lint: hadolint
