@@ -35,6 +35,7 @@ export default tseslint.config(
           attributes: {
             '/.+/': ['title', 'aria-label', 'aria-placeholder', 'aria-description', 'alt'],
             input: ['placeholder'],
+            ConfirmDialog: ['description', 'confirm-label', 'confirmLabel'],
             textarea: ['placeholder'],
           },
         },

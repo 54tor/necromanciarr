@@ -54,6 +54,18 @@ describe('raw-text lint on an unlisted file', () => {
     },
   )
 
+  it('fails on raw ConfirmDialog description and confirm-label props', async () => {
+    const messages = await rawTextMessages(
+      '<ConfirmDialog description="Supprimer ?" confirm-label="Oui" />',
+    )
+
+    expect(messages.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('passes on a bound ConfirmDialog prop', async () => {
+    expect(await rawTextMessages('<ConfirmDialog :description="t(\'nav.label\')" />')).toHaveLength(0)
+  })
+
   it('passes on a translated text', async () => {
     expect(await rawTextMessages('<p>{{ t("nav.label") }}</p>')).toHaveLength(0)
   })
