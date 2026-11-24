@@ -42,4 +42,11 @@ describe('single dark theme', () => {
       expect(content).not.toContain('prefers-color-scheme')
     }
   })
+
+  // vue-sonner livre ses styles dans un fichier à part : sans l'import, les toasts s'afficheraient sans mise en forme.
+  it.skipIf(builtCss.length === 0)('built CSS carries the toast styles', () => {
+    const allCss = builtCss.map((name) => readFileSync(join(builtAssets, name), 'utf8')).join('')
+
+    expect(allCss).toContain('data-sonner-toaster')
+  })
 })
