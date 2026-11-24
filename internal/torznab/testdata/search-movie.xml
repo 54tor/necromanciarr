@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <title>Demo indexer</title>
+    <item>
+      <title>Invented Movie 2001 1080p</title>
+      <guid>demo-guid-1</guid>
+      <link>http://indexer.example.com/dl/1?file=invented</link>
+      <size>4000000000</size>
+      <pubDate>Mon, 01 Jan 2024 10:00:00 +0000</pubDate>
+      <enclosure url="http://indexer.example.com/dl/1?file=invented" length="4000000000" type="application/x-bittorrent" />
+      <torznab:attr name="category" value="2040" />
+      <torznab:attr name="seeders" value="12" />
+      <torznab:attr name="infohash" value="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" />
+      <torznab:attr name="magneturl" value="magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" />
+    </item>
+    <item>
+      <title>Invented Movie 2001 720p</title>
+      <guid>http://indexer.example.com/details/2?passkey=fake-passkey-0000</guid>
+      <link>http://indexer.example.com/dl/2?file=invented</link>
+      <torznab:attr name="size" value="2000000000" />
+    </item>
+    <item>
+      <title>Invented Movie 2001 magnet only A</title>
+      <guid>demo-guid-3</guid>
+      <link>magnet:?xt=urn:btih:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb</link>
+      <size>1000</size>
+    </item>
+    <item>
+      <title>Invented Movie 2001 magnet only B</title>
+      <guid>demo-guid-4</guid>
+      <enclosure url="magnet:?xt=urn:btih:cccccccccccccccccccccccccccccccccccccccc" length="1000" type="application/x-bittorrent" />
+    </item>
+  </channel>
+</rss>
