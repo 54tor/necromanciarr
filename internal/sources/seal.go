@@ -18,7 +18,8 @@ import (
 const (
 	// KeySize est la taille exacte de la clé de scellement (AES-256).
 	KeySize = 32
-	// formatVersion préfixe chaque bloc : version‖nonce‖chiffré‖étiquette. Une autre valeur est illisible.
+	// formatVersion préfixe chaque bloc (version‖nonce‖chiffré‖étiquette) et la donnée associée, qui l'authentifie.
+	// Une autre valeur est illisible.
 	formatVersion  = 1
 	nonceSize      = 12
 	tagSize        = 16
@@ -44,8 +45,10 @@ var nonceSource io.Reader = rand.Reader
 // ID identifie une source : "provider" ou "torznab:<nom>".
 type ID string
 
-// Binding lie un bloc scellé à son candidat : la donnée associée est exactement « infohash|tracker|source ».
-// Infohash est en hexadécimal minuscule (40 caractères) ; Tracker peut être vide.
+// Binding lie un bloc scellé à son candidat : la donnée associée est la version suivie de « infohash|tracker|source ».
+// Infohash est en hexadécimal minuscule (40 caractères) ; Tracker peut être vide. Au descellement, la liaison est
+// toujours reconstruite depuis la ligne du candidat (infohash, tracker, source tels qu'enregistrés au scellement),
+// jamais depuis la configuration courante ; Tracker est comparé octet pour octet.
 type Binding struct {
 	Infohash, Tracker string
 	Source            ID
@@ -77,7 +80,7 @@ func NewSealer(key []byte) (*Sealer, error) {
 // Seal chiffre plain avec un nonce neuf tiré de crypto/rand : version‖nonce‖chiffré‖étiquette. Un aléa défaillant
 // est une erreur, jamais un nonce nul ou fixe.
 func (sealer *Sealer) Seal(plain []byte, binding Binding) ([]byte, error) {
-	additionalData, err := associatedData(binding)
+	additionalData, err := associatedData(formatVersion, binding)
 	if err != nil {
 		return nil, err
 	}
@@ -92,8 +95,11 @@ func (sealer *Sealer) Seal(plain []byte, binding Binding) ([]byte, error) {
 // Unseal rend le .torrent complet si le bloc a été scellé avec la même clé pour la même liaison ; toute autre issue
 // donne ErrSealedUnreadable.
 func (sealer *Sealer) Unseal(blob []byte, binding Binding) ([]byte, error) {
-	additionalData, err := associatedData(binding)
-	if err != nil || len(blob) < 1+nonceSize+tagSize || blob[0] != formatVersion {
+	if len(blob) < 1+nonceSize+tagSize || blob[0] != formatVersion {
+		return nil, ErrSealedUnreadable
+	}
+	additionalData, err := associatedData(blob[0], binding)
+	if err != nil {
 		return nil, ErrSealedUnreadable
 	}
 	nonce, sealed := blob[1:1+nonceSize], blob[1+nonceSize:]
@@ -110,14 +116,15 @@ func (sealer *Sealer) Format(state fmt.State, _ rune) { _, _ = io.WriteString(st
 // LogValue rend le Sealer masqué dans les journaux slog.
 func (sealer *Sealer) LogValue() slog.Value { return slog.StringValue(redactedSealer) }
 
-// associatedData joint les composants par « | ». Le séparateur, les caractères de contrôle et l'UTF-8 invalide sont
-// refusés dans chaque composant, l'infohash est strict : deux liaisons distinctes ne donnent jamais la même donnée.
-func associatedData(binding Binding) ([]byte, error) {
+// associatedData vaut l'octet de version suivi de « infohash|tracker|source ». Le séparateur, les caractères de
+// contrôle et l'UTF-8 invalide sont refusés dans chaque composant, l'infohash est strict : deux liaisons distinctes
+// ne donnent jamais la même donnée.
+func associatedData(version byte, binding Binding) ([]byte, error) {
 	source := string(binding.Source)
 	if !isInfohash(binding.Infohash) || source == "" || !isPlainComponent(binding.Tracker) || !isPlainComponent(source) {
 		return nil, ErrInvalidBinding
 	}
-	return []byte(binding.Infohash + bindingSeparator + binding.Tracker + bindingSeparator + source), nil
+	return append([]byte{version}, binding.Infohash+bindingSeparator+binding.Tracker+bindingSeparator+source...), nil
 }
 
 func isInfohash(text string) bool {

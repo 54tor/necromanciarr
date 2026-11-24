@@ -14,6 +14,7 @@ const (
 	// maxBencodeDepth borne l'imbrication des listes et dictionnaires (défaut du décodeur, rendu explicite).
 	maxBencodeDepth = bencode.DefaultMaxDepth
 	infoKey         = "info"
+	dictionaryEnd   = 'e'
 )
 
 // ErrInvalidTorrent refuse un .torrent illisible, trop gros ou trop imbriqué ; l'erreur ne cite jamais son contenu.
@@ -50,20 +51,36 @@ func Sanitize(torrent []byte) (sanitized []byte, err error) {
 	return encoded, nil
 }
 
-// decodeTopLevel garde chaque valeur de premier niveau en octets bruts et exige un dictionnaire info.
+// decodeTopLevel garde chaque valeur de premier niveau en octets bruts et exige un dictionnaire info. Les paires sont
+// lues une à une pour refuser une clé en double : sinon la dernière l'emporterait sans que rien ne le signale.
 func decodeTopLevel(torrent []byte) (map[string]bencode.Bytes, error) {
 	if len(torrent) == 0 || len(torrent) > MaxTorrentBytes || torrent[0] != 'd' {
 		return nil, ErrInvalidTorrent
 	}
-	reader := bytes.NewReader(torrent)
+	reader := bytes.NewReader(torrent[1:])
 	decoder := bencode.NewDecoder(reader)
 	decoder.MaxStrLen = MaxTorrentBytes
 	decoder.MaxDepth = maxBencodeDepth
-	var topLevel map[string]bencode.Bytes
-	if err := decoder.Decode(&topLevel); err != nil {
-		return nil, fmt.Errorf("%w: undecodable bencode", ErrInvalidTorrent)
+	topLevel := map[string]bencode.Bytes{}
+	for {
+		next, err := reader.ReadByte()
+		if err != nil {
+			return nil, fmt.Errorf("%w: unterminated dictionary", ErrInvalidTorrent)
+		}
+		if next == dictionaryEnd {
+			break
+		}
+		_ = reader.UnreadByte()
+		key, value, err := decodePair(decoder)
+		if err != nil {
+			return nil, err
+		}
+		if _, duplicate := topLevel[key]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate top-level key", ErrInvalidTorrent)
+		}
+		topLevel[key] = value
 	}
-	if err := decoder.ReadEOF(); err != nil {
+	if reader.Len() != 0 {
 		return nil, fmt.Errorf("%w: trailing bytes", ErrInvalidTorrent)
 	}
 	info := topLevel[infoKey]
@@ -71,4 +88,17 @@ func decodeTopLevel(torrent []byte) (map[string]bencode.Bytes, error) {
 		return nil, fmt.Errorf("%w: missing info dictionary", ErrInvalidTorrent)
 	}
 	return topLevel, nil
+}
+
+// decodePair lit une clé (chaîne) puis sa valeur en octets bruts ; le décodeur ne lit pas au-delà de la valeur.
+func decodePair(decoder *bencode.Decoder) (string, bencode.Bytes, error) {
+	var key string
+	if err := decoder.Decode(&key); err != nil {
+		return "", nil, fmt.Errorf("%w: undecodable key", ErrInvalidTorrent)
+	}
+	var value bencode.Bytes
+	if err := decoder.Decode(&value); err != nil {
+		return "", nil, fmt.Errorf("%w: undecodable value", ErrInvalidTorrent)
+	}
+	return key, value, nil
 }

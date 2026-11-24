@@ -117,6 +117,9 @@ func TestSanitize_refusesHostileOrInvalidInput(t *testing.T) {
 		"integer key":          []byte("di1e4:infoe"),
 		"garbage":              []byte("\x00\xff\xfe"),
 		"unterminated integer": []byte("d4:infoi12"),
+		"duplicate info":       []byte("d4:info" + infoDictionary + "4:info" + infoDictionary + "e"),
+		"duplicate announce":   []byte("d8:announce1:a8:announce1:b4:info" + infoDictionary + "e"),
+		"unterminated dict":    []byte("d4:info" + infoDictionary),
 	}
 	for name, input := range scenarios {
 		t.Run(name, func(t *testing.T) {
@@ -146,8 +149,18 @@ func FuzzSanitize(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if !bytes.Equal(topLevelKeys(t, sanitized)["info"], topLevelKeys(t, input)["info"]) {
-			t.Fatalf("info bytes drifted for %q", input)
+		for key := range topLevelKeys(t, sanitized) {
+			if !keptTopLevelKeys[key] {
+				t.Fatalf("gotValue key %q kept for %q, expectedValue only the allow-list", key, input)
+			}
+		}
+		original, inputErr := metainfo.Load(bytes.NewReader(input))
+		if inputErr != nil {
+			return
+		}
+		cleaned, outputErr := metainfo.Load(bytes.NewReader(sanitized))
+		if outputErr != nil || cleaned.HashInfoBytes() != original.HashInfoBytes() {
+			t.Fatalf("gotValue %v, infohash drifted for %q", outputErr, input)
 		}
 	})
 }

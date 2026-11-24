@@ -231,7 +231,9 @@ func secretKeyChecks(settings config.Config, deps Deps) []Check {
 		return nil
 	}
 	return []Check{newCheck(IDSecretKey, i18n.KeyDoctorTitleSecretKey,
-		func(ctx context.Context) Result { return checkSecretKey(ctx, settings.SecretKey, deps.SealedProbe) })}
+		func(ctx context.Context) Result {
+			return checkSecretKey(ctx, settings.SecretKey, len(settings.Torznab) > 0, deps.SealedProbe)
+		})}
 }
 
 // SecretKeyFailure traduit un refus de chargement dû à la clé en contrôle secret-key, pour que doctor nomme la cause
@@ -263,14 +265,18 @@ func secretKeyWrongLength() Result {
 	}
 }
 
-// checkSecretKey contrôle la clé puis tente de desceller les blocs existants ; la clé n'apparaît dans aucun message.
-func checkSecretKey(ctx context.Context, key []byte, probe SealedProbe) Result {
+// checkSecretKey contrôle la clé puis tente de desceller les blocs en base ; la clé n'apparaît dans aucun message.
+// Avec un indexeur mais sans lecture de la base, les blocs ne sont pas vérifiés : avertissement, jamais un état vert.
+func checkSecretKey(ctx context.Context, key []byte, hasTorznab bool, probe SealedProbe) Result {
 	if key == nil {
 		return secretKeyMissing()
 	}
 	sealer, err := sources.NewSealer(key)
 	if err != nil {
 		return secretKeyWrongLength()
+	}
+	if probe == nil && hasTorznab {
+		return Result{Status: Warn, Code: CodeSealedTorrentsUnchecked, Detail: message(i18n.KeyDoctorSealedNotProbed)}
 	}
 	if probe == nil {
 		return Result{Status: OK, Code: CodeSecretKeyOK, Detail: message(i18n.KeyDoctorSecretKeyOKUnprobed)}

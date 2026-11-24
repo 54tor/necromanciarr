@@ -164,6 +164,7 @@ const (
 	KeyDoctorSealedUnreadable            Key = "doctor.sealed.unreadable"
 	KeyDoctorSealedUnreadableHint        Key = "doctor.sealed.unreadable.hint"
 	KeyDoctorSealedUnchecked             Key = "doctor.sealed.unchecked"
+	KeyDoctorSealedNotProbed             Key = "doctor.sealed.not_probed"
 )
 
 var doctorKeys = []Key{
@@ -202,5 +203,5 @@ var doctorKeys = []Key{
 	KeyDoctorTitleTorznab, KeyDoctorTitleProwlarr, KeyDoctorTorznabOK, KeyDoctorTorznabBuildFailed, KeyDoctorTorznabAccessDenied, KeyDoctorTorznabAccessDeniedHint, KeyDoctorTorznabUnreachable, KeyDoctorTorznabUnreachableHint, KeyDoctorTorznabHostile, KeyDoctorTorznabHostileHint, KeyDoctorTorznabBadResponse, KeyDoctorTorznabBadResponseHint, KeyDoctorTorznabNoMediaMode, KeyDoctorTorznabNoMediaModeHint, KeyDoctorProwlarrOK, KeyDoctorProwlarrAccessDenied, KeyDoctorProwlarrAccessDeniedHint, KeyDoctorProwlarrUnreachable, KeyDoctorProwlarrBadResponse, KeyDoctorProwlarrURLHint, KeyDoctorProwlarrIndexerMissing, KeyDoctorProwlarrIndexerDisabled, KeyDoctorProwlarrIndexerHint, KeyDoctorTorznabNotInSourceOrder, KeyDoctorTorznabNotInSourceOrderHint, KeyDoctorProwlarrBuildFailed,
 	KeyDoctorTitleSecretKey, KeyDoctorSecretKeyOK, KeyDoctorSecretKeyOKUnprobed, KeyDoctorSecretKeyMissing,
 	KeyDoctorSecretKeyWrongLength, KeyDoctorSecretKeyGenerateHint, KeyDoctorSealedUnreadable, KeyDoctorSealedUnreadableHint,
-	KeyDoctorSealedUnchecked,
+	KeyDoctorSealedUnchecked, KeyDoctorSealedNotProbed,
 }

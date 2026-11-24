@@ -320,6 +320,7 @@ var french = map[Key]string{
 	KeyDoctorSecretKeyGenerateHint:         "en générer une avec necromanciarr api-key --secret et la placer dans .env",
 	KeyDoctorSealedUnreadable:              "{count} .torrent scellé(s) illisible(s) (clé changée ou bloc altéré) : candidat(s) {ids}",
 	KeyDoctorSealedUnreadableHint:          "relancer Verify sur ce candidat",
+	KeyDoctorSealedNotProbed:               "clé présente ; .torrent scellés non vérifiés (lecture de la base pas encore branchée)",
 	KeyDoctorSealedUnchecked:               ".torrent scellés non vérifiés : {error}",
 	KeyReasonAddFailed:                     "le client a refusé le torrent",
 	KeyReasonAlreadyInClient:               "le torrent est déjà dans le client",

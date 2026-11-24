@@ -55,6 +55,21 @@ func TestSeal_roundTrip(t *testing.T) {
 	}
 }
 
+func TestSeal_roundTripWithAnEmptyTracker(t *testing.T) {
+	sealer := newTestSealer(t, testKey)
+	binding := Binding{Infohash: testInfohash, Tracker: "", Source: "torznab:12"}
+	blob := sealTest(t, sealer, []byte("plain"), binding)
+
+	gotValue, err := sealer.Unseal(blob, binding)
+	if err != nil || string(gotValue) != "plain" {
+		t.Fatalf("gotValue %q, %v, expectedValue the plaintext", gotValue, err)
+	}
+	binding.Tracker = "x"
+	if _, err := sealer.Unseal(blob, binding); !errors.Is(err, ErrSealedUnreadable) {
+		t.Fatalf("gotValue %v, expectedValue ErrSealedUnreadable for another tracker", err)
+	}
+}
+
 func TestSeal_refusesBlobMovedToAnotherCandidate(t *testing.T) {
 	sealer := newTestSealer(t, testKey)
 	blob := sealTest(t, sealer, indexerTorrent(), testBinding())
@@ -109,6 +124,22 @@ func TestSeal_refusesTruncatedOrFlippedBlob(t *testing.T) {
 	}
 	if _, err := sealer.Unseal(append(bytes.Clone(blob), 0), testBinding()); !errors.Is(err, ErrSealedUnreadable) {
 		t.Fatalf("extended blob: gotValue %v, expectedValue ErrSealedUnreadable", err)
+	}
+}
+
+func TestSeal_refusesAnyOtherVersionByte(t *testing.T) {
+	sealer := newTestSealer(t, testKey)
+	blob := sealTest(t, sealer, []byte("plain"), testBinding())
+	for version := range 256 {
+		if byte(version) == formatVersion {
+			continue
+		}
+		changed := bytes.Clone(blob)
+		changed[0] = byte(version)
+
+		if plain, err := sealer.Unseal(changed, testBinding()); !errors.Is(err, ErrSealedUnreadable) || plain != nil {
+			t.Fatalf("version %d: gotValue %q, %v, expectedValue ErrSealedUnreadable", version, plain, err)
+		}
 	}
 }
 
@@ -181,9 +212,9 @@ func TestSeal_bindingWithDelimiterOrControlCannotCollide(t *testing.T) {
 }
 
 func TestSeal_associatedDataIsExactlyInfohashTrackerSource(t *testing.T) {
-	gotValue, err := associatedData(testBinding())
+	gotValue, err := associatedData(formatVersion, testBinding())
 
-	expectedValue := testInfohash + "|tracker-a|torznab:12"
+	expectedValue := "\x01" + testInfohash + "|tracker-a|torznab:12"
 	if err != nil || string(gotValue) != expectedValue {
 		t.Fatalf("gotValue %q, %v, expectedValue %q", gotValue, err, expectedValue)
 	}

@@ -470,7 +470,8 @@ func TestDoctor_secretKeyCodes(t *testing.T) {
 		expectedCode   string
 	}{
 		{"key and readable blobs", secretSettings(doctorTestKey), Deps{SealedProbe: readable}, OK, CodeSecretKeyOK},
-		{"key without probe", secretSettings(doctorTestKey), Deps{}, OK, CodeSecretKeyOK},
+		{"torznab without probe", secretSettings(doctorTestKey), Deps{}, Warn, CodeSealedTorrentsUnchecked},
+		{"key without torznab nor probe", config.Config{ListenAddr: "127.0.0.1:1", SecretKey: doctorTestKey}, Deps{}, OK, CodeSecretKeyOK},
 		{"torznab without key", secretSettings(nil), Deps{}, Fail, CodeSecretKeyMissing},
 		{"wrong length", secretSettings(doctorTestKey[:16]), Deps{SealedProbe: readable}, Fail, CodeSecretKeyWrongLength},
 		{"probe failure", secretSettings(doctorTestKey), Deps{SealedProbe: fakeSealedProbe{err: errors.New("database locked")}}, Warn, CodeSealedTorrentsUnchecked},

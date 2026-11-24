@@ -320,6 +320,7 @@ var english = map[Key]string{
 	KeyDoctorSecretKeyGenerateHint:         "generate one with necromanciarr api-key --secret and put it in .env",
 	KeyDoctorSealedUnreadable:              "{count} sealed torrent(s) unreadable (key changed or blob altered): candidate(s) {ids}",
 	KeyDoctorSealedUnreadableHint:          "run Verify again on this candidate",
+	KeyDoctorSealedNotProbed:               "key set; sealed torrents not checked (database read not wired yet)",
 	KeyDoctorSealedUnchecked:               "sealed torrents not checked: {error}",
 	KeyReasonAddFailed:                     "the client refused the torrent",
 	KeyReasonAlreadyInClient:               "the torrent is already in the client",
