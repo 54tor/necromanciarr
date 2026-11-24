@@ -40,13 +40,20 @@ type fakeProvider struct {
 	honourSizes bool
 	failOnCall  int
 	failure     error
-	queries     []libraryprovider.Query
+	// alwaysFailTVDB fait échouer chaque recherche de cet identifiant TVDB (erreur ordinaire, l'étape continue).
+	alwaysFailTVDB int
+	queries        []libraryprovider.Query
 }
+
+var errFakeSearch = errors.New("fake provider: unreadable response")
 
 func (provider *fakeProvider) Search(_ context.Context, query libraryprovider.Query) ([]libraryprovider.Release, error) {
 	provider.queries = append(provider.queries, query)
 	if provider.failure != nil && len(provider.queries) == provider.failOnCall {
 		return nil, provider.failure
+	}
+	if provider.alwaysFailTVDB != 0 && query.TVDBID == provider.alwaysFailTVDB {
+		return nil, errFakeSearch
 	}
 	var found []libraryprovider.Release
 	for _, release := range provider.releases {

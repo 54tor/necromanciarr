@@ -58,6 +58,7 @@ type Store interface {
 	InvalidateCandidatesForFile(ctx context.Context, mediaFileID int64, now time.Time) (int, error)
 	MarkChangedCandidatesStale(ctx context.Context, now time.Time) (int, error)
 	ListCandidatesByState(ctx context.Context, states ...store.CandidateState) ([]store.Candidate, error)
+	ListCandidateFiles(ctx context.Context, candidateID int64) ([]store.CandidateFile, error)
 	SaveCandidate(ctx context.Context, candidate store.Candidate, files []store.CandidateFile, now time.Time) (int64, store.SaveOutcome, error)
 	RegroupCandidates(ctx context.Context) error
 	AcquireRunLock(ctx context.Context, holder, stage string, now, expiresAt time.Time) error

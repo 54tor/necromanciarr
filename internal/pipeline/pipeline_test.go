@@ -505,3 +505,50 @@ func TestScanStage_countsConflictingIDsAndKeepsTheFirst(t *testing.T) {
 		t.Fatalf("gotValue tmdb %d result %+v", gotValue, gotResult)
 	}
 }
+
+func TestMatchStage_anIDThatAlwaysFailsDoesNotFreezeOtherCandidates(t *testing.T) {
+	ctx := context.Background()
+	mediaStore := openTestStore(t)
+	addMediaFile(t, mediaStore, "/home/u/media/a.mkv", 100, 1)
+	addEpisodeFile(t, mediaStore, "/home/u/media/broken.mkv", 300, 9)
+	deps := matchDeps(mediaStore, &fakeProvider{honourSizes: true, alwaysFailTVDB: 9, releases: []libraryprovider.Release{release(hashA, "t1", 1, 100)}})
+	if _, err := Run(ctx, StageMatch, deps); err != nil {
+		t.Fatal(err)
+	}
+	touched := store.MediaFile{Path: "/home/u/media/a.mkv", Size: 100, ModTime: fixedNow.Add(time.Second), TMDBID: 1}
+	if err := mediaStore.UpsertMediaFile(ctx, touched); err != nil {
+		t.Fatal(err)
+	}
+
+	gotResult, err := Run(ctx, StageMatch, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotState := candidatesByHash(t, mediaStore)[hashA].State
+	if gotResult.Failed != 1 || gotResult.CandidatesUpdated != 1 || gotState != store.CandidateMatched {
+		t.Fatalf("gotValue %+v state %s, expectedValue the stale candidate re-matched despite the failing id", gotResult, gotState)
+	}
+}
+
+func TestMatchStage_rateLimitedRunStillSavesGrownAssociations(t *testing.T) {
+	ctx := context.Background()
+	mediaStore := openTestStore(t)
+	pack := packUnderTwoIDs(t, mediaStore)
+	addMediaFile(t, mediaStore, "/home/u/media/other.mkv", 300, 2)
+	// Groupes triés : TVDB 5, puis TMDB 1, puis TMDB 2.
+	firstStop := &fakeProvider{honourSizes: true, releases: []libraryprovider.Release{pack}, failOnCall: 2, failure: &libraryprovider.RateLimitedError{}}
+	if _, err := Run(ctx, StageMatch, matchDeps(mediaStore, firstStop)); err == nil {
+		t.Fatal("expectedValue the first run to stop")
+	}
+	assertCandidateFileCount(t, mediaStore, hashA, 1)
+
+	laterStop := &fakeProvider{honourSizes: true, releases: []libraryprovider.Release{pack}, failOnCall: 3, failure: &libraryprovider.RateLimitedError{}}
+	gotResult, err := Run(ctx, StageMatch, matchDeps(mediaStore, laterStop))
+
+	var resumable *ResumableError
+	if !errors.As(err, &resumable) || gotResult.CandidatesUpdated != 1 {
+		t.Fatalf("gotValue %+v %v, expectedValue a stopped run that saved the grown pack", gotResult, err)
+	}
+	assertCandidateFileCount(t, mediaStore, hashA, 2)
+}

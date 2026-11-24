@@ -20,7 +20,8 @@ const (
 	ReasonNoExactSize   = "no_exact_size"
 	ReasonSearchFailed  = "search_failed"
 	ReasonStaleDetected = "stale_candidate"
-	// ReasonUpdateDeferred compte chaque candidat connu non réassocié parce que l'exécution n'a pas tout cherché.
+	// ReasonUpdateDeferred compte chaque candidat connu non réassocié : l'exécution n'a pas tout cherché et
+	// l'association trouvée perdrait des fichiers.
 	ReasonUpdateDeferred = "update_deferred_incomplete_run"
 )
 
@@ -62,21 +63,27 @@ func runMatch(ctx context.Context, deps Deps) (Result, error) {
 		return result, searchErr
 	}
 	complete := searchErr == nil && result.Failed == 0
-	// Les écritures restantes sont chacune une transaction, faites même après annulation pour garder ce qui est trouvé.
-	persistContext := context.WithoutCancel(ctx)
-	saveErr := savePending(persistContext, deps, &result, pending, known, complete, now)
-	regroupErr := deps.Store.RegroupCandidates(persistContext)
-	return result, errors.Join(searchErr, saveErr, regroupErr)
+	saveErr := savePending(ctx, deps, &result, pending, known, complete, now)
+	return result, errors.Join(searchErr, saveErr, regroup(ctx, deps))
 }
 
-func knownCandidateKeys(ctx context.Context, deps Deps) (map[candidateKey]bool, error) {
+// regroup recalcule les groupes, même après annulation par l'appelant, mais jamais une fois le verrou perdu.
+func regroup(ctx context.Context, deps Deps) error {
+	if lockLost(ctx) {
+		return nil
+	}
+	return deps.Store.RegroupCandidates(context.WithoutCancel(ctx))
+}
+
+// knownCandidateKeys associe chaque candidat enregistré à son identifiant.
+func knownCandidateKeys(ctx context.Context, deps Deps) (map[candidateKey]int64, error) {
 	candidates, err := deps.Store.ListCandidatesByState(ctx)
 	if err != nil {
 		return nil, err
 	}
-	known := map[candidateKey]bool{}
+	known := map[candidateKey]int64{}
 	for _, candidate := range candidates {
-		known[candidateKey{infohash: candidate.Infohash, tracker: candidate.Tracker}] = true
+		known[candidateKey{infohash: candidate.Infohash, tracker: candidate.Tracker}] = candidate.ID
 	}
 	return known, nil
 }
@@ -151,12 +158,15 @@ func groupQuery(ids externalIDs, files []store.MediaFile) libraryprovider.Query 
 	return libraryprovider.Query{TMDBID: ids.tmdbID, TVDBID: ids.tvdbID, Sizes: slices.Compact(sizes)}
 }
 
-// savePending enregistre chaque release cumulée. Après une exécution incomplète (arrêt ou recherche en échec), les
-// associations cumulées peuvent être partielles : seul un candidat nouveau est créé, un candidat connu n'est
-// jamais réassocié (ce qui le ramènerait à matched).
+// savePending enregistre chaque release cumulée, une transaction par candidat, même après annulation par l'appelant
+// pour garder ce qui est trouvé. La perte du verrou est vérifiée avant chaque écriture et arrête les suivantes ; une
+// transaction déjà engagée se termine. Après une exécution incomplète (arrêt ou recherche en échec), l'association
+// cumulée peut être partielle : un candidat connu n'est réassocié que si elle contient toutes ses associations
+// enregistrées (sinon il garderait moins de fichiers et reviendrait à matched à tort).
 func savePending(ctx context.Context, deps Deps, result *Result, pending map[candidateKey]*pendingCandidate,
-	known map[candidateKey]bool, complete bool, now time.Time,
+	known map[candidateKey]int64, complete bool, now time.Time,
 ) error {
+	persistContext := context.WithoutCancel(ctx)
 	for _, key := range slices.SortedFunc(maps.Keys(pending), compareCandidateKeys) {
 		accumulated := pending[key]
 		// Filtre local de défense : le fournisseur peut ignorer le paramètre size.
@@ -166,21 +176,62 @@ func savePending(ctx context.Context, deps Deps, result *Result, pending map[can
 			result.count(ReasonNoExactSize, 1)
 			continue
 		}
-		if known[key] && !complete {
-			result.count(ReasonUpdateDeferred, 1)
-			continue
+		files := candidateFiles(accumulated.release, matches)
+		candidateID, isKnown := known[key]
+		if isKnown && !complete {
+			dropsAssociation, err := wouldDropAssociation(persistContext, deps, candidateID, files)
+			if err != nil {
+				return err
+			}
+			if dropsAssociation {
+				result.count(ReasonUpdateDeferred, 1)
+				continue
+			}
 		}
-		candidate, err := candidateOf(accumulated.release)
-		if err != nil {
+		if lockLost(ctx) {
+			return nil
+		}
+		if err := saveOne(persistContext, deps, result, accumulated.release, files, now); err != nil {
 			return err
 		}
-		_, outcome, err := deps.Store.SaveCandidate(ctx, candidate, candidateFiles(accumulated.release, matches), now)
-		if err != nil {
-			return err
-		}
-		countOutcome(result, outcome)
 	}
 	return nil
+}
+
+func saveOne(ctx context.Context, deps Deps, result *Result, release libraryprovider.Release, files []store.CandidateFile, now time.Time) error {
+	candidate, err := candidateOf(release)
+	if err != nil {
+		return err
+	}
+	_, outcome, err := deps.Store.SaveCandidate(ctx, candidate, files, now)
+	if err != nil {
+		return err
+	}
+	countOutcome(result, outcome)
+	return nil
+}
+
+type associationKey struct {
+	fileIndex   int
+	mediaFileID int64
+}
+
+// wouldDropAssociation dit si une association enregistrée (fichier du torrent ↔ fichier local) manque à files.
+func wouldDropAssociation(ctx context.Context, deps Deps, candidateID int64, files []store.CandidateFile) (bool, error) {
+	stored, err := deps.Store.ListCandidateFiles(ctx, candidateID)
+	if err != nil {
+		return false, err
+	}
+	wanted := map[associationKey]bool{}
+	for _, file := range files {
+		wanted[associationKey{fileIndex: file.FileIndex, mediaFileID: file.MediaFileID}] = true
+	}
+	for _, file := range stored {
+		if file.MediaFileID != 0 && !wanted[associationKey{fileIndex: file.FileIndex, mediaFileID: file.MediaFileID}] {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func compareCandidateKeys(left, right candidateKey) int {
