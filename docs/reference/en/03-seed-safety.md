@@ -86,6 +86,21 @@ A `.torrent` downloaded from a Torznab indexer carries the tracker announce, hen
 - **The key**: 32 bytes in base64url without padding (43 characters), drawn by `necromanciarr api-key --secret`, which prints it on stdout only. Only this spelling is accepted (no standard base64, no hex, no spaces); an invalid value is a usage error that names the variable only. The key is never serialized and is masked everywhere in its likely spellings (raw, base64, hex). Zeroing it in memory is best effort only: Go does not guarantee there is no copy.
 - **Key lost or changed**: candidates stay readable (the sanitized copy is enough for Verify), but Seed refuses a candidate whose blob no longer unseals and `doctor` (`secret-key`) reports it as `sealed_torrent_unreadable`. Running Verify again on this candidate fetches a fresh `.torrent` within the indexer budget. Back the key up with the `.env`.
 
+## Passkey masking
+
+Every output (CLI text and `--json`, web API, interface, `doctor`, server log, job results, panic messages) goes through the same masking:
+
+| Rule | Masked example | Rendered |
+|---|---|---|
+| Known secret (value interpolated in `trackers`, `torznab` and `prowlarr` keys, `NECROMANCIARR_SECRET_KEY`…), in every form | a bare passkey in a message | `***` |
+| Announce URL rendered from the configuration | `https://u:p@tracker-a.example.com:8443/abc/announce?pk=x` | `https://tracker-a.example.com:8443/***` |
+| Parameter with a passkey name in a URL, whatever its length (`passkey`, `pk`, `authkey`, `torrent_pass`, `key`, `uid`, `apikey`, `secret`, `token`, case and encoding ignored, separator `&` or `;`, fragment included) | `?pk=x` | `?pk=***` |
+| Path segment following such a name | `/passkey/x/announce` | `/passkey/***/announce` |
+| Segment or value that contains, once decoded (up to four times: `%252F`), a hex or base64url word of 16 characters or more | `/0000aaaa0000aaaa0000aaaa0000aaaa/announce` | `/***/announce` |
+| URL credentials | `https://alice:x@tracker-a.example.com/` | `https://***@tracker-a.example.com/` |
+
+Limits: outside a URL, a bare passkey is masked only if it is a known secret; once Seed reads the announce of an indexer `.torrent`, its passkey will join the known secrets for the time of the operation. An infohash placed in a URL is masked by the 16-character rule (harmless: it is not secret); alone, outside a URL, it stays visible. Masking runs in linear time and a second pass changes nothing.
+
 ## Resumption after an interruption
 
 | Moment of the interruption | Effect on rerun |

@@ -74,8 +74,10 @@ type Config struct {
 	Torznab     []TorznabIndexer `json:"torznab"`
 	Prowlarr    string           `json:"prowlarr"`
 	SourceOrder []string         `json:"sourceOrder"`
-	Dedupe      Dedupe           `json:"dedupe"`
-	FSProviders []FSProvider     `json:"fsProviders"`
+	// Trackers donne l'annonce (passkey comprise) de chaque tracker, injectée au seed ; triés par clé.
+	Trackers    []Tracker    `json:"trackers"`
+	Dedupe      Dedupe       `json:"dedupe"`
+	FSProviders []FSProvider `json:"fsProviders"`
 	// LinkDirs, LinkType, SkipRecheck et LinkCategory reprennent les réglages de liens de cross-seed.
 	LinkDirs        []string         `json:"linkDirs"`
 	LinkType        string           `json:"linkType"`
@@ -116,6 +118,7 @@ type fileConfig struct {
 	Sonarr             []string          `json:"sonarr"`
 	TorrentClients     []string          `json:"torrentClients"`
 	Torznab            []json.RawMessage `json:"torznab"`
+	Trackers           json.RawMessage   `json:"trackers"`
 	Prowlarr           string            `json:"prowlarr"`
 	SourceOrder        []string          `json:"sourceOrder"`
 	Dedupe             fileDedupe        `json:"dedupe"`
@@ -333,7 +336,7 @@ func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config
 	return withSources(loadedConfig, rawFile, lookup)
 }
 
-// withSources ajoute les indexeurs Torznab, Prowlarr et l'ordre des sources.
+// withSources ajoute les indexeurs Torznab, Prowlarr, l'ordre des sources et les annonces des trackers.
 func withSources(loadedConfig Config, rawFile fileConfig, lookup func(string) (string, bool)) (Config, error) {
 	var err error
 	if loadedConfig.Torznab, err = parseTorznab(rawFile.Torznab, lookup); err != nil {
@@ -344,6 +347,9 @@ func withSources(loadedConfig Config, rawFile fileConfig, lookup func(string) (s
 	}
 	loadedConfig.Prowlarr = rawFile.Prowlarr
 	if loadedConfig.SourceOrder, err = resolveSourceOrder(rawFile.SourceOrder, loadedConfig.Torznab); err != nil {
+		return Config{}, err
+	}
+	if loadedConfig.Trackers, err = parseTrackers(rawFile.Trackers, lookup); err != nil {
 		return Config{}, err
 	}
 	return loadedConfig, nil

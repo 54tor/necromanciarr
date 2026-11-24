@@ -63,6 +63,7 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 | `torznab` | liste d'URL ou d'objets | vide | voir « Indexeurs » plus bas |
 | `prowlarr` | URL | vide | voir « Indexeurs » plus bas |
 | `sourceOrder` | liste de chaînes | `provider`, puis les entrées de `torznab` | voir « Indexeurs » plus bas |
+| `trackers` | objet nom → URL ou objet | vide | voir « Annonces des trackers » plus bas |
 
 ### Chemins et mappings
 
@@ -185,6 +186,33 @@ Un indexeur exige `NECROMANCIARR_SECRET_KEY` : sans elle, la configuration est r
 Un indexeur absent de `sourceOrder` n'est jamais interrogé (`doctor` avertit avec `torznab_not_in_source_order`). Une clé qui contient `&`, `#`, `%` ou `;` doit être encodée en pourcentage dans l'URL (`%26`, `%23`, `%25`, `%3B`) : `?apikey=ab%26cd` vaut `ab&cd`. Une URL refusée reçoit un message générique qui ne la reprend jamais.
 
 Avec Prowlarr, donner le flux Torznab de chaque indexeur (`/<id>/api`, `<id>` étant l'identifiant de l'indexeur dans Prowlarr) et laisser son option `Redirect` désactivée (mode Proxy) : avec une redirection, les liens de téléchargement désignent le tracker d'origine et sont refusés. `doctor` avertit quand une entrée `torznab` ne correspond à aucun indexeur activé de `prowlarr`.
+
+## Annonces des trackers (`trackers`)
+
+Le `.torrent` du fournisseur de bibliothèque n'a pas d'annonce ; pour seeder un torrent privé, qBittorrent a besoin de l'annonce du tracker, qui porte la passkey de l'opérateur. La section `trackers` la donne, pour chaque tracker, afin de l'injecter au seed (hors du dictionnaire `info` : l'infohash ne change pas). À ce stade `config.json` l'accepte et la masque ; Seed ne l'injecte pas encore.
+
+```json
+"trackers": {
+  "tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}",
+  "tracker-b": {
+    "announce": [
+      "https://tracker-b.example.com/${PASSKEY_TRACKER_B}/announce",
+      "udp://tracker-b.example.com:6969/announce?pk=${PASSKEY_TRACKER_B}"
+    ],
+    "aliases": ["TrackerB", "tracker-b.example.com"]
+  }
+}
+```
+
+| Règle | Valeur |
+|---|---|
+| Clé | nom du tracker, comparé au `tracker` d'un candidat et à `torznab[].tracker` en minuscules et sans espaces, puis aux `aliases` sous la même forme. Deux entrées dont une clé ou un alias coïncident sous cette forme sont refusées : le message nomme les deux clés, jamais une URL. Les entrées sont rangées par clé |
+| Valeur | une URL, ou un objet `{"announce": [URL…], "aliases": [name…]}` (toute autre clé est refusée, `announce` ne peut pas être vide) ; plusieurs URL forment un seul palier d'`announce-list` (même tracker, plusieurs adresses) |
+| URL | `http`, `https` ou `udp`, hôte obligatoire, aucun fragment (`#`, même vide) ; `${NAME}` interpolé comme ailleurs (variable absente : l'erreur nomme la variable, jamais la valeur) ; une URL refusée reçoit un message générique qui ne la reprend jamais |
+| Secret | toute valeur interpolée devient un secret connu, masqué partout sous ses formes brute, en capitales, en minuscules, encodée en pourcentage et échappée JSON ; l'URL entière est en plus rendue `scheme://host[:port]/***`. Une variable placée dans l'hôte rend l'hôte secret lui aussi |
+| `config check` | `trackers` liste `key`, `aliases`, `announce` (chaque URL en `https://tracker-a.example.com/***`) et `variables` (noms seulement, par exemple `PASSKEY_TRACKER_A`), jamais une valeur |
+
+Écrire la passkey par `${NAME}` (dans le `.env` ou l'environnement) : une passkey écrite en clair dans `config.json` n'est reconnue comme secret que si c'est un mot d'au moins 16 caractères base64url qui mêle chiffres et lettres. Une passkey qui contient `&`, `#`, `%` ou `;` doit être encodée en pourcentage dans une requête, comme une clé `torznab`.
 
 ## Fournisseur de bibliothèque
 

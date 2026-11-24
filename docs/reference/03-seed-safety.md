@@ -86,6 +86,21 @@ Un `.torrent` téléchargé d'un indexeur Torznab porte l'annonce du tracker, do
 - **La clé** : 32 octets en base64url sans remplissage (43 caractères), tirés par `necromanciarr api-key --secret` qui l'affiche sur stdout seulement. Seule cette écriture est admise (ni base64 standard, ni hexadécimal, ni espace) ; une valeur invalide est une erreur d'usage qui ne nomme que la variable. La clé n'est jamais sérialisée et elle est masquée partout sous ses écritures probables (brute, base64, hexadécimal). Sa remise à zéro en mémoire n'est qu'un effort : Go ne garantit pas l'absence de copie.
 - **Clé perdue ou changée** : les candidats restent lisibles (la copie assainie suffit à Verify), mais Seed refuse un candidat dont le bloc ne se descelle plus et `doctor` (`secret-key`) le signale en `sealed_torrent_unreadable`. Relancer Verify sur ce candidat récupère un `.torrent` neuf dans le budget de l'indexeur. Sauvegarder la clé avec le `.env`.
 
+## Masquage des passkeys
+
+Toute sortie (CLI texte et `--json`, API web, interface, `doctor`, journal du serveur, résultats de jobs, messages de panique) passe par le même masquage :
+
+| Règle | Exemple masqué | Rendu |
+|---|---|---|
+| Secret connu (valeur interpolée dans `trackers`, clés `torznab` et `prowlarr`, `NECROMANCIARR_SECRET_KEY`…), sous toutes ses formes | une passkey nue dans un message | `***` |
+| URL d'annonce rendue par la configuration | `https://u:p@tracker-a.example.com:8443/abc/announce?pk=x` | `https://tracker-a.example.com:8443/***` |
+| Paramètre à nom de passkey dans une URL, quelle que soit sa longueur (`passkey`, `pk`, `authkey`, `torrent_pass`, `key`, `uid`, `apikey`, `secret`, `token`, casse et encodage ignorés, séparateur `&` ou `;`, fragment compris) | `?pk=x` | `?pk=***` |
+| Segment de chemin qui suit un tel nom | `/passkey/x/announce` | `/passkey/***/announce` |
+| Segment ou valeur qui contient, une fois décodé (jusqu'à quatre fois : `%252F`), un mot hexadécimal ou base64url de 16 caractères ou plus | `/0000aaaa0000aaaa0000aaaa0000aaaa/announce` | `/***/announce` |
+| Identifiants d'une URL | `https://alice:x@tracker-a.example.com/` | `https://***@tracker-a.example.com/` |
+
+Limites : hors d'une URL, une passkey nue n'est masquée que si c'est un secret connu ; quand Seed lira l'annonce d'un `.torrent` d'indexeur, sa passkey rejoindra les secrets connus le temps de l'opération. Un infohash placé dans une URL est masqué par la règle des 16 caractères (sans dommage : il n'est pas secret) ; seul, hors d'une URL, il reste affiché. Le masquage est en temps linéaire et une seconde passe ne change rien.
+
 ## Reprise après coupure
 
 | Moment de la coupure | Effet à la relance |

@@ -120,11 +120,7 @@ func redactedEndpoint(rawURL string) string {
 	if rawURL == "" {
 		return ""
 	}
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil || parsedURL.Host == "" {
-		return redactedMark
-	}
-	return parsedURL.Scheme + "://" + parsedURL.Host + "/" + redactedMark
+	return RedactAnnounce(rawURL)
 }
 
 // torznabFile est la forme brute d'une entrée objet ; les entrées chaîne ne portent que l'URL.

@@ -27,6 +27,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - English version of the reference documentation (`docs/reference/en/`).
 - Torznab indexers (`torznab`, Prowlarr feeds) and `sourceOrder`: URLs and keys are masked everywhere; `doctor` checks each indexer (`torznab:<name>`, capabilities only, no quota spent) and Prowlarr (`prowlarr`, indexers missing or disabled). Match does not query them yet.
 - `NECROMANCIARR_SECRET_KEY` (`api-key --secret`) seals indexer torrents at rest (AES-256-GCM); a configured `torznab` indexer now requires it, and `doctor` checks it (`secret-key`) by unsealing the stored blobs. Candidates record their `source` (`provider` for existing ones).
+- `trackers`: announce URLs per tracker (passkey from the environment), to be injected at seed time (Seed does not inject them yet); announce URLs are always shown as `scheme://host/***`, and `config check` lists only hosts, aliases and variable names.
 
 ### Changed
 - Web interface redesigned: sidebar navigation, page toolbars, dense sortable tables, status pills; cards only on narrow screens; fully translated (fr/en).
@@ -39,6 +40,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - A link kind failure (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) now tells the cause and the setting to change.
 
 ### Security
+- Every output also masks, inside any URL, credentials, parameters named like a passkey (`passkey`, `pk`, `authkey`, `torrent_pass`, `key`, `uid`, `apikey`, `secret`, `token`) whatever their length, and any path segment or parameter holding a hex or base64url word of 16 characters or more, including percent-encoded, double-encoded and upper-case spellings; an infohash shown inside a URL is masked too.
 - A sealed indexer torrent is erased in the same database statement that fails or invalidates its candidate or closes its last open proposal (`applied`, `rejected`, `superseded`), and after 30 days without update; Verify keeps only an announce-free copy of every `.torrent` (a `.torrent` it cannot sanitize fails that candidate only), and the `torrent` column refuses `announce`, `announce-list`, `url-list`, `httpseeds` and `comment`.
 - Force copies each linked media sharing a missing piece out of the library before starting, or refuses.
 - Rechecks resume only torrents that were running; an incomplete torrent added by Seed must show paused.

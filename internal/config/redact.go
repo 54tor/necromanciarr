@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"net/url"
 	"regexp"
@@ -9,13 +10,26 @@ import (
 	"strings"
 )
 
-var (
-	urlInText    = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s"'<>]+`)
-	secretAssign = regexp.MustCompile(`(?i)((?:api[_-]?key|token|password|passwd|secret)=)[^&\s"']+`)
+const (
+	// minSecretSegmentLength : une passkey fait 32 caractères hexadécimaux ou plus ; 16 laisse de la marge sans
+	// toucher aux segments courts d'une URL ordinaire.
+	minSecretSegmentLength = 16
+	// maxDecodeRounds borne le décodage d'une valeur encodée plusieurs fois (« %252F ») : temps linéaire garanti.
+	maxDecodeRounds = 4
 )
 
-// RedactText masque dans un texte libre les secrets connus, les identifiants d'URL, les valeurs de requête sensibles,
-// le segment « /proxy/<clé> » et les affectations « apikey=… » ; sert aux rapports destinés à l'affichage.
+var (
+	// Expressions RE2 : temps linéaire en la taille du texte, aucun retour arrière possible.
+	urlInText    = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s"'<>]+`)
+	secretAssign = regexp.MustCompile(`(?i)((?:api[_-]?key|token|password|passwd|secret|passkey|authkey|torrent_pass)=)[^&\s"']+`)
+	// secretParameterNames nomme les paramètres de passkey des trackers, masqués quelle que soit la longueur.
+	secretParameterNames = []string{"passkey", "pk", "authkey", "torrent_pass", "key", "uid", "apikey", "secret", "token"}
+)
+
+// RedactText masque dans un texte libre les secrets connus, puis dans chaque URL les identifiants, les valeurs des
+// paramètres à nom sensible, le segment « /proxy/<clé> », tout segment ou valeur qui contient un mot de 16 caractères
+// base64url ou plus (après décodage, même répété), ainsi que les affectations « apikey=… ». Hors d'une URL, seule la
+// liste des secrets connus protège une passkey nue. Sert aux rapports destinés à l'affichage.
 func RedactText(text string, knownSecrets ...string) string {
 	// Les plus longs d'abord : un secret court inclus dans un long ne doit pas en laisser un reste.
 	ordered := slices.Clone(knownSecrets)
@@ -25,15 +39,178 @@ func RedactText(text string, knownSecrets ...string) string {
 			text = strings.ReplaceAll(text, secret, redactedMark)
 		}
 	}
-	text = urlInText.ReplaceAllStringFunc(text, func(rawURL string) string {
-		return redactRCURL(redactURL(redactProxyKey(rawURL)))
-	})
-	return secretAssign.ReplaceAllString(text, "${1}"+redactedMark)
+	// Les affectations d'abord : masquées après, elles changeraient les bornes d'une URL déjà traitée (un « < » ou un
+	// « # » avalé) et une seconde passe ne rendrait plus le même texte.
+	text = secretAssign.ReplaceAllString(text, "${1}"+redactedMark)
+	return urlInText.ReplaceAllStringFunc(text, redactURLInText)
+}
+
+// redactURLInText masque une URL trouvée dans un texte ; illisible, elle est masquée en entier.
+func redactURLInText(rawURL string) string {
+	if _, err := url.Parse(rawURL); err != nil {
+		return redactedMark
+	}
+	return maskURLStructure(redactProxyKey(rawURL))
+}
+
+// maskURLStructure travaille sur le texte brut de l'URL (jamais réencodé) : identifiants, segments de chemin,
+// paramètres de requête et de fragment, séparés par « & » ou « ; ».
+func maskURLStructure(rawURL string) string {
+	schemeEnd := strings.Index(rawURL, "://") + len("://")
+	beforeFragment, fragment, hasFragment := strings.Cut(rawURL[schemeEnd:], "#")
+	beforeQuery, query, hasQuery := strings.Cut(beforeFragment, "?")
+	authority, path := beforeQuery, ""
+	if slashIndex := strings.IndexByte(beforeQuery, '/'); slashIndex >= 0 {
+		authority, path = beforeQuery[:slashIndex], beforeQuery[slashIndex:]
+	}
+	var masked strings.Builder
+	masked.WriteString(rawURL[:schemeEnd])
+	if atIndex := strings.LastIndexByte(authority, '@'); atIndex >= 0 {
+		authority = redactedMark + authority[atIndex:]
+	}
+	masked.WriteString(authority)
+	masked.WriteString(maskPath(path))
+	if hasQuery {
+		masked.WriteString("?" + maskParameters(query))
+	}
+	if hasFragment {
+		masked.WriteString("#" + maskParameters(fragment))
+	}
+	return masked.String()
+}
+
+// maskPath masque un segment qui révèle un secret, et le segment qui suit un nom de passkey (« /passkey/<valeur> »).
+func maskPath(path string) string {
+	segments := strings.Split(path, "/")
+	followsSecretName := false
+	for segmentIndex, segment := range segments {
+		decoded := decodeRepeatedly(segment)
+		if (followsSecretName && segment != "") || revealsSecret(decoded) {
+			segments[segmentIndex] = redactedMark
+		}
+		followsSecretName = slices.Contains(secretParameterNames, strings.ToLower(decoded))
+	}
+	return strings.Join(segments, "/")
+}
+
+// maskParameters masque chaque paramètre « nom=valeur » séparé par « & » ou « ; », séparateurs gardés.
+func maskParameters(rawParameters string) string {
+	var masked strings.Builder
+	for rawParameters != "" {
+		separatorIndex := strings.IndexAny(rawParameters, "&;")
+		if separatorIndex < 0 {
+			masked.WriteString(maskParameter(rawParameters))
+			break
+		}
+		masked.WriteString(maskParameter(rawParameters[:separatorIndex]))
+		masked.WriteByte(rawParameters[separatorIndex])
+		rawParameters = rawParameters[separatorIndex+1:]
+	}
+	return masked.String()
+}
+
+func maskParameter(parameter string) string {
+	name, value, hasValue := strings.Cut(parameter, "=")
+	decodedName := decodeRepeatedly(name)
+	if revealsSecret(decodedName) {
+		return redactedMark
+	}
+	if !hasValue || value == "" {
+		return parameter
+	}
+	if isSecretParameterName(decodedName) || revealsSecret(decodeRepeatedly(value)) {
+		return name + "=" + redactedMark
+	}
+	return parameter
+}
+
+// isSecretParameterName reconnaît un nom de passkey ou un nom typique d'un secret (clé, jeton, mot de passe).
+func isSecretParameterName(name string) bool {
+	lowered := strings.ToLower(name)
+	return slices.Contains(secretParameterNames, lowered) || looksLikeSecretName(lowered)
+}
+
+// revealsSecret dit si un texte décodé contient un mot base64url d'au moins 16 caractères, ou un nom de passkey
+// suivi de « = » ou « / » et d'une valeur (séparateurs encodés déjà décodés).
+func revealsSecret(decoded string) bool {
+	previousWord, previousEnd := "", -1
+	for start := 0; start < len(decoded); {
+		if !isBase64URLByte(decoded[start]) {
+			start++
+			continue
+		}
+		end := start
+		for end < len(decoded) && isBase64URLByte(decoded[end]) {
+			end++
+		}
+		word := decoded[start:end]
+		if len(word) >= minSecretSegmentLength {
+			return true
+		}
+		isAdjacent := previousEnd >= 0 && start == previousEnd+1
+		if isAdjacent && namesSecretBefore(previousWord, decoded[previousEnd]) {
+			return true
+		}
+		previousWord, previousEnd, start = word, end, end
+	}
+	return false
+}
+
+func namesSecretBefore(name string, separator byte) bool {
+	switch separator {
+	case '=':
+		return isSecretParameterName(name)
+	case '/':
+		return slices.Contains(secretParameterNames, strings.ToLower(name))
+	default:
+		return false
+	}
+}
+
+func isBase64URLByte(character byte) bool {
+	isLetter := (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z')
+	return isLetter || (character >= '0' && character <= '9') || character == '-' || character == '_'
+}
+
+// base64URLWords découpe un texte en suites maximales de caractères base64url.
+func base64URLWords(text string) []string {
+	return strings.FieldsFunc(text, func(character rune) bool { return character > 0x7f || !isBase64URLByte(byte(character)) })
+}
+
+// decodeRepeatedly décode les séquences « %XX » jusqu'à maxDecodeRounds fois ; une séquence invalide reste telle
+// quelle au lieu d'arrêter le décodage (url.PathUnescape échouerait en entier et laisserait la passkey encodée).
+func decodeRepeatedly(text string) string {
+	for range maxDecodeRounds {
+		decoded := unescapeLeniently(text)
+		if decoded == text {
+			break
+		}
+		text = decoded
+	}
+	return text
+}
+
+func unescapeLeniently(text string) string {
+	if !strings.Contains(text, "%") {
+		return text
+	}
+	var decoded strings.Builder
+	for index := 0; index < len(text); index++ {
+		if text[index] == '%' && index+2 < len(text) {
+			if decodedByte, err := hex.DecodeString(text[index+1 : index+3]); err == nil {
+				decoded.Write(decodedByte)
+				index += 2
+				continue
+			}
+		}
+		decoded.WriteByte(text[index])
+	}
+	return decoded.String()
 }
 
 // KnownSecrets liste les valeurs secrètes de la configuration (jetons, clés, mots de passe, clé de proxy qui suit
-// « /proxy/ », identifiants rc, clé de scellement sous ses écritures probables) pour que RedactText les masque même
-// hors d'une URL.
+// « /proxy/ », identifiants rc, clé de scellement sous ses écritures probables, valeurs interpolées dans trackers)
+// pour que RedactText les masque même hors d'une URL.
 func (loadedConfig Config) KnownSecrets() []string {
 	secrets := append([]string{loadedConfig.AuthToken, loadedConfig.LibraryProviderToken}, urlSecrets(loadedConfig.LibraryAPI)...)
 	secrets = append(secrets, secretKeyForms(loadedConfig.SecretKey)...)
@@ -50,6 +227,9 @@ func (loadedConfig Config) KnownSecrets() []string {
 		secrets = append(secrets, torznabSecrets(indexer.URL)...)
 	}
 	secrets = append(secrets, torznabSecrets(loadedConfig.Prowlarr)...)
+	for _, tracker := range loadedConfig.Trackers {
+		secrets = append(secrets, tracker.secrets...)
+	}
 	for _, provider := range loadedConfig.FSProviders {
 		secrets = append(secrets, rcCredentials(provider.RC)...)
 	}

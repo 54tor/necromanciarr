@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -709,4 +710,76 @@ func TestWeb_linksRouteAnswers409WhileAnInspectionRuns(t *testing.T) {
 	response := serve(handler, apiRequest(http.MethodGet, "/api/links", ""))
 
 	expectError(t, "busy", readBody(t, response), response.Code, http.StatusConflict, app.ErrorCodeInspectionBusy)
+}
+
+// Passkeys factices à faible entropie ; la seconde change sous l'échappement JSON et l'encodage en pourcentage.
+const (
+	webPasskeyA = "0000aaaa0000aaaa0000aaaa0000aaaa"
+	webPasskeyB = `fake"pass&key/0000`
+)
+
+func trackerSettings(t *testing.T) config.Config {
+	t.Helper()
+	configDir := t.TempDir()
+	content := `{"trackers": {"tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}",
+		"tracker-b": {"announce": ["udp://tracker-b.example.com:6969/announce?pk=${PASSKEY_TRACKER_B}"]}}}`
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	environment := map[string]string{"PASSKEY_TRACKER_A": webPasskeyA, "PASSKEY_TRACKER_B": webPasskeyB}
+	settings, err := config.Load(nil, func(name string) (string, bool) {
+		value, found := environment[name]
+		return value, found
+	}, configDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings.ListenAddr = testListen
+	return settings
+}
+
+func webLeakingText() string {
+	return "announce https://tracker-a.example.com/announce/" + webPasskeyA + " refused; " +
+		"HTTPS://TRACKER-A.EXAMPLE.COM/ANNOUNCE/" + strings.ToUpper(webPasskeyA) + "; " +
+		"udp://tracker-b.example.com:6969/announce?pk=" + url.QueryEscape(webPasskeyB) + "; bare " + webPasskeyB + " " +
+		strings.ToUpper(webPasskeyB) + " " + url.PathEscape(webPasskeyB)
+}
+
+func expectNoWebPasskey(t *testing.T, label, output string) {
+	t.Helper()
+	for _, form := range []string{
+		webPasskeyA, strings.ToUpper(webPasskeyA), "0000aaaa", webPasskeyB, strings.ToUpper(webPasskeyB),
+		url.QueryEscape(webPasskeyB), url.PathEscape(webPasskeyB), `fake\"pass`, `pass&key`, "pass&key", "pass%26key",
+	} {
+		if strings.Contains(output, form) {
+			t.Fatalf("%s: gotValue %q in %q, expectedValue no form of the passkey", label, form, output)
+		}
+	}
+}
+
+func TestRedact_trackerVariableValueEverywhere(t *testing.T) {
+	leak := webLeakingText()
+	fake := &fakeService{
+		language: i18n.English,
+		status:   app.Status{Warnings: []app.Warning{{Code: "warning.test", Text: leak}}},
+		errors:   map[string]error{"Reject": errors.New("reject failed: " + leak), "RunStage": errors.New("seed failed: " + leak)},
+	}
+	handler := newTestHandler(t, fake, trackerSettings(t))
+	logged := captureLog(handler)
+
+	statusBody := readBody(t, serve(handler, apiRequest(http.MethodGet, "/api/status", "")))
+	errorBody := readBody(t, serve(handler, apiRequest(http.MethodPost, "/api/proposals/3/reject", `{}`)))
+	job := waitJob(t, handler, startJob(t, handler, "/api/stages/scan/run", `{}`).ID)
+	jobsBody := readBody(t, serve(handler, apiRequest(http.MethodGet, "/api/jobs", "")))
+	panicking := &fakeService{language: i18n.English, panicValue: "boom near " + leak}
+	panicHandler := newTestHandler(t, panicking, trackerSettings(t))
+	panicLog := captureLog(panicHandler)
+	waitJob(t, panicHandler, startJob(t, panicHandler, "/api/stages/scan/run", `{}`).ID)
+
+	if !strings.Contains(statusBody, "tracker-a.example.com") || job.Error == nil {
+		t.Fatalf("gotValue status %q and job %+v, expectedValue the redacted warning and a failed job", statusBody, job)
+	}
+	for label, output := range map[string]string{"status": statusBody, "error body": errorBody, "jobs": jobsBody, "log": logged.String(), "panic log": panicLog.String()} {
+		expectNoWebPasskey(t, label, output)
+	}
 }

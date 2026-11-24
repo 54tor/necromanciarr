@@ -326,3 +326,29 @@ func TestRender_titleStaysInTheJSONAndCodesAreNeverTranslated(t *testing.T) {
 		t.Fatalf("gotValue %+v", named)
 	}
 }
+
+func TestDoctor_redactsTrackerPasskeyInPanicAndDetail(t *testing.T) {
+	const passkey = `fake"pass&key/0000`
+	configDir := t.TempDir()
+	content := `{"radarr": ["http://example.com:7878?apikey=k"], "trackers": {"tracker-a": "https://tracker-a.example.com/announce?pk=${PASSKEY_TRACKER_A}"}}`
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := config.Load(nil, func(name string) (string, bool) { return passkey, name == "PASSKEY_TRACKER_A" }, configDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leak := "announce udp://tracker-a.example.com/announce?pk=" + passkey + " bare " + strings.ToUpper(passkey)
+	panicking := Deps{NewPinger: func(config.ArrService) Pinger { panic("boom " + leak) }}
+	failing := Deps{NewPinger: func(config.ArrService) Pinger { return fakePinger{err: errors.New("refused: " + leak)} }}
+
+	for label, deps := range map[string]Deps{"panic": panicking, "detail": failing} {
+		rendered, _ := MarshalJSONReport(Run(context.Background(), Build(settings, deps)), englishTranslator)
+
+		for _, form := range []string{passkey, strings.ToUpper(passkey), `fake\"pass`, `pass&key`, "pass&key"} {
+			if strings.Contains(string(rendered), form) {
+				t.Fatalf("%s: gotValue %q in %s, expectedValue no form of the passkey", label, form, rendered)
+			}
+		}
+	}
+}

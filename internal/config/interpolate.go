@@ -39,6 +39,22 @@ func Interpolate(raw string, lookup func(string) (string, bool)) (string, error)
 	return result.String(), nil
 }
 
+// variableRecorder entoure un lookup et retient, dans l'ordre, le nom et la valeur de chaque variable résolue : les
+// noms pour `config check`, les valeurs pour KnownSecrets.
+type variableRecorder struct {
+	lookup        func(string) (string, bool)
+	names, values []string
+}
+
+func (recorder *variableRecorder) resolve(name string) (string, bool) {
+	variableValue, found := recorder.lookup(name)
+	if found {
+		recorder.names = append(recorder.names, name)
+		recorder.values = append(recorder.values, variableValue)
+	}
+	return variableValue, found
+}
+
 func resolveVariable(name string, lookup func(string) (string, bool)) (string, error) {
 	if !variableNamePattern.MatchString(name) {
 		return "", fmt.Errorf("invalid variable name %q", name)
