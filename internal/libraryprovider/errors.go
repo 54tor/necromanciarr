@@ -23,6 +23,8 @@ var (
 	ErrBadResponse = errors.New("library-provider: unreadable response")
 	// ErrResponseTooLarge précise un ErrBadResponse dont le corps dépasse le plafond (32 Mio pour un .torrent).
 	ErrResponseTooLarge = errors.New("library-provider: response body exceeds the limit")
+	// ErrRedirectRefused : le fournisseur a répondu par une redirection ; la suivre enverrait le jeton ailleurs.
+	ErrRedirectRefused = errors.New("library-provider: redirect refused")
 )
 
 const (
@@ -55,7 +57,7 @@ func (rateLimited *RateLimitedError) Unwrap() error { return ErrUnavailable }
 func (client *Client) statusError(response *http.Response) error {
 	status := response.StatusCode
 	if status < http.StatusBadRequest {
-		return nil
+		return fmt.Errorf("%w: %w (HTTP %d)", ErrBadResponse, ErrRedirectRefused, status)
 	}
 	detail := client.problemDetail(response.Body)
 	switch {

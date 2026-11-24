@@ -411,8 +411,8 @@ func TestClient_refusesRedirects(t *testing.T) {
 	client := newTestClient(t, func(writer http.ResponseWriter, request *http.Request) {
 		http.Redirect(writer, request, "/elsewhere", http.StatusFound)
 	})
-	if _, err := client.Torrent(context.Background(), hashA, ""); !errors.Is(err, ErrBadResponse) {
-		t.Fatalf("gotErr = %v", err)
+	if _, err := client.Torrent(context.Background(), hashA, ""); !errors.Is(err, ErrBadResponse) || !errors.Is(err, ErrRedirectRefused) {
+		t.Fatalf("gotErr = %v, expectedValue ErrRedirectRefused", err)
 	}
 }
 
