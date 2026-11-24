@@ -59,7 +59,13 @@ CREATE TABLE IF NOT EXISTS mount_capabilities (
 	modtime INTEGER NOT NULL,
 	symlinks INTEGER NOT NULL,
 	probed_at INTEGER NOT NULL
-);` + pipelineSchema
+);
+CREATE TABLE IF NOT EXISTS indexer_usage (
+	indexer TEXT NOT NULL,
+	at INTEGER NOT NULL,
+	kind TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS indexer_usage_window ON indexer_usage(indexer, kind, at);` + pipelineSchema
 
 // MediaFile est un fichier média de la bibliothèque, identifié par son chemin ; TMDBID et TVDBID valent 0 si inconnus.
 type MediaFile struct {
