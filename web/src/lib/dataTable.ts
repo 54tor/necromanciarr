@@ -33,4 +33,6 @@ export interface ServerPage {
   total: number
   offset: number
   onPage: (offset: number) => void
+  /** Sans ce rappel le tri est désactivé en mode serveur ; avec lui, le serveur trie et le tableau garde l'ordre reçu. */
+  onSort?: (sort: { id: string; desc: boolean }) => void
 }

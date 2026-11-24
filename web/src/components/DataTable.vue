@@ -2,7 +2,7 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from '@lucide/vue'
 import { FlexRender, functionalUpdate, useTable, type SortingState } from '@tanstack/vue-table'
 import { useMediaQuery } from '@vueuse/core'
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { Button } from '@/components/ui/button'
 import {
   Table,
@@ -66,8 +66,12 @@ const table = useTable({
     sorting: sorting.value,
     pagination: { pageIndex: pageIndex.value, pageSize: props.pageSize },
   })),
+  enableSorting: computed(() => !props.serverPage || props.serverPage.onSort !== undefined),
+  manualSorting: computed(() => props.serverPage?.onSort !== undefined),
   onSortingChange: (updater) => {
     sorting.value = functionalUpdate(updater, sorting.value)
+    const [requested] = sorting.value
+    if (requested) props.serverPage?.onSort?.({ id: requested.id, desc: requested.desc })
   },
   onPaginationChange: (updater) => {
     const next = functionalUpdate(updater, {
@@ -111,19 +115,30 @@ function toggleSort(header: (typeof headers.value)[number]): void {
   header.column.toggleSorting(header.column.getIsSorted() === 'asc')
 }
 
-function goToPage(targetOffset: number): void {
-  if (props.serverPage) {
-    props.serverPage.onPage(targetOffset)
-    return
-  }
-  clientPageIndex.value = Math.floor(targetOffset / props.pageSize)
+const pageStatusElement = ref<HTMLElement>()
+
+// Un bouton qui devient désactivé perd le focus : il passe à l'état de la page, qui annonce le résultat.
+async function goToPage(targetOffset: number): Promise<void> {
+  if (props.serverPage) props.serverPage.onPage(targetOffset)
+  else clientPageIndex.value = Math.floor(targetOffset / props.pageSize)
+  await nextTick()
+  const focused = document.activeElement
+  const lostFocus =
+    focused === document.body || (focused instanceof HTMLButtonElement && focused.disabled)
+  if (lostFocus) pageStatusElement.value?.focus()
 }
 
 const focusedKey = ref<string>()
-const tabbableKey = computed(() => focusedKey.value ?? visibleRows.value[0]?.id)
+// Si la ligne mémorisée a disparu (page, tri), la première ligne reste l'entrée clavier du tableau.
+const tabbableKey = computed(() =>
+  visibleRows.value.some((row) => row.id === focusedKey.value)
+    ? focusedKey.value
+    : visibleRows.value[0]?.id,
+)
 
 function moveFocus(event: KeyboardEvent, direction: 'previous' | 'next'): void {
-  const current = event.currentTarget as HTMLElement
+  const current = event.currentTarget
+  if (!(current instanceof HTMLElement)) return
   const sibling = direction === 'next' ? current.nextElementSibling : current.previousElementSibling
   if (!(sibling instanceof HTMLElement)) return
   focusedKey.value = sibling.dataset.rowKey
@@ -153,8 +168,19 @@ function isSelectable(row: Row): boolean {
 }
 
 function onCheckboxChange(event: Event, key: string): void {
-  toggleSelection(key, (event.target as HTMLInputElement).checked)
+  if (event.target instanceof HTMLInputElement) toggleSelection(key, event.target.checked)
 }
+
+// La sélection est locale à la page affichée : une clé qui n'est plus visible est retirée et signalée.
+watch(
+  () => visibleRows.value.map((row) => row.id),
+  (visibleKeys) => {
+    const kept = selectedKeys.value.filter((key) => visibleKeys.includes(key))
+    if (kept.length === selectedKeys.value.length) return
+    selectedKeys.value = kept
+    emit('select', kept)
+  },
+)
 
 function headerOf(columnId: string): (typeof headers.value)[number] | undefined {
   return headers.value.find((header) => header.column.id === columnId)
@@ -162,17 +188,16 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
 </script>
 
 <template>
-  <div class="flex flex-col gap-2">
+  <div
+    data-testid="data-table"
+    class="flex flex-col gap-2"
+    :aria-busy="loading ? 'true' : undefined"
+  >
     <p v-if="error" role="alert" class="rounded-md border border-destructive p-3 text-destructive">
       {{ error }}
     </p>
     <template v-else>
-      <Table
-        v-if="isWide"
-        data-testid="table-scroll"
-        class="caption-top"
-        :aria-busy="loading ? 'true' : undefined"
-      >
+      <Table v-if="isWide" data-testid="table-scroll" class="caption-top">
         <TableCaption :class="captionHidden ? 'sr-only' : 'mt-0 mb-2 text-left'">
           {{ t(captionKey) }}
         </TableCaption>
@@ -231,7 +256,7 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
                 v-if="isSelectable(row.original)"
                 type="checkbox"
                 class="size-4 accent-primary"
-                :aria-label="t('table.selectRow', { row: position + 1 })"
+                :aria-label="t('table.selectRow', { row: offset + position + 1 })"
                 @change="onCheckboxChange($event, row.id)"
               />
             </TableCell>
@@ -245,12 +270,7 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
         </TableBody>
       </Table>
 
-      <ul
-        v-else
-        :aria-label="t(captionKey)"
-        :aria-busy="loading ? 'true' : undefined"
-        class="flex flex-col gap-2"
-      >
+      <ul v-else :aria-label="t(captionKey)" class="flex flex-col gap-2">
         <li
           v-for="(row, position) in visibleRows"
           :key="row.id"
@@ -264,7 +284,7 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
             v-if="hasSelection && isSelectable(row.original)"
             type="checkbox"
             class="mb-2 size-4 accent-primary"
-            :aria-label="t('table.selectRow', { row: position + 1 })"
+            :aria-label="t('table.selectRow', { row: offset + position + 1 })"
             @change="onCheckboxChange($event, row.id)"
           />
           <slot name="card" :row="row.original">
@@ -275,7 +295,7 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
                 class="flex justify-between gap-3"
               >
                 <dt class="text-muted-foreground">
-                  <FlexRender v-if="headerOf(cell.column.id)" :header="headerOf(cell.column.id)!" />
+                  <FlexRender v-if="headerOf(cell.column.id)" :header="headerOf(cell.column.id)" />
                 </dt>
                 <dd class="min-w-0 text-right"><FlexRender :cell="cell" /></dd>
               </div>
@@ -287,29 +307,31 @@ function headerOf(columnId: string): (typeof headers.value)[number] | undefined 
         </li>
       </ul>
 
-      <p
-        v-if="loading"
-        data-testid="table-loading"
-        aria-live="polite"
-        class="p-3 text-center text-muted-foreground"
-      >
-        {{ t('table.loading') }}
-      </p>
-      <p
-        v-else-if="isEmpty"
-        data-testid="table-empty"
-        aria-live="polite"
-        class="p-6 text-center text-muted-foreground"
-      >
-        {{ t(emptyKey) }}
-      </p>
+      <div data-testid="table-status" aria-live="polite">
+        <p v-if="loading" class="p-3 text-center text-muted-foreground">
+          {{ t('table.loading') }}
+        </p>
+        <p
+          v-else-if="isEmpty"
+          data-testid="table-empty"
+          class="p-6 text-center text-muted-foreground"
+        >
+          {{ t(emptyKey) }}
+        </p>
+      </div>
 
       <nav
         v-if="showPager"
         :aria-label="t('table.pagination')"
         class="flex items-center justify-end gap-2 text-sm"
       >
-        <span data-testid="table-page-status" class="text-muted-foreground">{{ pageStatus }}</span>
+        <span
+          ref="pageStatusElement"
+          data-testid="table-page-status"
+          tabindex="-1"
+          class="text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >{{ pageStatus }}</span
+        >
         <Button
           variant="outline"
           size="icon"

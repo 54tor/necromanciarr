@@ -177,16 +177,15 @@ describe('DataTable accessibility', () => {
   it('shows the empty state in a live region', () => {
     const wrapper = mountTable({ rows: [] })
 
-    const empty = wrapper.get('[data-testid="table-empty"]')
-    expect(empty.text()).toBe('Étapes')
-    expect(empty.attributes('aria-live')).toBe('polite')
+    expect(wrapper.get('[data-testid="table-empty"]').text()).toBe('Étapes')
+    expect(wrapper.get('[data-testid="table-status"]').attributes('aria-live')).toBe('polite')
   })
 
   it('marks the table busy while loading', () => {
     const wrapper = mountTable({ loading: true })
 
-    expect(wrapper.get('[data-testid="table-scroll"]').attributes('aria-busy')).toBe('true')
-    expect(wrapper.get('[data-testid="table-loading"]').attributes('aria-live')).toBe('polite')
+    expect(wrapper.get('[data-testid="data-table"]').attributes('aria-busy')).toBe('true')
+    expect(wrapper.get('[data-testid="table-status"]').text()).toBe('Chargement…')
     expect(wrapper.find('[data-testid="table-empty"]').exists()).toBe(false)
   })
 
@@ -260,6 +259,116 @@ describe('DataTable accessibility', () => {
 
   it('has no checkbox without the selectable prop', () => {
     expect(mountTable().find('input[type="checkbox"]').exists()).toBe(false)
+  })
+})
+
+describe('DataTable server mode', () => {
+  beforeEach(resetAppState)
+  afterEach(() => {
+    mounted.splice(0).forEach((wrapper) => wrapper.unmount())
+    vi.unstubAllGlobals()
+    document.body.innerHTML = ''
+  })
+
+  it('turns sorting off without onSort', () => {
+    const wrapper = mountTable({ serverPage: { total: 3, offset: 0, onPage: vi.fn() } })
+
+    expect(wrapper.find('th button').exists()).toBe(false)
+    expect(wrapper.findAll('th').some((header) => header.attributes('aria-sort'))).toBe(false)
+  })
+
+  it('emits onSort and keeps the server order when onSort is given', async () => {
+    const onSort = vi.fn()
+    const wrapper = mountTable({ serverPage: { total: 3, offset: 0, onPage: vi.fn(), onSort } })
+
+    await wrapper.findAll('th')[0]!.get('button').trigger('click')
+
+    expect(onSort.mock.calls).toEqual([[{ id: 'name', desc: false }]])
+    expect(bodyNames(wrapper)).toEqual(['Charlie', 'Alice', 'Bob'])
+    expect(wrapper.findAll('th')[0]!.attributes('aria-sort')).toBe('ascending')
+  })
+})
+
+describe('DataTable focus and selection robustness', () => {
+  beforeEach(resetAppState)
+  afterEach(() => {
+    mounted.splice(0).forEach((wrapper) => wrapper.unmount())
+    vi.unstubAllGlobals()
+    document.body.innerHTML = ''
+  })
+
+  it('keeps one tabbable row when the focused row disappears', async () => {
+    const wrapper = mountTable()
+    await wrapper.findAll('tbody tr')[0]!.trigger('keydown', { key: 'ArrowDown' })
+    expect(wrapper.findAll('tbody tr')[1]!.attributes('tabindex')).toBe('0')
+
+    await wrapper.setProps({ rows: [fixtureRows[0]!, fixtureRows[2]!] })
+
+    expect(wrapper.findAll('tbody tr').map((row) => row.attributes('tabindex'))).toEqual([
+      '0',
+      '-1',
+    ])
+  })
+
+  it('reflects selection in the checkbox state and prunes keys that left the page', async () => {
+    const wrapper = mountTable({ selectable: () => true })
+    await wrapper.findAll('tbody input')[0]!.setValue(true)
+    await wrapper.findAll('tbody input')[1]!.setValue(true)
+    expect((wrapper.findAll('tbody input')[0]!.element as HTMLInputElement).checked).toBe(true)
+
+    await wrapper.setProps({ rows: [fixtureRows[1]!, fixtureRows[2]!] })
+
+    expect(wrapper.emitted('select')?.at(-1)).toEqual([['b']])
+    const gotChecked = wrapper
+      .findAll('tbody input')
+      .map((box) => (box.element as HTMLInputElement).checked)
+    expect(gotChecked).toEqual([true, false])
+  })
+
+  it('drops the selection when paging away', async () => {
+    const rows = Array.from({ length: 4 }, (_, index) => ({
+      id: `r${index}`,
+      name: `N${index}`,
+      count: index,
+    }))
+    const wrapper = mountTable({ rows, pageSize: 2, selectable: () => true })
+    await wrapper.findAll('tbody input')[0]!.setValue(true)
+
+    await wrapper.get('[data-testid="table-next"]').trigger('click')
+
+    expect(wrapper.emitted('select')?.at(-1)).toEqual([[]])
+    expect(
+      wrapper.findAll('tbody input').every((box) => !(box.element as HTMLInputElement).checked),
+    ).toBe(true)
+  })
+
+  it('numbers checkbox labels from the page offset', () => {
+    const wrapper = mountTable({
+      selectable: () => true,
+      serverPage: { total: 9, offset: 6, onPage: vi.fn() },
+    })
+
+    expect(wrapper.findAll('tbody input').map((box) => box.attributes('aria-label'))).toEqual([
+      'Sélectionner la ligne 7',
+      'Sélectionner la ligne 8',
+      'Sélectionner la ligne 9',
+    ])
+  })
+
+  it('moves focus to the page status when the next button becomes disabled', async () => {
+    const rows = Array.from({ length: 3 }, (_, index) => ({
+      id: `r${index}`,
+      name: `N${index}`,
+      count: index,
+    }))
+    const wrapper = mountTable({ rows, pageSize: 2 })
+    const next = wrapper.get('[data-testid="table-next"]')
+    ;(next.element as HTMLButtonElement).focus()
+
+    await next.trigger('click')
+    await nextTick()
+
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="table-page-status"]').element)
   })
 })
 
