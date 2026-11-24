@@ -154,6 +154,9 @@ type Deps struct {
 	DoctorDeps       doctor.Deps
 	Maintenance      MaintenanceClient
 	Now              func() time.Time
+	// ResolveCrossSeed, s'il est posé, redonne le mode cross-seed au début de chaque étape, acceptation et Status
+	// (production : sonde TCP mise en cache) ; nil garde CrossSeed, CrossSeedWarning et Stages.Notifier fixes.
+	ResolveCrossSeed func(ctx context.Context) CrossSeedResolution
 }
 
 // inspect et inspectionBudget remplacent, dans les tests seulement, l'examen d'un lien et le budget de ListLinks ;
@@ -181,7 +184,10 @@ func (svc *service) RunStage(ctx context.Context, stage pipeline.Stage) (pipelin
 	if err := svc.checkStageDeps(stage); err != nil {
 		return pipeline.Result{Stage: stage}, err
 	}
-	return pipeline.Run(ctx, stage, svc.deps.Stages)
+	stages := svc.deps.Stages
+	resolution := svc.crossSeed(ctx)
+	stages.CrossSeed, stages.CrossSeedWarning, stages.Notifier = resolution.Behavior, resolution.Warning, resolution.Notifier
+	return pipeline.Run(ctx, stage, stages)
 }
 
 // checkStageDeps refuse proprement une étape dont un composant manque, au lieu d'échouer au milieu.

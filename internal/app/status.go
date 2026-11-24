@@ -29,12 +29,13 @@ func (svc *service) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	resolution := svc.crossSeed(ctx)
 	status := Status{
 		Candidates: map[store.CandidateState]int{}, Proposals: map[store.ProposalDecision]int{}, Steps: map[store.ProposalStep]int{},
-		CrossSeedMode: behaviorNames[svc.deps.CrossSeed],
+		CrossSeedMode: behaviorNames[resolution.Behavior],
 	}
-	if svc.deps.CrossSeedWarning != "" {
-		status.Warnings = []string{svc.deps.CrossSeedWarning}
+	if resolution.Warning != "" {
+		status.Warnings = []string{resolution.Warning}
 	}
 	for _, candidate := range state.candidates {
 		status.Candidates[candidate.State]++

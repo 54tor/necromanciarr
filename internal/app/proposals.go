@@ -152,7 +152,7 @@ func (svc *service) Accept(ctx context.Context, proposalID int64, options ...Dec
 	if err := checkAcceptable(proposal, slices.Contains(options, AllowPartialPack)); err != nil {
 		return err
 	}
-	if err := svc.checkFreeToAccept(state, proposal); err != nil {
+	if err := svc.checkFreeToAccept(state, proposal, svc.crossSeed(ctx).Behavior); err != nil {
 		return err
 	}
 	return svc.accept(ctx, proposal)
@@ -172,7 +172,7 @@ func checkAcceptable(proposal store.Proposal, allowPartialPack bool) error {
 
 // checkFreeToAccept : génération courante, groupe cohérent, torrent pas déjà pris par une autre proposition, et sans
 // cross-seed un seul torrent par groupe.
-func (svc *service) checkFreeToAccept(state snapshot, proposal store.Proposal) error {
+func (svc *service) checkFreeToAccept(state snapshot, proposal store.Proposal, behavior crossseed.Behavior) error {
 	if !state.current(proposal) {
 		return ErrStaleProposal
 	}
@@ -187,7 +187,7 @@ func (svc *service) checkFreeToAccept(state snapshot, proposal store.Proposal) e
 		if other.CandidateID == proposal.CandidateID {
 			return ErrCandidateAlreadyAccepted
 		}
-		if svc.deps.CrossSeed == crossseed.Disabled && other.GroupID == proposal.GroupID {
+		if behavior == crossseed.Disabled && other.GroupID == proposal.GroupID {
 			return ErrOneTorrentPerFile
 		}
 	}
@@ -304,14 +304,15 @@ func (svc *service) AcceptGroup(ctx context.Context, groupID int64) ([]int64, er
 	if err != nil {
 		return nil, err
 	}
-	targets, err := state.groupTargets(members, svc.deps.CrossSeed)
+	behavior := svc.crossSeed(ctx).Behavior
+	targets, err := state.groupTargets(members, behavior)
 	if err != nil {
 		return nil, err
 	}
 	accepted := make([]int64, 0, len(targets))
 	for _, target := range targets {
 		if !isOpenTorrentDecision(target) {
-			if err := svc.checkFreeToAccept(state, target); err != nil {
+			if err := svc.checkFreeToAccept(state, target, behavior); err != nil {
 				return nil, err
 			}
 		}

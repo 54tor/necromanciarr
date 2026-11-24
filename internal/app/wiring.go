@@ -124,27 +124,27 @@ func wireTorrentClient(settings config.Config, stages *pipeline.Deps, deps *Deps
 	return nil
 }
 
-// wireCrossSeed résout le mode (démon joignable en TCP, 2 s) ; seul Delegate notifie le démon après un seed.
+// wireCrossSeed pose le résolveur du mode cross-seed (démon joignable en TCP, 2 s, résultat gardé 30 s) et fait une
+// première résolution, pour que Deps porte un mode même sans appel. Seul Delegate notifie le démon après un seed.
 func wireCrossSeed(ctx context.Context, settings config.Config, stages *pipeline.Deps, deps *Deps) error {
-	daemonConfigured := settings.CrossSeed != nil && settings.CrossSeed.BaseURL != ""
-	daemonReachable := daemonConfigured && crossseed.Reachable(ctx, settings.CrossSeed.BaseURL, 0)
-	behavior, warning, err := crossseed.ResolveMode(settings.CrossSeedMode, daemonConfigured, daemonReachable)
-	if err != nil {
+	if _, _, err := crossseed.ResolveMode(settings.CrossSeedMode, false, false); err != nil {
 		return fmt.Errorf("app: cross-seed mode: %w", err)
 	}
-	if len(settings.TorrentClients) > 1 {
-		warning = joinWarnings(warning, multipleClientsWarning)
+	var webhook crossseed.Notifier
+	daemonConfigured := settings.CrossSeed != nil && settings.CrossSeed.BaseURL != ""
+	mayDelegate := settings.CrossSeedMode == crossseed.ModeAuto || settings.CrossSeedMode == crossseed.ModeDelegate
+	if daemonConfigured && mayDelegate {
+		built, err := crossseed.NewWebhook(settings.CrossSeed.BaseURL, settings.CrossSeed.APIKey)
+		if err != nil {
+			return fmt.Errorf("app: cross-seed webhook: %w", err)
+		}
+		webhook = built
 	}
-	stages.CrossSeed, stages.CrossSeedWarning, stages.Notifier = behavior, warning, crossseed.Noop{}
-	deps.CrossSeed, deps.CrossSeedWarning = behavior, warning
-	if behavior != crossseed.Delegate {
-		return nil
-	}
-	webhook, err := crossseed.NewWebhook(settings.CrossSeed.BaseURL, settings.CrossSeed.APIKey)
-	if err != nil {
-		return fmt.Errorf("app: cross-seed webhook: %w", err)
-	}
-	stages.Notifier = webhook
+	reachable := func(probeCtx context.Context, baseURL string) bool { return crossseed.Reachable(probeCtx, baseURL, 0) }
+	resolver := newCrossSeedResolver(settings, webhook, reachable, time.Now)
+	initial := resolver.resolve(ctx)
+	stages.CrossSeed, stages.CrossSeedWarning, stages.Notifier = initial.Behavior, initial.Warning, initial.Notifier
+	deps.CrossSeed, deps.CrossSeedWarning, deps.ResolveCrossSeed = initial.Behavior, initial.Warning, resolver.resolve
 	return nil
 }
 
