@@ -29,7 +29,7 @@ Règle ESLint `no-raw-text` (texte et attributs `title`, `aria-label`, `alt`, `p
 
 ## Logo
 
-Pictogramme dessiné à la main en SVG inline dans `src/components/AppLogo.vue` ; aucun fichier externe.
+Les logos sont l'identité visuelle PROPRE du projet, redimensionnée ; ce n'est ni un tiers ni un emprunt à une application *arr. Les originaux (`assets/branding/`, jamais modifiés) pèsent 0,9 à 2,4 Mo : l'interface n'embarque que des copies dérivées dans `public/branding/` (`logo-complet.webp` 288 px, barre latérale large ; `embleme.webp` 64 px, barre réduite et mobile ; `favicon-32.png` et `apple-touch-icon.png` 180 px, tirés de `icone.png`, pour `index.html`). Régénération : `web/scripts/derive-branding.sh` (ImageMagick 7, sRGB, métadonnées retirées, alpha conservé ; affiche les sha256). Chaque dérivé figure dans `assets-allowlist.json` (`make ui-licences`) ; un test refuse tout fichier de `public/branding` de plus de 100 Ko. Empreintes sha256 des originaux : `logo-complet.png` f60d52a5…23d4, `embleme.png` 4e9ef534…e516, `icone.png` 00fa37cc…3516 (empreintes complètes : `sha256sum assets/branding/*.png`).
 
 ## Interface
 

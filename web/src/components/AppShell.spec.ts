@@ -2,6 +2,7 @@ import { mount, type VueWrapper } from '@vue/test-utils'
 import { Link, Rocket } from '@lucide/vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
+import { setLanguage } from '@/i18n'
 import { navigate } from '@/router'
 import { resetAppState } from '@/test/fakeApi'
 import { stubViewport } from '@/test/viewport'
@@ -103,6 +104,43 @@ describe('AppShell', () => {
 
     expect(document.activeElement?.id).toBe('main-content')
     expect(window.location.hash).toBe('#/liens')
+  })
+})
+
+describe('AppShell logos', () => {
+  beforeEach(resetAppState)
+  afterEach(() => {
+    mounted.splice(0).forEach((wrapper) => wrapper.unmount())
+    vi.unstubAllGlobals()
+  })
+
+  it('shows the full logo when wide, the emblem when compact, both with the translated alt', () => {
+    const wide = mountShell(1280)
+    const compact = mountShell(900)
+
+    expect(wide.get('aside img').attributes()).toMatchObject({
+      src: '/branding/logo-complet.webp',
+      alt: 'Logo de Necromanciarr',
+      width: '144',
+      height: '144',
+    })
+    expect(compact.get('aside img').attributes()).toMatchObject({
+      src: '/branding/embleme.webp',
+      alt: 'Logo de Necromanciarr',
+    })
+  })
+
+  it('uses the English alt text when the language is English', () => {
+    setLanguage('en')
+    const wrapper = mountShell(1280)
+
+    expect(wrapper.get('aside img').attributes('alt')).toBe('Necromanciarr logo')
+  })
+
+  it('keeps the product name next to the emblem on the mobile bar', () => {
+    const wrapper = mountShell(390)
+
+    expect(wrapper.get('header').text()).toContain('Necromanciarr')
   })
 })
 

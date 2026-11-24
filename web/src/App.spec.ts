@@ -34,7 +34,7 @@ describe('App', () => {
 
     const gotTabs = wrapper.findAll('nav [data-testid="nav-label"]').map((label) => label.text())
 
-    expect(wrapper.text()).toContain('Necromanciarr')
+    expect(wrapper.get('aside img').attributes('alt')).toContain('Necromanciarr')
     expect(gotTabs).toEqual(['Démarrage', 'Propositions', 'Déduplication', 'Liens', 'Étapes'])
   })
 

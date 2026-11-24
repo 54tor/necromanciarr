@@ -1,1 +1,26 @@
-[]
+[
+  {
+    "path": "public/branding/apple-touch-icon.png",
+    "origin": "derived by web/scripts/derive-branding.sh from assets/branding (project's own branding, resized)",
+    "licence": "MIT (project's own artwork)",
+    "sha256": "5b6ea38dad992e768525d92a7bc2d3d59015f39ca3753df7a166e7d83e13b0ed"
+  },
+  {
+    "path": "public/branding/embleme.webp",
+    "origin": "derived by web/scripts/derive-branding.sh from assets/branding (project's own branding, resized)",
+    "licence": "MIT (project's own artwork)",
+    "sha256": "976765319c79add0dedd70a3efce35efa4ef10b417eb31b9d83c30e185758a6d"
+  },
+  {
+    "path": "public/branding/favicon-32.png",
+    "origin": "derived by web/scripts/derive-branding.sh from assets/branding (project's own branding, resized)",
+    "licence": "MIT (project's own artwork)",
+    "sha256": "2c268e24434fdef5d989cab0dd74f32a6716d9164ba9b448f186a5c4cb2416c5"
+  },
+  {
+    "path": "public/branding/logo-complet.webp",
+    "origin": "derived by web/scripts/derive-branding.sh from assets/branding (project's own branding, resized)",
+    "licence": "MIT (project's own artwork)",
+    "sha256": "56880b854f1fd142617b53a796e499859347ef4d3df8f34301978055122441ea"
+  }
+]

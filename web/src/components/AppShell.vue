@@ -64,7 +64,10 @@ const reducedMotion = 'motion-reduce:animate-none motion-reduce:transition-none'
         :class="mode === 'wide' ? 'w-60' : 'w-16'"
       >
         <div class="px-2 pt-2" :class="mode === 'compact' ? 'flex justify-center px-0' : ''">
-          <AppLogo :icon-only="mode === 'compact'" />
+          <AppLogo
+            :variant="mode === 'compact' ? 'emblem' : 'full'"
+            :icon-only="mode === 'compact'"
+          />
         </div>
         <SidebarNav :items="navItems" :compact="mode === 'compact'" />
       </aside>
@@ -80,7 +83,7 @@ const reducedMotion = 'motion-reduce:animate-none motion-reduce:transition-none'
               <Menu class="size-5" aria-hidden="true" />
               <span class="sr-only">{{ t('nav.openMenu') }}</span>
             </DialogTrigger>
-            <AppLogo />
+            <AppLogo variant="emblem" />
           </header>
           <DialogPortal>
             <DialogOverlay
@@ -92,7 +95,7 @@ const reducedMotion = 'motion-reduce:animate-none motion-reduce:transition-none'
               :class="reducedMotion"
             >
               <div class="flex items-center justify-between">
-                <AppLogo />
+                <AppLogo variant="emblem" />
                 <DialogClose
                   data-testid="drawer-close"
                   class="rounded-md p-2 outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring"
