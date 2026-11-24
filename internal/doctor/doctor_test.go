@@ -581,3 +581,85 @@ func TestReport_neverContainsSecrets(t *testing.T) {
 		t.Fatalf("unexpected report %s", rendered)
 	}
 }
+
+func panickingArrDeps(message string) Deps {
+	return Deps{NewPinger: func(config.ArrService) Pinger { panic(message) }}
+}
+
+func panicSettings(secret string) config.Config {
+	return config.Config{
+		AuthToken: secret, ListenAddr: "127.0.0.1:1",
+		Radarr: []config.ArrService{{Kind: "radarr", BaseURL: "http://example.com", APIKey: "LONGARRKEY1"}},
+	}
+}
+
+func TestRun_panicSecretStraddlingTheCutIsFullyRedacted(t *testing.T) {
+	const secret = "straddle-secret-value"
+	message := strings.Repeat("a", 190) + secret
+
+	report := Run(context.Background(), Build(panicSettings(secret), panickingArrDeps(message)))
+
+	detail := resultOf(t, report, "arr:radarr:0").Detail
+	if strings.Contains(detail, secret[:4]) {
+		t.Fatalf("fragment of the secret survived: %q", detail)
+	}
+}
+
+func TestRun_panicMessageIsCappedAt200Runes(t *testing.T) {
+	report := Run(context.Background(), Build(panicSettings("UNRELATEDTOKEN1"), panickingArrDeps(strings.Repeat("x", 500))))
+
+	if gotValue := strings.Count(resultOf(t, report, "arr:radarr:0").Detail, "x"); gotValue != maxPanicMessageRunes {
+		t.Fatalf("expectedValue %d, gotValue %d", maxPanicMessageRunes, gotValue)
+	}
+}
+
+func spyStoreDeps(opened *bool) Deps {
+	return Deps{OpenStore: func(string) (io.Closer, error) {
+		*opened = true
+		return nil, errors.New("must not open")
+	}}.withDefaults()
+}
+
+func TestChecks_configDirFailsWithoutOpeningWhenDatabaseDirectoryDoesNotResolve(t *testing.T) {
+	opened := false
+	settings := config.Config{ConfigDir: t.TempDir(), DBPath: "/home/u/absent-dir/db.sqlite"}
+
+	got := checkConfigDir(settings, spyStoreDeps(&opened))
+
+	if got.Status != Fail || opened {
+		t.Fatalf("opened %v, gotValue %+v", opened, got)
+	}
+}
+
+func TestChecks_configDirRefusesDatabaseFileSymlinkedIntoLibraryRoot(t *testing.T) {
+	libraryRoot, configDir := t.TempDir(), t.TempDir()
+	target := filepath.Join(libraryRoot, "db.sqlite")
+	if err := os.WriteFile(target, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(configDir, "necromanciarr.db")); err != nil {
+		t.Fatal(err)
+	}
+	opened := false
+	settings := config.Config{ConfigDir: configDir, DBPath: "necromanciarr.db", LibraryRoots: []string{libraryRoot}}
+
+	got := checkConfigDir(settings, spyStoreDeps(&opened))
+
+	if got.Status != Fail || opened {
+		t.Fatalf("opened %v, gotValue %+v", opened, got)
+	}
+}
+
+func TestChecks_dedupeCatchesTorrentRootSymlinkedIntoLibrary(t *testing.T) {
+	libraryRoot, outside := t.TempDir(), t.TempDir()
+	symlinkedRoot := filepath.Join(outside, "torrents")
+	if err := os.Symlink(libraryRoot, symlinkedRoot); err != nil {
+		t.Fatal(err)
+	}
+
+	got := checkDedupe(config.Config{LibraryRoots: []string{libraryRoot}, Dedupe: config.Dedupe{TorrentRoots: []string{symlinkedRoot}}})
+
+	if got.Status != Fail {
+		t.Fatalf("gotValue %+v", got)
+	}
+}

@@ -124,8 +124,7 @@ func redactingRun(run func(context.Context) Result, secrets []string) func(conte
 		// La panique est récupérée ici pour que les secrets connus soient masqués dans son message.
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				result = panicResult(recovered)
-				result.Detail = config.RedactText(result.Detail, secrets...)
+				result = panicResult(recovered, func(text string) string { return config.RedactText(text, secrets...) })
 			}
 		}()
 		result = run(ctx)
@@ -173,11 +172,8 @@ func checkConfigDir(settings config.Config, deps Deps) Result {
 		}
 	}
 	databasePath := config.ResolveDBPath(settings)
-	if root, inside := insideLibraryRoot(filepath.Dir(databasePath), settings.LibraryRoots); inside {
-		return Result{
-			Status: Fail, Detail: "la base de données est dans la racine de bibliothèque " + root,
-			Hint: "placer dbPath hors de la bibliothèque : elle n'est jamais écrite",
-		}
+	if refusal, refused := refuseDatabasePath(databasePath, settings.LibraryRoots); refused {
+		return refusal
 	}
 	database, err := deps.OpenStore(databasePath)
 	if err != nil {
@@ -188,6 +184,31 @@ func checkConfigDir(settings config.Config, deps Deps) Result {
 	}
 	_ = database.Close()
 	return Result{Status: OK, Detail: "database opens read-write: " + databasePath}
+}
+
+// refuseDatabasePath refuse d'ouvrir la base si son dossier ne se résout pas ou si, liens symboliques suivis (dossier
+// et fichier lui-même), elle tombe dans une racine de bibliothèque.
+func refuseDatabasePath(databasePath string, libraryRoots []string) (Result, bool) {
+	resolvedDirectory, err := filepath.EvalSymlinks(filepath.Dir(databasePath))
+	if err != nil {
+		return Result{
+			Status: Fail, Detail: "le dossier de la base ne peut pas être résolu : " + filepath.Dir(databasePath),
+			Hint: "créer le dossier ou corriger dbPath",
+		}, true
+	}
+	directories := []string{resolvedDirectory}
+	if resolvedFile, fileErr := filepath.EvalSymlinks(databasePath); fileErr == nil {
+		directories = append(directories, filepath.Dir(resolvedFile))
+	}
+	for _, directory := range directories {
+		if root, inside := insideLibraryRoot(directory, libraryRoots); inside {
+			return Result{
+				Status: Fail, Detail: "la base de données est dans la racine de bibliothèque " + root,
+				Hint: "placer dbPath hors de la bibliothèque : elle n'est jamais écrite",
+			}, true
+		}
+	}
+	return Result{}, false
 }
 
 func checkAuth(settings config.Config) Result {
@@ -240,7 +261,7 @@ func checkDedupe(settings config.Config) Result {
 	var collected findings
 	for rootIndex, torrentRoot := range settings.Dedupe.TorrentRoots {
 		label := fmt.Sprintf("dedupe.torrentRoots[%d]", rootIndex)
-		if overlapped, found := overlappingRoot(torrentRoot, settings.LibraryRoots); found {
+		if overlapped, found := overlappingTorrentRoot(torrentRoot, settings.LibraryRoots); found {
 			collected.add(Fail, fmt.Sprintf("%s overlaps library root %s", label, overlapped),
 				"torrent roots must be outside the library, or links would replace library files")
 			continue
@@ -261,4 +282,13 @@ func overlappingRoot(candidate string, roots []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// overlappingTorrentRoot cumule la comparaison lexicale et celle des chemins résolus : un lien symbolique ne doit pas
+// ranger une racine torrent dans la bibliothèque sans que le contrôle le voie.
+func overlappingTorrentRoot(torrentRoot string, libraryRoots []string) (string, bool) {
+	if root, found := overlappingRoot(torrentRoot, libraryRoots); found {
+		return root, true
+	}
+	return insideLibraryRoot(torrentRoot, libraryRoots)
 }

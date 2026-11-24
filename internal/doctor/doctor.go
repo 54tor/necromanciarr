@@ -141,7 +141,7 @@ func runOne(ctx context.Context, check Check, timeout time.Duration) Result {
 	go func() {
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				resultChannel <- panicResult(recovered)
+				resultChannel <- panicResult(recovered, func(text string) string { return config.RedactText(text) })
 			}
 		}()
 		resultChannel <- check.Run(checkCtx)
@@ -175,10 +175,10 @@ func MarshalJSONReport(report Report) ([]byte, error) {
 
 const maxPanicMessageRunes = 200
 
-// panicResult résume une panique sans jamais l'afficher brute : type de la valeur et message tronqué à 200 caractères.
-// Le message passe ensuite par la redaction du rapport.
-func panicResult(recovered any) Result {
-	message := []rune(fmt.Sprint(recovered))
+// panicResult résume une panique sans jamais l'afficher brute : type de la valeur, puis message masqué par redact
+// sur le texte complet et seulement ensuite tronqué à 200 caractères (un secret à cheval sur la coupure resterait sinon).
+func panicResult(recovered any, redact func(string) string) Result {
+	message := []rune(redact(fmt.Sprint(recovered)))
 	if len(message) > maxPanicMessageRunes {
 		message = message[:maxPanicMessageRunes]
 	}
