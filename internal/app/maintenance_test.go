@@ -551,3 +551,46 @@ func TestApp_repairScanWithoutDirKeepsProposalsOfAnEarlierDirScan(t *testing.T) 
 		t.Fatalf("gotValue %s, expectedValue the --dir proposal left open by a plain scan", fixture.decisionOf(found.ID))
 	}
 }
+
+func TestApp_repairRechecksTheRepointedLinkThroughTheClientAndNeverResumes(t *testing.T) {
+	fixture := newMaintenanceFixture(t)
+	fixture.client.recheckErr = fmt.Errorf("%w: aa (progress 0.9)", qbit.ErrIncompleteAfterRecheck)
+	repairablePath, _, _ := fixture.repairLayout()
+	service := fixture.service()
+	ctx := context.Background()
+	proposals, err := service.RepairScan(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repairable := repairByLink(proposals, repairablePath)
+	if err := service.Accept(ctx, repairable.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.RepairAccept(ctx, repairable.ID)
+
+	if err != nil || !result.Applied || !slices.Equal(fixture.client.recheckedPaths, []string{repairablePath}) {
+		t.Fatalf("gotValue %+v %v %v, expectedValue one recheck of the repaired link", result, err, fixture.client.recheckedPaths)
+	}
+	if !slices.Contains(result.Warnings, WarningPausedIncompleteAfterRecheck) || len(fixture.resumer.resumed) != 0 {
+		t.Fatalf("gotValue %+v resumed %v, expectedValue the paused warning and no resume", result, fixture.resumer.resumed)
+	}
+}
+
+func TestApp_repairWithoutClientKeepsHeuristicMethodsNonActionable(t *testing.T) {
+	fixture := newMaintenanceFixture(t)
+	repairablePath, _, _ := fixture.repairLayout()
+	service := New(Deps{Store: fixture.store, Stages: pipeline.Deps{Store: fixture.store}, Config: fixture.settings, Now: func() time.Time { return fixedNow }})
+	ctx := context.Background()
+
+	proposals, err := service.RepairScan(ctx, "")
+
+	repairable := repairByLink(proposals, repairablePath)
+	isHeuristic := repairable.Details.Method == string(repair.BySizeAndModTime) || repairable.Details.Method == string(repair.ByFingerprint)
+	if err != nil || !isHeuristic || repairable.Details.Actionable || repairable.Details.Reason != RepairReasonNeedsClientRecheck {
+		t.Fatalf("gotValue %+v %v, expectedValue a listed but non-actionable repair needing a client recheck", repairable, err)
+	}
+	if err := service.Accept(ctx, repairable.ID); !errors.Is(err, ErrNotActionable) {
+		t.Fatalf("gotValue %v, expectedValue ErrNotActionable", err)
+	}
+}

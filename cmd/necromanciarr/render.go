@@ -192,6 +192,9 @@ func writeRepairProposals(writer io.Writer, proposals []app.RepairProposal) {
 			method = "-"
 		}
 		writeRow(writer, repairColumns, fmt.Sprint(proposal.ID), string(proposal.Decision), proposal.Details.Status, method, proposal.Details.LinkPath)
+		if proposal.Details.Reason != "" {
+			_, _ = fmt.Fprintln(writer, fitText("       not actionable: "+proposal.Details.Reason, tableWidth))
+		}
 	}
 }
 

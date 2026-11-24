@@ -31,6 +31,7 @@ type fakeService struct {
 	applyErrors         map[int64]error
 	lastApplyOptions    []app.DecisionOption
 	dedupePlan          []app.DedupeProposal
+	repairScan          []app.RepairProposal
 	linkPage            app.LinkPage
 }
 
@@ -119,7 +120,7 @@ func (fake *fakeService) applied(proposalID int64, options []app.DecisionOption)
 
 func (fake *fakeService) RepairScan(_ context.Context, directory string) ([]app.RepairProposal, error) {
 	fake.record("RepairScan", directory)
-	return nil, fake.err
+	return fake.repairScan, fake.err
 }
 
 func (fake *fakeService) RepairAccept(_ context.Context, proposalID int64, options ...app.DecisionOption) (app.MaintenanceResult, error) {
@@ -624,5 +625,20 @@ func TestCli_linksListWhileAnInspectionRunsExitsOneWithItsCode(t *testing.T) {
 	}
 	if text.exitCode != failureExitCode || !strings.Contains(text.stderr, "still running") {
 		t.Fatalf("gotValue %+v, expectedValue exit 1 and the busy message", text)
+	}
+}
+
+func TestCli_repairScanShowsWhyARepairIsNotActionable(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{}`)
+	fake := &fakeService{repairScan: []app.RepairProposal{{ID: 4, Decision: "pending", Details: app.RepairDetails{
+		Status: app.RepairStatusRepairable, LinkPath: "/home/u/links/movie.mkv", Method: "size-mtime",
+		Reason: app.RepairReasonNeedsClientRecheck,
+	}}}}
+	useFakeService(t, fake)
+
+	scan := runCli(t, configDir, "repair", "scan")
+
+	if scan.exitCode != 0 || !strings.Contains(scan.stdout, "not actionable: "+app.RepairReasonNeedsClientRecheck) {
+		t.Fatalf("gotValue %+v, expectedValue the reason printed under the repair", scan)
 	}
 }

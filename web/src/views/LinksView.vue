@@ -86,6 +86,13 @@ onMounted(load)
           <Badge v-if="item.details.method" variant="outline" data-testid="method">
             Méthode : {{ labelOf(REPAIR_METHOD_LABELS, item.details.method) }}
           </Badge>
+          <Badge
+            v-if="item.details.reason === 'needs_client_recheck'"
+            variant="outline"
+            data-testid="needs-client-recheck"
+          >
+            Non applicable sans client torrent : la méthode attend son recontrôle
+          </Badge>
         </div>
         <dl class="grid gap-1 text-sm">
           <div>

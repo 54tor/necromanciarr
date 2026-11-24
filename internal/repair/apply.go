@@ -36,23 +36,27 @@ type LinkUpdater interface {
 }
 
 // ApplyOptions règle Apply : Roots borne les liens modifiables, DryRun fait toutes les vérifications sans rien créer,
-// Store nil désactive la mise à jour de la base.
+// Store nil désactive la mise à jour de la base. Rechecker (nil = aucun) fait recontrôler par le client le torrent
+// du lien remplacé, sous la garde pause-recontrôle-reprise : un torrent incomplet reste en pause.
 type ApplyOptions struct {
-	Roots  []string
-	DryRun bool
-	Store  LinkUpdater
+	Roots     []string
+	DryRun    bool
+	Store     LinkUpdater
+	Rechecker dedupe.Rechecker
 
 	renameFile func(temporaryPath, linkPath string) error
 }
 
 // Outcome est le sort d'une Repair : LinkTarget est le texte écrit (ou qui le serait en DryRun), Done dit que le lien a
-// été remplacé. Un échec de la base est dans Err alors que Done reste vrai.
+// été remplacé. Un échec de la base est dans Err alors que Done reste vrai ; l'échec du recontrôle est dans RecheckErr
+// et ne rend pas Apply fautif.
 type Outcome struct {
 	Repair     Repair
 	LinkTarget string
 	Done       bool
 	DryRun     bool
 	Err        error
+	RecheckErr error
 }
 
 // Result donne un Outcome par Repair, dans l'ordre reçu.
@@ -128,6 +132,9 @@ func applyOne(ctx context.Context, repair Repair, options ApplyOptions, roots []
 	recordCtx, cancelRecord := context.WithTimeout(context.WithoutCancel(ctx), recordTimeout)
 	defer cancelRecord()
 	outcome.Err = recordRepair(recordCtx, repair, options.Store)
+	if options.Rechecker != nil {
+		outcome.RecheckErr = options.Rechecker.RecheckPath(ctx, repair.LinkPath)
+	}
 	return outcome
 }
 

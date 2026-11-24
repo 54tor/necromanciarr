@@ -114,6 +114,8 @@ Preuve d'identité : `full` compare tous les octets ; `sampled` compare début, 
 
 `repair scan` examine les liens enregistrés, puis les liens inconnus sous `dedupe.torrentRoots` et sous le dossier donné par `--dir` (refusé s'il recouvre la bibliothèque). Pour un lien cassé il cherche la nouvelle cible par inode (disque local seulement), puis taille et date, puis empreinte début-fin (5 lectures au plus par lien), puis pièces du torrent du client. Plusieurs candidats : `ambiguous`, rien n'est choisi. Rien trouvé : `lost`. Seul un lien `repairable` s'accepte. `repair apply` ne remplace un lien que sous `linkDirs`, `dedupe.torrentRoots` ou le dossier du scan, jamais sous la bibliothèque.
 
+Avec un client torrent configuré, chaque lien remplacé fait recontrôler le torrent qui le contient, sous la même garde que dedupe (vue du client par `pathMappings`, pause, recontrôle, reprise seulement à 100 %) : un torrent incomplet reste en pause avec l'avertissement `left paused: the client did not reach 100% after its recheck`, un recontrôle impossible (aucun torrent ne couvre le lien) donne un avertissement, jamais un échec. Sans client, seules les méthodes `inode` et `torrent-pieces`, qui prouvent le contenu, sont applicables : une réparation trouvée par `size-mtime` ou `fingerprint` est listée avec `actionable: false` et `reason: needs_client_recheck` (CLI : ligne `not actionable: needs_client_recheck` ; web : badge « Non applicable sans client torrent »).
+
 ## Fournisseurs de système de fichiers (`fsProviders`)
 
 Donnent l'empreinte de contenu d'un fichier sans le relire, pour la déduplication et la réparation. Seul le type `rclone` existe : `rclone hashsum`, jamais `--download`.

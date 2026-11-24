@@ -182,24 +182,24 @@ func (svc *service) applyDedupe(ctx context.Context, details DedupeDetails, resu
 		return outcome.Err
 	}
 	if outcome.Done {
-		result.Warnings = dedupeOutcomeWarnings(outcome)
+		result.Warnings = outcomeWarnings(outcome.Err, outcome.RecheckErr)
 	}
 	finishCtx, cancel := bookkeeping(ctx)
 	defer cancel()
 	return svc.finishMaintenance(finishCtx, result, outcome.Done, outcome.Err, dedupe.ErrChangedSincePlan)
 }
 
-// dedupeOutcomeWarnings : un torrent incomplet après recontrôle reste en pause (le client le garde ainsi), jamais
-// repris ici.
-func dedupeOutcomeWarnings(outcome dedupe.Outcome) []string {
+// outcomeWarnings : enregistrement manqué après remplacement, et sort du recontrôle ; un torrent incomplet après
+// recontrôle reste en pause (le client le garde ainsi), jamais repris ici.
+func outcomeWarnings(recordErr, recheckErr error) []string {
 	var warnings []string
-	if outcome.Err != nil {
+	if recordErr != nil {
 		warnings = append(warnings, WarningLinkNotRecorded)
 	}
 	switch {
-	case errors.Is(outcome.RecheckErr, qbit.ErrIncompleteAfterRecheck):
+	case errors.Is(recheckErr, qbit.ErrIncompleteAfterRecheck):
 		warnings = append(warnings, WarningPausedIncompleteAfterRecheck)
-	case outcome.RecheckErr != nil:
+	case recheckErr != nil:
 		warnings = append(warnings, WarningRecheckFailed)
 	}
 	return warnings

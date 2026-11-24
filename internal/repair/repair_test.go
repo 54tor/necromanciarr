@@ -720,3 +720,38 @@ func TestScan_flagsReplacedSymlinksAndResizedCopiesAsDiverged(t *testing.T) {
 		t.Fatalf("gotValue %v, expectedValue %v", conditions, expectedConditions)
 	}
 }
+
+// recordingRechecker retient les chemins recontrôlés et vérifie que le lien est déjà remplacé à l'appel.
+type recordingRechecker struct {
+	t       *testing.T
+	checked []string
+	err     error
+}
+
+func (rechecker *recordingRechecker) RecheckPath(_ context.Context, path string) error {
+	if _, err := os.Stat(path); err != nil {
+		rechecker.t.Fatalf("recheck asked before the link was repaired: %v", err)
+	}
+	rechecker.checked = append(rechecker.checked, path)
+	return rechecker.err
+}
+
+func TestApply_rechecksTheRepairedLinkAfterTheRenameButNotInDryRun(t *testing.T) {
+	fixture := newApplyFixture(t, true)
+	rechecker := &recordingRechecker{t: t, err: errors.New("still incomplete")}
+	fixture.options.Rechecker = rechecker
+	fixture.options.DryRun = true
+
+	if _, err := Apply(t.Context(), []Repair{fixture.repair}, fixture.options); err != nil || len(rechecker.checked) != 0 {
+		t.Fatalf("dry run: gotValue %v %v, expectedValue no recheck", err, rechecker.checked)
+	}
+	fixture.options.DryRun = false
+	result, err := Apply(t.Context(), []Repair{fixture.repair}, fixture.options)
+
+	if err != nil || len(rechecker.checked) != 1 || rechecker.checked[0] != fixture.repair.LinkPath {
+		t.Fatalf("gotValue %v %v, expectedValue one recheck of the link", err, rechecker.checked)
+	}
+	if gotErr := result.Outcomes[0].RecheckErr; gotErr == nil || !result.Outcomes[0].Done {
+		t.Fatalf("gotValue %+v, expectedValue the recheck failure kept beside a done repair", result.Outcomes[0])
+	}
+}

@@ -82,6 +82,7 @@ export interface RepairDetails {
   candidates?: string[]
   relative: boolean
   actionable: boolean
+  reason?: 'needs_client_recheck'
   scan_directory?: string
 }
 

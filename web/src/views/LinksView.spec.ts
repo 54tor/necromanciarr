@@ -55,6 +55,25 @@ describe('LinksView', () => {
     expect(lost.find('button').attributes('disabled')).toBeDefined()
   })
 
+  it('LinksView_showsThatAHeuristicRepairNeedsAClientRecheck', async () => {
+    const heuristic = {
+      ...maintenanceProposal(34, {
+        ...repairDetails,
+        method: 'size-mtime',
+        actionable: false,
+        reason: 'needs_client_recheck' as const,
+      }),
+      kind: 'repair' as const,
+    }
+    installFakeApi({ 'GET /api/proposals': [heuristic], 'GET /api/jobs': [] })
+    const wrapper = mount(LinksView)
+    await flushPromises()
+
+    const card = wrapper.find('[data-testid="repair-34"]')
+    expect(card.find('[data-testid="needs-client-recheck"]').text()).toContain('sans client torrent')
+    expect(card.find('button').attributes('disabled')).toBeDefined()
+  })
+
   it('LinksView_scansWithTheOptionalDirectoryAndAppliesARepair', async () => {
     const calls = installFakeApi({
       'GET /api/proposals': rows,

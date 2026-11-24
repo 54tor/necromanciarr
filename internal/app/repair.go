@@ -37,6 +37,7 @@ type RepairDetails struct {
 	Candidates    []string `json:"candidates,omitempty"`
 	Relative      bool     `json:"relative"`
 	Actionable    bool     `json:"actionable"`
+	Reason        string   `json:"reason,omitempty"`
 	ScanDirectory string   `json:"scan_directory,omitempty"`
 }
 
@@ -50,7 +51,7 @@ type RepairProposal struct {
 
 func (details RepairDetails) identity() (key, signature string) {
 	signature = fmt.Sprint(details.Status, "\x00", details.OldTarget, "\x00", details.NewTarget, "\x00", details.Size, "\x00",
-		strings.Join(details.Candidates, "\x00"), "\x00", details.ScanDirectory)
+		strings.Join(details.Candidates, "\x00"), "\x00", details.ScanDirectory, "\x00", details.Reason)
 	return details.LinkPath, signature
 }
 
@@ -120,7 +121,13 @@ func (svc *service) scanRepairs(ctx context.Context, directory string) ([]Repair
 	if err != nil {
 		return nil, err
 	}
-	return repairEntries(repairs, report, directory), nil
+	return repairEntries(repairs, report, directory, svc.deps.Maintenance != nil), nil
+}
+
+// needsClientRecheck : seules les méthodes inode et torrent-pieces prouvent le contenu ; les autres attendent le
+// recontrôle du client pour être confirmées.
+func needsClientRecheck(method string) bool {
+	return method == string(repair.BySizeAndModTime) || method == string(repair.ByFingerprint)
 }
 
 // absoluteDirectory nettoie et rend absolu le dossier indiqué, pour comparer les scans entre eux ; vide reste vide.
@@ -144,14 +151,18 @@ func scanDirectoryOf(linkPath, directory string) string {
 	return directory
 }
 
-func repairEntries(repairs []repair.Repair, report repair.Report, directory string) []RepairDetails {
+func repairEntries(repairs []repair.Repair, report repair.Report, directory string, hasClient bool) []RepairDetails {
 	entries := make([]RepairDetails, 0, len(repairs)+len(report.Ambiguous)+len(report.Lost))
 	for _, found := range repairs {
-		entries = append(entries, RepairDetails{
+		details := RepairDetails{
 			Status: RepairStatusRepairable, LinkPath: found.LinkPath, OldTarget: found.OldTarget, NewTarget: found.NewTarget,
 			Size: found.Size, Method: string(found.Method), Candidates: found.Candidates, Relative: found.Relative,
 			Actionable: true, ScanDirectory: scanDirectoryOf(found.LinkPath, directory),
-		})
+		}
+		if !hasClient && needsClientRecheck(details.Method) {
+			details.Actionable, details.Reason = false, RepairReasonNeedsClientRecheck
+		}
+		entries = append(entries, details)
 	}
 	for _, ambiguous := range report.Ambiguous {
 		entries = append(entries, RepairDetails{
@@ -184,11 +195,17 @@ func (svc *service) applyRepair(ctx context.Context, details RepairDetails, resu
 	if err := checkOutsideLibrary([]string{details.LinkPath}, settings.LibraryRoots, ErrDirectoryInLibrary); err != nil {
 		return err
 	}
+	if svc.deps.Maintenance == nil && needsClientRecheck(details.Method) {
+		return fmt.Errorf("%w: %s", ErrNotActionable, RepairReasonNeedsClientRecheck)
+	}
 	roots := slices.Concat(settings.LinkDirs, settings.Dedupe.TorrentRoots)
 	if details.ScanDirectory != "" {
 		roots = append(roots, details.ScanDirectory)
 	}
 	applyOptions := repair.ApplyOptions{Roots: existingDirectories(roots), DryRun: result.DryRun, Store: svc.deps.Store}
+	if svc.deps.Maintenance != nil {
+		applyOptions.Rechecker = clientView{client: svc.deps.Maintenance, mapper: svc.deps.Stages.ClientMapper}
+	}
 	applied, applyErr := repair.Apply(ctx, []repair.Repair{details.repair()}, applyOptions)
 	if len(applied.Outcomes) == 0 {
 		return applyErr
@@ -198,8 +215,8 @@ func (svc *service) applyRepair(ctx context.Context, details RepairDetails, resu
 	if result.DryRun {
 		return outcome.Err
 	}
-	if outcome.Done && outcome.Err != nil {
-		result.Warnings = []string{WarningLinkNotRecorded}
+	if outcome.Done {
+		result.Warnings = outcomeWarnings(outcome.Err, outcome.RecheckErr)
 	}
 	finishCtx, cancel := bookkeeping(ctx)
 	defer cancel()
@@ -245,3 +262,7 @@ func (view clientView) TorrentForPath(ctx context.Context, path string) (repair.
 	}
 	return view.client.TorrentForPath(ctx, clientPath)
 }
+
+// RepairReasonNeedsClientRecheck : une réparation trouvée par taille et date ou par empreinte n'est qu'une présomption ;
+// sans client torrent pour recontrôler le torrent après coup, elle est listée mais pas applicable.
+const RepairReasonNeedsClientRecheck = "needs_client_recheck"
