@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -192,13 +193,68 @@ func (out printer) warn(warnings []string) {
 	}
 }
 
+// writeJSON masque chaque chaîne avant l'encodage : un secret qui contient « & », « < », « " », « \ » ou un
+// caractère non ASCII n'a plus la même forme une fois échappé en JSON. Les formes échappées des secrets sont aussi
+// masquées dans le texte encodé, en défense en profondeur. Les clés des objets sortent triées.
 func (out printer) writeJSON(value any) error {
-	rendered, err := json.MarshalIndent(value, "", "  ")
+	raw, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintln(out.stdout, out.redact(string(rendered)))
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var tree any
+	if err := decoder.Decode(&tree); err != nil {
+		return err
+	}
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(out.redactTree(tree)); err != nil {
+		return err
+	}
+	_, _ = io.WriteString(out.stdout, config.RedactText(encoded.String(), out.escapedSecrets()...))
 	return nil
+}
+
+// redactTree masque chaque chaîne (valeurs et clés) d'un arbre JSON décodé.
+func (out printer) redactTree(node any) any {
+	switch typed := node.(type) {
+	case string:
+		return out.redact(typed)
+	case []any:
+		for index, element := range typed {
+			typed[index] = out.redactTree(element)
+		}
+		return typed
+	case map[string]any:
+		redacted := make(map[string]any, len(typed))
+		for key, element := range typed {
+			redacted[out.redact(key)] = out.redactTree(element)
+		}
+		return redacted
+	}
+	return node
+}
+
+// escapedSecrets donne chaque secret tel quel et sous ses formes échappées par JSON (avec et sans échappement HTML).
+func (out printer) escapedSecrets() []string {
+	forms := slices.Clone(out.secrets)
+	for _, secret := range out.secrets {
+		if secret == "" {
+			continue
+		}
+		var plain bytes.Buffer
+		encoder := json.NewEncoder(&plain)
+		encoder.SetEscapeHTML(false)
+		_ = encoder.Encode(secret)
+		htmlEscaped, _ := json.Marshal(secret)
+		for _, quoted := range []string{strings.TrimSpace(plain.String()), string(htmlEscaped)} {
+			forms = append(forms, strings.TrimSuffix(strings.TrimPrefix(quoted, `"`), `"`))
+		}
+	}
+	return forms
 }
 
 // failure affiche l'erreur (JSON sur stdout avec --json, sinon sur stderr) et renvoie son code de sortie ; une erreur

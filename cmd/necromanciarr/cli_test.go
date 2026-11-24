@@ -380,3 +380,43 @@ func TestCli_dedupePlanAndRepairScanTextOutput(t *testing.T) {
 		t.Fatalf("scan: gotValue %+v calls %v", scan, fake.calls)
 	}
 }
+
+func TestCli_neverPrintsSecretsWithJSONEscapedCharacters(t *testing.T) {
+	const secret = `tok&en<x"y\zé`
+	t.Setenv("LIBRARY_PROVIDER_TOKEN", secret)
+	configDir := writeDoctorConfig(t, `{}`)
+	escaped, err := json.Marshal(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forbidden := []string{secret, strings.Trim(string(escaped), `"`), `tok&en<x\"y\\zé`}
+	leakyText := "provider said " + secret
+	fake := &fakeService{
+		status:              app.Status{Warnings: []string{leakyText}},
+		maintenanceWarnings: []string{leakyText},
+	}
+	useFakeService(t, fake)
+	assertMasked := func(args []string, result cliRun) {
+		t.Helper()
+		for _, form := range forbidden {
+			if strings.Contains(result.stdout+result.stderr, form) {
+				t.Fatalf("%v: gotValue %q in stdout %q stderr %q, expectedValue every form masked", args, form, result.stdout, result.stderr)
+			}
+		}
+	}
+
+	for _, args := range [][]string{{"status"}, {"status", "--json"}, {"dedupe", "apply", "2"}, {"dedupe", "apply", "2", "--json"}} {
+		assertMasked(args, runCli(t, configDir, args...))
+	}
+	fake.err = errors.New("request failed: " + secret)
+	for _, args := range [][]string{{"status"}, {"status", "--json"}} {
+		result := runCli(t, configDir, args...)
+		assertMasked(args, result)
+		if result.exitCode != failureExitCode {
+			t.Fatalf("%v: gotValue exit %d, expectedValue failure", args, result.exitCode)
+		}
+	}
+	if result := runCli(t, configDir, "status", "--json"); !json.Valid([]byte(result.stdout)) || !strings.Contains(result.stdout, `"error"`) {
+		t.Fatalf("gotValue %q, expectedValue a valid error object", result.stdout)
+	}
+}
