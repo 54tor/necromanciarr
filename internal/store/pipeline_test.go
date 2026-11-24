@@ -1173,3 +1173,38 @@ func TestStore_upgradeKeepsTheBestOfTwoOpenPrimariesBeforeIndexing(t *testing.T)
 		t.Fatalf("gotValue %+v, expectedValue only the 100 %% proposal kept as primary", proposals)
 	}
 }
+
+func TestRegroupCandidates_waitsForAConcurrentWriterInsteadOfFailingBusy(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	if err := openedStore.AcquireRunLock(ctx, "holder", "match", testNow, testNow.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	refresherDone := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				refresherDone <- nil
+				return
+			default:
+			}
+			if err := openedStore.RefreshRunLock(ctx, "holder", testNow.Add(time.Hour)); err != nil {
+				refresherDone <- err
+				return
+			}
+		}
+	}()
+
+	var regroupErr error
+	for attempt := 0; attempt < 50 && regroupErr == nil; attempt++ {
+		regroupErr = openedStore.RegroupCandidates(ctx)
+	}
+	close(stop)
+
+	if err := errors.Join(regroupErr, <-refresherDone); err != nil {
+		t.Fatalf("gotValue %v, expectedValue writers serialized by the busy timeout", err)
+	}
+}

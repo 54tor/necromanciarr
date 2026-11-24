@@ -76,8 +76,10 @@ type Store struct {
 	database *sql.DB
 }
 
-// pragmaQuery attend 5 s sur un verrou au lieu d'échouer, et active les clés étrangères (désactivées par défaut dans SQLite).
-const pragmaQuery = "_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
+// pragmaQuery attend 5 s sur un verrou au lieu d'échouer et active les clés étrangères (désactivées par défaut dans
+// SQLite). _txlock=immediate prend le verrou d'écriture dès BEGIN : toute transaction du store écrit, et une transaction
+// différée qui lit puis écrit échouerait aussitôt (SQLITE_BUSY, sans attente) si un autre écrivain passe entre-temps.
+const pragmaQuery = "_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)&_txlock=immediate"
 
 // dataSourceName construit une URI SQLite : `?`, `#` et `%` du chemin sont échappés,
 // et la lettre de lecteur Windows reste dans le chemin (`file:C:/x/y.db`).
