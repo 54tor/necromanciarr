@@ -78,3 +78,28 @@ func TestRegistry_describeMountsNamesTheProviderOfEachMount(t *testing.T) {
 		t.Fatalf("gotValue %+v", gotValue)
 	}
 }
+
+type valueSource struct{ value string }
+
+func (source valueSource) Hash(context.Context, string, Algorithm) (Result, error) {
+	return Result{Value: source.value, Origin: Backend, Available: true}, nil
+}
+
+func TestRegistry_hashAsksTheMountOwnerAndHasNoHashOutsideMounts(t *testing.T) {
+	providers := []config.FSProvider{{Type: "fixed", Name: "s3", Mounts: []config.FSMount{{LocalPath: "/home/u/media", Target: "s3:"}}}}
+	fixedFactory := func(config.FSProvider, Deps) (HashSource, error) { return valueSource{value: "abc"}, nil }
+	registry, err := newRegistry(providers, Deps{}, map[string]ProviderFactory{"fixed": fixedFactory})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mounted, mountedErr := registry.Hash(context.Background(), "/home/u/media/film.mkv", MD5)
+	outside, outsideErr := registry.Hash(context.Background(), "/home/u/other/film.mkv", MD5)
+
+	if mountedErr != nil || !mounted.Available || mounted.Value != "abc" {
+		t.Fatalf("mounted: gotValue %+v %v, expectedValue the provider hash", mounted, mountedErr)
+	}
+	if outsideErr != nil || outside.Available {
+		t.Fatalf("outside: gotValue %+v %v, expectedValue no hash and no error", outside, outsideErr)
+	}
+}

@@ -89,6 +89,16 @@ func (registry Registry) ForPath(path string) (HashSource, bool) {
 	return best.source, true
 }
 
+// Hash fait du registre une HashSource (dedupe.Options.Backend, NewConfirmer) : la source du montage qui porte path
+// répond ; un chemin hors de tout montage n'a pas d'empreinte (Available faux), ce qui fait relire le fichier.
+func (registry Registry) Hash(ctx context.Context, path string, algorithm Algorithm) (Result, error) {
+	source, found := registry.ForPath(path)
+	if !found {
+		return Result{}, nil
+	}
+	return source.Hash(ctx, path, algorithm)
+}
+
 func isStrictlyUnder(path, mountPath string) bool {
 	prefix := strings.TrimRight(mountPath, string(filepath.Separator)) + string(filepath.Separator)
 	return strings.HasPrefix(path, prefix) && len(path) > len(prefix)
