@@ -22,3 +22,11 @@ Vue 3, Vite, TypeScript strict, Tailwind v4, shadcn-vue (Reka UI). Thème unique
 ## Logo
 
 Pictogramme dessiné à la main en SVG inline dans `App.vue` ; aucun fichier externe.
+
+## Interface
+
+Navigation par hash (`#/demarrage`, `#/propositions`, `#/deduplication`, `#/liens`, `#/etapes`, `src/router.ts`) : le serveur sert `index.html` pour tout chemin sans extension, un routeur de chemins n'apporterait rien. Le jeton d'accès est saisi dans une boîte de dialogue après un 401 et reste dans une variable de module (`src/api/client.ts`) : jamais dans un stockage, une URL ni un cookie.
+
+Disposition : chaque ligne (proposition, remplacement, lien) est une carte empilée plutôt qu'une ligne de tableau, ce qui tient à 360 px sans défilement horizontal ni colonne figée ; les cartes se réorganisent en grille à partir de 640 px.
+
+`src/api/actions.ts` recopie la table des routes du serveur et déclare la vue qui porte le bouton de chaque action ; `src/ui-parity.spec.ts` échoue quand une action n'a pas de bouton (`data-action`). Les textes de `Démarrage` venant du diagnostic du serveur (titres et détails des contrôles) restent dans la langue du serveur.
