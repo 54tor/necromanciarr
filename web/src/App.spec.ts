@@ -1,13 +1,90 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount as mountComponent, type VueWrapper } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.vue'
+import { authToken, loginRequired } from './api/client'
+import { ROUTES } from './router'
+import { failure, installFakeApi, resetAppState } from './test/fakeApi'
+import { busyStatus, okReport } from './test/fixtures'
+
+const mounted: VueWrapper[] = []
+const mount: typeof mountComponent = (component, options) => {
+  const wrapper = mountComponent(component, options)
+  mounted.push(wrapper as VueWrapper)
+  return wrapper
+}
 
 describe('App', () => {
-  it('renders the product name', () => {
+  beforeEach(resetAppState)
+  afterEach(() => {
+    mounted.splice(0).forEach((wrapper) => wrapper.unmount())
+    vi.unstubAllGlobals()
+  })
+
+  it('renders the product name and the five tabs', async () => {
+    installFakeApi({
+      'GET /api/doctor': okReport,
+      'GET /api/status': busyStatus,
+      'GET /api/proposals': [],
+    })
     const wrapper = mount(App)
+    await flushPromises()
 
-    const gotValue = wrapper.text()
+    const gotTabs = wrapper.findAll('nav a').map((link) => link.text())
 
-    expect(gotValue).toContain('Necromanciarr')
+    expect(wrapper.text()).toContain('Necromanciarr')
+    expect(gotTabs).toEqual(ROUTES.map((route) => route.label))
+  })
+
+  it('marks the current tab with aria-current', async () => {
+    installFakeApi({
+      'GET /api/doctor': okReport,
+      'GET /api/status': busyStatus,
+      'GET /api/jobs': [],
+    })
+    window.location.hash = '#/etapes'
+    const wrapper = mount(App)
+    await flushPromises()
+
+    const gotCurrent = wrapper.findAll('nav a[aria-current="page"]').map((link) => link.text())
+
+    expect(gotCurrent).toEqual(['Étapes'])
+  })
+
+  it('App_asksForTheTokenOnA401AndReloadsAfterwards', async () => {
+    const calls = installFakeApi({
+      'GET /api/doctor': (call) =>
+        call.headers.Authorization ? okReport : failure(401, 'unauthorized'),
+      'GET /api/status': (call) =>
+        call.headers.Authorization ? busyStatus : failure(401, 'unauthorized'),
+      'GET /api/proposals': [],
+    })
+    window.location.hash = '#/propositions'
+    mount(App, { attachTo: document.body })
+    await flushPromises()
+    expect(loginRequired.value).toBe(true)
+    const input = document.body.querySelector<HTMLInputElement>('#auth-token')
+    expect(input).not.toBeNull()
+
+    const token = 'typed-by-the-operator'
+    input!.value = token
+    input!.dispatchEvent(new Event('input'))
+    document.body.querySelector<HTMLButtonElement>('[data-testid="login-submit"]')?.click()
+    await flushPromises()
+
+    expect(authToken.value).toBe(token)
+    expect(loginRequired.value).toBe(false)
+    expect(calls.at(-1)?.headers.Authorization).toBe(`Bearer ${token}`)
+  })
+
+  it('App_doesNotShowTheLoginDialogWhenTheServerAnswers', async () => {
+    installFakeApi({
+      'GET /api/doctor': okReport,
+      'GET /api/status': busyStatus,
+      'GET /api/proposals': [],
+    })
+    mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    expect(document.body.querySelector('#auth-token')).toBeNull()
   })
 })
