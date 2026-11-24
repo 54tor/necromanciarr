@@ -76,6 +76,28 @@ describe('App', () => {
     expect(calls.at(-1)?.headers.Authorization).toBe(`Bearer ${token}`)
   })
 
+  it('App_tellsWhenTheTypedTokenIsRefused', async () => {
+    installFakeApi({
+      'GET /api/doctor': () => failure(401, 'unauthorized'),
+      'GET /api/status': () => failure(401, 'unauthorized'),
+    })
+    mount(App, { attachTo: document.body })
+    await flushPromises()
+
+    const input = document.body.querySelector<HTMLInputElement>('#auth-token')
+    if (input) {
+      input.value = 'wrong'
+      input.dispatchEvent(new Event('input'))
+    }
+    document.body.querySelector<HTMLButtonElement>('[data-testid="login-submit"]')?.click()
+    await flushPromises()
+
+    expect(document.body.querySelector('[data-testid="login-rejected"]')?.textContent).toContain(
+      'Jeton refusé',
+    )
+    expect(authToken.value).toBe('')
+  })
+
   it('App_doesNotShowTheLoginDialogWhenTheServerAnswers', async () => {
     installFakeApi({
       'GET /api/doctor': okReport,

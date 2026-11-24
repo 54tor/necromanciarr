@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { failure, installFakeApi, resetAppState } from '@/test/fakeApi'
-import { authToken, loginRequired, request, setToken } from './client'
+import { authToken, loginRejected, loginRequired, request, setToken } from './client'
 import { ApiError } from './errors'
 
 describe('Client', () => {
@@ -49,6 +49,20 @@ describe('Client', () => {
     setToken('x')
     expect(loginRequired.value).toBe(false)
     expect(authToken.value).toBe('x')
+  })
+
+  it('Client_forgetsARejectedTokenAndSaysSo', async () => {
+    installFakeApi({ 'GET /api/status': () => failure(401, 'unauthorized') })
+    setToken('wrong')
+
+    await Promise.all([
+      request('GET', '/api/status').catch(() => undefined),
+      request('GET', '/api/status').catch(() => undefined),
+    ])
+
+    expect(authToken.value).toBe('')
+    expect(loginRejected.value).toBe(true)
+    expect(loginRequired.value).toBe(true)
   })
 
   it('Client_doesNotAskForATokenWhenTheServerAnswers', async () => {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { loginRequired, setToken } from '@/api/client'
+import { loginRejected, loginRequired, setToken } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -37,6 +37,14 @@ function submit(): void {
           onglet seulement et n’est jamais enregistrée.
         </DialogDescription>
       </DialogHeader>
+      <p
+        v-if="loginRejected"
+        role="alert"
+        class="text-sm text-destructive"
+        data-testid="login-rejected"
+      >
+        Jeton refusé par le serveur : vérifiez-le et recommencez.
+      </p>
       <form class="grid gap-3" @submit.prevent="submit">
         <label for="auth-token" class="text-sm font-medium">Jeton</label>
         <input

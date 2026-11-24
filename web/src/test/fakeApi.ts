@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import { authToken, loginRequired } from '@/api/client'
+import { authToken, loginRejected, loginRequired } from '@/api/client'
 import { onboardingState } from '@/composables/useOnboarding'
 import { jobs } from '@/composables/useJobs'
 import { onboardingSkipped } from '@/state/session'
@@ -56,6 +56,7 @@ export function installFakeApi(routes: Routes): FakeCall[] {
 export function resetAppState(): void {
   authToken.value = ''
   loginRequired.value = false
+  loginRejected.value = false
   onboardingSkipped.value = false
   onboardingState.checks.value = []
   onboardingState.status.value = undefined

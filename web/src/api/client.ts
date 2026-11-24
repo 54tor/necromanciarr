@@ -6,6 +6,8 @@ import type { ApiErrorBody } from './types'
 export const authToken = ref('')
 /** Vrai quand le serveur a répondu 401 : l'application affiche alors la boîte de saisie du jeton. */
 export const loginRequired = ref(false)
+/** Vrai quand un jeton saisi vient d'être refusé : la boîte de saisie le dit. */
+export const loginRejected = ref(false)
 
 const JSON_CONTENT_TYPE = 'application/json'
 const CSRF_HEADER_VALUE = 'necromanciarr'
@@ -46,12 +48,18 @@ export async function request<Result>(
   }
   if (response.ok) return (await response.json()) as Result
   const failure = await readError(response)
-  if (response.status === 401) loginRequired.value = true
+  if (response.status === 401) {
+    // Deux requêtes parallèles peuvent échouer : la seconde ne doit pas effacer le constat de la première.
+    if (authToken.value !== '') loginRejected.value = true
+    authToken.value = ''
+    loginRequired.value = true
+  }
   throw new ApiError(response.status, failure)
 }
 
 /** setToken mémorise le jeton saisi et ferme la demande de connexion. */
 export function setToken(token: string): void {
   authToken.value = token
+  loginRejected.value = false
   loginRequired.value = false
 }
