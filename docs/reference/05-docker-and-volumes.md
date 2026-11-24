@@ -112,6 +112,8 @@ docker run --rm --user 1000:1000 -v necromanciarr-data:/data -v /srv/storage:/me
   necromanciarr:dev doctor --json
 ```
 
+Chaque commande charge la configuration, et l'image écoute par défaut sur `0.0.0.0:8787` : sans `NECROMANCIARR_AUTH_TOKEN` (variable d'environnement ou ligne de `/data/.env`), même `config check` ou `doctor` échouent avec le message du jeton manquant. Pour une commande ponctuelle sans jeton, ajouter `-e NECROMANCIARR_LISTEN=127.0.0.1:8787`.
+
 Une commande lancée dans un second processus partage la base et le verrou d'étape avec le serveur : si une étape tourne déjà, elle échoue avec `stage_running` (exit 1) au lieu d'entrer en concurrence. Un `docker run` jetable doit monter les mêmes volumes que le service, sinon il voit une base et des chemins vides.
 
 ## Montage rclone
