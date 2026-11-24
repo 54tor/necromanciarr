@@ -612,3 +612,98 @@ BEGIN SELECT RAISE(ABORT, 'injected failure'); END`); err != nil {
 		t.Fatalf("gotValue %+v %v, expectedValue the candidate still verified after rollback", verified, err)
 	}
 }
+
+func TestSetCandidateState_repeatingFetchedOrVerifiedIsANoOp(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	for _, state := range []CandidateState{CandidateFetched, CandidateFetched, CandidateVerified, CandidateVerified} {
+		if err := openedStore.SetCandidateState(ctx, candidateID, state, testNow); err != nil {
+			t.Fatalf("repeat %s: gotValue %v, expectedValue nil", state, err)
+		}
+	}
+	if err := openedStore.SetCandidateState(ctx, candidateID, CandidateFetched, testNow); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("gotValue %v, expectedValue ErrInvalidTransition for verified -> fetched", err)
+	}
+}
+
+func TestSetCandidateState_failedSupersedesOpenProposals(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	markVerified(t, openedStore, candidateID)
+	identifiers := proposalsByDecision(t, openedStore, candidateID, map[string][]ProposalDecision{
+		"pending": nil, "accepted": {ProposalAccepted}, "failed": {ProposalAccepted, ProposalFailed},
+	})
+
+	if err := openedStore.SetCandidateState(ctx, candidateID, CandidateFailed, testNow); err != nil {
+		t.Fatal(err)
+	}
+
+	decisions := decisionsByID(t, openedStore)
+	expectedDecisions := map[string]ProposalDecision{"pending": ProposalSuperseded, "accepted": ProposalSuperseded, "failed": ProposalFailed}
+	for name, expectedValue := range expectedDecisions {
+		if gotValue := decisions[identifiers[name]]; gotValue != expectedValue {
+			t.Errorf("%s proposal: gotValue %s, expectedValue %s", name, gotValue, expectedValue)
+		}
+	}
+	if err := openedStore.RetryProposal(ctx, identifiers["failed"], testNow); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("gotValue %v, expectedValue ErrInvalidTransition: retry needs a verified candidate", err)
+	}
+}
+
+func TestInvalidation_supersedesFailedProposals(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	markVerified(t, openedStore, candidateID)
+	identifiers := proposalsByDecision(t, openedStore, candidateID, map[string][]ProposalDecision{"failed": {ProposalAccepted, ProposalFailed}})
+
+	if _, err := openedStore.InvalidateCandidatesForFile(ctx, mediaFile.ID, testNow); err != nil {
+		t.Fatal(err)
+	}
+
+	if gotValue := decisionsByID(t, openedStore)[identifiers["failed"]]; gotValue != ProposalSuperseded {
+		t.Fatalf("gotValue %s, expectedValue superseded", gotValue)
+	}
+}
+
+func TestRetryCandidate_onlyFromFailedAndClearsVerification(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	if err := openedStore.RetryCandidate(ctx, candidateID, testNow); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("gotValue %v, expectedValue ErrInvalidTransition from matched", err)
+	}
+	if err := openedStore.SetCandidateState(ctx, candidateID, CandidateFetched, testNow); err != nil {
+		t.Fatal(err)
+	}
+	verification := Verification{CandidateID: candidateID, TotalPieces: 4, State: VerificationInProgress}
+	if err := openedStore.SaveVerification(ctx, verification, testNow); err != nil {
+		t.Fatal(err)
+	}
+	pendingID, err := openedStore.CreateProposal(ctx, Proposal{CandidateID: candidateID, Kind: ProposalFull}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := openedStore.SetCandidateState(ctx, candidateID, CandidateFailed, testNow); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := openedStore.RetryCandidate(ctx, candidateID, testNow); err != nil {
+		t.Fatal(err)
+	}
+
+	matched, err := openedStore.ListCandidatesByState(ctx, CandidateMatched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, verificationKept, err := openedStore.LoadVerification(ctx, candidateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matched) != 1 || verificationKept || decisionsByID(t, openedStore)[pendingID] != ProposalSuperseded {
+		t.Fatalf("gotValue matched %d verification kept %v decision %s", len(matched), verificationKept, decisionsByID(t, openedStore)[pendingID])
+	}
+}

@@ -300,15 +300,19 @@ func (openedStore *Store) SetProposalDecision(ctx context.Context, proposalID in
 	})
 }
 
-// RetryProposal remet en attente une proposition dont l'application a échoué.
+// RetryProposal remet en attente une proposition dont l'application a échoué ; son candidat doit être verified (une
+// proposition sans candidat en est exemptée). Sinon ErrInvalidTransition.
 func (openedStore *Store) RetryProposal(ctx context.Context, proposalID int64, now time.Time) error {
 	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
-		current, _, err := proposalState(ctx, transaction, proposalID)
+		current, candidateState, err := proposalState(ctx, transaction, proposalID)
 		if err != nil {
 			return err
 		}
 		if current != ProposalFailed {
 			return fmt.Errorf("%w: retry from %s", ErrInvalidTransition, current)
+		}
+		if candidateState.Valid && CandidateState(candidateState.String) != CandidateVerified {
+			return fmt.Errorf("%w: retry needs a verified candidate, got %s", ErrInvalidTransition, candidateState.String)
 		}
 		return writeDecision(ctx, transaction, proposalID, ProposalPending, now)
 	})

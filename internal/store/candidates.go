@@ -148,12 +148,12 @@ func (openedStore *Store) MarkChangedCandidatesStale(ctx context.Context, now ti
 }
 
 // markStale périme chaque candidat choisi par selection dans la transaction : vérification effacée, propositions
-// ouvertes closes (superseded), groupe retiré ; les propositions appliquées restent comme historique.
+// pending, accepted et failed closes (superseded), groupe retiré ; les propositions appliquées restent comme historique.
 func markStale(ctx context.Context, transaction *sql.Tx, selection string, now time.Time, arguments ...any) (int, error) {
 	if _, err := transaction.ExecContext(ctx, `DELETE FROM verifications WHERE candidate_id IN (`+selection+`)`, arguments...); err != nil { // #nosec G202 -- sélection constante du paquet
 		return 0, err
 	}
-	if err := supersedeOpenProposals(ctx, transaction, selection, now, arguments...); err != nil {
+	if err := supersedeProposals(ctx, transaction, staleSupersededDecisions, selection, now, arguments...); err != nil {
 		return 0, err
 	}
 	updateArguments := append([]any{string(CandidateStale), now.UnixNano(), string(CandidateStale)}, arguments...)
@@ -167,11 +167,23 @@ WHERE state != ? AND id IN (`+selection+`)`, updateArguments...)
 	return int(affected), err
 }
 
-func supersedeOpenProposals(ctx context.Context, transaction *sql.Tx, selection string, now time.Time, arguments ...any) error {
-	proposalArguments := append([]any{string(ProposalSuperseded), now.UnixNano(), string(ProposalPending), string(ProposalAccepted)}, arguments...)
-	// #nosec G202 -- sélection constante du paquet
+// openDecisions sont les décisions closes quand un candidat est réassocié ou échoue ; un candidat périmé clôt aussi ses
+// propositions failed, qui ne pourraient plus être relancées utilement.
+var (
+	openDecisions            = []ProposalDecision{ProposalPending, ProposalAccepted}
+	staleSupersededDecisions = []ProposalDecision{ProposalPending, ProposalAccepted, ProposalFailed}
+)
+
+func supersedeProposals(ctx context.Context, transaction *sql.Tx, decisions []ProposalDecision, selection string, now time.Time, arguments ...any) error {
+	proposalArguments := []any{string(ProposalSuperseded), now.UnixNano()}
+	for _, decision := range decisions {
+		proposalArguments = append(proposalArguments, string(decision))
+	}
+	proposalArguments = append(proposalArguments, arguments...)
+	placeholders := "?" + strings.Repeat(", ?", len(decisions)-1)
+	// #nosec G202 -- sélection constante du paquet, marqueurs générés
 	_, err := transaction.ExecContext(ctx, `UPDATE proposals SET decision = ?, decided_at = ?
-WHERE decision IN (?, ?) AND candidate_id IN (`+selection+`)`, proposalArguments...)
+WHERE decision IN (`+placeholders+`) AND candidate_id IN (`+selection+`)`, proposalArguments...)
 	return err
 }
 
@@ -240,7 +252,7 @@ func insertCandidate(ctx context.Context, transaction *sql.Tx, candidate Candida
 // resetCandidate remplace les associations et ramène le candidat à matched ; ses propositions ouvertes sont closes,
 // jamais ressuscitées.
 func resetCandidate(ctx context.Context, transaction *sql.Tx, candidateID int64, files []CandidateFile, now time.Time) error {
-	if err := supersedeOpenProposals(ctx, transaction, `SELECT ?`, now, candidateID); err != nil {
+	if err := supersedeProposals(ctx, transaction, openDecisions, `SELECT ?`, now, candidateID); err != nil {
 		return err
 	}
 	for _, statement := range []string{`DELETE FROM verifications WHERE candidate_id = ?`, `DELETE FROM candidate_files WHERE candidate_id = ?`} {
@@ -366,32 +378,82 @@ func (openedStore *Store) ListCandidatesByState(ctx context.Context, states ...C
 }
 
 // SetCandidateState change l'état d'un candidat selon les transitions autorisées : matched → fetched → verified, et
-// tout état → stale ou failed ; stale → matched n'est fait que par SaveCandidate. Sinon ErrInvalidTransition.
-// Passer à stale applique markStale dans la même transaction.
+// tout état → stale ou failed ; fetched → fetched et verified → verified sont sans effet (une étape rejouée n'échoue
+// pas). Le retour à matched ne passe que par SaveCandidate (candidat périmé, ou failed dont les fichiers ont changé)
+// et par RetryCandidate (failed). Sinon ErrInvalidTransition. Passer à stale applique markStale ; passer à failed clôt
+// les propositions ouvertes ; dans la même transaction.
 func (openedStore *Store) SetCandidateState(ctx context.Context, candidateID int64, state CandidateState, now time.Time) error {
 	if err := checkCandidateState(state); err != nil {
 		return err
 	}
 	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
-		var current string
-		err := transaction.QueryRowContext(ctx, `SELECT state FROM torrent_candidates WHERE id = ?`, candidateID).Scan(&current)
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrCandidateNotFound
-		}
+		current, err := candidateStateOf(ctx, transaction, candidateID)
 		if err != nil {
-			return fmt.Errorf("set candidate state: %w", err)
-		}
-		if !candidateTransitionAllowed(CandidateState(current), state) {
-			return fmt.Errorf("%w: candidate %s -> %s", ErrInvalidTransition, current, state)
-		}
-		if state == CandidateStale {
-			_, err = markStale(ctx, transaction, `SELECT ?`, now, candidateID)
 			return err
 		}
-		_, err = transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ? WHERE id = ?`,
-			string(state), now.UnixNano(), candidateID)
-		return err
+		if isIdempotentRepeat(current, state) {
+			return nil
+		}
+		if !candidateTransitionAllowed(current, state) {
+			return fmt.Errorf("%w: candidate %s -> %s", ErrInvalidTransition, current, state)
+		}
+		switch state {
+		case CandidateStale:
+			_, err = markStale(ctx, transaction, `SELECT ?`, now, candidateID)
+			return err
+		case CandidateFailed:
+			if err := supersedeProposals(ctx, transaction, openDecisions, `SELECT ?`, now, candidateID); err != nil {
+				return err
+			}
+		}
+		return writeCandidateState(ctx, transaction, candidateID, state, now)
 	})
+}
+
+// RetryCandidate ramène un candidat failed à matched pour une nouvelle tentative : vérification effacée, propositions
+// ouvertes closes, dans la même transaction ; ErrInvalidTransition depuis tout autre état.
+func (openedStore *Store) RetryCandidate(ctx context.Context, candidateID int64, now time.Time) error {
+	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
+		current, err := candidateStateOf(ctx, transaction, candidateID)
+		if err != nil {
+			return err
+		}
+		if current != CandidateFailed {
+			return fmt.Errorf("%w: retry candidate from %s", ErrInvalidTransition, current)
+		}
+		if _, err := transaction.ExecContext(ctx, `DELETE FROM verifications WHERE candidate_id = ?`, candidateID); err != nil {
+			return err
+		}
+		if err := supersedeProposals(ctx, transaction, openDecisions, `SELECT ?`, now, candidateID); err != nil {
+			return err
+		}
+		return writeCandidateState(ctx, transaction, candidateID, CandidateMatched, now)
+	})
+}
+
+func candidateStateOf(ctx context.Context, transaction *sql.Tx, candidateID int64) (CandidateState, error) {
+	var current string
+	err := transaction.QueryRowContext(ctx, `SELECT state FROM torrent_candidates WHERE id = ?`, candidateID).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrCandidateNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("load candidate state: %w", err)
+	}
+	return CandidateState(current), nil
+}
+
+func writeCandidateState(ctx context.Context, transaction *sql.Tx, candidateID int64, state CandidateState, now time.Time) error {
+	_, err := transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ? WHERE id = ?`,
+		string(state), now.UnixNano(), candidateID)
+	if err != nil {
+		return fmt.Errorf("set candidate state: %w", err)
+	}
+	return nil
+}
+
+func isIdempotentRepeat(from, to CandidateState) bool {
+	return from == to && (to == CandidateFetched || to == CandidateVerified)
 }
 
 func candidateTransitionAllowed(from, to CandidateState) bool {
