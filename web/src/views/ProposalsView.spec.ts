@@ -722,6 +722,34 @@ describe('ProposalsView', () => {
     ])
   })
 
+  it('shows the no-announce pill and disables link', async () => {
+    const withoutAnnounce = proposal({
+      id: 11,
+      candidate_name: 'Film.NoAnnounce',
+      details: { ...proposal().details, seedable: false, announce_source: 'none' },
+    })
+    const withAnnounce = proposal({
+      id: 12,
+      candidate_name: 'Film.Announce',
+      details: { ...proposal().details, seedable: true, announce_source: 'config' },
+    })
+    const { wrapper, calls } = await mountView([withoutAnnounce, withAnnounce])
+
+    const pill = rowOf(wrapper, 11).find('[data-tone="warn"]')
+    expect(pill.exists()).toBe(true)
+    expect(pill.text()).toBe('Sans annonce')
+    expect(rowOf(wrapper, 12).text()).not.toContain('Sans annonce')
+    const blocked = rowButton(wrapper, 11, 'proposals accept')
+    expect(blocked.attributes('disabled')).toBeDefined()
+    expect(blocked.attributes('title')).toBe(
+      'Lien impossible : aucune annonce pour ce tracker. Ajouter une entrée trackers à la configuration.',
+    )
+    expect(rowButton(wrapper, 12, 'proposals accept').attributes('disabled')).toBeUndefined()
+    await blocked.trigger('click')
+    await flushPromises()
+    expect(posts(calls)).toEqual([])
+  })
+
   it('shows an empty state', async () => {
     const { wrapper } = await mountView([])
 

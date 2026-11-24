@@ -35,6 +35,7 @@ import {
   DECISION_TONES,
   decisionRank,
   groupTargets,
+  hasNoAnnounce,
   hasSourceField,
   isSelectable,
   KIND_CODES,
@@ -125,6 +126,9 @@ const columns = computed<DataColumn<Proposal>[]>(() => {
             labelKey: `codes.decision.${row.decision}`,
           }),
           row.current ? undefined : h(StatusPill, { tone: 'warn', labelKey: 'proposals.stale' }),
+          hasNoAnnounce(row)
+            ? h(StatusPill, { tone: 'warn', labelKey: 'proposals.noAnnounce.pill' })
+            : undefined,
         ])
       },
     },
@@ -467,6 +471,11 @@ onMounted(load)
               :label-key="`codes.decision.${row.decision}`"
             />
             <StatusPill v-if="!row.current" tone="warn" label-key="proposals.stale" />
+            <StatusPill
+              v-if="hasNoAnnounce(row)"
+              tone="warn"
+              label-key="proposals.noAnnounce.pill"
+            />
           </dd>
           <dt v-if="row.source" class="text-muted-foreground">
             {{ t('proposals.columns.source') }}
@@ -509,7 +518,8 @@ onMounted(load)
             :accessible-name="t('proposals.actions.acceptOf', { name: row.candidate_name })"
             data-action="proposals accept"
             data-scope="row"
-            :disabled="pending || !canAccept(row)"
+            :disabled="pending || !canAccept(row) || hasNoAnnounce(row)"
+            :title="hasNoAnnounce(row) ? t('proposals.noAnnounce.linkDisabled') : undefined"
             @click="accept(row)"
           />
           <RowActionButton

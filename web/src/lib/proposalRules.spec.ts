@@ -8,6 +8,7 @@ import {
   canReject,
   decisionRank,
   groupTargets,
+  hasNoAnnounce,
   hasSourceField,
   isSelectable,
 } from './proposalRules'
@@ -110,5 +111,14 @@ describe('proposalRules', () => {
   it('detects the source field only when a row carries it', () => {
     expect(hasSourceField([proposal()])).toBe(false)
     expect(hasSourceField([proposal(), proposal({ source: 'library' })])).toBe(true)
+  })
+
+  it('marks no announce only when the server says the source is none', () => {
+    const withSource = (announceSource?: 'config' | 'indexer' | 'none') =>
+      proposal({ details: { ...proposal().details, announce_source: announceSource } })
+    expect(hasNoAnnounce(withSource('none'))).toBe(true)
+    expect(hasNoAnnounce(withSource('config'))).toBe(false)
+    expect(hasNoAnnounce(withSource('indexer'))).toBe(false)
+    expect(hasNoAnnounce(withSource(undefined))).toBe(false)
   })
 })

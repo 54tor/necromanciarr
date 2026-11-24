@@ -37,7 +37,13 @@ interface ProposalDetails {
   ambiguous_files?: AmbiguousFile[]
   excluded_files?: ExcludedFile[]
   candidates?: GroupMember[]
+  /** Calculés à chaque lecture depuis la section `trackers` ; absents d'un serveur plus ancien. */
+  seedable?: boolean
+  announce_source?: AnnounceSource
 }
+
+/** Origine de l'annonce injectée au seed : configuration, `.torrent` d'indexeur, ou aucune (`no_announce`). */
+type AnnounceSource = 'config' | 'indexer' | 'none'
 
 export interface Proposal {
   id: number

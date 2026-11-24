@@ -305,6 +305,10 @@
     "refresh": "Refresh",
     "primary": "Primary",
     "stale": "Outdated",
+    "noAnnounce": {
+      "pill": "No announce",
+      "linkDisabled": "Cannot be linked: no announce for this tracker. Add a trackers entry to the configuration."
+    },
     "loadFailed": "Proposals could not be loaded.",
     "filters": {
       "label": "Filters",

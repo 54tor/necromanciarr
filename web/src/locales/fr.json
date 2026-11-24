@@ -305,6 +305,10 @@
     "refresh": "Actualiser",
     "primary": "Principale",
     "stale": "Obsolète",
+    "noAnnounce": {
+      "pill": "Sans annonce",
+      "linkDisabled": "Lien impossible : aucune annonce pour ce tracker. Ajouter une entrée trackers à la configuration."
+    },
     "loadFailed": "Chargement des propositions impossible.",
     "filters": {
       "label": "Filtres",
