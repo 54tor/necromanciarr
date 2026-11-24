@@ -249,3 +249,14 @@ func (client *Client) ExportTorrent(ctx context.Context, infoHash string) ([]byt
 	})
 	return raw, err
 }
+
+// Version renvoie la version de l'API web du client (« 2.9.3 »), appel qui valide aussi la connexion.
+func (client *Client) Version(ctx context.Context) (string, error) {
+	var version string
+	_, err := client.run(ctx, "web api version", func(callCtx context.Context) error {
+		var versionErr error
+		version, versionErr = client.library.GetWebAPIVersionCtx(callCtx)
+		return versionErr
+	})
+	return version, err
+}

@@ -23,6 +23,8 @@ type Query struct {
 	Tracker        string
 	// Sizes sont des tailles exactes de fichier ; au-delà de 50, la recherche est découpée en plusieurs requêtes.
 	Sizes []int64
+	// Limit borne le nombre de résultats par page ; 0 garde la taille de page par défaut (100).
+	Limit int
 	// MaxPages borne les pages suivies par requête (10 par défaut).
 	MaxPages int
 }
@@ -52,6 +54,9 @@ type releasePage struct {
 
 func (query Query) values(sizes []int64, cursor string) url.Values {
 	values := url.Values{"limit": {strconv.Itoa(pageSize)}}
+	if query.Limit > 0 {
+		values.Set("limit", strconv.Itoa(query.Limit))
+	}
 	if query.TMDBID > 0 {
 		values.Set("tmdb", strconv.Itoa(query.TMDBID))
 	}
