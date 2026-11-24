@@ -113,7 +113,7 @@ Le bloc scellé est effacé par la base, dans l'instruction même qui écrit l'u
 - une proposition du candidat passe `applied`, `rejected` ou `superseded` et il ne lui reste aucune autre proposition `pending`, `accepted` ou `failed` hors `conflict` (un litige ne se seed jamais) : un litige rejeté ne l'efface pas tant que la `full` du même candidat reste ouverte ;
 - un tracker qu'une entrée `trackers` couvre désormais (tracker comparé octet pour octet à la valeur stockée) : au démarrage du service et à chaque lecture des propositions.
 
-Une proposition dont le candidat n'a ni entrée `trackers` ni bloc scellé est `no_announce` : Verify la compte sous ce motif, chaque lecture la marque `seedable: false`, Link la refuse avant de créer quoi que ce soit ([03-seed-safety.md](03-seed-safety.md)).
+Une proposition dont le candidat n'a ni entrée `trackers` ni bloc scellé est `no_announce` : Verify la compte sous ce motif, chaque lecture la marque `seedable: false`, Link la refuse avant de créer quoi que ce soit, comme une proposition au `.torrent` scellé sans `NECROMANCIARR_SECRET_KEY` (`secret_key_missing`) ([03-seed-safety.md](03-seed-safety.md)). Redémarrer le service après avoir modifié `trackers`.
 
 Une proposition `pending` ou `failed` jamais décidée garde le bloc, puisque Seed en a besoin ; pour que rien ne reste indéfiniment, chaque Verify efface d'abord tout bloc dont le candidat n'a pas été mis à jour depuis 30 jours.
 

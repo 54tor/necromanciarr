@@ -17,7 +17,7 @@ make ui && make build          # interface web embarquée, puis binaire ./necrom
 ./necromanciarr serve          # API et interface sur http://127.0.0.1:8787
 ```
 
-La configuration tient dans un dossier (`--config-dir`, `CONFIG_DIR`, ou `~/.config/necromanciarr`) qui contient `config.json` (modèle : [`config.example.json`](config.example.json)) et `.env` (modèle : [`.env.example`](.env.example)). Le pipeline se lance étape par étape : `scan`, `match`, `verify`, puis `proposals list` et `proposals accept <id>`, puis `link` et `seed`.
+La configuration tient dans un dossier (`--config-dir`, `CONFIG_DIR`, ou `~/.config/necromanciarr`) qui contient `config.json` (modèle : [`config.example.json`](config.example.json)) et `.env` (modèle : [`.env.example`](.env.example)). Pour seeder les torrents du fournisseur, qui n'ont pas d'annonce, la section `trackers` de `config.json` est indispensable (passkey dans `.env`, voir [`docs/reference/02-configuration.md`](docs/reference/02-configuration.md)). Le pipeline se lance étape par étape : `scan`, `match`, `verify`, puis `proposals list` et `proposals accept <id>`, puis `link` et `seed`.
 
 ## Docker
 

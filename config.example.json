@@ -16,6 +16,9 @@
   "linkType": "",
   "linkCategory": "",
   "seedTags": ["necromanciarr"],
+  "trackers": {
+    "tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}"
+  },
   "partialMaxMissingPercent": 100,
   "language": "fr",
   "dedupe": {

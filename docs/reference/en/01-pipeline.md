@@ -113,7 +113,7 @@ The database clears the sealed blob in the very statement that writes one of the
 - a proposal of the candidate becomes `applied`, `rejected` or `superseded` and the candidate has no other `pending`, `accepted` or `failed` proposal left apart from `conflict` (a conflict is never seeded): a rejected conflict does not clear it while the same candidate's `full` stays open;
 - a tracker that a `trackers` entry now covers (tracker compared byte for byte with the stored value): at service startup and at every read of the proposals.
 
-A proposal whose candidate has neither a `trackers` entry nor a sealed blob is `no_announce`: Verify counts it under this reason, every read marks it `seedable: false`, and Link refuses it before creating anything ([03-seed-safety.md](03-seed-safety.md)).
+A proposal whose candidate has neither a `trackers` entry nor a sealed blob is `no_announce`: Verify counts it under this reason, every read marks it `seedable: false`, and Link refuses it before creating anything, like a proposal whose sealed `.torrent` has no `NECROMANCIARR_SECRET_KEY` (`secret_key_missing`) ([03-seed-safety.md](03-seed-safety.md)). Restart the service after editing `trackers`.
 
 A `pending` or `failed` proposal that is never decided keeps the blob, since Seed needs it; so that nothing stays forever, every Verify first clears any blob whose candidate has not been updated for 30 days.
 

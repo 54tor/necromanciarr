@@ -189,7 +189,7 @@ With Prowlarr, give the Torznab feed of each indexer (`/<id>/api`, the `<id>` be
 
 ## Tracker announces (`trackers`)
 
-The `.torrent` of the library provider has no announce; to seed a private torrent, qBittorrent needs the tracker announce, which carries the operator passkey. The `trackers` section gives it for each tracker, to inject it at seed time (outside the `info` dictionary: the infohash does not change). Seed injects it in memory, just before the client add; without an announce, a proposal is `no_announce` ([03-seed-safety.md](03-seed-safety.md)).
+The `.torrent` of the library provider has no announce; to seed a private torrent, qBittorrent needs the tracker announce, which carries the operator passkey. The `trackers` section gives it for each tracker, to inject it at seed time (outside the `info` dictionary: the infohash does not change). `trackers` is required to seed provider torrents (they carry no announce). Seed injects it in memory, just before the client add; without an announce, a proposal is `no_announce` ([03-seed-safety.md](03-seed-safety.md)).
 
 ```json
 "trackers": {

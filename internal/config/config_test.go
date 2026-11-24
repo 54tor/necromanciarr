@@ -314,7 +314,7 @@ func TestConfigExample_loadsFsProviders(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, configDir, configFileName, string(exampleContent))
-	environment := map[string]string{"RADARR_API_KEY": "r", "SONARR_API_KEY": "s", "QBIT_PASSWORD": "q", "RCLONE_RC_PASS": "p"}
+	environment := map[string]string{"RADARR_API_KEY": "r", "SONARR_API_KEY": "s", "QBIT_PASSWORD": "q", "RCLONE_RC_PASS": "p", "PASSKEY_TRACKER_A": "fake-passkey-example"}
 
 	loadedConfig := mustLoad(t, nil, environment, configDir)
 

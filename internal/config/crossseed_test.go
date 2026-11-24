@@ -264,7 +264,7 @@ func TestConfigExample_loadsWithCrossSeedOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	environment := map[string]string{
-		"RADARR_API_KEY": "r", "SONARR_API_KEY": "s", "QBIT_PASSWORD": "q", "RCLONE_RC_PASS": "p",
+		"RADARR_API_KEY": "r", "SONARR_API_KEY": "s", "QBIT_PASSWORD": "q", "RCLONE_RC_PASS": "p", "PASSKEY_TRACKER_A": "fake-passkey-example",
 		envCrossSeedConfig: crossSeedPath, "CROSS_SEED_API_KEY": "k",
 	}
 
