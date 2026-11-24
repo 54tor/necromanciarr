@@ -386,7 +386,7 @@ func applyOverrides(target *Config, options commandLine, lookup func(string) (st
 	}
 }
 
-// validate contrôle la configuration commune à toutes les commandes ; l'exigence de jeton liée à l'écoute est
+// validate contrôle la configuration partagée par tout le CLI ; l'exigence de jeton liée à l'écoute est
 // dans ValidateServe. Un jeton fourni doit toujours avoir la longueur minimale.
 func validate(loadedConfig Config) error {
 	if loadedConfig.ReadBytesPerSecond <= 0 {
@@ -417,7 +417,7 @@ func validate(loadedConfig Config) error {
 }
 
 // ValidateServe vérifie ce que seule l'écoute exige : hors boucle locale, un jeton, sans quoi l'interface serait
-// ouverte au réseau sans authentification. Les commandes ponctuelles n'écoutent pas et ne l'appellent pas.
+// ouverte au réseau sans authentification. Appelée par serve et web.Run.
 func ValidateServe(loadedConfig Config) error {
 	if loadedConfig.AuthToken == "" && !isLoopbackAddress(loadedConfig.ListenAddr) {
 		return fmt.Errorf("listen %q is not loopback: set %s (at least %d characters, generate one with "+
