@@ -13,6 +13,7 @@ jobs:
       - uses: actions/checkout@v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-go@v5.5.0
         with:
           go-version-file: go.mod
@@ -28,6 +29,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v5.5.0
         with:
           go-version-file: go.mod
@@ -38,8 +41,12 @@ jobs:
   windows-tests:
     runs-on: windows-latest
     timeout-minutes: 30
+    # Non bloquant jusqu'au tri du premier passage : jamais exécuté avant cette CI.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@v5.5.0
         with:
           go-version-file: go.mod
