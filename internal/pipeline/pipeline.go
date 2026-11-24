@@ -194,31 +194,31 @@ func (deps Deps) lockTTL() time.Duration {
 // Result résume une exécution : Reasons compte les éléments ignorés ou en échec par nom de raison (jamais de chemin
 // complet ni de secret) ; UnidentifiedSamples donne les premiers noms de fichiers sans identifiant externe.
 type Result struct {
-	Stage               Stage
-	Processed           int
-	Skipped             int
-	Failed              int
-	Reasons             map[string]int
-	UnidentifiedFiles   int
-	UnidentifiedSamples []string
-	CandidatesCreated   int
-	CandidatesUpdated   int
-	CandidatesUnchanged int
-	CandidatesStale     int
+	Stage               Stage          `json:"stage"`
+	Processed           int            `json:"processed"`
+	Skipped             int            `json:"skipped"`
+	Failed              int            `json:"failed"`
+	Reasons             map[string]int `json:"reasons,omitempty"`
+	UnidentifiedFiles   int            `json:"unidentified_files"`
+	UnidentifiedSamples []string       `json:"unidentified_samples,omitempty"`
+	CandidatesCreated   int            `json:"candidates_created"`
+	CandidatesUpdated   int            `json:"candidates_updated"`
+	CandidatesUnchanged int            `json:"candidates_unchanged"`
+	CandidatesStale     int            `json:"candidates_stale"`
 	// Totaux de Verify : candidat vérifié, classé partial_annex ou partial_pack, proposition de litige créée,
 	// vérification reprise, et proposition créée (toute nature).
-	Verified         int
-	PartialAnnex     int
-	PartialPack      int
-	Conflicts        int
-	Resumed          int
-	ProposalsCreated int
+	Verified         int `json:"verified"`
+	PartialAnnex     int `json:"partial_annex"`
+	PartialPack      int `json:"partial_pack"`
+	Conflicts        int `json:"conflicts"`
+	Resumed          int `json:"resumed"`
+	ProposalsCreated int `json:"proposals_created"`
 	// Totaux de Link et Seed : torrent lié, ajouté puis repris à 100 %, ajouté et laissé en pause car incomplet.
-	Linked                 int
-	Seeded                 int
-	SeededPausedIncomplete int
+	Linked                 int `json:"linked"`
+	Seeded                 int `json:"seeded"`
+	SeededPausedIncomplete int `json:"seeded_paused_incomplete"`
 	// Warnings porte les avertissements globaux de l'étape (mode cross-seed), sans URL ni secret.
-	Warnings []string
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 func (result *Result) count(reason string, amount int) {
@@ -277,6 +277,23 @@ func Run(ctx context.Context, stage Stage, deps Deps) (Result, error) {
 		return result, fmt.Errorf("pipeline %s: %w", stage, ErrLockLost)
 	}
 	return result, err
+}
+
+// WithLock exécute work sous le verrou unique des étapes, nommé name (dedupe, repair) : une action de maintenance ne
+// tourne jamais en même temps qu'une étape ni qu'une autre action. Verrou perdu : ErrLockLost.
+func WithLock(ctx context.Context, deps Deps, name string, work func(ctx context.Context) error) error {
+	runContext, cancelRun := context.WithCancelCause(ctx)
+	defer cancelRun(nil)
+	release, err := acquireLock(runContext, deps, Stage(name), cancelRun)
+	if err != nil {
+		return err
+	}
+	defer release()
+	err = work(runContext)
+	if lockLost(runContext) {
+		return fmt.Errorf("pipeline %s: %w", name, ErrLockLost)
+	}
+	return err
 }
 
 func lockLost(ctx context.Context) bool {
