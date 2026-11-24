@@ -37,8 +37,10 @@ COPY --from=builder /out/necromanciarr /usr/local/bin/necromanciarr
 COPY --from=builder --chown=1000:1000 /data /data
 # UID/GID 1000 par défaut, surchargeables par user: au lancement pour coller aux droits de la bibliothèque.
 USER 1000:1000
-# config.json, .env et api-key sont lus et écrits dans le volume.
-ENV CONFIG_DIR=/data
+# config.json et .env sont lus dans le volume. L'écoute sur toutes les interfaces rend l'interface joignable depuis
+# l'hôte ; la configuration refuse alors de démarrer sans NECROMANCIARR_AUTH_TOKEN (32 caractères au moins).
+ENV CONFIG_DIR=/data NECROMANCIARR_LISTEN=0.0.0.0:8787
+EXPOSE 8787
 WORKDIR /data
 VOLUME /data
 # Sonde de vivacité : la sous-commande interroge /healthz sur la boucle locale (forme exec, ni curl ni wget dans l'image).
