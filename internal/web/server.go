@@ -58,6 +58,9 @@ func NewHandlerWithAssets(ctx context.Context, service app.Service, health Healt
 	for _, apiRoute := range apiRoutes {
 		handler.mux.Handle(apiRoute.pattern(), handler.protect(handler.endpoint(apiRoute.handle)))
 	}
+	for path, methods := range allowedMethods() {
+		handler.mux.Handle(path, handler.protect(handler.endpoint(methodNotAllowed(methods))))
+	}
 	handler.mux.Handle("/api/", handler.protect(handler.endpoint(unknownRoute)))
 	handler.mux.Handle("/", assetsHandler(assets))
 	return handler

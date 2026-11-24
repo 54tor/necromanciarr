@@ -43,6 +43,7 @@ type jobRunner struct {
 	mutex   sync.Mutex
 	history []*Job
 	running bool
+	closed  bool
 	lastID  int64
 	group   sync.WaitGroup
 }
@@ -51,6 +52,9 @@ func newJobRunner(ctx context.Context) *jobRunner { return &jobRunner{ctx: ctx} 
 
 // errJobRunning : un job tourne déjà ; même code que le verrou d'étape du Service.
 var errJobRunning = newAPIError(http.StatusConflict, errorCodeStageRunning, "another long action is running")
+
+// errShuttingDown : le serveur s'arrête, aucun job ne démarre plus (WaitGroup.Go après Wait serait une course).
+var errShuttingDown = newAPIError(http.StatusServiceUnavailable, errorCodeShuttingDown, "the server is shutting down")
 
 // startJob lance work en arrière-plan et répond 202 avec le job ; le résultat et l'erreur sont masqués à la lecture
 // (writeJSON), comme toute réponse.
@@ -65,6 +69,9 @@ func (handler *Handler) startJob(action string, work func(ctx context.Context) (
 func (runner *jobRunner) start(action string, work func(ctx context.Context) (any, error), secrets []string) (Job, error) {
 	runner.mutex.Lock()
 	defer runner.mutex.Unlock()
+	if runner.closed || runner.ctx.Err() != nil {
+		return Job{}, errShuttingDown
+	}
 	if runner.running {
 		return Job{}, errJobRunning
 	}
@@ -117,4 +124,10 @@ func (runner *jobRunner) get(jobID int64) (Job, bool) {
 	return Job{}, false
 }
 
-func (runner *jobRunner) wait() { runner.group.Wait() }
+// wait ferme le lanceur (sous le verrou, avant d'attendre) puis attend le job en cours.
+func (runner *jobRunner) wait() {
+	runner.mutex.Lock()
+	runner.closed = true
+	runner.mutex.Unlock()
+	runner.group.Wait()
+}

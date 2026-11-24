@@ -116,3 +116,22 @@ func TestJobs_maintenanceRoutesPassTheirOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestJobs_refusedOnceTheServerStops(t *testing.T) {
+	fake := &fakeService{}
+	serverContext, cancel := context.WithCancel(context.Background())
+	handler := NewHandlerWithAssets(serverContext, fake, &fakeHealth{}, loopbackSettings(), builtAssets())
+	cancel()
+
+	afterCancel := serve(handler, apiRequest(http.MethodPost, "/api/stages/scan/run", `{}`))
+
+	expectError(t, "after cancel", readBody(t, afterCancel), afterCancel.Code, http.StatusServiceUnavailable, errorCodeShuttingDown)
+	stillOpen := NewHandlerWithAssets(context.Background(), fake, &fakeHealth{}, loopbackSettings(), builtAssets())
+	stillOpen.Wait()
+	afterWait := serve(stillOpen, apiRequest(http.MethodPost, "/api/stages/scan/run", `{}`))
+	expectError(t, "after wait", readBody(t, afterWait), afterWait.Code, http.StatusServiceUnavailable, errorCodeShuttingDown)
+	handler.Wait()
+	if fake.called("RunStage") {
+		t.Fatal("gotValue a RunStage call, expectedValue none once stopping")
+	}
+}

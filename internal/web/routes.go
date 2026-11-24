@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 
 	"necromanciarr/internal/app"
 )
@@ -37,7 +38,7 @@ var apiRoutes = []route{
 	{http.MethodPost, "/api/repair/scan", "repair scan", "", scanRepair},
 	{http.MethodPost, "/api/repair/{id}/apply", "repair apply", "", applyRepair},
 	{http.MethodGet, "/api/doctor", "doctor", "", runDoctor},
-	{http.MethodPost, "/api/doctor/{checkId}/run", "doctor", "", runDoctorCheck},
+	{http.MethodGet, "/api/doctor/{checkId}", "doctor", "", runDoctorCheck},
 	{http.MethodGet, "/api/jobs", "", "follow the long actions started by the action routes", listJobs},
 	{http.MethodGet, "/api/jobs/{id}", "", "follow one long action started by an action route", getJob},
 }
@@ -327,9 +328,6 @@ func runDoctor(handler *Handler, request *http.Request) (any, int, error) {
 }
 
 func runDoctorCheck(handler *Handler, request *http.Request) (any, int, error) {
-	if err := decodeBody(request, &struct{}{}); err != nil {
-		return nil, 0, err
-	}
 	options := app.DoctorOptions{CheckIDs: []string{request.PathValue("checkId")}}
 	report, err := handler.service.Doctor(request.Context(), options)
 	return report, http.StatusOK, err
@@ -349,4 +347,26 @@ func getJob(handler *Handler, request *http.Request) (any, int, error) {
 		return nil, 0, newAPIError(http.StatusNotFound, errorCodeNotFound, "job not found")
 	}
 	return job, http.StatusOK, nil
+}
+
+// allowedMethods liste les méthodes de la table pour chaque chemin (en-tête Allow d'un 405) ; GET admet aussi HEAD.
+func allowedMethods() map[string][]string {
+	methods := map[string][]string{}
+	for _, apiRoute := range apiRoutes {
+		methods[apiRoute.path] = append(methods[apiRoute.path], apiRoute.method)
+		if apiRoute.method == http.MethodGet {
+			methods[apiRoute.path] = append(methods[apiRoute.path], http.MethodHead)
+		}
+	}
+	return methods
+}
+
+// methodNotAllowed répond 405 sur un chemin connu appelé avec une autre méthode.
+func methodNotAllowed(allowed []string) endpointFunc {
+	return func(_ *Handler, _ *http.Request) (any, int, error) {
+		return nil, 0, &apiError{
+			status: http.StatusMethodNotAllowed, allow: strings.Join(allowed, ", "),
+			body: ErrorBody{Code: errorCodeMethodNotAllowed, Message: "method not allowed"},
+		}
+	}
 }

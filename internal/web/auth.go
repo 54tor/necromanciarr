@@ -3,6 +3,7 @@ package web
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"log"
 	"mime"
 	"net"
 	"net/http"
@@ -24,7 +25,9 @@ const (
 	maxBodyBytes         = 64 << 10
 	requestedWithHeader  = "X-Requested-With"
 	requestedWithValue   = "necromanciarr"
-	bearerPrefix         = "Bearer "
+	bearerScheme         = "Bearer"
+	defaultHTTPPort      = "80"
+	crossSiteFetch       = "cross-site"
 	jsonContentType      = "application/json"
 	loopbackHostIPv4     = "127.0.0.1"
 	loopbackHostIPv6     = "::1"
@@ -58,15 +61,28 @@ func hostsFor(listenAddr string) allowedHosts {
 	hosts := allowedHosts{}
 	for _, host := range []string{listenHost, loopbackHostName, loopbackHostIPv4, loopbackHostIPv6} {
 		hosts = append(hosts, strings.ToLower(net.JoinHostPort(host, port)))
+		// Un navigateur omet le port par défaut dans Host : « http://localhost/ » envoie « localhost ».
+		if port == defaultHTTPPort {
+			hosts = append(hosts, strings.ToLower(bareHost(host)))
+		}
 	}
 	return hosts
+}
+
+// bareHost met une adresse IPv6 entre crochets, comme dans un en-tête Host sans port.
+func bareHost(host string) string {
+	if strings.Contains(host, ":") {
+		return "[" + host + "]"
+	}
+	return host
 }
 
 func (hosts allowedHosts) admits(host string) bool {
 	return hosts == nil || slices.Contains(hosts, strings.ToLower(host))
 }
 
-// protect applique, dans l'ordre, l'absence de cache, le contrôle de Host, le jeton, les contrôles anti-CSRF d'un
+// protect applique, dans l'ordre, l'absence de cache, le contrôle de Host, le refus d'une lecture d'un autre site
+// (Sec-Fetch-Site, posé par les navigateurs), le jeton, les contrôles anti-CSRF d'un
 // POST et la borne du corps. Aucun en-tête CORS n'est jamais posé.
 func (handler *Handler) protect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -75,8 +91,14 @@ func (handler *Handler) protect(next http.Handler) http.Handler {
 			handler.writeError(writer, newAPIError(http.StatusForbidden, errorCodeForbidden, errorMessageHost))
 			return
 		}
+		if request.Header.Get("Sec-Fetch-Site") == crossSiteFetch {
+			handler.writeError(writer, newAPIError(http.StatusForbidden, errorCodeForbidden, errorMessageOrigin))
+			return
+		}
 		if !handler.authorized(request) {
-			writer.Header().Set("WWW-Authenticate", "Bearer")
+			// Une ligne par échec, sans limite de débit (risque accepté en v1) ; ni jeton ni en-tête n'y figurent.
+			log.Printf("api: unauthorized request from %s", request.RemoteAddr)
+			writer.Header().Set("WWW-Authenticate", bearerScheme)
 			handler.writeError(writer, newAPIError(http.StatusUnauthorized, errorCodeUnauthorized, errorMessageToken))
 			return
 		}
@@ -90,12 +112,14 @@ func (handler *Handler) protect(next http.Handler) http.Handler {
 }
 
 // authorized compare les empreintes SHA-256 en temps constant : ni le contenu ni la longueur du jeton ne fuient par
-// la durée. Le jeton n'est lu que dans l'en-tête Authorization, jamais dans l'URL ni un cookie.
+// la durée. Le jeton n'est lu que dans l'en-tête Authorization (schéma Bearer, casse ignorée comme le veut HTTP),
+// jamais dans l'URL ni un cookie.
 func (handler *Handler) authorized(request *http.Request) bool {
 	if handler.settings.AuthToken == "" {
 		return true
 	}
-	presented, hasBearer := strings.CutPrefix(request.Header.Get("Authorization"), bearerPrefix)
+	scheme, presented, _ := strings.Cut(request.Header.Get("Authorization"), " ")
+	hasBearer := strings.EqualFold(scheme, bearerScheme)
 	presentedSum := sha256.Sum256([]byte(presented))
 	expectedSum := sha256.Sum256([]byte(handler.settings.AuthToken))
 	tokenMatches := subtle.ConstantTimeCompare(presentedSum[:], expectedSum[:]) == 1

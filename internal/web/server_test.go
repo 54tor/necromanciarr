@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"necromanciarr/internal/app"
+	"necromanciarr/internal/config"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
 )
@@ -56,6 +57,11 @@ func TestAuth_requiredWhenNotLoopback(t *testing.T) {
 	authorized.Header.Set("Authorization", "Bearer "+testToken)
 	if gotValue := serve(handler, authorized).Code; gotValue != http.StatusOK {
 		t.Fatalf("gotValue %d, expectedValue 200 with the token", gotValue)
+	}
+	lowerCaseScheme := apiRequest(http.MethodGet, "/api/status", "")
+	lowerCaseScheme.Header.Set("Authorization", "bearer "+testToken)
+	if gotValue := serve(handler, lowerCaseScheme).Code; gotValue != http.StatusOK {
+		t.Fatalf("gotValue %d, expectedValue 200 with a lower-case scheme (case-insensitive per HTTP)", gotValue)
 	}
 	loopbackHandler := newTestHandler(t, &fakeService{}, loopbackSettings())
 	if gotValue := serve(loopbackHandler, apiRequest(http.MethodGet, "/api/status", "")).Code; gotValue != http.StatusOK {
@@ -237,13 +243,13 @@ func TestServer_doctorRunsSynchronously(t *testing.T) {
 	handler := newTestHandler(t, fake, loopbackSettings())
 
 	all := serve(handler, apiRequest(http.MethodGet, "/api/doctor?check=config&check=database", ""))
-	single := serve(handler, apiRequest(http.MethodPost, "/api/doctor/config/run", `{}`))
+	single := serve(handler, apiRequest(http.MethodGet, "/api/doctor/config", ""))
 
 	if all.Code != http.StatusOK || single.Code != http.StatusOK || !fake.called("Doctor [config database]") || !fake.called("Doctor [config]") {
 		t.Fatalf("gotValue %d %d, calls %v, expectedValue both doctor calls", all.Code, single.Code, fake.calls)
 	}
 	fake.errors = map[string]error{"Doctor": fmt.Errorf("%w %q", app.ErrUnknownCheck, "nope")}
-	unknown := serve(handler, apiRequest(http.MethodPost, "/api/doctor/nope/run", `{}`))
+	unknown := serve(handler, apiRequest(http.MethodGet, "/api/doctor/nope", ""))
 	expectError(t, "unknown check", readBody(t, unknown), unknown.Code, http.StatusBadRequest, app.ErrorCodeUsage)
 }
 
@@ -450,8 +456,10 @@ var nonActionRoutePrefixes = []string{"GET /api/jobs"}
 
 func TestWeb_everyRouteMapsToRegisteredAction(t *testing.T) {
 	registeredNames := map[string]bool{}
+	mutatingNames := map[string]bool{}
 	for _, action := range app.Actions() {
 		registeredNames[action.Name] = true
+		mutatingNames[action.Name] = action.Mutating
 	}
 	if len(apiRoutes) == 0 || len(registeredNames) == 0 {
 		t.Fatalf("gotValue %d routes and %d actions, expectedValue both tables filled", len(apiRoutes), len(registeredNames))
@@ -471,6 +479,13 @@ func TestWeb_everyRouteMapsToRegisteredAction(t *testing.T) {
 		}
 		if !strings.HasPrefix(apiRoute.path, "/api/") {
 			t.Fatalf("route %s is not under /api", pattern)
+		}
+		expectedMethod := http.MethodGet
+		if mutatingNames[apiRoute.action] {
+			expectedMethod = http.MethodPost
+		}
+		if apiRoute.method != expectedMethod {
+			t.Fatalf("route %s: gotValue %s, expectedValue %s for a mutating=%v action", pattern, apiRoute.method, expectedMethod, mutatingNames[apiRoute.action])
 		}
 		coveredNames[apiRoute.action] = true
 	}
@@ -518,5 +533,67 @@ func TestServer_neverImportsStoreOrPipeline(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("gotValue no source checked, expectedValue the web sources")
+	}
+}
+
+func TestServer_wrongMethodOnAKnownPathIs405WithAllowBehindAuth(t *testing.T) {
+	handler := newTestHandler(t, &fakeService{}, tokenSettings())
+	anonymous := serve(handler, apiRequest(http.MethodGet, "/api/proposals/3/accept", ""))
+	expectError(t, "anonymous", readBody(t, anonymous), anonymous.Code, http.StatusUnauthorized, errorCodeUnauthorized)
+	request := apiRequest(http.MethodGet, "/api/proposals/3/accept", "")
+	request.Header.Set("Authorization", "Bearer "+testToken)
+
+	response := serve(handler, request)
+
+	expectError(t, "wrong method", readBody(t, response), response.Code, http.StatusMethodNotAllowed, errorCodeMethodNotAllowed)
+	if gotValue := response.Header().Get("Allow"); gotValue != http.MethodPost {
+		t.Fatalf("gotValue Allow %q, expectedValue POST", gotValue)
+	}
+	statusPost := apiRequest(http.MethodPost, "/api/status", `{}`)
+	statusPost.Header.Set("Authorization", "Bearer "+testToken)
+	if gotValue := serve(handler, statusPost).Header().Get("Allow"); gotValue != "GET, HEAD" {
+		t.Fatalf("gotValue Allow %q, expectedValue GET, HEAD", gotValue)
+	}
+}
+
+func TestServer_rejectsCrossSiteReads(t *testing.T) {
+	fake := &fakeService{}
+	handler := newTestHandler(t, fake, loopbackSettings())
+	crossSite := apiRequest(http.MethodGet, "/api/status", "")
+	crossSite.Header.Set("Sec-Fetch-Site", "cross-site")
+
+	response := serve(handler, crossSite)
+
+	expectError(t, "cross-site read", readBody(t, response), response.Code, http.StatusForbidden, errorCodeForbidden)
+	if fake.called("Status") {
+		t.Fatal("gotValue a Status call, expectedValue none for a cross-site read")
+	}
+	for _, site := range []string{"same-origin", "none"} {
+		request := apiRequest(http.MethodGet, "/api/status", "")
+		request.Header.Set("Sec-Fetch-Site", site)
+		if gotValue := serve(handler, request).Code; gotValue != http.StatusOK {
+			t.Fatalf("%s: gotValue %d, expectedValue 200", site, gotValue)
+		}
+	}
+}
+
+func TestServer_acceptsAPortlessHostWhenListeningOnPort80(t *testing.T) {
+	handler := newTestHandler(t, &fakeService{}, config.Config{ListenAddr: "127.0.0.1:80"})
+	expectedStatuses := map[string]int{
+		"localhost": http.StatusOK, "127.0.0.1": http.StatusOK, "[::1]": http.StatusOK, "localhost:80": http.StatusOK,
+		"evil.example.com": http.StatusForbidden,
+	}
+	for host, expectedValue := range expectedStatuses {
+		request := apiRequest(http.MethodGet, "/api/status", "")
+		request.Host = host
+		if gotValue := serve(handler, request).Code; gotValue != expectedValue {
+			t.Fatalf("host %q: gotValue %d, expectedValue %d", host, gotValue, expectedValue)
+		}
+	}
+	otherPort := newTestHandler(t, &fakeService{}, loopbackSettings())
+	portless := apiRequest(http.MethodGet, "/api/status", "")
+	portless.Host = "localhost"
+	if gotValue := serve(otherPort, portless).Code; gotValue != http.StatusForbidden {
+		t.Fatalf("gotValue %d, expectedValue 403 for a portless host on port 8787", gotValue)
 	}
 }

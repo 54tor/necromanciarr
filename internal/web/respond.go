@@ -19,6 +19,8 @@ const (
 	errorCodeUnauthorized         = "unauthorized"
 	errorCodeForbidden            = "forbidden"
 	errorCodeConfirmationRequired = "confirmation_required"
+	errorCodeMethodNotAllowed     = "method_not_allowed"
+	errorCodeShuttingDown         = "shutting_down"
 	// internalErrorMessage remplace le texte d'une erreur non typée : il pourrait porter un chemin ou un secret.
 	internalErrorMessage = "internal error"
 )
@@ -39,9 +41,11 @@ type ErrorBody struct {
 	Message string `json:"message"`
 }
 
-// apiError est une erreur du web lui-même (requête invalide, accès refusé), avec son statut et son message sûr.
+// apiError est une erreur du web lui-même (requête invalide, accès refusé), avec son statut et son message sûr ;
+// allow est l'en-tête Allow d'un 405.
 type apiError struct {
 	status int
+	allow  string
 	body   ErrorBody
 }
 
@@ -79,6 +83,9 @@ func (handler *Handler) writeError(writer http.ResponseWriter, err error) {
 	status, body := describe(err)
 	if status == http.StatusInternalServerError {
 		log.Printf("api: %s", config.RedactText(err.Error(), handler.secrets()...))
+	}
+	if failure, isAPIError := errors.AsType[*apiError](err); isAPIError && failure.allow != "" {
+		writer.Header().Set("Allow", failure.allow)
 	}
 	handler.writeJSON(writer, status, map[string]ErrorBody{"error": body})
 }
