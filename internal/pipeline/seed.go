@@ -35,6 +35,7 @@ const (
 	ReasonAlreadyInClient        = "already_in_client"
 	ReasonClientPathInvalid      = "client_path_invalid"
 	ReasonPauseFailed            = "pause_failed"
+	ReasonNotPausedAfterAdd      = "not_paused_after_add"
 )
 
 // Avertissements consignés sur la proposition (texte fixe, sans URL ni secret).
@@ -145,6 +146,9 @@ func (run seedRun) seedChecked(ctx context.Context, proposal store.Proposal, can
 		return err
 	}
 	if !complete {
+		if err := run.ensurePausedAfterAdd(ctx, candidate.Infohash); err != nil {
+			return err
+		}
 		run.result.count(ReasonPausedIncomplete, 1)
 		return run.finish(ctx, proposal.ID, store.StepSeededPausedIncomplete, linkRoot)
 	}
@@ -226,6 +230,57 @@ func (run seedRun) takeOverExisting(ctx context.Context, proposalID int64, infoh
 		return run.finish(ctx, proposalID, store.StepSeededPausedIncomplete, linkRoot)
 	}
 	return run.guarded(ctx, proposalID, infohash, linkRoot)
+}
+
+// pauseCheckAttempts et pauseCheckInterval : qBittorrent ajoute le torrent de façon asynchrone ; il peut n'apparaître
+// qu'après quelques centaines de millisecondes.
+const (
+	pauseCheckAttempts = 10
+	pauseCheckInterval = 200 * time.Millisecond
+)
+
+// ensurePausedAfterAdd redemande la pause d'un torrent incomplet tout juste ajouté, puis vérifie que le client le
+// montre arrêté (ou en contrôle, qui finit arrêté) : un client qui l'aurait démarré quand même écrirait dans les
+// fichiers liés.
+func (run seedRun) ensurePausedAfterAdd(ctx context.Context, infohash string) error {
+	if err := run.deps.Client.Pause(ctx, infohash); err != nil {
+		return refusal(ReasonPauseFailed)
+	}
+	for attempt := range pauseCheckAttempts {
+		torrent, present, err := run.deps.Client.FindTorrent(ctx, infohash)
+		if err != nil {
+			return refusal(ReasonNotPausedAfterAdd)
+		}
+		if present {
+			return checkStoppedState(torrent.State)
+		}
+		if attempt < pauseCheckAttempts-1 {
+			if err := sleepContext(ctx, pauseCheckInterval); err != nil {
+				return err
+			}
+		}
+	}
+	return refusal(ReasonNotPausedAfterAdd)
+}
+
+func checkStoppedState(state string) error {
+	isStopped := strings.HasPrefix(state, "paused") || strings.HasPrefix(state, "stopped")
+	isChecking := strings.HasPrefix(state, "checking") || state == "queuedForChecking"
+	if isStopped || isChecking {
+		return nil
+	}
+	return refusal(ReasonNotPausedAfterAdd)
+}
+
+func sleepContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // addStopped ajoute le torrent arrêté au chemin que voit le client ; un client readonly arrête l'étape.

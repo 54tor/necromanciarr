@@ -206,3 +206,30 @@ func TestSeedStage_neverSeedsAnUnlinkedProposal(t *testing.T) {
 		t.Fatalf("gotValue %+v added=%v, expectedValue nothing added before Link", result, fixture.client.added)
 	}
 }
+
+func TestSeedStage_incompleteTorrentRunningAfterAddFailsTheProposal(t *testing.T) {
+	cases := map[string]struct {
+		reportedState  string
+		expectedFailed bool
+	}{
+		"stopped as asked":        {reportedState: "stoppedDL", expectedFailed: false},
+		"checking before pausing": {reportedState: "checkingDL", expectedFailed: false},
+		"running despite pause":   {reportedState: "downloading", expectedFailed: true},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			fixture := newApplyFixture(t)
+			candidate, proposal := fixture.linkedProposal(movieWithAnnex(patternBytes(50, nfoSize)), store.ProposalPartialAnnex)
+			fixture.client.reportedState = testCase.reportedState
+
+			result := fixture.mustRunStage(StageSeed)
+
+			pausedAfterAdd := slices.Contains(fixture.client.paused, candidate.Infohash)
+			gotFailed := fixture.decisionOf(proposal.ID) == store.ProposalFailed && result.Reasons[ReasonNotPausedAfterAdd] == 1
+			if !pausedAfterAdd || gotFailed != testCase.expectedFailed {
+				t.Fatalf("gotValue paused=%v failed=%v result %+v, expectedValue a pause and failed=%v", pausedAfterAdd, gotFailed,
+					result, testCase.expectedFailed)
+			}
+		})
+	}
+}

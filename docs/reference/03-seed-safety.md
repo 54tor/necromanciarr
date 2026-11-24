@@ -38,7 +38,7 @@ Juste avant l'ajout, Seed :
 
 ### 5 : partial_annex et Force
 
-Un `partial_annex` est ajouté en pause, jamais contrôlé par `skip_checking`, et passe `applied` avec l'étape `seeded_paused_incomplete` (`paused_incomplete`). Les pièces qui manquent couvrent des annexes absentes de la bibliothèque, souvent à cheval sur la fin d'un média lié. Le client télécharge et écrit chaque pièce manquante **en entier**, y compris la part qui appartient au média : à travers un lien dur ou symbolique, il écrirait des blocs non vérifiés dans le fichier de la bibliothèque.
+Un `partial_annex` est ajouté en pause, jamais contrôlé par `skip_checking`, et passe `applied` avec l'étape `seeded_paused_incomplete` (`paused_incomplete`). Juste après l'ajout, Seed redemande la pause puis relit le torrent par son hash (jusqu'à 10 essais espacés de 200 ms, l'ajout étant asynchrone) : s'il n'apparaît pas, ou dans un autre état qu'arrêté ou en contrôle, la proposition échoue avec `not_paused_after_add`. Les pièces qui manquent couvrent des annexes absentes de la bibliothèque, souvent à cheval sur la fin d'un média lié. Le client télécharge et écrit chaque pièce manquante **en entier**, y compris la part qui appartient au média : à travers un lien dur ou symbolique, il écrirait des blocs non vérifiés dans le fichier de la bibliothèque.
 
 `Force` est le seul moyen de démarrer ce torrent :
 

@@ -77,7 +77,7 @@ func (client *completeClient) FindTorrent(_ context.Context, infoHash string) (q
 	if !client.added["any"] || client.hash != infoHash {
 		return qbit.TorrentInfo{}, false, nil
 	}
-	return qbit.TorrentInfo{Hash: client.hash, SavePath: client.savePath, Progress: 1}, true, nil
+	return qbit.TorrentInfo{Hash: client.hash, SavePath: client.savePath, Progress: 1, State: "stoppedUP"}, true, nil
 }
 
 func (client *completeClient) Pause(context.Context, string) error { return nil }

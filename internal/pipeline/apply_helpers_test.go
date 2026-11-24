@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"path/filepath"
@@ -153,6 +154,8 @@ type fakeTorrentClient struct {
 	addErr       error
 	// existing sont des torrents déjà dans le client avant l'étape (d'un autre outil, ou d'une exécution interrompue).
 	existing []qbit.TorrentInfo
+	// reportedState remplace l'état rapporté pour un torrent ajouté (vide = stoppedDL).
+	reportedState string
 }
 
 type fakeAdd struct {
@@ -184,7 +187,8 @@ func (client *fakeTorrentClient) FindTorrent(_ context.Context, infoHash string)
 	defer client.mutex.Unlock()
 	for infohash, added := range client.added {
 		if strings.EqualFold(infohash, infoHash) {
-			return qbit.TorrentInfo{Hash: infohash, SavePath: added.savePath, Progress: client.progress[infohash], State: "stoppedDL"}, true, nil
+			state := cmp.Or(client.reportedState, "stoppedDL")
+			return qbit.TorrentInfo{Hash: infohash, SavePath: added.savePath, Progress: client.progress[infohash], State: state}, true, nil
 		}
 	}
 	for _, existing := range client.existing {
