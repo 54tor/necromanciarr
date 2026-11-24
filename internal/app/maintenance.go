@@ -26,6 +26,9 @@ var (
 	ErrWrongProposalKind = errors.New("app: wrong proposal kind for this action")
 	// ErrDirectoryInLibrary : un dossier à traiter recouvre une racine de la bibliothèque, qui n'est jamais modifiée.
 	ErrDirectoryInLibrary = errors.New("app: directory overlaps a library root")
+	// ErrRecheckUnavailable : la réparation par présomption exige un recontrôle, et les torrents qui couvrent le lien
+	// n'ont pas pu être listés ; rien n'est remplacé.
+	ErrRecheckUnavailable = errors.New("app: the torrents covering this link cannot be listed, repair refused")
 )
 
 // Avertissements posés sur une proposition dedupe ou repair appliquée.

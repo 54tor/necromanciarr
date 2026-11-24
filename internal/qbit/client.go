@@ -182,6 +182,9 @@ func (client *Client) String() string {
 // GoString décrit le client sans secret pour %#v.
 func (client *Client) GoString() string { return client.String() }
 
+// ReadOnly dit si le client est déclaré en lecture seule : aucun ajout, pause, recontrôle ni reprise.
+func (client *Client) ReadOnly() bool { return client.readOnly }
+
 func (client *Client) refuseIfReadOnly() error {
 	if client.readOnly {
 		return ErrReadOnly

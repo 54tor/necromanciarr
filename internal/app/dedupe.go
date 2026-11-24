@@ -125,7 +125,7 @@ func (svc *service) DedupePlan(ctx context.Context) ([]DedupeProposal, error) {
 // recontrôle du client, rien ne garantit qu'un torrent incomplet n'y écrira pas.
 func (svc *service) linksWithoutRecheck(details DedupeDetails) bool {
 	sharesLibraryFile := details.Kind == linker.Hardlink.String() || details.Kind == linker.Symlink.String()
-	recheckPlanned := svc.deps.Maintenance != nil && svc.deps.Config.Dedupe.RecheckAfter
+	recheckPlanned := svc.canRecheck() && svc.deps.Config.Dedupe.RecheckAfter
 	return details.Actionable && sharesLibraryFile && !recheckPlanned
 }
 
@@ -185,8 +185,8 @@ func (svc *service) applyDedupe(ctx context.Context, details DedupeDetails, resu
 	}
 	options := svc.dedupeOptions(ctx)
 	options.DryRun = result.DryRun
-	if svc.deps.Maintenance != nil {
-		options.Rechecker = clientView{client: svc.deps.Maintenance, mapper: svc.deps.Stages.ClientMapper}
+	if svc.canRecheck() {
+		options.Rechecker = svc.clientView()
 	}
 	applied, applyErr := dedupe.Apply(ctx, []dedupe.Replacement{details.replacement()}, options)
 	if len(applied.Outcomes) == 0 {

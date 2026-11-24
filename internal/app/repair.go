@@ -115,13 +115,13 @@ func (svc *service) scanRepairs(ctx context.Context, directory string) ([]Repair
 		FingerprintCache: svc.deps.Store, HashConfirmer: hashsource.NewConfirmer(svc.deps.HashSources), Store: svc.deps.Store,
 	}
 	if svc.deps.Maintenance != nil {
-		options.TorrentSource = clientView{client: svc.deps.Maintenance, mapper: svc.deps.Stages.ClientMapper}
+		options.TorrentSource = svc.clientView()
 	}
 	repairs, report, err := repair.Scan(ctx, options, nil, library)
 	if err != nil {
 		return nil, err
 	}
-	return repairEntries(repairs, report, directory, svc.deps.Maintenance != nil), nil
+	return repairEntries(repairs, report, directory, svc.canRecheck()), nil
 }
 
 // needsClientRecheck : seules les méthodes inode et torrent-pieces prouvent le contenu ; les autres ne sont confirmées
@@ -195,16 +195,18 @@ func (svc *service) applyRepair(ctx context.Context, details RepairDetails, resu
 	if err := checkOutsideLibrary([]string{details.LinkPath}, settings.LibraryRoots, ErrDirectoryInLibrary); err != nil {
 		return err
 	}
-	if svc.deps.Maintenance == nil && needsClientRecheck(details.Method) {
-		return fmt.Errorf("%w: %s", ErrNotActionable, RepairReasonNeedsClientRecheck)
+	if needsClientRecheck(details.Method) {
+		if err := svc.requireCoveringListing(ctx, details.LinkPath); err != nil {
+			return err
+		}
 	}
 	roots := slices.Concat(settings.LinkDirs, settings.Dedupe.TorrentRoots)
 	if details.ScanDirectory != "" {
 		roots = append(roots, details.ScanDirectory)
 	}
 	applyOptions := repair.ApplyOptions{Roots: existingDirectories(roots), DryRun: result.DryRun, Store: svc.deps.Store}
-	if svc.deps.Maintenance != nil {
-		applyOptions.Rechecker = clientView{client: svc.deps.Maintenance, mapper: svc.deps.Stages.ClientMapper}
+	if svc.canRecheck() {
+		applyOptions.Rechecker = svc.clientView()
 	}
 	applied, applyErr := repair.Apply(ctx, []repair.Repair{details.repair()}, applyOptions)
 	if len(applied.Outcomes) == 0 {
@@ -224,10 +226,34 @@ func (svc *service) applyRepair(ctx context.Context, details RepairDetails, resu
 }
 
 // MaintenanceClient est la part du client torrent utilisée par dedupe (recontrôle) et repair (torrent d'un lien) ;
-// *qbit.Client convient. Les chemins reçus sont ceux du client.
+// *qbit.Client convient. Les chemins reçus sont ceux du client. Un client en lecture seule ne peut pas recontrôler.
 type MaintenanceClient interface {
 	RecheckPath(ctx context.Context, path string) error
 	TorrentForPath(ctx context.Context, path string) (repair.TorrentRef, bool, error)
+	TorrentsCovering(ctx context.Context, path string) ([]string, error)
+	ReadOnly() bool
+}
+
+// canRecheck : seul un client configuré et inscriptible peut recontrôler après un remplacement.
+func (svc *service) canRecheck() bool {
+	return svc.deps.Maintenance != nil && !svc.deps.Maintenance.ReadOnly()
+}
+
+func (svc *service) clientView() clientView {
+	return clientView{client: svc.deps.Maintenance, mapper: svc.deps.Stages.ClientMapper}
+}
+
+// requireCoveringListing : une réparation par présomption n'est prouvée que par le recontrôle ; sans client capable,
+// ou si les torrents qui couvrent le lien ne se listent pas (liste trop grosse, client injoignable), elle est refusée
+// avant tout renommage plutôt qu'avertie après coup.
+func (svc *service) requireCoveringListing(ctx context.Context, linkPath string) error {
+	if !svc.canRecheck() {
+		return fmt.Errorf("%w: %s", ErrNotActionable, RepairReasonNeedsClientRecheck)
+	}
+	if _, err := svc.clientView().TorrentsCovering(ctx, linkPath); err != nil {
+		return fmt.Errorf("%w: %w", ErrRecheckUnavailable, err)
+	}
+	return nil
 }
 
 // clientView traduit les chemins de ce processus vers la vue du client (mapper nil ou sans règle : mêmes chemins).
@@ -253,6 +279,14 @@ func (view clientView) RecheckPath(ctx context.Context, path string) error {
 		return err
 	}
 	return view.client.RecheckPath(ctx, clientPath)
+}
+
+func (view clientView) TorrentsCovering(ctx context.Context, path string) ([]string, error) {
+	clientPath, err := view.clientPath(path)
+	if err != nil {
+		return nil, err
+	}
+	return view.client.TorrentsCovering(ctx, clientPath)
 }
 
 func (view clientView) TorrentForPath(ctx context.Context, path string) (repair.TorrentRef, bool, error) {

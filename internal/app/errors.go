@@ -26,7 +26,7 @@ const (
 var refusals = []error{
 	ErrConflictNeedsChoose, ErrPartialPackNeedsForce, ErrNotATorrentProposal, ErrCandidateAlreadyAccepted,
 	ErrOneTorrentPerFile, ErrNotFull, ErrNotForceable, ErrNoPrimary, ErrForceNotAllowed, ErrForceIsolationImpossible,
-	ErrNotAccepted, ErrNotActionable, ErrWrongProposalKind, ErrDirectoryInLibrary,
+	ErrNotAccepted, ErrNotActionable, ErrWrongProposalKind, ErrDirectoryInLibrary, ErrRecheckUnavailable,
 	store.ErrInvalidTransition, pipeline.ErrGroupInconsistent, pipeline.ErrClientReadOnly, pipeline.ErrPlacementChanged,
 	dedupe.ErrTorrentRootOverlapsLibrary, repair.ErrOutsideRoots,
 }

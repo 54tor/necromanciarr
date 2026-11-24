@@ -34,6 +34,16 @@ const clientTorrentRoot = "/data/torrents"
 type fakeMaintenanceClient struct {
 	recheckedPaths []string
 	recheckErr     error
+	readOnly       bool
+	listingErr     error
+	listedPaths    []string
+}
+
+func (client *fakeMaintenanceClient) ReadOnly() bool { return client.readOnly }
+
+func (client *fakeMaintenanceClient) TorrentsCovering(_ context.Context, path string) ([]string, error) {
+	client.listedPaths = append(client.listedPaths, path)
+	return nil, client.listingErr
 }
 
 func (client *fakeMaintenanceClient) RecheckPath(_ context.Context, path string) error {
@@ -649,5 +659,47 @@ func TestApp_dedupeAsksTheStorageForTheHashesRecordedInTheCapabilityCache(t *tes
 
 	if expectedAlgorithms := []hashsource.Algorithm{hashsource.SHA1}; !slices.Equal(gotAlgorithms, expectedAlgorithms) {
 		t.Fatalf("gotValue %v, expectedValue %v read from the capability cache", gotAlgorithms, expectedAlgorithms)
+	}
+}
+
+func TestApp_aReadOnlyClientCountsAsNoRecheck(t *testing.T) {
+	repairFixture := newMaintenanceFixture(t)
+	repairFixture.client.readOnly = true
+	repairablePath, _, _ := repairFixture.repairLayout()
+
+	proposals, err := repairFixture.service().RepairScan(context.Background(), "")
+
+	repairable := repairByLink(proposals, repairablePath)
+	if err != nil || repairable.Details.Actionable || repairable.Details.Reason != RepairReasonNeedsClientRecheck {
+		t.Fatalf("repair: gotValue %+v %v, expectedValue non-actionable with needs_client_recheck", repairable, err)
+	}
+	dedupeFixture := newMaintenanceFixture(t)
+	dedupeFixture.client.readOnly = true
+	if planned := dedupeFixture.planOne(dedupeFixture.service()); !slices.Contains(planned.Warnings, WarningNoClientRecheck) {
+		t.Fatalf("dedupe: gotValue %v, expectedValue the no_client_recheck warning", planned.Warnings)
+	}
+}
+
+func TestApp_repairByPresumptionRefusesWhenTheCoveringTorrentsCannotBeListed(t *testing.T) {
+	fixture := newMaintenanceFixture(t)
+	repairablePath, _, _ := fixture.repairLayout()
+	service := fixture.service()
+	ctx := context.Background()
+	proposals, err := service.RepairScan(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	repairable := repairByLink(proposals, repairablePath)
+	if err := service.Accept(ctx, repairable.ID); err != nil {
+		t.Fatal(err)
+	}
+	fixture.client.listingErr = errors.New("listing too large")
+	before, _ := os.Readlink(repairablePath)
+
+	_, err = service.RepairAccept(ctx, repairable.ID)
+
+	after, _ := os.Readlink(repairablePath)
+	if !errors.Is(err, ErrRecheckUnavailable) || after != before || len(fixture.client.recheckedPaths) != 0 || len(fixture.client.listedPaths) != 1 {
+		t.Fatalf("gotValue %v link %q→%q rechecks %v, expectedValue a refusal before the rename", err, before, after, fixture.client.recheckedPaths)
 	}
 }

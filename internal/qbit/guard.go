@@ -191,6 +191,20 @@ func (client *Client) RecheckPath(ctx context.Context, filePath string) error {
 	return errors.Join(failures...)
 }
 
+// TorrentsCovering liste, triés, les hashes des torrents dont un fichier est path (vue du client), sans rien mettre en
+// pause ; une liste illisible ou trop grosse est une erreur.
+func (client *Client) TorrentsCovering(ctx context.Context, filePath string) ([]string, error) {
+	covering, err := client.torrentsCovering(ctx, filePath)
+	if err != nil {
+		return nil, err
+	}
+	hashes := make([]string, 0, len(covering))
+	for _, match := range covering {
+		hashes = append(hashes, match.hash)
+	}
+	return hashes, nil
+}
+
 // coveringTorrent est un torrent du client qui contient le fichier ; relativeName est son nom sous save_path, state
 // son état lu avant toute pause.
 type coveringTorrent struct {
