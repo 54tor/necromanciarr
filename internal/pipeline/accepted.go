@@ -92,7 +92,28 @@ func failProposal(ctx context.Context, deps Deps, result *Result, proposalID int
 	if err := deps.Store.SetProposalDecision(ctx, proposalID, store.ProposalFailed, deps.now()); err != nil {
 		return err
 	}
-	return deps.Store.AddProposalWarning(ctx, proposalID, "application failed: "+reason)
+	return deps.Store.AddProposalWarning(ctx, proposalID, failureWarning(reason))
+}
+
+// linkKindActions dit à l'opérateur, pour chaque refus de sorte de lien, la cause et quoi changer ; aucun repli vers
+// une autre sorte n'est jamais tenté d'office.
+var linkKindActions = map[string]string{
+	ReasonCrossDevice: "hardlink impossible entre deux montages : placer linkDirs sous le même point de montage que " +
+		"la bibliothèque, ou choisir linkType symlink/reflink",
+	ReasonNoLinkDirOnSameDevice: "aucun linkDirs sur le même système de fichiers que la bibliothèque : placer linkDirs " +
+		"sous le même point de montage que la bibliothèque, ou choisir linkType symlink",
+	ReasonLinkKindRefused: "le système de fichiers de linkDirs refuse cette sorte de lien : choisir un autre linkType " +
+		"(le contrôle doctor des liens indique les sortes acceptées)",
+}
+
+// failureWarning est l'avertissement laissé sur une proposition en échec : la raison, puis l'action attendue de
+// l'opérateur quand elle est connue.
+func failureWarning(reason string) string {
+	warning := "application failed: " + reason
+	if action, known := linkKindActions[reason]; known {
+		warning += " (" + action + ")"
+	}
+	return warning
 }
 
 // linkedCandidates marque chaque candidat dont une proposition acceptée a déjà une étape : une seconde proposition du
