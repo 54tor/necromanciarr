@@ -108,7 +108,7 @@ func checkLinkDirsOutsideLibrary(linkDirs, libraryRoots []string) error {
 	return nil
 }
 
-// resolvedPath suit les liens symboliques ; un chemin absent garde sa forme absolue.
+// resolvedPath suit les liens symboliques ; un chemin absent reste tel quel, rendu absolu.
 func resolvedPath(original string) string {
 	absolute, err := filepath.Abs(original)
 	if err != nil {
@@ -251,8 +251,9 @@ func (run linkRun) reconcile(ctx context.Context, proven provenTorrent, ops []li
 	}
 	expectedAnnexes := map[string]bool{}
 	for _, annex := range proven.annexes {
-		path, err := annexPath(proven.torrent, destRoot, annex)
-		if err != nil {
+		path, pathErr := annexPath(proven.torrent, destRoot, annex)
+		pathKnown := pathErr == nil
+		if !pathKnown {
 			return reconciled{}, ReasonAnnexWriteFailed, nil
 		}
 		expectedAnnexes[path] = true

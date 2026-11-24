@@ -184,9 +184,7 @@ func (client *fakeTorrentClient) Torrents(context.Context) ([]qbit.TorrentInfo, 
 	for infohash, added := range client.added {
 		torrents = append(torrents, qbit.TorrentInfo{Hash: infohash, SavePath: added.savePath, Progress: client.progress[infohash], State: "stoppedDL"})
 	}
-	for _, existing := range client.existing {
-		torrents = append(torrents, existing)
-	}
+	torrents = append(torrents, client.existing...)
 	return torrents, nil
 }
 

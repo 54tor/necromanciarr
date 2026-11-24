@@ -262,8 +262,10 @@ func (group proposalGroup) ensureCrossSeeds(ctx context.Context, deps Deps, resu
 			continue
 		}
 		created, err := upsertProposal(ctx, deps, store.Proposal{CandidateID: member.ID, GroupID: group.groupID, Kind: store.ProposalCrossSeed},
-			ProposalDetails{Percent: details.Percent, VerifiedPieces: details.VerifiedPieces, TotalPieces: details.TotalPieces,
-				ExcludedFiles: details.ExcludedFiles})
+			ProposalDetails{
+				Percent: details.Percent, VerifiedPieces: details.VerifiedPieces, TotalPieces: details.TotalPieces,
+				ExcludedFiles: details.ExcludedFiles,
+			})
 		if err != nil {
 			return err
 		}

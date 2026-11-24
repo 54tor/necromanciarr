@@ -45,7 +45,8 @@ func loadProven(ctx context.Context, deps Deps, proposal store.Proposal, candida
 		return provenTorrent{}, "", err
 	}
 	torrent, parseErr := torrentcheck.Parse(raw)
-	if parseErr != nil {
+	parsed := parseErr == nil
+	if !parsed {
 		return provenTorrent{}, ReasonInvalidTorrent, nil
 	}
 	annexes, err := deps.Store.ListVerifiedFiles(ctx, candidate.ID)

@@ -167,7 +167,8 @@ func (run seedRun) markSourcesChanged(ctx context.Context, proposalID, candidate
 // client doit alors recontrôler.
 func (run seedRun) checkPlacement(ctx context.Context, proven provenTorrent, linkRoot string) (certain bool, damage string, err error) {
 	ops, planErr := linker.Plan(proven.torrent, proven.assignment, linkRoot)
-	if planErr != nil {
+	planned := planErr == nil
+	if !planned {
 		return false, ReasonLinkChanged, nil
 	}
 	certain = true
@@ -183,7 +184,8 @@ func (run seedRun) checkPlacement(ctx context.Context, proven provenTorrent, lin
 	}
 	for _, annex := range proven.annexes {
 		path, pathErr := annexPath(proven.torrent, linkRoot, annex)
-		if pathErr != nil || !annexMatches(path, annex) {
+		pathKnown := pathErr == nil
+		if !pathKnown || !annexMatches(path, annex) {
 			return false, ReasonAnnexChanged, nil
 		}
 	}

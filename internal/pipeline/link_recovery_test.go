@@ -127,12 +127,14 @@ func TestLinkStage_leftoverLinkToAnotherSourceIsReplacedOnlyWhenRecorded(t *test
 		fixture.mustRunStage(StageLink)
 		other := fixture.writeLocal("other.mkv", patternBytes(9, movieSize))
 		// La revérification associe désormais le fichier du torrent à une autre source de même taille.
-		fixture.stageStore = &tamperedStore{Store: fixture.store, forgetProgress: true, forgetLinks: !recorded,
+		fixture.stageStore = &tamperedStore{
+			Store: fixture.store, forgetProgress: true, forgetLinks: !recorded,
 			assignment: func(assignment store.VerifiedAssignment) store.VerifiedAssignment {
 				assignment.Files[0].MediaFileID, assignment.Files[0].Path = other.ID, other.Path
 				assignment.Files[0].Size, assignment.Files[0].ModTime = other.Size, other.ModTime
 				return assignment
-			}}
+			},
+		}
 
 		result := fixture.mustRunStage(StageLink)
 
