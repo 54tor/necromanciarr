@@ -69,7 +69,10 @@ func newDecisionFixture(t *testing.T) *decisionFixture {
 }
 
 func (fixture *decisionFixture) service(behavior crossseed.Behavior) Service {
-	return New(Deps{Store: fixture.store, Client: fixture.resumer, CrossSeed: behavior, Now: func() time.Time { return fixedNow }})
+	return New(Deps{
+		Store: fixture.store, Stages: pipeline.Deps{Store: fixture.store}, Client: fixture.resumer, CrossSeed: behavior,
+		Now: func() time.Time { return fixedNow },
+	})
 }
 
 // verifiedCandidate enregistre un candidat associé au fichier local partagé, termine sa vérification avec cette

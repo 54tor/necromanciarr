@@ -232,7 +232,23 @@ func (svc *service) Choose(ctx context.Context, proposalID int64) error {
 	return svc.deps.Store.SetGroupPrimary(ctx, groupID, proposalID, store.PrimaryOperator)
 }
 
+// lockNameForce nomme le verrou tenu par Force : deux Force simultanés ne contrôleraient pas la place libre ensemble.
+const lockNameForce = "force"
+
 func (svc *service) Force(ctx context.Context, proposalID int64) (ForceResult, error) {
+	var result ForceResult
+	err := svc.locked(ctx, lockNameForce, func(ctx context.Context) error {
+		var forceErr error
+		result, forceErr = svc.force(ctx, proposalID)
+		return forceErr
+	})
+	if result.ProposalID == 0 {
+		result.ProposalID = proposalID
+	}
+	return result, err
+}
+
+func (svc *service) force(ctx context.Context, proposalID int64) (ForceResult, error) {
 	state, err := svc.loadSnapshot(ctx)
 	if err != nil {
 		return ForceResult{}, err

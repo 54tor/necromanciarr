@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"testing"
 
 	"github.com/anacrolix/torrent/bencode"
@@ -230,5 +231,33 @@ func TestApp_forceRefusesWithoutChangeWhenNoCopyIsPossible(t *testing.T) {
 	}
 	if gotStep := fixture.view().Step; gotStep != store.StepSeededPausedIncomplete {
 		t.Fatalf("gotValue step %q, expectedValue still paused", gotStep)
+	}
+}
+
+func TestApp_twoConcurrentForcesCannotBothIsolate(t *testing.T) {
+	entered, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	slowCopy := func(source, destination, root string) (linker.PreparedCopy, error) {
+		if calls.Add(1) == 1 {
+			close(entered)
+			<-release
+		}
+		return linker.PrepareCopy(source, destination, root)
+	}
+	fixture := newForceFixture(t, slowCopy)
+	ctx := context.Background()
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := fixture.service.Force(ctx, fixture.proposalID)
+		firstDone <- err
+	}()
+	<-entered
+
+	_, secondErr := fixture.service.Force(ctx, fixture.proposalID)
+	close(release)
+	firstErr := <-firstDone
+
+	if !errors.Is(secondErr, pipeline.ErrStageRunning) || firstErr != nil || calls.Load() != 1 || len(fixture.client.resumed) != 1 {
+		t.Fatalf("gotValue first %v second %v copies %d resumed %v, expectedValue one Force at a time", firstErr, secondErr, calls.Load(), fixture.client.resumed)
 	}
 }
