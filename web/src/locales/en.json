@@ -229,7 +229,8 @@
       "match": "Match",
       "verify": "Verify",
       "link": "Link",
-      "seed": "Seed"
+      "seed": "Seed",
+      "run": "Stage"
     },
     "columns": {
       "job": "Job",
@@ -261,5 +262,23 @@
       "seeded": "seeded",
       "seeded_paused_incomplete": "paused (incomplete)"
     }
+  },
+  "errors": {
+    "usage": "Invalid request.",
+    "confirmation_required": "Confirmation required for this action.",
+    "unauthorized": "Token rejected or missing: enter the access token.",
+    "forbidden": "Access refused by the server (origin or host not allowed).",
+    "not_found": "Item not found: it may have been replaced, refresh the list.",
+    "method_not_allowed": "Method not allowed.",
+    "stale_proposal": "Proposal is stale: rerun the verification.",
+    "not_configured": "Component not configured: see the Getting started tab.",
+    "stage_running": "A stage is already running.",
+    "inspection_busy": "A link inspection is still running (slow or stuck mount): try again later.",
+    "refused": "Action refused: it is not allowed for this proposal.",
+    "shutting_down": "The server is shutting down.",
+    "failure": "Server-side failure. Check its log.",
+    "network": "Server unreachable.",
+    "generic": "An error occurred. Check the server log.",
+    "unknownCode": "{message} (code: {code})"
   }
 }

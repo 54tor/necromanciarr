@@ -229,7 +229,8 @@
       "match": "Correspondance",
       "verify": "Vérification",
       "link": "Liaison",
-      "seed": "Ensemencement"
+      "seed": "Ensemencement",
+      "run": "Étape"
     },
     "columns": {
       "job": "Job",
@@ -261,5 +262,23 @@
       "seeded": "ensemencés",
       "seeded_paused_incomplete": "en pause (incomplets)"
     }
+  },
+  "errors": {
+    "usage": "Requête invalide.",
+    "confirmation_required": "Confirmation requise pour cette action.",
+    "unauthorized": "Jeton refusé ou absent : saisissez le jeton d’accès.",
+    "forbidden": "Accès refusé par le serveur (origine ou hôte non autorisé).",
+    "not_found": "Élément introuvable : il a peut-être été remplacé, actualisez la liste.",
+    "method_not_allowed": "Méthode non autorisée.",
+    "stale_proposal": "Proposition périmée : relancez la vérification.",
+    "not_configured": "Composant non configuré : voir l’onglet Démarrage.",
+    "stage_running": "Une étape est déjà en cours.",
+    "inspection_busy": "Un examen des liens est encore en cours (montage lent ou figé) : réessayez plus tard.",
+    "refused": "Action refusée : elle n’est pas permise pour cette proposition.",
+    "shutting_down": "Le serveur est en cours d’arrêt.",
+    "failure": "Échec côté serveur. Consultez son journal.",
+    "network": "Serveur injoignable.",
+    "generic": "Une erreur est survenue. Consultez le journal du serveur.",
+    "unknownCode": "{message} (code : {code})"
   }
 }

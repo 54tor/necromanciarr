@@ -20,7 +20,7 @@ export const i18n = createI18n<[MessageSchema], Language>({
 /** t traduit une clé dans la langue active (instance globale : utilisable hors composant et dans les gabarits). */
 const composer = i18n.global as unknown as Composer
 export const { t } = composer
-const { te } = composer
+export const { te } = composer
 
 /** setLanguage bascule la langue de l'interface (toute l'interface suit : la locale est réactive). */
 export function setLanguage(language: Language): void {
