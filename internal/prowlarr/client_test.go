@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -169,5 +170,54 @@ func TestClient_textFormsNeverShowTheKey(t *testing.T) {
 		if strings.Contains(rendering, fakeKey) || !strings.Contains(rendering, "example.com:9696") {
 			t.Fatalf("gotValue %q, expectedValue the host without the key", rendering)
 		}
+	}
+}
+
+type countingBody struct {
+	io.ReadCloser
+	read *atomic.Int64
+}
+
+func (body countingBody) Read(buffer []byte) (int, error) {
+	count, err := body.ReadCloser.Read(buffer)
+	body.read.Add(int64(count))
+	return count, err
+}
+
+type countingTransport struct{ read *atomic.Int64 }
+
+func (transport countingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := http.DefaultTransport.RoundTrip(request)
+	if err == nil {
+		response.Body = countingBody{ReadCloser: response.Body, read: transport.read}
+	}
+	return response, err
+}
+
+func TestIndexers_stopsReadingAtTheIndexerCapInsteadOfBuildingTheWholeList(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, "[")
+		chunk := []byte(strings.Repeat("{},", 20000))
+		for range 2 * maxBodyBytes / len(chunk) {
+			if _, err := writer.Write(chunk); err != nil {
+				return
+			}
+		}
+	}))
+	defer server.Close()
+	var read atomic.Int64
+	client, err := New(server.URL+"?apikey="+fakeKey, &http.Client{Transport: countingTransport{read: &read}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, gotErr := client.Indexers(context.Background())
+
+	if !errors.Is(gotErr, ErrBadResponse) {
+		t.Fatalf("gotValue %v, expectedValue ErrBadResponse", gotErr)
+	}
+	if limit := int64(256 << 10); read.Load() > limit {
+		t.Fatalf("gotValue %d bytes read, expectedValue the decoder to stop at the indexer cap (at most %d)", read.Load(), limit)
 	}
 }

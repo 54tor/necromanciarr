@@ -101,26 +101,61 @@ type indexerResource struct {
 	Enable bool   `json:"enable"`
 }
 
-// Indexers liste les indexeurs de Prowlarr, activés ou non.
+// Indexers liste les indexeurs de Prowlarr, activés ou non. La liste est lue en flux, un élément à la fois : une
+// réponse hostile de millions d'éléments s'arrête au premier dépassement de maxIndexers.
 func (client *Client) Indexers(ctx context.Context) ([]Indexer, error) {
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
 	body, err := client.get(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var resources []indexerResource
-	if err := json.Unmarshal(body, &resources); err != nil || len(resources) > maxIndexers {
+	defer func() { _ = body.Close() }()
+	return decodeIndexers(&cappedReader{reader: body, remaining: maxBodyBytes})
+}
+
+func decodeIndexers(reader io.Reader) ([]Indexer, error) {
+	decoder := json.NewDecoder(reader)
+	if opening, err := decoder.Token(); err != nil || opening != json.Delim('[') {
 		return nil, fmt.Errorf("%w: not an indexer list", ErrBadResponse)
 	}
-	indexers := make([]Indexer, 0, len(resources))
-	for _, resource := range resources {
+	var indexers []Indexer
+	for decoder.More() {
+		if len(indexers) >= maxIndexers {
+			return nil, fmt.Errorf("%w: too many indexers", ErrBadResponse)
+		}
+		var resource indexerResource
+		if err := decoder.Decode(&resource); err != nil {
+			return nil, fmt.Errorf("%w: not an indexer list", ErrBadResponse)
+		}
 		indexers = append(indexers, Indexer{ID: resource.ID, Name: cleanName(resource.Name), Enabled: resource.Enable})
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, fmt.Errorf("%w: not an indexer list", ErrBadResponse)
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("%w: data after the list", ErrBadResponse)
 	}
 	return indexers, nil
 }
 
-func (client *Client) get(ctx context.Context) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
-	defer cancel()
+// cappedReader échoue en ErrBadResponse dès que la réponse dépasse sa limite : jamais de troncature silencieuse.
+type cappedReader struct {
+	reader    io.Reader
+	remaining int
+}
+
+func (capped *cappedReader) Read(buffer []byte) (int, error) {
+	count, err := capped.reader.Read(buffer[:min(len(buffer), capped.remaining+1)])
+	capped.remaining -= count
+	if capped.remaining < 0 {
+		return 0, fmt.Errorf("%w: response larger than its limit", ErrBadResponse)
+	}
+	return count, err
+}
+
+// get renvoie le corps d'une réponse 2xx JSON ; l'appelant le ferme et garde le contexte vivant jusqu'à sa lecture.
+func (client *Client) get(ctx context.Context) (io.ReadCloser, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, client.base.String(), nil)
 	if err != nil {
 		return nil, ErrBadResponse
@@ -135,21 +170,15 @@ func (client *Client) get(ctx context.Context) ([]byte, error) {
 		}
 		return nil, fmt.Errorf("%w: request failed", ErrUnavailable)
 	}
-	defer func() { _ = response.Body.Close() }()
 	if statusErr := statusError(response.StatusCode); statusErr != nil {
+		_ = response.Body.Close()
 		return nil, statusErr
 	}
 	if mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type")); mediaType != jsonMediaType {
+		_ = response.Body.Close()
 		return nil, fmt.Errorf("%w: not JSON", ErrBadResponse)
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxBodyBytes+1))
-	if err != nil {
-		return nil, fmt.Errorf("%w: read failed", ErrUnavailable)
-	}
-	if len(body) > maxBodyBytes {
-		return nil, fmt.Errorf("%w: response larger than its limit", ErrBadResponse)
-	}
-	return body, nil
+	return response.Body, nil
 }
 
 func statusError(status int) error {
