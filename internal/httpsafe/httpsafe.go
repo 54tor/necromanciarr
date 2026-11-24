@@ -3,6 +3,8 @@ package httpsafe
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,4 +21,23 @@ func NewClient(timeout time.Duration) *http.Client {
 		client.Transport = transport
 	}
 	return client
+}
+
+// maxRetryAfter plafonne le délai demandé par un serveur : au-delà, une valeur hostile figerait une étape.
+const maxRetryAfter = time.Hour
+
+// ParseRetryAfter lit l'en-tête Retry-After en secondes ou en date HTTP, plafonné à une heure ; une valeur invalide
+// ou passée donne zéro.
+func ParseRetryAfter(header string, now time.Time) time.Duration {
+	header = strings.TrimSpace(header)
+	var delay time.Duration
+	if seconds, err := strconv.ParseInt(header, 10, 64); err == nil {
+		if seconds > int64(maxRetryAfter/time.Second) {
+			return maxRetryAfter
+		}
+		delay = time.Duration(seconds) * time.Second
+	} else if date, err := http.ParseTime(header); err == nil {
+		delay = date.Sub(now)
+	}
+	return min(max(delay, 0), maxRetryAfter)
 }

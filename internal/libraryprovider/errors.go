@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
+
+	"necromanciarr/internal/httpsafe"
 )
 
 var (
@@ -30,7 +31,6 @@ var (
 const (
 	maxProblemBytes  = 64 << 10
 	maxDetailRunes   = 200
-	maxRetryAfter    = time.Hour
 	redactedFragment = "[redacted]"
 )
 
@@ -62,7 +62,7 @@ func (client *Client) statusError(response *http.Response) error {
 	detail := client.problemDetail(response.Body)
 	switch {
 	case status == http.StatusTooManyRequests:
-		return &RateLimitedError{RetryAfter: parseRetryAfter(response.Header.Get("Retry-After"), time.Now()), detail: detail}
+		return &RateLimitedError{RetryAfter: httpsafe.ParseRetryAfter(response.Header.Get("Retry-After"), time.Now()), detail: detail}
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
 		return withDetail(fmt.Errorf("%w (HTTP %d)", ErrAccessDenied, status), detail)
 	case status == http.StatusNotFound:
@@ -115,19 +115,4 @@ func truncateRunes(text string, limit int) string {
 		return text
 	}
 	return string(runes[:limit])
-}
-
-// parseRetryAfter lit des secondes ou une date HTTP ; valeur invalide ou passée : zéro.
-func parseRetryAfter(header string, now time.Time) time.Duration {
-	header = strings.TrimSpace(header)
-	var delay time.Duration
-	if seconds, err := strconv.ParseInt(header, 10, 64); err == nil {
-		if seconds > int64(maxRetryAfter/time.Second) {
-			return maxRetryAfter
-		}
-		delay = time.Duration(seconds) * time.Second
-	} else if date, err := http.ParseTime(header); err == nil {
-		delay = date.Sub(now)
-	}
-	return min(max(delay, 0), maxRetryAfter)
 }
