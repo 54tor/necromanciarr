@@ -201,7 +201,7 @@ func acquireLock(ctx context.Context, deps Deps, stage Stage) (func(), error) {
 	}
 	stopRefresh := make(chan struct{})
 	refreshDone := make(chan struct{})
-	go refreshLock(deps, holder, ttl, stopRefresh, refreshDone)
+	go refreshLock(context.WithoutCancel(ctx), deps, holder, ttl, stopRefresh, refreshDone)
 	return func() {
 		close(stopRefresh)
 		<-refreshDone
@@ -210,7 +210,7 @@ func acquireLock(ctx context.Context, deps Deps, stage Stage) (func(), error) {
 }
 
 // refreshLock prolonge le bail toutes les ttl/3 ; un échec ponctuel est rattrapé au tour suivant, avant expiration.
-func refreshLock(deps Deps, holder string, ttl time.Duration, stop <-chan struct{}, done chan<- struct{}) {
+func refreshLock(ctx context.Context, deps Deps, holder string, ttl time.Duration, stop <-chan struct{}, done chan<- struct{}) {
 	defer close(done)
 	ticker := time.NewTicker(ttl / 3)
 	defer ticker.Stop()
@@ -219,7 +219,7 @@ func refreshLock(deps Deps, holder string, ttl time.Duration, stop <-chan struct
 		case <-stop:
 			return
 		case <-ticker.C:
-			_ = deps.Store.RefreshRunLock(context.Background(), holder, deps.now().Add(ttl))
+			_ = deps.Store.RefreshRunLock(ctx, holder, deps.now().Add(ttl))
 		}
 	}
 }

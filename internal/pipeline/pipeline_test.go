@@ -221,7 +221,9 @@ func TestMatchStage_listsAllTorrentsForOneFileInOneGroup(t *testing.T) {
 		t.Fatalf("gotValue %d candidates in groups %v, expectedValue 4 candidates in 2 groups", len(candidates), groups)
 	}
 	for _, members := range groups {
-		if len(members) != 3 && !(len(members) == 1 && members[0] == hashC+"@t1") {
+		isSharedGroup := len(members) == 3
+		isAloneGroup := len(members) == 1 && members[0] == hashC+"@t1"
+		if !isSharedGroup && !isAloneGroup {
 			t.Fatalf("gotValue groups %v", groups)
 		}
 	}
