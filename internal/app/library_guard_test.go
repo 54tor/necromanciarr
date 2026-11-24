@@ -12,6 +12,7 @@ import (
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 
+	"necromanciarr/internal/config"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/pipeline"
@@ -161,7 +162,13 @@ func TestApp_neverWritesLibraryFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := &completeClient{added: map[string]bool{}}
-	service := New(Deps{Store: openedStore, Client: client, Stages: pipeline.Deps{
+	torrentRoot := t.TempDir()
+	writeAgedFile(t, filepath.Join(torrentRoot, "Copy", "movie.mkv"), content, info.ModTime())
+	settings := config.Config{
+		LibraryRoots: []string{libraryDir}, LinkDirs: []string{linkDir},
+		Dedupe: config.Dedupe{TorrentRoots: []string{torrentRoot}, Kinds: []string{"symlink"}, RelativeSymlinks: true, Verify: "full"},
+	}
+	service := New(Deps{Store: openedStore, Client: client, Config: settings, Stages: pipeline.Deps{
 		Store: openedStore, Fetcher: singleTorrentFetcher{raw: raw}, LinkDirs: []string{linkDir},
 		LinkKinds: []linker.Kind{linker.Hardlink}, Client: client, SkipRecheck: true,
 	}})
@@ -191,4 +198,13 @@ func TestApp_neverWritesLibraryFiles(t *testing.T) {
 	if err != nil || final[0].Step != store.StepSeeded || final[0].Decision != store.ProposalApplied || len(client.resumed) != 1 {
 		t.Fatalf("gotValue %+v %v, expectedValue the torrent seeded from links only", final, err)
 	}
+
+	var planned []DedupeProposal
+	guarded("dedupe plan", func() error { planned, err = service.DedupePlan(ctx); return err })
+	if len(planned) != 1 {
+		t.Fatalf("gotValue %+v, expectedValue the torrent-side copy proposed", planned)
+	}
+	guarded("dedupe accept", func() error { return service.Accept(ctx, planned[0].ID) })
+	guarded("dedupe apply", func() error { _, err := service.DedupeAccept(ctx, planned[0].ID); return err })
+	guarded("repair scan", func() error { _, err := service.RepairScan(ctx, ""); return err })
 }

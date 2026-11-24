@@ -24,6 +24,9 @@ const (
 	OptionKind               = "kind"
 	OptionGroup              = "group"
 	OptionCurrentOnly        = "current-only"
+	OptionDryRun             = "dry-run"
+	OptionDirectory          = "directory"
+	OptionCheck              = "check"
 	actionNameProposalPrefix = "proposals "
 )
 
@@ -58,6 +61,23 @@ var registry = []Action{
 		Description: "accept the primary of a group, and the other verified torrents in native cross-seed mode", Mutating: true,
 		Arguments: []string{ArgumentGroupID},
 	},
+	{
+		Name: "dedupe plan", Method: "DedupePlan", Mutating: true,
+		Description: "recover interrupted replacements, then propose links for torrent-side copies of library files",
+	},
+	{
+		Name: "dedupe apply", Method: "DedupeAccept", Description: "apply an accepted dedupe proposal", Mutating: true,
+		Arguments: []string{ArgumentProposalID}, Options: []string{OptionDryRun},
+	},
+	{
+		Name: "repair scan", Method: "RepairScan", Description: "find broken links and propose their new target", Mutating: true,
+		Options: []string{OptionDirectory},
+	},
+	{
+		Name: "repair apply", Method: "RepairAccept", Description: "apply an accepted repair proposal", Mutating: true,
+		Arguments: []string{ArgumentProposalID}, Options: []string{OptionDryRun},
+	},
+	{Name: "doctor", Method: "Doctor", Description: "check that every configured component is reachable", Options: []string{OptionCheck}},
 }
 
 // Actions renvoie une copie du registre, dans l'ordre d'affichage.

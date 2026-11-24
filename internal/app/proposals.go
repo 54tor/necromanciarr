@@ -14,7 +14,8 @@ import (
 
 // Proposal est une proposition telle que la CLI et le web l'affichent : nature, décision, étape d'application,
 // candidat (nom, taille, tracker), groupe, principale, génération et détails (pourcentage, pièces manquantes,
-// fichiers exclus, litige). Current dit qu'elle est de la génération courante d'un candidat vérifié.
+// fichiers exclus, litige). Current dit qu'elle est de la génération courante d'un candidat vérifié ; une proposition
+// dedupe ou repair, sans candidat, est toujours courante (une proposition périmée y passe à superseded).
 type Proposal struct {
 	ID            int64                    `json:"id"`
 	CandidateID   int64                    `json:"candidate_id"`
@@ -30,6 +31,8 @@ type Proposal struct {
 	Current       bool                     `json:"current"`
 	Warnings      []string                 `json:"warnings"`
 	Details       pipeline.ProposalDetails `json:"details"`
+	// Maintenance porte le détail d'une proposition dedupe (DedupeDetails) ou repair (RepairDetails).
+	Maintenance json.RawMessage `json:"maintenance,omitempty"`
 }
 
 // ProposalFilter restreint ListProposals : valeurs vides = pas de filtre ; CurrentOnly écarte les générations périmées.
@@ -99,14 +102,18 @@ func isOpenTorrentDecision(proposal store.Proposal) bool {
 
 func (state snapshot) view(proposal store.Proposal) Proposal {
 	candidate := state.candidates[proposal.CandidateID]
-	var details pipeline.ProposalDetails
-	_ = json.Unmarshal(proposal.Details, &details)
-	return Proposal{
+	view := Proposal{
 		ID: proposal.ID, CandidateID: proposal.CandidateID, CandidateName: candidate.Name, CandidateSize: candidate.TotalSize,
 		Tracker: candidate.Tracker, GroupID: proposal.GroupID, Kind: proposal.Kind, Decision: proposal.Decision,
 		Step: state.progress[proposal.ID].Step, Primary: proposal.Primary, Generation: proposal.Generation,
-		Current: state.current(proposal), Warnings: proposal.Warnings, Details: details,
+		Current: state.current(proposal), Warnings: proposal.Warnings,
 	}
+	if isMaintenanceKind(proposal.Kind) {
+		view.Current, view.Maintenance = true, proposal.Details
+		return view
+	}
+	_ = json.Unmarshal(proposal.Details, &view.Details)
+	return view
 }
 
 func (svc *service) ListProposals(ctx context.Context, filter ProposalFilter) ([]Proposal, error) {
@@ -131,6 +138,9 @@ func (svc *service) Accept(ctx context.Context, proposalID int64, options ...Dec
 	proposal, err := state.proposal(proposalID)
 	if err != nil {
 		return err
+	}
+	if isMaintenanceKind(proposal.Kind) {
+		return svc.acceptMaintenance(ctx, proposal)
 	}
 	if err := checkAcceptable(proposal, slices.Contains(options, AllowPartialPack)); err != nil {
 		return err
@@ -199,6 +209,9 @@ func (svc *service) Choose(ctx context.Context, proposalID int64) error {
 	if err != nil {
 		return err
 	}
+	if isMaintenanceKind(proposal.Kind) {
+		return ErrNotATorrentProposal
+	}
 	if proposal.Kind != store.ProposalFull {
 		return ErrNotFull
 	}
@@ -225,6 +238,8 @@ func (svc *service) Force(ctx context.Context, proposalID int64) (ForceResult, e
 	progress := state.progress[proposal.ID]
 	isPausedBySeed := proposal.Decision == store.ProposalApplied && progress.Step == store.StepSeededPausedIncomplete
 	switch {
+	case isMaintenanceKind(proposal.Kind):
+		return result, ErrNotATorrentProposal
 	case proposal.Kind == store.ProposalPartialPack:
 		return result, ErrForceNotAllowed
 	case proposal.Kind != store.ProposalPartialAnnex || !isPausedBySeed:

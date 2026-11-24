@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"time"
 
+	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/doctor"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
@@ -64,21 +66,36 @@ type Service interface {
 	Force(ctx context.Context, proposalID int64) (ForceResult, error)
 	// AcceptGroup accepte la principale du groupe, plus les autres torrents vérifiés en mode Native.
 	AcceptGroup(ctx context.Context, groupID int64) ([]int64, error)
+	// Doctor diagnostique l'installation (contrôles choisis, délai par contrôle).
+	Doctor(ctx context.Context, options DoctorOptions) (doctor.Report, error)
+	// DedupePlan reprend les remplacements interrompus puis propose de remplacer, côté torrent, les copies de fichiers
+	// de la bibliothèque par des liens (propositions en attente, jamais appliquées d'office).
+	DedupePlan(ctx context.Context) ([]DedupeProposal, error)
+	// DedupeAccept applique une proposition dedupe déjà acceptée (DryRun : vérifie sans rien créer).
+	DedupeAccept(ctx context.Context, proposalID int64, options ...DecisionOption) (MaintenanceResult, error)
+	// RepairScan cherche les liens cassés (enregistrés, ou inconnus sous directory) et propose leur nouvelle cible.
+	RepairScan(ctx context.Context, directory string) ([]RepairProposal, error)
+	// RepairAccept applique une proposition repair déjà acceptée (DryRun : vérifie sans rien créer).
+	RepairAccept(ctx context.Context, proposalID int64, options ...DecisionOption) (MaintenanceResult, error)
 	// Actions renvoie le registre des actions (parité CLI et web).
 	Actions() []Action
 }
 
-// DecisionOption est une option explicite d'Accept.
+// DecisionOption est une option explicite d'Accept, de DedupeAccept ou de RepairAccept.
 type DecisionOption int
 
-// AllowPartialPack autorise un pack dont des fichiers média manquent (ignoré par défaut).
-const AllowPartialPack DecisionOption = iota + 1
+const (
+	// AllowPartialPack autorise un pack dont des fichiers média manquent (ignoré par défaut).
+	AllowPartialPack DecisionOption = iota + 1
+	// DryRun fait toutes les vérifications d'une application dedupe ou repair sans rien créer ni décider.
+	DryRun
+)
 
 // ForceResult rend compte d'un Force : Warnings rappelle toujours les avertissements de la proposition.
 type ForceResult struct {
-	ProposalID int64
-	Forced     bool
-	Warnings   []string
+	ProposalID int64    `json:"proposal_id"`
+	Forced     bool     `json:"forced"`
+	Warnings   []string `json:"warnings"`
 }
 
 // Store est la part du store utilisée par les actions.
@@ -92,6 +109,15 @@ type Store interface {
 	LoadVerifiedAssignment(ctx context.Context, candidateID int64) (store.VerifiedAssignment, bool, error)
 	SetCandidateState(ctx context.Context, candidateID int64, state store.CandidateState, now time.Time) error
 	SetGroupPrimary(ctx context.Context, groupID, proposalID int64, source store.PrimarySource) error
+	CreateProposal(ctx context.Context, proposal store.Proposal, now time.Time) (int64, error)
+	AddProposalWarning(ctx context.Context, proposalID int64, warning string) error
+	ListMediaFiles(ctx context.Context) ([]store.MediaFile, error)
+	ListLinks(ctx context.Context, state store.LinkState) ([]store.Link, error)
+	RecordLink(ctx context.Context, link store.Link) error
+	UpdateLinkTarget(ctx context.Context, linkPath, targetPath string) error
+	SetLinkState(ctx context.Context, linkPath string, state store.LinkState, verifiedAt time.Time) error
+	LookupFingerprint(ctx context.Context, path string, size int64, modTime time.Time) (string, bool, error)
+	RecordFingerprint(ctx context.Context, entry store.CachedFingerprint) error
 }
 
 // Resumer démarre un torrent du client ; *qbit.Client convient.
@@ -101,7 +127,10 @@ type Resumer interface {
 
 // Deps regroupe les dépendances du Service : Stages sert aux étapes (même store, mêmes clients), Client à Force (nil =
 // aucun client), CrossSeed et CrossSeedWarning viennent de crossseed.ResolveMode, Now nil vaut time.Now. HashSources
-// est le registre des fournisseurs d'empreintes, construit une fois pour les actions dedupe et repair.
+// est le registre des fournisseurs d'empreintes, construit une fois pour les actions dedupe et repair. Config donne
+// au diagnostic et à dedupe et repair leurs réglages (racines, section dedupe, dossiers de liens) ; DoctorDeps remplace
+// les accès extérieurs du diagnostic (vide en production) ; Maintenance est le client torrent de dedupe et repair
+// (nil = ni recontrôle ni recherche par torrent). dedupe et repair prennent le verrou des étapes de Stages.Store.
 type Deps struct {
 	Store            Store
 	Stages           pipeline.Deps
@@ -109,6 +138,9 @@ type Deps struct {
 	CrossSeed        crossseed.Behavior
 	CrossSeedWarning string
 	HashSources      hashsource.Registry
+	Config           config.Config
+	DoctorDeps       doctor.Deps
+	Maintenance      MaintenanceClient
 	Now              func() time.Time
 }
 

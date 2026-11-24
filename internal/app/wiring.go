@@ -64,7 +64,7 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 	if err := wireProvider(settings, &stages); err != nil {
 		return Deps{}, err
 	}
-	deps := Deps{Store: openedStore}
+	deps := Deps{Store: openedStore, Config: settings}
 	if err := wireTorrentClient(settings, &stages, &deps); err != nil {
 		return Deps{}, err
 	}
@@ -119,7 +119,7 @@ func wireTorrentClient(settings config.Config, stages *pipeline.Deps, deps *Deps
 	if err != nil {
 		return fmt.Errorf("app: torrent client: %w", err)
 	}
-	stages.Client, deps.Client = client, client
+	stages.Client, deps.Client, deps.Maintenance = client, client, client
 	return nil
 }
 

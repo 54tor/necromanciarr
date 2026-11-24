@@ -1,0 +1,201 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"necromanciarr/internal/dedupe"
+	"necromanciarr/internal/hashsource"
+	"necromanciarr/internal/linker"
+	"necromanciarr/internal/qbit"
+	"necromanciarr/internal/store"
+)
+
+// DedupeDetails est le détail JSON d'une proposition dedupe : remplacer TorrentPath par un lien de sorte Kind vers
+// LibraryPath. Size, SavedBytes et BytesToRead (lecture estimée de la preuve, annoncée avant acceptation) sont en
+// octets. Actionable est faux quand aucun remplacement n'est possible : Reason en donne la cause, ou Ambiguous liste
+// les fichiers de la bibliothèque entre lesquels aucun choix n'est fait. Les empreintes, dates et l'inode servent à
+// refuser à l'application un fichier changé depuis le plan.
+type DedupeDetails struct {
+	TorrentPath        string    `json:"torrent_path"`
+	LibraryPath        string    `json:"library_path,omitempty"`
+	Kind               string    `json:"kind,omitempty"`
+	Size               int64     `json:"size"`
+	SavedBytes         int64     `json:"saved_bytes"`
+	BytesToRead        int64     `json:"bytes_to_read"`
+	Method             string    `json:"method"`
+	HashAlgorithm      string    `json:"hash_algorithm,omitempty"`
+	Warnings           []string  `json:"warnings,omitempty"`
+	Ambiguous          []string  `json:"ambiguous,omitempty"`
+	Reason             string    `json:"reason,omitempty"`
+	Actionable         bool      `json:"actionable"`
+	Fingerprint        string    `json:"fingerprint"`
+	LibraryFingerprint string    `json:"library_fingerprint,omitempty"`
+	TorrentModTime     time.Time `json:"torrent_mtime"`
+	LibraryModTime     time.Time `json:"library_mtime,omitzero"`
+	LibraryDevice      uint64    `json:"library_device,omitempty"`
+	LibraryInode       uint64    `json:"library_inode,omitempty"`
+	InodeReliable      bool      `json:"inode_reliable"`
+}
+
+// DedupeProposal est une proposition dedupe telle que la CLI et le web l'affichent.
+type DedupeProposal struct {
+	ID       int64                  `json:"id"`
+	Decision store.ProposalDecision `json:"decision"`
+	Warnings []string               `json:"warnings"`
+	Details  DedupeDetails          `json:"details"`
+}
+
+func (details DedupeDetails) identity() (key, signature string) {
+	key = details.TorrentPath + "\x00" + details.LibraryPath
+	signature = fmt.Sprint(details.Size, details.TorrentModTime.UnixNano(), details.LibraryModTime.UnixNano(), details.Fingerprint,
+		details.LibraryFingerprint, details.Kind, details.LibraryInode, strings.Join(details.Ambiguous, "\x00"), details.Actionable)
+	return key, signature
+}
+
+func dedupeActionable(details DedupeDetails) bool { return details.Actionable }
+
+func dedupeDetailsOf(replacement dedupe.Replacement) DedupeDetails {
+	details := DedupeDetails{
+		TorrentPath: replacement.TorrentPath, LibraryPath: replacement.LibraryPath, Size: replacement.Size,
+		SavedBytes: replacement.SavedBytes, BytesToRead: replacement.BytesToRead, Method: string(replacement.Method),
+		HashAlgorithm: string(replacement.HashAlgorithm), Warnings: replacement.Warnings, Ambiguous: replacement.Ambiguous,
+		Actionable: replacement.Kind != 0 && len(replacement.Ambiguous) == 0, Fingerprint: replacement.Fingerprint,
+		LibraryFingerprint: replacement.LibraryFingerprint, TorrentModTime: replacement.TorrentModTime,
+		LibraryModTime: replacement.LibraryModTime, LibraryDevice: replacement.LibraryDevice,
+		LibraryInode: replacement.LibraryInode, InodeReliable: replacement.InodeReliable,
+	}
+	if replacement.Kind != 0 {
+		details.Kind = replacement.Kind.String()
+	}
+	if replacement.Reason != nil {
+		details.Reason = replacement.Reason.Error()
+	}
+	return details
+}
+
+func (details DedupeDetails) replacement() dedupe.Replacement {
+	return dedupe.Replacement{
+		TorrentPath: details.TorrentPath, LibraryPath: details.LibraryPath, Size: details.Size, Kind: linkKindByName[details.Kind],
+		SavedBytes: details.SavedBytes, Ambiguous: details.Ambiguous, Warnings: details.Warnings, BytesToRead: details.BytesToRead,
+		Method: dedupe.Method(details.Method), HashAlgorithm: hashsource.Algorithm(details.HashAlgorithm),
+		Fingerprint: details.Fingerprint, LibraryFingerprint: details.LibraryFingerprint, TorrentModTime: details.TorrentModTime,
+		LibraryModTime: details.LibraryModTime, LibraryDevice: details.LibraryDevice, LibraryInode: details.LibraryInode,
+		InodeReliable: details.InodeReliable,
+	}
+}
+
+func dedupeWarnings(details DedupeDetails) []string { return details.Warnings }
+
+func (svc *service) DedupePlan(ctx context.Context) ([]DedupeProposal, error) {
+	var proposals []DedupeProposal
+	err := svc.locked(ctx, lockNameDedupe, func(ctx context.Context) error {
+		replacements, err := svc.planDedupe(ctx)
+		if err != nil {
+			return err
+		}
+		entries := make([]DedupeDetails, 0, len(replacements))
+		for _, replacement := range replacements {
+			entries = append(entries, dedupeDetailsOf(replacement))
+		}
+		persisted, err := persistMaintenance(ctx, svc, store.ProposalDedupe, entries, dedupeWarnings)
+		for _, stored := range persisted {
+			proposals = append(proposals, DedupeProposal{
+				ID: stored.proposal.ID, Decision: stored.proposal.Decision, Warnings: stored.proposal.Warnings, Details: stored.details,
+			})
+		}
+		return err
+	})
+	return proposals, err
+}
+
+// planDedupe refuse des racines torrent qui recouvrent la bibliothèque avant toute écriture, reprend les entrées
+// temporaires d'un Apply interrompu (Recover), puis cherche les remplacements sur l'inventaire.
+func (svc *service) planDedupe(ctx context.Context) ([]dedupe.Replacement, error) {
+	settings := svc.deps.Config
+	torrentRoots := settings.Dedupe.TorrentRoots
+	if len(torrentRoots) == 0 {
+		return nil, fmt.Errorf("%w: dedupe.torrentRoots", ErrNotConfigured)
+	}
+	if err := checkOutsideLibrary(torrentRoots, settings.LibraryRoots, dedupe.ErrTorrentRootOverlapsLibrary); err != nil {
+		return nil, err
+	}
+	if _, err := dedupe.Recover(ctx, torrentRoots); err != nil {
+		return nil, err
+	}
+	library, err := svc.deps.Store.ListMediaFiles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dedupe.Plan(ctx, torrentRoots, library, svc.dedupeOptions())
+}
+
+func (svc *service) dedupeOptions() dedupe.Options {
+	settings := svc.deps.Config.Dedupe
+	kinds := make([]linker.Kind, 0, len(settings.Kinds))
+	for _, kindName := range settings.Kinds {
+		kinds = append(kinds, linkKindByName[kindName])
+	}
+	return dedupe.Options{
+		Kinds: kinds, RelativeSymlinks: settings.RelativeSymlinks, MinFileAge: settings.MinFileAge,
+		RecheckAfter: settings.RecheckAfter, Verify: dedupe.Verification(settings.Verify), TorrentRoots: settings.TorrentRoots,
+		Limiter: svc.deps.Stages.ReadLimiter, Fingerprints: svc.deps.Store, Recorder: svc.deps.Store,
+		Backend: svc.deps.HashSources,
+	}
+}
+
+func (svc *service) DedupeAccept(ctx context.Context, proposalID int64, options ...DecisionOption) (MaintenanceResult, error) {
+	result := MaintenanceResult{ProposalID: proposalID, DryRun: slices.Contains(options, DryRun)}
+	err := svc.locked(ctx, lockNameDedupe, func(ctx context.Context) error {
+		details, err := loadAcceptedMaintenance(ctx, svc, proposalID, store.ProposalDedupe, dedupeActionable)
+		if err != nil {
+			return err
+		}
+		return svc.applyDedupe(ctx, details, &result)
+	})
+	return result, err
+}
+
+func (svc *service) applyDedupe(ctx context.Context, details DedupeDetails, result *MaintenanceResult) error {
+	if err := checkOutsideLibrary(svc.deps.Config.Dedupe.TorrentRoots, svc.deps.Config.LibraryRoots, dedupe.ErrTorrentRootOverlapsLibrary); err != nil {
+		return err
+	}
+	options := svc.dedupeOptions()
+	options.DryRun = result.DryRun
+	if svc.deps.Maintenance != nil {
+		options.Rechecker = clientView{client: svc.deps.Maintenance, mapper: svc.deps.Stages.ClientMapper}
+	}
+	applied, applyErr := dedupe.Apply(ctx, []dedupe.Replacement{details.replacement()}, options)
+	if len(applied.Outcomes) == 0 {
+		return applyErr
+	}
+	outcome := applied.Outcomes[0]
+	result.LinkTarget, result.BytesRead = outcome.LinkTarget, outcome.BytesRead
+	if result.DryRun {
+		return outcome.Err
+	}
+	if outcome.Done {
+		result.Warnings = dedupeOutcomeWarnings(outcome)
+	}
+	return svc.finishMaintenance(ctx, result, outcome.Done, outcome.Err, dedupe.ErrChangedSincePlan)
+}
+
+// dedupeOutcomeWarnings : un torrent incomplet après recontrôle reste en pause (le client le garde ainsi), jamais
+// repris ici.
+func dedupeOutcomeWarnings(outcome dedupe.Outcome) []string {
+	var warnings []string
+	if outcome.Err != nil {
+		warnings = append(warnings, WarningLinkNotRecorded)
+	}
+	switch {
+	case errors.Is(outcome.RecheckErr, qbit.ErrIncompleteAfterRecheck):
+		warnings = append(warnings, WarningPausedIncompleteAfterRecheck)
+	case outcome.RecheckErr != nil:
+		warnings = append(warnings, WarningRecheckFailed)
+	}
+	return warnings
+}
