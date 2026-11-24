@@ -46,7 +46,8 @@ var (
 )
 
 // Candidate est une release candidate, identifiée par (Infohash, Tracker) ; GroupID regroupe chaque candidat qui se
-// dispute un même fichier de la bibliothèque (0 tant que RegroupCandidates n'est pas passé).
+// dispute un même fichier de la bibliothèque (0 tant que RegroupCandidates n'est pas passé). Generation augmente à
+// chaque invalidation (stale, réassociation, relance) : une vérification et ses propositions valent pour une génération.
 type Candidate struct {
 	ID           int64
 	Infohash     string
@@ -56,6 +57,7 @@ type Candidate struct {
 	ProviderJSON string
 	State        CandidateState
 	GroupID      int64
+	Generation   int64
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
@@ -147,10 +149,11 @@ func (openedStore *Store) MarkChangedCandidatesStale(ctx context.Context, now ti
 	return marked, nil
 }
 
-// markStale périme chaque candidat choisi par selection dans la transaction : vérification effacée, propositions
-// pending, accepted et failed closes (superseded), groupe retiré ; les propositions appliquées restent comme historique.
+// markStale périme chaque candidat choisi par selection dans la transaction : vérification et association prouvée
+// effacées, propositions pending, accepted et failed closes (superseded), groupe retiré, génération suivante ; les
+// propositions appliquées restent comme historique.
 func markStale(ctx context.Context, transaction *sql.Tx, selection string, now time.Time, arguments ...any) (int, error) {
-	if _, err := transaction.ExecContext(ctx, `DELETE FROM verifications WHERE candidate_id IN (`+selection+`)`, arguments...); err != nil { // #nosec G202 -- sélection constante du paquet
+	if err := clearVerification(ctx, transaction, selection, arguments...); err != nil {
 		return 0, err
 	}
 	if err := supersedeProposals(ctx, transaction, staleSupersededDecisions, selection, now, arguments...); err != nil {
@@ -158,13 +161,24 @@ func markStale(ctx context.Context, transaction *sql.Tx, selection string, now t
 	}
 	updateArguments := append([]any{string(CandidateStale), now.UnixNano(), string(CandidateStale)}, arguments...)
 	// #nosec G202 -- sélection constante du paquet
-	result, err := transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ?, group_id = NULL
-WHERE state != ? AND id IN (`+selection+`)`, updateArguments...)
+	result, err := transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ?, group_id = NULL,
+	generation = generation + 1 WHERE state != ? AND id IN (`+selection+`)`, updateArguments...)
 	if err != nil {
 		return 0, err
 	}
 	affected, err := result.RowsAffected()
 	return int(affected), err
+}
+
+// clearVerification efface la vérification et l'association prouvée des candidats choisis par selection.
+func clearVerification(ctx context.Context, transaction *sql.Tx, selection string, arguments ...any) error {
+	for _, table := range []string{"verifications", "verified_assignments"} {
+		// #nosec G202 -- table et sélection constantes du paquet
+		if _, err := transaction.ExecContext(ctx, `DELETE FROM `+table+` WHERE candidate_id IN (`+selection+`)`, arguments...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // openDecisions sont les décisions closes quand un candidat est réassocié ou échoue ; un candidat périmé clôt aussi ses
@@ -255,13 +269,13 @@ func resetCandidate(ctx context.Context, transaction *sql.Tx, candidateID int64,
 	if err := supersedeProposals(ctx, transaction, openDecisions, `SELECT ?`, now, candidateID); err != nil {
 		return err
 	}
-	for _, statement := range []string{`DELETE FROM verifications WHERE candidate_id = ?`, `DELETE FROM candidate_files WHERE candidate_id = ?`} {
-		if _, err := transaction.ExecContext(ctx, statement, candidateID); err != nil {
-			return err
-		}
+	if err := clearVerification(ctx, transaction, `SELECT ?`, candidateID); err != nil {
+		return err
 	}
-	if _, err := transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ? WHERE id = ?`,
-		string(CandidateMatched), now.UnixNano(), candidateID); err != nil {
+	if _, err := transaction.ExecContext(ctx, `DELETE FROM candidate_files WHERE candidate_id = ?`, candidateID); err != nil {
+		return err
+	}
+	if err := restartCandidate(ctx, transaction, candidateID, now); err != nil {
 		return err
 	}
 	return insertCandidateFiles(ctx, transaction, candidateID, files)
@@ -347,7 +361,8 @@ FROM candidate_files WHERE candidate_id = ? ORDER BY file_index, media_file_id`,
 
 // ListCandidatesByState renvoie chaque candidat dans l'un des états donnés (tous si aucun), triés par identifiant.
 func (openedStore *Store) ListCandidatesByState(ctx context.Context, states ...CandidateState) ([]Candidate, error) {
-	query := `SELECT id, infohash, tracker, name, total_size, provider_json, state, group_id, created_at, updated_at FROM torrent_candidates`
+	query := `SELECT id, infohash, tracker, name, total_size, provider_json, state, group_id, generation, created_at, updated_at
+FROM torrent_candidates`
 	arguments := make([]any, 0, len(states))
 	if len(states) > 0 {
 		query += ` WHERE state IN (?` + strings.Repeat(", ?", len(states)-1) + `)`
@@ -367,7 +382,7 @@ func (openedStore *Store) ListCandidatesByState(ctx context.Context, states ...C
 		var groupID sql.NullInt64
 		var createdAt, updatedAt int64
 		if err := rows.Scan(&candidate.ID, &candidate.Infohash, &candidate.Tracker, &candidate.Name, &candidate.TotalSize,
-			&candidate.ProviderJSON, &state, &groupID, &createdAt, &updatedAt); err != nil {
+			&candidate.ProviderJSON, &state, &groupID, &candidate.Generation, &createdAt, &updatedAt); err != nil {
 			return nil, fmt.Errorf("scan candidate: %w", err)
 		}
 		candidate.State, candidate.GroupID = CandidateState(state), groupID.Int64
@@ -421,14 +436,21 @@ func (openedStore *Store) RetryCandidate(ctx context.Context, candidateID int64,
 		if current != CandidateFailed {
 			return fmt.Errorf("%w: retry candidate from %s", ErrInvalidTransition, current)
 		}
-		if _, err := transaction.ExecContext(ctx, `DELETE FROM verifications WHERE candidate_id = ?`, candidateID); err != nil {
+		if err := clearVerification(ctx, transaction, `SELECT ?`, candidateID); err != nil {
 			return err
 		}
 		if err := supersedeProposals(ctx, transaction, openDecisions, `SELECT ?`, now, candidateID); err != nil {
 			return err
 		}
-		return writeCandidateState(ctx, transaction, candidateID, CandidateMatched, now)
+		return restartCandidate(ctx, transaction, candidateID, now)
 	})
+}
+
+// restartCandidate ramène le candidat à matched dans une nouvelle génération.
+func restartCandidate(ctx context.Context, transaction *sql.Tx, candidateID int64, now time.Time) error {
+	_, err := transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ?, generation = generation + 1
+WHERE id = ?`, string(CandidateMatched), now.UnixNano(), candidateID)
+	return err
 }
 
 func candidateStateOf(ctx context.Context, transaction *sql.Tx, candidateID int64) (CandidateState, error) {

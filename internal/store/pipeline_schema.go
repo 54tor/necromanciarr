@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS torrent_candidates (
 	group_id INTEGER,
 	created_at INTEGER NOT NULL,
 	updated_at INTEGER NOT NULL,
+	generation INTEGER NOT NULL DEFAULT 0,
 	UNIQUE (infohash, tracker)
 );
 CREATE INDEX IF NOT EXISTS torrent_candidates_state ON torrent_candidates(state);
@@ -51,7 +52,19 @@ CREATE TABLE IF NOT EXISTS verifications (
 	media_complete INTEGER NOT NULL,
 	percent REAL NOT NULL,
 	state TEXT NOT NULL,
-	updated_at INTEGER NOT NULL
+	updated_at INTEGER NOT NULL,
+	generation INTEGER NOT NULL DEFAULT 0,
+	mapping_fingerprint TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS verified_assignments (
+	candidate_id INTEGER NOT NULL REFERENCES torrent_candidates(id) ON DELETE CASCADE,
+	generation INTEGER NOT NULL,
+	torrent_file_index INTEGER NOT NULL,
+	media_file_id INTEGER NOT NULL,
+	path TEXT NOT NULL,
+	size INTEGER NOT NULL,
+	mtime_ns INTEGER NOT NULL,
+	PRIMARY KEY (candidate_id, torrent_file_index)
 );
 CREATE TABLE IF NOT EXISTS verified_files (
 	candidate_id INTEGER NOT NULL REFERENCES torrent_candidates(id) ON DELETE CASCADE,
@@ -72,7 +85,9 @@ CREATE TABLE IF NOT EXISTS proposals (
 	created_at INTEGER NOT NULL,
 	decided_at INTEGER,
 	is_primary INTEGER NOT NULL DEFAULT 0,
-	details TEXT NOT NULL DEFAULT '{}'
+	details TEXT NOT NULL DEFAULT '{}',
+	generation INTEGER NOT NULL DEFAULT 0,
+	primary_source TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS proposals_decision ON proposals(decision);
 CREATE INDEX IF NOT EXISTS proposals_candidate_kind ON proposals(candidate_id, kind);
@@ -82,6 +97,12 @@ CREATE TABLE IF NOT EXISTS run_lock (
 	stage TEXT NOT NULL,
 	expires_at INTEGER NOT NULL
 );`
+
+// postUpgradeSchema s'exécute après l'ajout des colonnes manquantes, dont il dépend. L'index garantit au plus une
+// proposition principale ouverte (pending ou accepted) par groupe.
+const postUpgradeSchema = `
+CREATE UNIQUE INDEX IF NOT EXISTS proposals_single_primary ON proposals(group_id)
+	WHERE is_primary = 1 AND decision IN ('pending', 'accepted');`
 
 // legacyPipelineTables liste, dans l'ordre de suppression (enfants d'abord), les tables de l'ancienne forme et la
 // colonne qui distingue la nouvelle ; une colonne vide signifie que la table n'existe que dans l'ancienne forme.
@@ -132,6 +153,9 @@ func upgradeInTransaction(ctx context.Context, connection *sql.Conn) error {
 	}
 	if err := upgradeColumns(connection); err != nil {
 		return fmt.Errorf("upgrade schema: %w", err)
+	}
+	if _, err := connection.ExecContext(ctx, postUpgradeSchema); err != nil {
+		return fmt.Errorf("create post-upgrade schema: %w", err)
 	}
 	return nil
 }

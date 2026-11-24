@@ -435,6 +435,7 @@ func TestSetProposalDecision_enforcesTransitions(t *testing.T) {
 		{[]ProposalDecision{ProposalAccepted, ProposalApplied}, true},
 		{[]ProposalDecision{ProposalAccepted, ProposalFailed}, true},
 		{[]ProposalDecision{ProposalRejected}, true},
+		{[]ProposalDecision{ProposalRejected, ProposalSuperseded}, true},
 		{[]ProposalDecision{ProposalSuperseded}, true},
 		{[]ProposalDecision{ProposalApplied}, false},
 		{[]ProposalDecision{ProposalRejected, ProposalAccepted}, false},
@@ -763,7 +764,7 @@ func TestSetGroupPrimary_keepsExactlyOnePrimaryInTheGroup(t *testing.T) {
 	}
 
 	for _, primaryID := range proposalIDs {
-		if err := openedStore.SetGroupPrimary(ctx, firstCandidate, primaryID); err != nil {
+		if err := openedStore.SetGroupPrimary(ctx, firstCandidate, primaryID, PrimaryAuto); err != nil {
 			t.Fatal(err)
 		}
 		gotProposals, _ := openedStore.ListProposals(ctx, "")
@@ -774,10 +775,162 @@ func TestSetGroupPrimary_keepsExactlyOnePrimaryInTheGroup(t *testing.T) {
 			}
 		}
 	}
-	if err := openedStore.SetGroupPrimary(ctx, firstCandidate, conflictID); !errors.Is(err, ErrInvalidTransition) {
+	if err := openedStore.SetGroupPrimary(ctx, firstCandidate, conflictID, PrimaryAuto); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("gotValue %v, expectedValue ErrInvalidTransition for a conflict proposal", err)
 	}
-	if err := openedStore.SetGroupPrimary(ctx, firstCandidate, conflictID+10); !errors.Is(err, ErrProposalNotFound) {
+	if err := openedStore.SetGroupPrimary(ctx, firstCandidate, conflictID+10, PrimaryAuto); !errors.Is(err, ErrProposalNotFound) {
 		t.Fatalf("gotValue %v, expectedValue ErrProposalNotFound", err)
 	}
+}
+
+func TestSetGroupPrimary_refusesPartialAnnexAndTheBaseKeepsOneOpenPrimaryPerGroup(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	firstCandidate, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	secondCandidate, _ := saveTestCandidate(t, openedStore, "bb", mediaFile)
+	partialID, _, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: firstCandidate, GroupID: firstCandidate, Kind: ProposalPartialAnnex}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := openedStore.SetGroupPrimary(ctx, firstCandidate, partialID, PrimaryAuto); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("gotValue %v, expectedValue ErrInvalidTransition for partial_annex", err)
+	}
+	for _, candidateID := range []int64{firstCandidate, secondCandidate} {
+		if _, _, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: candidateID, GroupID: firstCandidate, Kind: ProposalFull}, testNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err = openedStore.database.ExecContext(ctx, `UPDATE proposals SET is_primary = 1 WHERE kind = ?`, string(ProposalFull))
+	if err == nil {
+		t.Fatal("gotValue nil, expectedValue the unique index to refuse two open primaries in one group")
+	}
+}
+
+func TestSetProposalGroup_dropsThePrimaryRoleWhenTheGroupChanges(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	proposalID, _, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: candidateID, GroupID: candidateID, Kind: ProposalFull}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := openedStore.SetGroupPrimary(ctx, candidateID, proposalID, PrimaryOperator); err != nil {
+		t.Fatal(err)
+	}
+	if err := openedStore.SetProposalGroup(ctx, proposalID, candidateID+100); err != nil {
+		t.Fatal(err)
+	}
+	gotProposals, _ := openedStore.ListProposals(ctx, "")
+	if gotProposals[0].Primary || gotProposals[0].PrimarySource != "" || gotProposals[0].GroupID != candidateID+100 {
+		t.Fatalf("gotValue %+v, expectedValue moved without the primary role", gotProposals[0])
+	}
+}
+
+func TestUpsertProposal_newGenerationIsNotBlockedByRejectedOrAppliedHistory(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	markVerified(t, openedStore, candidateID)
+	appliedID, _, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: candidateID, Kind: ProposalFull}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejectedID, _, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: candidateID, Kind: ProposalCrossSeed}, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		proposalID int64
+		decision   ProposalDecision
+	}{{appliedID, ProposalAccepted}, {appliedID, ProposalApplied}, {rejectedID, ProposalRejected}} {
+		if err := openedStore.SetProposalDecision(ctx, step.proposalID, step.decision, testNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := openedStore.InvalidateCandidatesForFile(ctx, mediaFile.ID, testNow); err != nil {
+		t.Fatal(err)
+	}
+	saveTestCandidate(t, openedStore, "aa", mediaFile)
+
+	for _, kind := range []ProposalKind{ProposalFull, ProposalCrossSeed} {
+		if _, created, err := openedStore.UpsertProposal(ctx, Proposal{CandidateID: candidateID, Kind: kind}, testNow); err != nil || !created {
+			t.Fatalf("kind %s: gotValue created=%v err=%v, expectedValue a fresh proposal in the new generation", kind, created, err)
+		}
+	}
+	decisions := decisionsByID(t, openedStore)
+	if decisions[appliedID] != ProposalApplied || decisions[rejectedID] != ProposalRejected || len(decisions) != 4 {
+		t.Fatalf("gotValue %v, expectedValue history kept and two new proposals", decisions)
+	}
+}
+
+func completeTestVerification(t *testing.T, openedStore *Store, candidateID int64, files []AssignedFile) {
+	t.Helper()
+	if err := openedStore.SetCandidateState(context.Background(), candidateID, CandidateFetched, testNow); err != nil {
+		t.Fatal(err)
+	}
+	verification := Verification{CandidateID: candidateID, TotalPieces: 1, VerifiedPieces: 1, CheckedBitset: []byte{1}, VerifiedBitset: []byte{1}, Percent: 100}
+	if err := openedStore.CompleteVerification(context.Background(), verification, files, testNow); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCompleteVerification_persistsTheAssignmentAndDetectsATamperedFingerprint(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", mediaFile)
+	expectedFiles := []AssignedFile{{TorrentFileIndex: 2, MediaFileID: mediaFile.ID, Path: mediaFile.Path, Size: 10, ModTime: testNow}}
+	completeTestVerification(t, openedStore, candidateID, expectedFiles)
+
+	gotValue, found, err := openedStore.LoadVerifiedAssignment(ctx, candidateID)
+	isExpected := err == nil && found && len(gotValue.Files) == 1 && gotValue.Files[0] == expectedFiles[0] &&
+		gotValue.Fingerprint == AssignmentFingerprint(expectedFiles)
+	if !isExpected {
+		t.Fatalf("gotValue %+v found=%v err=%v, expectedValue %+v", gotValue, found, err, expectedFiles)
+	}
+	if state := candidatesByID(t, openedStore)[candidateID].State; state != CandidateVerified {
+		t.Fatalf("gotValue state %s, expectedValue verified in the same transaction", state)
+	}
+	if _, err := openedStore.database.ExecContext(ctx, `UPDATE verified_assignments SET size = 11`); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := openedStore.LoadVerifiedAssignment(ctx, candidateID); !errors.Is(err, ErrAssignmentMismatch) {
+		t.Fatalf("gotValue %v, expectedValue ErrAssignmentMismatch after tampering", err)
+	}
+	if _, err := openedStore.InvalidateCandidatesForFile(ctx, mediaFile.ID, testNow); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, err := openedStore.LoadVerifiedAssignment(ctx, candidateID); found || err != nil {
+		t.Fatalf("gotValue found=%v err=%v, expectedValue the assignment dropped with the verification", found, err)
+	}
+	if rows := countRows(t, openedStore.database, `SELECT count(*) FROM verified_assignments`); rows != 0 {
+		t.Fatalf("gotValue %d assignment rows, expectedValue 0", rows)
+	}
+}
+
+func TestCompleteVerification_refusesACandidateThatIsNotFetched(t *testing.T) {
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	err := openedStore.CompleteVerification(context.Background(), Verification{CandidateID: candidateID}, nil, testNow)
+	if !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("gotValue %v, expectedValue ErrInvalidTransition from matched", err)
+	}
+	if _, found, _ := openedStore.LoadVerification(context.Background(), candidateID); found {
+		t.Fatal("gotValue a verification, expectedValue nothing written")
+	}
+}
+
+func candidatesByID(t *testing.T, openedStore *Store) map[int64]Candidate {
+	t.Helper()
+	candidates, err := openedStore.ListCandidatesByState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[int64]Candidate{}
+	for _, candidate := range candidates {
+		byID[candidate.ID] = candidate
+	}
+	return byID
 }

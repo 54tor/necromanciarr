@@ -33,7 +33,8 @@ var (
 
 // Verification est le résultat, éventuellement incomplet, du contrôle des pièces d'un candidat. CheckedBitset marque les
 // pièces déjà contrôlées (reprise sans les relire), VerifiedBitset celles dont le SHA1 concorde ; bit i = octet i/8,
-// bit de poids faible i%8. Une pièce contrôlée et non vérifiée est manquante.
+// bit de poids faible i%8. Une pièce contrôlée et non vérifiée est manquante. Generation est celle du candidat au moment
+// de l'écriture (posée par le store) ; MappingFingerprint n'est rempli que par CompleteVerification.
 type Verification struct {
 	CandidateID    int64
 	TotalPieces    int
@@ -42,8 +43,10 @@ type Verification struct {
 	VerifiedBitset []byte
 	MediaComplete  bool
 	Percent        float64
-	State          VerificationState
-	UpdatedAt      time.Time
+	State              VerificationState
+	Generation         int64
+	MappingFingerprint string
+	UpdatedAt          time.Time
 }
 
 func checkVerificationState(state VerificationState) error {
@@ -55,23 +58,31 @@ func checkVerificationState(state VerificationState) error {
 	}
 }
 
-// SaveVerification enregistre ou remplace la vérification du candidat.
+// SaveVerification enregistre ou remplace la vérification du candidat, sans empreinte d'association.
 func (openedStore *Store) SaveVerification(ctx context.Context, verification Verification, now time.Time) error {
 	if err := checkVerificationState(verification.State); err != nil {
 		return err
 	}
-	_, err := openedStore.database.ExecContext(ctx, `INSERT INTO verifications
-	(candidate_id, total_pieces, verified_pieces, checked_bitset, verified_bitset, media_complete, percent, state, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(candidate_id) DO UPDATE SET total_pieces = excluded.total_pieces, verified_pieces = excluded.verified_pieces,
-	checked_bitset = excluded.checked_bitset, verified_bitset = excluded.verified_bitset,
-	media_complete = excluded.media_complete, percent = excluded.percent, state = excluded.state, updated_at = excluded.updated_at`,
-		verification.CandidateID, verification.TotalPieces, verification.VerifiedPieces, nonNilBytes(verification.CheckedBitset),
-		nonNilBytes(verification.VerifiedBitset), verification.MediaComplete, verification.Percent, string(verification.State), now.UnixNano())
-	if err != nil {
+	verification.MappingFingerprint = ""
+	if err := writeVerification(ctx, openedStore.database, verification, now); err != nil {
 		return fmt.Errorf("save verification: %w", err)
 	}
 	return nil
+}
+
+func writeVerification(ctx context.Context, database executor, verification Verification, now time.Time) error {
+	_, err := database.ExecContext(ctx, `INSERT INTO verifications
+	(candidate_id, total_pieces, verified_pieces, checked_bitset, verified_bitset, media_complete, percent, state, updated_at,
+	generation, mapping_fingerprint)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT generation FROM torrent_candidates WHERE id = ?), ?)
+ON CONFLICT(candidate_id) DO UPDATE SET total_pieces = excluded.total_pieces, verified_pieces = excluded.verified_pieces,
+	checked_bitset = excluded.checked_bitset, verified_bitset = excluded.verified_bitset,
+	media_complete = excluded.media_complete, percent = excluded.percent, state = excluded.state, updated_at = excluded.updated_at,
+	generation = excluded.generation, mapping_fingerprint = excluded.mapping_fingerprint`,
+		verification.CandidateID, verification.TotalPieces, verification.VerifiedPieces, nonNilBytes(verification.CheckedBitset),
+		nonNilBytes(verification.VerifiedBitset), verification.MediaComplete, verification.Percent, string(verification.State), now.UnixNano(),
+		verification.CandidateID, verification.MappingFingerprint)
+	return err
 }
 
 // LoadVerification renvoie la vérification du candidat ; found est faux s'il n'en a pas (ou si elle a été invalidée).
@@ -79,9 +90,9 @@ func (openedStore *Store) LoadVerification(ctx context.Context, candidateID int6
 	var state string
 	var updatedAt int64
 	err = openedStore.database.QueryRowContext(ctx, `SELECT total_pieces, verified_pieces, checked_bitset, verified_bitset,
-	media_complete, percent, state, updated_at FROM verifications WHERE candidate_id = ?`, candidateID).
+	media_complete, percent, state, updated_at, generation, mapping_fingerprint FROM verifications WHERE candidate_id = ?`, candidateID).
 		Scan(&verification.TotalPieces, &verification.VerifiedPieces, &verification.CheckedBitset, &verification.VerifiedBitset,
-			&verification.MediaComplete, &verification.Percent, &state, &updatedAt)
+			&verification.MediaComplete, &verification.Percent, &state, &updatedAt, &verification.Generation, &verification.MappingFingerprint)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Verification{}, false, nil
 	}
@@ -166,7 +177,7 @@ const (
 type ProposalDecision string
 
 // Décisions d'une proposition : pending → accepted | rejected | superseded ; accepted → applied | failed | superseded ;
-// failed → pending seulement par RetryProposal.
+// rejected → superseded ; failed → pending seulement par RetryProposal.
 const (
 	ProposalPending  ProposalDecision = "pending"
 	ProposalAccepted ProposalDecision = "accepted"
@@ -184,14 +195,17 @@ var (
 	ErrProposalNotFound        = errors.New("store: proposal not found")
 	// ErrInvalidProposalDetails signale des détails qui ne sont pas un objet JSON.
 	ErrInvalidProposalDetails = errors.New("store: proposal details must be a JSON object")
+	// ErrUnknownPrimarySource signale une origine de proposition principale inconnue.
+	ErrUnknownPrimarySource = errors.New("store: unknown primary source")
 	// ErrProposalNeedsCandidate signale une proposition sans candidat passée à UpsertProposal.
 	ErrProposalNeedsCandidate = errors.New("store: proposal needs a candidate")
 )
 
 // Proposal est une action soumise à l'opérateur ; CandidateID vaut 0 pour une proposition sans torrent (dedupe,
-// repair) et DecidedAt est zéro tant qu'aucune décision n'est prise. Primary marque la proposition retenue par défaut
-// dans son groupe (une seule à la fois, voir SetGroupPrimary) ; Details est un objet JSON propre à la nature
-// (pourcentage, pièces manquantes, torrents en litige), vide vaut {}.
+// repair) et DecidedAt est zéro tant qu'aucune décision n'est prise. Primary marque la proposition full retenue dans
+// son groupe (une seule ouverte à la fois, garanti par la base), PrimarySource dit qui l'a choisie ; Details est un
+// objet JSON propre à la nature (pourcentage, pièces manquantes, torrents en litige), vide vaut {}. Generation est
+// celle du candidat à la création (posée par UpsertProposal).
 type Proposal struct {
 	ID          int64
 	CandidateID int64
@@ -199,8 +213,10 @@ type Proposal struct {
 	Kind        ProposalKind
 	Decision    ProposalDecision
 	Warnings    []string
-	Primary     bool
-	Details     json.RawMessage
+	Primary       bool
+	PrimarySource PrimarySource
+	Generation    int64
+	Details       json.RawMessage
 	CreatedAt   time.Time
 	DecidedAt   time.Time
 }
@@ -264,18 +280,32 @@ func normalizeDetails(details json.RawMessage) (string, error) {
 }
 
 func insertProposal(ctx context.Context, database executor, proposal Proposal, encoded encodedProposal, now time.Time) (int64, error) {
-	result, err := database.ExecContext(ctx, `INSERT INTO proposals (candidate_id, group_id, kind, decision, warnings, details, created_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?)`, nullableID(proposal.CandidateID), nullableID(proposal.GroupID), string(proposal.Kind),
-		string(ProposalPending), encoded.warnings, encoded.details, now.UnixNano())
+	result, err := database.ExecContext(ctx, `INSERT INTO proposals
+	(candidate_id, group_id, kind, decision, warnings, details, created_at, generation)
+	VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT generation FROM torrent_candidates WHERE id = ?), 0))`,
+		nullableID(proposal.CandidateID), nullableID(proposal.GroupID), string(proposal.Kind),
+		string(ProposalPending), encoded.warnings, encoded.details, now.UnixNano(), proposal.CandidateID)
 	if err != nil {
 		return 0, fmt.Errorf("create proposal: %w", err)
 	}
 	return result.LastInsertId()
 }
 
-// UpsertProposal crée au plus une proposition non close (toute décision sauf superseded) par candidat et par nature :
-// si elle existe et attend encore, son groupe, ses avertissements et ses détails sont mis à jour (Primary n'est jamais
-// touché, voir SetGroupPrimary) ; décidée, elle reste telle quelle. created dit si une ligne a été insérée. Rejouable.
+// PrimarySource dit qui a choisi la proposition principale d'un groupe.
+type PrimarySource string
+
+// Origines d'une proposition principale : élue par le pipeline (réélue quand un résultat change) ou choisie par
+// l'opérateur (gardée tant que son candidat n'est pas périmé).
+const (
+	PrimaryAuto     PrimarySource = "auto"
+	PrimaryOperator PrimarySource = "operator"
+)
+
+// UpsertProposal crée au plus une proposition non close (toute décision sauf superseded) par candidat, nature et
+// génération du candidat : une proposition rejetée ou appliquée d'une génération antérieure ne bloque pas la nouvelle.
+// Si elle existe et attend encore, ses avertissements et ses détails sont mis à jour, et son groupe aussi (un
+// changement de groupe lui retire le rôle de principale) ; décidée, elle reste telle quelle. created dit si une ligne a
+// été insérée. Rejouable.
 func (openedStore *Store) UpsertProposal(ctx context.Context, proposal Proposal, now time.Time) (proposalID int64, created bool, err error) {
 	if proposal.CandidateID == 0 {
 		return 0, false, ErrProposalNeedsCandidate
@@ -285,21 +315,9 @@ func (openedStore *Store) UpsertProposal(ctx context.Context, proposal Proposal,
 		return 0, false, err
 	}
 	err = openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
-		var existingDecision string
-		lookupErr := transaction.QueryRowContext(ctx, `SELECT id, decision FROM proposals
-WHERE candidate_id = ? AND kind = ? AND decision != ? ORDER BY id LIMIT 1`,
-			proposal.CandidateID, string(proposal.Kind), string(ProposalSuperseded)).Scan(&proposalID, &existingDecision)
-		if errors.Is(lookupErr, sql.ErrNoRows) {
-			proposalID, err = insertProposal(ctx, transaction, proposal, encoded, now)
-			created = err == nil
-			return err
-		}
-		if lookupErr != nil || ProposalDecision(existingDecision) != ProposalPending {
-			return lookupErr
-		}
-		_, err = transaction.ExecContext(ctx, `UPDATE proposals SET group_id = ?, warnings = ?, details = ? WHERE id = ?`,
-			nullableID(proposal.GroupID), encoded.warnings, encoded.details, proposalID)
-		return err
+		var upsertErr error
+		proposalID, created, upsertErr = upsertProposal(ctx, transaction, proposal, encoded, now)
+		return upsertErr
 	})
 	if err != nil {
 		return 0, false, fmt.Errorf("upsert proposal: %w", err)
@@ -307,9 +325,56 @@ WHERE candidate_id = ? AND kind = ? AND decision != ? ORDER BY id LIMIT 1`,
 	return proposalID, created, nil
 }
 
-// SetGroupPrimary fait de la proposition la seule principale du groupe (elle y est rattachée) ; elle doit être full ou
-// partial_annex et ni rejetée ni close, sinon ErrInvalidTransition.
-func (openedStore *Store) SetGroupPrimary(ctx context.Context, groupID, proposalID int64) error {
+func upsertProposal(ctx context.Context, transaction *sql.Tx, proposal Proposal, encoded encodedProposal, now time.Time) (int64, bool, error) {
+	var generation int64
+	if err := transaction.QueryRowContext(ctx, `SELECT generation FROM torrent_candidates WHERE id = ?`, proposal.CandidateID).
+		Scan(&generation); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, false, ErrCandidateNotFound
+		}
+		return 0, false, err
+	}
+	var proposalID int64
+	var existingDecision string
+	lookupErr := transaction.QueryRowContext(ctx, `SELECT id, decision FROM proposals
+WHERE candidate_id = ? AND kind = ? AND generation = ? AND decision != ? ORDER BY id LIMIT 1`,
+		proposal.CandidateID, string(proposal.Kind), generation, string(ProposalSuperseded)).Scan(&proposalID, &existingDecision)
+	if errors.Is(lookupErr, sql.ErrNoRows) {
+		proposalID, err := insertProposal(ctx, transaction, proposal, encoded, now)
+		return proposalID, err == nil, err
+	}
+	if lookupErr != nil || ProposalDecision(existingDecision) != ProposalPending {
+		return proposalID, false, lookupErr
+	}
+	if err := moveProposalToGroup(ctx, transaction, proposalID, proposal.GroupID); err != nil {
+		return 0, false, err
+	}
+	_, err := transaction.ExecContext(ctx, `UPDATE proposals SET warnings = ?, details = ? WHERE id = ?`,
+		encoded.warnings, encoded.details, proposalID)
+	return proposalID, false, err
+}
+
+// moveProposalToGroup rattache la proposition au groupe ; si le groupe change, elle perd le rôle de principale (une
+// fusion de groupes est suivie d'une nouvelle élection).
+func moveProposalToGroup(ctx context.Context, transaction *sql.Tx, proposalID, groupID int64) error {
+	_, err := transaction.ExecContext(ctx, `UPDATE proposals SET is_primary = 0, primary_source = '', group_id = ?
+WHERE id = ? AND group_id IS NOT ?`, nullableID(groupID), proposalID, nullableID(groupID))
+	return err
+}
+
+// SetProposalGroup rattache une proposition à un autre groupe (après un regroupement) ; elle cesse d'y être principale.
+func (openedStore *Store) SetProposalGroup(ctx context.Context, proposalID, groupID int64) error {
+	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
+		return moveProposalToGroup(ctx, transaction, proposalID, groupID)
+	})
+}
+
+// SetGroupPrimary fait de la proposition la seule principale du groupe (elle y est rattachée), avec son origine ; elle
+// doit être full, pending ou accepted, sinon ErrInvalidTransition.
+func (openedStore *Store) SetGroupPrimary(ctx context.Context, groupID, proposalID int64, source PrimarySource) error {
+	if source != PrimaryAuto && source != PrimaryOperator {
+		return fmt.Errorf("%w: %q", ErrUnknownPrimarySource, source)
+	}
 	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
 		var kind, decision string
 		err := transaction.QueryRowContext(ctx, `SELECT kind, decision FROM proposals WHERE id = ?`, proposalID).Scan(&kind, &decision)
@@ -319,23 +384,38 @@ func (openedStore *Store) SetGroupPrimary(ctx context.Context, groupID, proposal
 		if err != nil {
 			return fmt.Errorf("load proposal: %w", err)
 		}
-		isSeedable := ProposalKind(kind) == ProposalFull || ProposalKind(kind) == ProposalPartialAnnex
-		isClosed := ProposalDecision(decision) == ProposalRejected || ProposalDecision(decision) == ProposalSuperseded
-		if !isSeedable || isClosed {
+		isOpen := ProposalDecision(decision) == ProposalPending || ProposalDecision(decision) == ProposalAccepted
+		if ProposalKind(kind) != ProposalFull || !isOpen {
 			return fmt.Errorf("%w: %s %s proposal cannot be primary", ErrInvalidTransition, decision, kind)
 		}
-		if _, err := transaction.ExecContext(ctx, `UPDATE proposals SET is_primary = 0 WHERE group_id = ?`, groupID); err != nil {
-			return fmt.Errorf("clear group primary: %w", err)
+		if err := clearGroupPrimary(ctx, transaction, groupID); err != nil {
+			return err
 		}
-		_, err = transaction.ExecContext(ctx, `UPDATE proposals SET is_primary = 1, group_id = ? WHERE id = ?`, groupID, proposalID)
+		_, err = transaction.ExecContext(ctx, `UPDATE proposals SET is_primary = 1, primary_source = ?, group_id = ? WHERE id = ?`,
+			string(source), groupID, proposalID)
 		return err
 	})
 }
 
+// ClearGroupPrimary retire le rôle de principale à toute proposition du groupe (groupe sans torrent complet).
+func (openedStore *Store) ClearGroupPrimary(ctx context.Context, groupID int64) error {
+	return openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
+		return clearGroupPrimary(ctx, transaction, groupID)
+	})
+}
+
+func clearGroupPrimary(ctx context.Context, transaction *sql.Tx, groupID int64) error {
+	_, err := transaction.ExecContext(ctx, `UPDATE proposals SET is_primary = 0, primary_source = '' WHERE group_id = ? AND is_primary = 1`, groupID)
+	if err != nil {
+		return fmt.Errorf("clear group primary: %w", err)
+	}
+	return nil
+}
+
 // ListProposals renvoie les propositions de la décision donnée (toutes si vide), triées par identifiant.
 func (openedStore *Store) ListProposals(ctx context.Context, decision ProposalDecision) ([]Proposal, error) {
-	rows, err := openedStore.database.QueryContext(ctx, `SELECT id, candidate_id, group_id, kind, decision, warnings, is_primary, details,
-	created_at, decided_at FROM proposals WHERE ? = '' OR decision = ? ORDER BY id`, string(decision), string(decision))
+	rows, err := openedStore.database.QueryContext(ctx, `SELECT id, candidate_id, group_id, kind, decision, warnings, is_primary,
+	primary_source, generation, details, created_at, decided_at FROM proposals WHERE ? = '' OR decision = ? ORDER BY id`, string(decision), string(decision))
 	if err != nil {
 		return nil, fmt.Errorf("list proposals: %w", err)
 	}
@@ -354,16 +434,16 @@ func (openedStore *Store) ListProposals(ctx context.Context, decision ProposalDe
 func scanProposal(rows *sql.Rows) (Proposal, error) {
 	var proposal Proposal
 	var candidateID, groupID, decidedAt sql.NullInt64
-	var kind, decision, warnings, details string
+	var kind, decision, warnings, details, primarySource string
 	var createdAt int64
-	if err := rows.Scan(&proposal.ID, &candidateID, &groupID, &kind, &decision, &warnings, &proposal.Primary, &details,
-		&createdAt, &decidedAt); err != nil {
+	if err := rows.Scan(&proposal.ID, &candidateID, &groupID, &kind, &decision, &warnings, &proposal.Primary, &primarySource,
+		&proposal.Generation, &details, &createdAt, &decidedAt); err != nil {
 		return Proposal{}, fmt.Errorf("scan proposal: %w", err)
 	}
 	if err := json.Unmarshal([]byte(warnings), &proposal.Warnings); err != nil {
 		return Proposal{}, fmt.Errorf("decode proposal warnings: %w", err)
 	}
-	proposal.Details = json.RawMessage(details)
+	proposal.Details, proposal.PrimarySource = json.RawMessage(details), PrimarySource(primarySource)
 	proposal.CandidateID, proposal.GroupID = candidateID.Int64, groupID.Int64
 	proposal.Kind, proposal.Decision = ProposalKind(kind), ProposalDecision(decision)
 	proposal.CreatedAt = time.Unix(0, createdAt).UTC()
@@ -377,6 +457,8 @@ func scanProposal(rows *sql.Rows) (Proposal, error) {
 var proposalTransitions = map[ProposalDecision][]ProposalDecision{
 	ProposalPending:  {ProposalAccepted, ProposalRejected, ProposalSuperseded},
 	ProposalAccepted: {ProposalApplied, ProposalFailed, ProposalSuperseded},
+	// Un litige rejeté est clos puis recréé quand la composition de son groupe change.
+	ProposalRejected: {ProposalSuperseded},
 }
 
 // SetProposalDecision enregistre la décision et sa date si la transition est autorisée ; accepted et applied exigent un
