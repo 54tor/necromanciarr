@@ -117,25 +117,33 @@ func (source singleFileSource) ReaderAt(fileIndex int) (io.ReaderAt, bool) {
 }
 
 // containedPieces liste les pièces dont tous les octets appartiennent au fichier ; la dernière pièce, plus courte,
-// compte si le fichier termine le torrent.
+// compte si le fichier termine le torrent. Les index se calculent depuis les bornes du fichier, sans parcourir les
+// pièces.
 func containedPieces(torrent *torrentcheck.Torrent, fileIndex int) []int {
 	file := torrent.Files[fileIndex]
+	pieceLength := torrent.PieceLength
+	if file.Size <= 0 || pieceLength <= 0 {
+		return nil
+	}
 	end := file.Offset + file.Size
+	firstPiece := (file.Offset + pieceLength - 1) / pieceLength
+	lastPiece := end/pieceLength - 1
+	if end == torrentEnd(torrent) && end%pieceLength != 0 {
+		lastPiece = end / pieceLength
+	}
+	lastPiece = min(lastPiece, int64(len(torrent.Pieces))-1)
 	var indexes []int
-	for pieceIndex := range torrent.Pieces {
-		pieceStart := int64(pieceIndex) * torrent.PieceLength
-		pieceEnd := min(pieceStart+torrent.PieceLength, torrentEnd(torrent))
-		if pieceStart >= file.Offset && pieceEnd <= end {
-			indexes = append(indexes, pieceIndex)
-		}
+	for pieceIndex := firstPiece; pieceIndex <= lastPiece; pieceIndex++ {
+		indexes = append(indexes, int(pieceIndex))
 	}
 	return indexes
 }
 
+// torrentEnd est la fin du dernier fichier : les fichiers d'un torrent sont rangés par décalage croissant.
 func torrentEnd(torrent *torrentcheck.Torrent) int64 {
-	var end int64
-	for _, file := range torrent.Files {
-		end = max(end, file.Offset+file.Size)
+	if len(torrent.Files) == 0 {
+		return 0
 	}
-	return end
+	last := torrent.Files[len(torrent.Files)-1]
+	return last.Offset + last.Size
 }

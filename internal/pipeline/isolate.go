@@ -11,7 +11,6 @@ import (
 
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
-	"necromanciarr/internal/torrentcheck"
 )
 
 // Erreurs typées d'IsolateStraddlingMedia ; dans les deux cas rien n'a été remplacé.
@@ -76,12 +75,11 @@ func straddlingLinks(proven provenTorrent, linkRoot string) ([]linker.Op, error)
 	if err != nil {
 		return nil, err
 	}
-	missing := missingPieceRanges(proven)
+	exposed := filesSharingMissingPieces(proven)
 	fileIndexes := slices.Sorted(maps.Keys(proven.assignment.ByTorrentFile))
 	var straddling []linker.Op
 	for opIndex, operation := range ops {
-		file := proven.torrent.Files[fileIndexes[opIndex]]
-		if !overlapsAny(file, missing) {
+		if !exposed[fileIndexes[opIndex]] {
 			continue
 		}
 		shared, err := sharesLibraryFile(operation)
@@ -95,14 +93,9 @@ func straddlingLinks(proven provenTorrent, linkRoot string) ([]linker.Op, error)
 	return straddling, nil
 }
 
-// byteRange est un intervalle d'octets [start, end) du torrent.
-type byteRange struct {
-	start, end int64
-}
-
-// missingPieceRanges donne, alignée sur les pièces, l'étendue de chaque fichier ni lié ni annexe vérifiée : le client
-// téléchargera ces pièces entières.
-func missingPieceRanges(proven provenTorrent) []byteRange {
+// filesSharingMissingPieces marque chaque fichier qui partage une pièce avec un fichier ni lié ni annexe vérifiée :
+// le client téléchargera ces pièces entières.
+func filesSharingMissingPieces(proven provenTorrent) map[int]bool {
 	present := map[int]bool{}
 	for fileIndex := range proven.assignment.ByTorrentFile {
 		present[fileIndex] = true
@@ -111,26 +104,18 @@ func missingPieceRanges(proven provenTorrent) []byteRange {
 		present[annex.FileIndex] = true
 	}
 	pieceLength := proven.torrent.PieceLength
-	var ranges []byteRange
+	exposed := map[int]bool{}
 	for fileIndex, file := range proven.torrent.Files {
 		if present[fileIndex] || file.Size <= 0 || pieceLength <= 0 {
 			continue
 		}
 		firstPieceStart := file.Offset / pieceLength * pieceLength
 		lastPieceEnd := (file.Offset + file.Size + pieceLength - 1) / pieceLength * pieceLength
-		ranges = append(ranges, byteRange{start: firstPieceStart, end: lastPieceEnd})
-	}
-	return ranges
-}
-
-func overlapsAny(file torrentcheck.File, ranges []byteRange) bool {
-	fileEnd := file.Offset + file.Size
-	for _, missing := range ranges {
-		if file.Size > 0 && file.Offset < missing.end && fileEnd > missing.start {
-			return true
+		for _, sharingIndex := range proven.torrent.FilesOverlapping(firstPieceStart, lastPieceEnd) {
+			exposed[sharingIndex] = true
 		}
 	}
-	return false
+	return exposed
 }
 
 // sharesLibraryFile : un lien symbolique, ou un fichier qui est le même inode que la source, ferait écrire le client

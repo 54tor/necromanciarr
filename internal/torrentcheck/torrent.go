@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 
 	"github.com/anacrolix/torrent/metainfo"
@@ -162,12 +163,30 @@ func (torrent *Torrent) pieceBounds(pieceIndex int) (start, end int64) {
 	return start, start + max(0, min(torrent.PieceLength, torrent.dataEnd()-start))
 }
 
+// dataEnd est la fin du dernier fichier : les fichiers sont rangés par décalage croissant.
 func (torrent *Torrent) dataEnd() int64 {
-	var end int64
-	for _, file := range torrent.Files {
-		end = max(end, file.Offset+file.Size)
+	if len(torrent.Files) == 0 {
+		return 0
 	}
-	return end
+	last := torrent.Files[len(torrent.Files)-1]
+	return last.Offset + last.Size
+}
+
+// FilesOverlapping renvoie, dans l'ordre, l'index de chaque fichier non vide qui recouvre l'intervalle d'octets
+// [start, end) du torrent. Les fichiers sont rangés par décalage croissant : une recherche dichotomique remplace le
+// parcours de tous les fichiers pour chaque pièce.
+func (torrent *Torrent) FilesOverlapping(start, end int64) []int {
+	firstIndex := sort.Search(len(torrent.Files), func(fileIndex int) bool {
+		file := torrent.Files[fileIndex]
+		return file.Offset+file.Size > start
+	})
+	var indexes []int
+	for fileIndex := firstIndex; fileIndex < len(torrent.Files) && torrent.Files[fileIndex].Offset < end; fileIndex++ {
+		if torrent.Files[fileIndex].overlaps(start, end) {
+			indexes = append(indexes, fileIndex)
+		}
+	}
+	return indexes
 }
 
 func (file File) overlaps(start, end int64) bool {

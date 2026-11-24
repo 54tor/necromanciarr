@@ -223,10 +223,8 @@ func testablePieces(torrent *torrentcheck.Torrent, fileIndex int, source composi
 
 func neighboursPresent(torrent *torrentcheck.Torrent, pieceIndex, fileIndex int, source compositeSource) bool {
 	start := int64(pieceIndex) * torrent.PieceLength
-	end := start + torrent.PieceLength
-	for otherIndex, other := range torrent.Files {
-		overlaps := other.Size > 0 && other.Offset < end && other.Offset+other.Size > start
-		if otherIndex == fileIndex || !overlaps {
+	for _, otherIndex := range torrent.FilesOverlapping(start, start+torrent.PieceLength) {
+		if otherIndex == fileIndex {
 			continue
 		}
 		if _, present := source.ReaderAt(otherIndex); !present {

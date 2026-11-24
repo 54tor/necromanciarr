@@ -93,10 +93,8 @@ func suspectFiles(torrent *torrentcheck.Torrent, source compositeSource, failedP
 	suspect := map[int]bool{}
 	for _, pieceIndex := range failedPieces {
 		start := int64(pieceIndex) * torrent.PieceLength
-		end := start + torrent.PieceLength
-		for fileIndex, file := range torrent.Files {
-			_, present := source.ReaderAt(fileIndex)
-			if present && file.Size > 0 && file.Offset < end && file.Offset+file.Size > start {
+		for _, fileIndex := range torrent.FilesOverlapping(start, start+torrent.PieceLength) {
+			if _, present := source.ReaderAt(fileIndex); present {
 				suspect[fileIndex] = true
 			}
 		}

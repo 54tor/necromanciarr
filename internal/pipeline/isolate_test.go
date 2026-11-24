@@ -7,9 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"necromanciarr/internal/linker"
+	"necromanciarr/internal/matcher"
 	"necromanciarr/internal/store"
+	"necromanciarr/internal/torrentcheck"
 )
 
 // linkedPartialAnnex lie un partial_annex et renvoie le candidat, la proposition et le dossier de liens du torrent.
@@ -136,5 +139,30 @@ func TestIsolateStraddlingMedia_refusesAndChangesNothingWhenACopyIsImpossible(t 
 	}
 	if gotEntries, expectedEntries := len(linkDirEntries(t, linkRoot)), 3; gotEntries != expectedEntries {
 		t.Fatalf("gotValue %v, expectedValue no temporary copy left", linkDirEntries(t, linkRoot))
+	}
+}
+
+func TestFilesSharingMissingPieces_largeLayoutFinishesWithinASecond(t *testing.T) {
+	const fileCount, fileSize, pieceLength = 100_000, 40, 16
+	torrent := &torrentcheck.Torrent{PieceLength: pieceLength, Pieces: make([][20]byte, fileCount*fileSize/pieceLength)}
+	assignment := matcher.Assignment{ByTorrentFile: map[int]store.MediaFile{}}
+	for fileIndex := range fileCount {
+		torrent.Files = append(torrent.Files, torrentcheck.File{Path: "f", Size: fileSize, Offset: int64(fileIndex * fileSize)})
+		if fileIndex%2 == 0 {
+			assignment.ByTorrentFile[fileIndex] = store.MediaFile{}
+		}
+	}
+	proven := provenTorrent{torrent: torrent, assignment: assignment}
+	done := make(chan map[int]bool, 1)
+
+	go func() { done <- filesSharingMissingPieces(proven) }()
+
+	select {
+	case exposed := <-done:
+		if !exposed[0] || !exposed[1] {
+			t.Fatalf("expectedValue the neighbours of a missing file exposed, gotValue %v %v", exposed[0], exposed[1])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expectedValue the exposure computed within a second")
 	}
 }

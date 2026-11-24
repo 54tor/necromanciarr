@@ -174,10 +174,8 @@ func allFilesPresent(torrent *Torrent, source Source, pieceIndex int) bool {
 
 func pieceSegments(torrent *Torrent, source Source, pieceIndex int) (segments []pieceSegment, absentFileIndexes []int) {
 	start, end := torrent.pieceBounds(pieceIndex)
-	for fileIndex, file := range torrent.Files {
-		if !file.overlaps(start, end) {
-			continue
-		}
+	for _, fileIndex := range torrent.FilesOverlapping(start, end) {
+		file := torrent.Files[fileIndex]
 		reader, present := source.ReaderAt(fileIndex)
 		if !present || reader == nil {
 			absentFileIndexes = append(absentFileIndexes, fileIndex)
