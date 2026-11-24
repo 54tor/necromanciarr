@@ -22,6 +22,9 @@ const (
 	// requestTimeout borne chaque appel HTTP pour qu'une instance muette ne bloque pas le pipeline.
 	requestTimeout = 30 * time.Second
 	apiKeyHeader   = "X-Api-Key"
+	// maxResponseBytes borne une réponse décodée : la liste des films d'une très grosse instance tient largement
+	// dessous, une réponse sans fin ne remplit pas la mémoire.
+	maxResponseBytes = 256 << 20
 )
 
 // ErrUnknownKind signale un type d'instance qui n'est ni radarr ni sonarr.
@@ -33,6 +36,9 @@ var ErrRedirectRefused = errors.New("arr: redirect refused")
 
 // ErrAccessDenied signale une clé d'API refusée par l'instance (HTTP 401 ou 403).
 var ErrAccessDenied = errors.New("arr: access denied")
+
+// ErrResponseTooLarge signale une réponse plus grosse que son plafond (256 Mio) : rien n'est décodé.
+var ErrResponseTooLarge = errors.New("arr: response larger than its limit")
 
 // Item est un fichier connu d'une instance ; TMDBID (Radarr) ou TVDBID (Sonarr) vaut 0 s'il ne s'applique pas.
 type Item struct {
@@ -49,6 +55,8 @@ type Client struct {
 	user       string
 	password   string
 	httpClient *http.Client
+	// maxBodyBytes est le plafond de la réponse décodée (maxResponseBytes ; réduit dans les tests).
+	maxBodyBytes int64
 }
 
 // Option règle un Client à sa création.
@@ -63,10 +71,11 @@ func WithBasicAuth(user, password string) Option {
 // refuse les redirections et ignore le proxy d'environnement, car chaque requête porte la clé d'API.
 func New(kind, baseURL, apiKey string, options ...Option) *Client {
 	client := &Client{
-		kind:       strings.ToLower(kind),
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		apiKey:     apiKey,
-		httpClient: httpsafe.NewClient(requestTimeout),
+		kind:         strings.ToLower(kind),
+		baseURL:      strings.TrimRight(baseURL, "/"),
+		apiKey:       apiKey,
+		httpClient:   httpsafe.NewClient(requestTimeout),
+		maxBodyBytes: maxResponseBytes,
 	}
 	for _, option := range options {
 		option(client)
@@ -170,7 +179,10 @@ func (client *Client) getJSON(ctx context.Context, endpoint string, query url.Va
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("arr %s: unexpected status %d", endpoint, response.StatusCode)
 	}
-	if err := json.NewDecoder(response.Body).Decode(target); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(nil, response.Body, client.maxBodyBytes)).Decode(target); err != nil {
+		if _, isTooLarge := errors.AsType[*http.MaxBytesError](err); isTooLarge {
+			return fmt.Errorf("arr %s: %w", endpoint, ErrResponseTooLarge)
+		}
 		return fmt.Errorf("arr %s: decode: %w", endpoint, err)
 	}
 	return nil

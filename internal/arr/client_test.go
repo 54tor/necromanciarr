@@ -201,3 +201,15 @@ func TestArrClient_refusesRedirectsAndNeverForwardsCredentials(t *testing.T) {
 		t.Fatalf("secret leaked in error: %v", err)
 	}
 }
+
+func TestItems_refusesAResponseBodyOverTheCap(t *testing.T) {
+	server := newArrServer(t)
+	client := New("radarr", server.URL, "secret-key")
+	client.maxBodyBytes = int64(len(radarrPayload) / 2)
+
+	_, err := client.Items(context.Background())
+
+	if !errors.Is(err, ErrResponseTooLarge) {
+		t.Fatalf("gotValue %v, expectedValue ErrResponseTooLarge", err)
+	}
+}
