@@ -25,9 +25,17 @@ const canForce = computed(
   () =>
     props.proposal.kind === 'partial_annex' && props.proposal.step === 'seeded_paused_incomplete',
 )
-const missingMedia = computed(() => details.value.missing_media_files?.length ?? 0)
-const ambiguous = computed(() => details.value.ambiguous_files?.length ?? 0)
-const excluded = computed(() => details.value.excluded_files?.length ?? 0)
+const fileSummary = computed(() => {
+  const counts: [number, string][] = [
+    [details.value.missing_media_files?.length ?? 0, 'média(s) manquant(s)'],
+    [details.value.ambiguous_files?.length ?? 0, 'fichier(s) ambigu(s)'],
+    [details.value.excluded_files?.length ?? 0, 'fichier(s) écarté(s)'],
+  ]
+  return counts
+    .filter(([count]) => count > 0)
+    .map(([count, label]) => `${count} ${label}`)
+    .join(' · ')
+})
 </script>
 
 <template>
@@ -64,11 +72,7 @@ const excluded = computed(() => details.value.excluded_files?.length ?? 0)
         <span data-testid="missing">{{ details.missing_pieces }}</span> pièce(s) manquante(s) sur
         {{ details.total_pieces }}
       </p>
-      <p v-if="missingMedia || ambiguous || excluded" class="text-sm text-muted-foreground">
-        <template v-if="missingMedia">{{ missingMedia }} média(s) manquant(s) · </template>
-        <template v-if="ambiguous">{{ ambiguous }} fichier(s) ambigu(s) · </template>
-        <template v-if="excluded">{{ excluded }} fichier(s) écarté(s)</template>
-      </p>
+      <p v-if="fileSummary" class="text-sm text-muted-foreground">{{ fileSummary }}</p>
       <ul v-if="isConflict && details.candidates?.length" class="text-sm text-muted-foreground">
         <li v-for="member in details.candidates" :key="member.candidate_id">
           {{ member.name }} ({{ member.tracker }}, {{ formatPercent(member.percent) }})
