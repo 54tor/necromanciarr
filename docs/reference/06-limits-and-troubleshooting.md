@@ -42,6 +42,7 @@
 
 - Une pièce qui couvre un fichier absent n'est jamais comptée possédée : un torrent complet côté médias reste `partial_annex` si une annexe manque et qu'aucune variante de `.nfo` ne se vérifie. Le plafond de pièces manquantes d'un `partial_annex` n'est pas configurable.
 - Une annexe `.nfo` conservée pèse 1 Mio au plus ; un `.torrent` conservé 8 Mio au plus.
+- Réponses du client torrent : Seed interroge le client par hash (`torrents/info?hashes=`), jamais la liste entière. Le recontrôle d'un chemin (dedupe, repair) et le diagnostic lisent la liste entière, plafonnée à 64 Mio (environ 30 000 torrents) : au-delà, `qbit: response larger than its limit`, rien n'est mis en pause. qBittorrent ne filtre pas `torrents/info` par `save_path`, et un filtre par catégorie manquerait les torrents étrangers qui partagent le fichier : la liste reste donc complète. La liste des fichiers d'un torrent et l'export d'un `.torrent` restent plafonnés à 8 Mio.
 
 ### Périmètre
 

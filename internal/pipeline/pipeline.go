@@ -122,7 +122,7 @@ type ClientPathMapper interface {
 // TorrentClient est la part du client torrent utilisée par Seed et par Force ; *qbit.Client convient.
 type TorrentClient interface {
 	Add(ctx context.Context, torrent []byte, savePath string, options qbit.AddOptions) error
-	Torrents(ctx context.Context) ([]qbit.TorrentInfo, error)
+	FindTorrent(ctx context.Context, infoHash string) (qbit.TorrentInfo, bool, error)
 	Pause(ctx context.Context, infoHash string) error
 	RecheckAndGuard(ctx context.Context, infoHash string, timeout time.Duration) (qbit.RecheckResult, error)
 	Resume(ctx context.Context, infoHash string) error

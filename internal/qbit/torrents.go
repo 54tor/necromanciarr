@@ -3,6 +3,7 @@ package qbit
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -142,6 +143,19 @@ func (client *Client) hashAction(ctx context.Context, verb, infoHash string, act
 // Torrents liste tous les torrents du client.
 func (client *Client) Torrents(ctx context.Context) ([]TorrentInfo, error) {
 	return client.listTorrents(ctx, "list torrents", qbittorrent.TorrentFilterOptions{})
+}
+
+// FindTorrent cherche un seul torrent par son hash (requête filtrée, jamais la liste entière) ; present est faux s'il
+// est inconnu du client.
+func (client *Client) FindTorrent(ctx context.Context, infoHash string) (TorrentInfo, bool, error) {
+	torrent, err := client.torrent(ctx, infoHash)
+	if errors.Is(err, ErrNotFound) {
+		return TorrentInfo{}, false, nil
+	}
+	if err != nil {
+		return TorrentInfo{}, false, err
+	}
+	return torrent, true, nil
 }
 
 // Progress renvoie l'avancement (0 à 1) d'un torrent ; ErrNotFound s'il est inconnu.

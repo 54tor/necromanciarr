@@ -206,17 +206,9 @@ func (run seedRun) verifiedComplete(ctx context.Context, proposal store.Proposal
 	return found && verification.TotalPieces > 0 && verification.VerifiedPieces == verification.TotalPieces, nil
 }
 
+// findTorrent interroge le client par hash : la liste entière d'un gros client dépasserait le plafond de réponse.
 func (run seedRun) findTorrent(ctx context.Context, infohash string) (qbit.TorrentInfo, bool, error) {
-	torrents, err := run.deps.Client.Torrents(ctx)
-	if err != nil {
-		return qbit.TorrentInfo{}, false, err
-	}
-	for _, torrent := range torrents {
-		if strings.EqualFold(torrent.Hash, infohash) {
-			return torrent, true, nil
-		}
-	}
-	return qbit.TorrentInfo{}, false, nil
+	return run.deps.Client.FindTorrent(ctx, infohash)
 }
 
 // takeOverExisting reprend un torrent déjà dans le client (reprise après un arrêt) seulement s'il pointe sur notre

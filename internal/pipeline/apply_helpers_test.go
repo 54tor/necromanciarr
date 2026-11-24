@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -178,15 +179,20 @@ func (client *fakeTorrentClient) Add(_ context.Context, torrent []byte, savePath
 	return nil
 }
 
-func (client *fakeTorrentClient) Torrents(context.Context) ([]qbit.TorrentInfo, error) {
+func (client *fakeTorrentClient) FindTorrent(_ context.Context, infoHash string) (qbit.TorrentInfo, bool, error) {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
-	var torrents []qbit.TorrentInfo
 	for infohash, added := range client.added {
-		torrents = append(torrents, qbit.TorrentInfo{Hash: infohash, SavePath: added.savePath, Progress: client.progress[infohash], State: "stoppedDL"})
+		if strings.EqualFold(infohash, infoHash) {
+			return qbit.TorrentInfo{Hash: infohash, SavePath: added.savePath, Progress: client.progress[infohash], State: "stoppedDL"}, true, nil
+		}
 	}
-	torrents = append(torrents, client.existing...)
-	return torrents, nil
+	for _, existing := range client.existing {
+		if strings.EqualFold(existing.Hash, infoHash) {
+			return existing, true, nil
+		}
+	}
+	return qbit.TorrentInfo{}, false, nil
 }
 
 func (client *fakeTorrentClient) Pause(_ context.Context, infoHash string) error {

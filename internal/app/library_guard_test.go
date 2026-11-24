@@ -73,11 +73,11 @@ func (client *completeClient) Add(_ context.Context, raw []byte, savePath string
 	return nil
 }
 
-func (client *completeClient) Torrents(context.Context) ([]qbit.TorrentInfo, error) {
-	if !client.added["any"] {
-		return nil, nil
+func (client *completeClient) FindTorrent(_ context.Context, infoHash string) (qbit.TorrentInfo, bool, error) {
+	if !client.added["any"] || client.hash != infoHash {
+		return qbit.TorrentInfo{}, false, nil
 	}
-	return []qbit.TorrentInfo{{Hash: client.hash, SavePath: client.savePath, Progress: 1}}, nil
+	return qbit.TorrentInfo{Hash: client.hash, SavePath: client.savePath, Progress: 1}, true, nil
 }
 
 func (client *completeClient) Pause(context.Context, string) error { return nil }

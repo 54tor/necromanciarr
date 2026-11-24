@@ -41,6 +41,8 @@ var (
 	// ErrRecheckTimeout : le recontrôle n'a pas commencé ou pas abouti dans le délai ; le torrent reste en pause.
 	ErrRecheckTimeout = errors.New("qbit: recheck not finished before the timeout, left paused")
 	ErrBadResponse    = errors.New("qbit: unexpected response")
+	// ErrResponseTooLarge : la réponse dépasse son plafond (64 Mio pour la liste des torrents) ; rien n'est tronqué.
+	ErrResponseTooLarge = errors.New("qbit: response larger than its limit")
 	// ErrReadOnly : client déclaré readonly dans la configuration, toute écriture est refusée.
 	ErrReadOnly = errors.New("qbit: client is read-only")
 	// ErrInvalidHash refuse tout ce qui n'est pas un seul info-hash hexadécimal (« all » ou « a|b » viseraient d'autres torrents).
@@ -215,7 +217,7 @@ func translateError(ctx context.Context, operation string, err error, probe *cal
 	case probe.redirectRefused:
 		return fmt.Errorf("%w: %s: redirect to another host refused", ErrBadResponse, operation)
 	case probe.tooLarge:
-		return fmt.Errorf("%w: %s: response too large", ErrBadResponse, operation)
+		return fmt.Errorf("%w: %w: %s", ErrBadResponse, ErrResponseTooLarge, operation)
 	case errors.Is(err, qbittorrent.ErrTorrentNotFound) || probe.lastStatus == http.StatusNotFound:
 		return fmt.Errorf("%w: %s", ErrNotFound, operation)
 	case errors.Is(err, qbittorrent.ErrUnsupportedVersion) || probe.lastStatus == http.StatusMethodNotAllowed:
