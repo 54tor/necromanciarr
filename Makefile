@@ -21,7 +21,7 @@ GOFUMPT_CMD ?= $(GO_RUN) tool gofumpt
 GOIMPORTS_CMD ?= $(GO_RUN) tool goimports
 DEADCODE_CMD ?= $(GO_RUN) tool deadcode
 PACKAGE_LIST_CMD ?= $(GO_RUN) list ./...
-QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode shell hadolint gitleaks actionlint docs-check ui-lint ui-test ui-audit
+QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode shell hadolint gitleaks actionlint docs-check ui-lint ui-test ui-audit ui-csp
 
 # Chaîne front (web/) : tout est no-op tant que web/package.json n'existe pas.
 # Quand il existe, l'absence de Node/npm fait échouer la cible avec un message explicite.
@@ -35,7 +35,7 @@ UI_GUARD = @test -f $(WEB_DIR)/package.json || { echo "web/package.json absent :
 	node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1)' \
 		|| { echo "Node trop ancien : version >= 22.12 requise"; exit 1; }
 
-.PHONY: ui ui-deps ui-lint ui-test ui-audit build cross-build docker-buildx quality hooks docker-build docker-lint site docs-check $(QUALITY_TARGETS)
+.PHONY: ui ui-deps ui-lint ui-test ui-audit ui-csp build cross-build docker-buildx quality hooks docker-build docker-lint site docs-check $(QUALITY_TARGETS)
 
 build: ui
 	CGO_ENABLED=0 $(GO_RUN) build -p $(QUALITY_PARALLELISM) ./cmd/necromanciarr
@@ -153,6 +153,21 @@ ui-test: ui-deps
 ui-audit: ui-deps
 	$(UI_GUARD); \
 	$(NPM) run audit
+
+# La CSP du serveur interdit unsafe-eval : le bundle construit ne doit ni évaluer ni compiler de texte, et
+# index.html ne doit porter aucun script en ligne (le test Go de internal/web ne couvre que les builds présents).
+UI_DIST = internal/web/ui/dist
+ui-csp: ui
+	$(UI_GUARD); \
+	if grep -nE '\beval\b|\bFunction\(|new Function' $(UI_DIST)/assets/*.js; then \
+		echo "ui-csp : eval ou Function() dans le bundle, interdit par la CSP du serveur"; exit 1; \
+	fi; \
+	if grep -l '__msg__' $(UI_DIST)/assets/*.js; then \
+		echo "ui-csp : compilateur de messages vue-i18n embarqué (dropMessageCompiler perdu)"; exit 1; \
+	fi; \
+	if grep -E '<script' $(UI_DIST)/index.html | grep -vq 'src='; then \
+		echo "ui-csp : script en ligne dans index.html, interdit par la CSP du serveur"; exit 1; \
+	fi
 
 # Référence française : aucune identité ni chemin local, aucun lien relatif cassé (script sans dépendance).
 docs-check:

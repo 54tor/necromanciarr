@@ -109,6 +109,9 @@ func TestServer_nestedClientRouteServesAnIndexWithAbsoluteAssetURLs(t *testing.T
 func TestBuiltUI_loadsUnderServerCSP(t *testing.T) {
 	built := os.DirFS("ui/dist")
 	if _, err := fs.Stat(built, "index.html"); err != nil {
+		if os.Getenv("CI") != "" || os.Getenv("REQUIRE_BUILT_UI") == "1" {
+			t.Fatal("interface non construite (make ui) alors qu'elle est exigée")
+		}
 		t.Skip("interface non construite (make ui)")
 	}
 	handler := newTestHandlerWith(t, &fakeService{}, &fakeHealth{}, loopbackSettings(), built)
@@ -128,7 +131,7 @@ func TestBuiltUI_loadsUnderServerCSP(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Fatalf("%s: gotValue %d, expectedValue 200", script[1], response.Code)
 		}
-		for _, forbidden := range []string{"new Function(", "eval(", "Function(\"return"} {
+		for _, forbidden := range []string{"new Function", "eval(", "eval)(", "Function("} {
 			if strings.Contains(body, forbidden) {
 				t.Fatalf("%s: gotValue %q in the bundle, expectedValue no runtime code compilation", script[1], forbidden)
 			}

@@ -14,6 +14,8 @@ export default defineConfig({
       include: fileURLToPath(new URL('./src/locales/*.json', import.meta.url)),
       runtimeOnly: true,
       compositionOnly: true,
+      // Retire le compilateur de messages du bundle ; ui-csp vérifie son absence.
+      dropMessageCompiler: true,
       strictMessage: true,
     }),
   ],
