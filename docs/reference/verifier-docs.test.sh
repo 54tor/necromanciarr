@@ -4,6 +4,44 @@
 set -euo pipefail
 
 dossier="${1:?usage: verifier-docs.test.sh <dossier>}"
+
+# Cas reference_en_parity : docs/reference et docs/reference/en ont les mêmes fichiers, le même nombre de titres par
+# niveau et les mêmes éléments entre accents graves. Les blocs de code délimités par ``` sont ignorés (titres et
+# éléments) : leurs commentaires peuvent rester en français. La première différence est affichée, puis exit 1.
+horsBlocsDeCode() {
+	awk '/^```/ { dansBloc = !dansBloc; next } !dansBloc' "$1"
+}
+
+titresParNiveau() {
+	horsBlocsDeCode "$1" | grep -oE '^#{1,6} ' | awk '{ print length($1) }' | sort | uniq -c || true
+}
+
+elementsEnCode() {
+	# shellcheck disable=SC2016
+	horsBlocsDeCode "$1" | grep -oE '`[^`]+`' | sort -u || true
+}
+
+echecParite() {
+	echo "parité fr/en : $1" >&2
+	exit 1
+}
+
+reference_en_parity() {
+	local fr="$dossier" en="$dossier/en" fichier difference
+	[ -d "$en" ] || echecParite "dossier absent : $en"
+	difference=$(diff <(cd "$fr" && ls -- *.md) <(cd "$en" && ls -- *.md 2>/dev/null) | head -n 1 || true)
+	[ -z "$difference" ] || echecParite "liste de fichiers différente : $difference"
+	while IFS= read -r fichier; do
+		fichier=$(basename "$fichier")
+		difference=$(diff <(titresParNiveau "$fr/$fichier") <(titresParNiveau "$en/$fichier") | head -n 1 || true)
+		[ -z "$difference" ] || echecParite "$fichier : nombre de titres par niveau différent : $difference"
+		difference=$(diff <(elementsEnCode "$fr/$fichier") <(elementsEnCode "$en/$fichier") | grep -E '^[<>]' | head -n 1 || true)
+		[ -z "$difference" ] || echecParite "$fichier : élément entre accents graves différent : $difference"
+	done < <(find "$fr" -maxdepth 1 -name '*.md')
+}
+
+reference_en_parity
+
 cheminsAutorises='/home/(u|bob|alice|user)/'
 
 occurrences=$(grep -rnIE --include='*.md' \
