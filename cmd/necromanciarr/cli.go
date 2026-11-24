@@ -160,8 +160,18 @@ type output struct {
 	jsonValue any
 	text      func(io.Writer)
 	warnings  []string
+	failures  []string
 	exitCode  int
 }
+
+// errorBody est le corps stable d'une erreur JSON.
+type errorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// redactedMark remplace un secret dans la passe littérale sur le JSON encodé (même marque que la configuration).
+const redactedMark = "***"
 
 // printer écrit toutes les sorties, masquées par la redaction de la configuration (aucun secret, même dans une
 // erreur venue d'un service).
@@ -184,6 +194,9 @@ func (out printer) result(result output) int {
 	result.text(&text)
 	_, _ = io.WriteString(out.stdout, out.redact(text.String()))
 	out.warn(result.warnings)
+	for _, failure := range result.failures {
+		_, _ = fmt.Fprintln(out.stderr, "error:", out.redact(failure))
+	}
 	return result.exitCode
 }
 
@@ -195,7 +208,7 @@ func (out printer) warn(warnings []string) {
 
 // writeJSON masque chaque chaîne avant l'encodage : un secret qui contient « & », « < », « " », « \ » ou un
 // caractère non ASCII n'a plus la même forme une fois échappé en JSON. Les formes échappées des secrets sont aussi
-// masquées dans le texte encodé, en défense en profondeur. Les clés des objets sortent triées.
+// remplacées littéralement dans le texte encodé, en défense en profondeur. Les clés des objets sortent triées.
 func (out printer) writeJSON(value any) error {
 	raw, err := json.Marshal(value)
 	if err != nil {
@@ -214,8 +227,21 @@ func (out printer) writeJSON(value any) error {
 	if err := encoder.Encode(out.redactTree(tree)); err != nil {
 		return err
 	}
-	_, _ = io.WriteString(out.stdout, config.RedactText(encoded.String(), out.escapedSecrets()...))
+	_, _ = io.WriteString(out.stdout, out.replaceSecretsLiterally(encoded.String()))
 	return nil
+}
+
+// replaceSecretsLiterally ne fait que des remplacements littéraux, les plus longs d'abord : les expressions de la
+// redaction (URL, « clé=valeur ») mangeraient une barre oblique d'échappement et casseraient le JSON.
+func (out printer) replaceSecretsLiterally(encoded string) string {
+	forms := out.escapedSecrets()
+	slices.SortStableFunc(forms, func(first, second string) int { return len(second) - len(first) })
+	for _, form := range forms {
+		if form != "" {
+			encoded = strings.ReplaceAll(encoded, form, redactedMark)
+		}
+	}
+	return encoded
 }
 
 // redactTree masque chaque chaîne (valeurs et clés) d'un arbre JSON décodé.
@@ -263,10 +289,6 @@ func (out printer) failure(err error) int {
 	class := classify(err)
 	message := out.redact(errorMessage(err))
 	if out.jsonOutput {
-		type errorBody struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		}
 		_ = out.writeJSON(map[string]errorBody{"error": {Code: class.code, Message: message}})
 		return class.exitCode
 	}

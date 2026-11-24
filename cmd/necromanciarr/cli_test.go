@@ -28,6 +28,9 @@ type fakeService struct {
 	proposals           []app.Proposal
 	status              app.Status
 	maintenanceWarnings []string
+	applyErrors         map[int64]error
+	lastApplyOptions    []app.DecisionOption
+	dedupePlan          []app.DedupeProposal
 }
 
 func (fake *fakeService) record(method string, arguments ...any) {
@@ -93,11 +96,23 @@ func (fake *fakeService) Doctor(_ context.Context, options app.DoctorOptions) (d
 
 func (fake *fakeService) DedupePlan(context.Context) ([]app.DedupeProposal, error) {
 	fake.record("DedupePlan")
+	if fake.dedupePlan != nil {
+		return fake.dedupePlan, fake.err
+	}
 	return []app.DedupeProposal{{ID: 7, Decision: store.ProposalPending, Details: app.DedupeDetails{TorrentPath: "/home/u/torrents/a.mkv", Actionable: true, Kind: "symlink"}}}, fake.err
 }
 
-func (fake *fakeService) DedupeAccept(_ context.Context, proposalID int64, _ ...app.DecisionOption) (app.MaintenanceResult, error) {
+func (fake *fakeService) DedupeAccept(_ context.Context, proposalID int64, options ...app.DecisionOption) (app.MaintenanceResult, error) {
 	fake.record("DedupeAccept", proposalID)
+	return fake.applied(proposalID, options)
+}
+
+// applied rend le résultat d'une application : l'erreur propre à l'id si elle est donnée, sinon err.
+func (fake *fakeService) applied(proposalID int64, options []app.DecisionOption) (app.MaintenanceResult, error) {
+	fake.lastApplyOptions = options
+	if err, failing := fake.applyErrors[proposalID]; failing {
+		return app.MaintenanceResult{}, err
+	}
 	return app.MaintenanceResult{ProposalID: proposalID, Applied: true, Warnings: fake.maintenanceWarnings}, fake.err
 }
 
@@ -106,9 +121,9 @@ func (fake *fakeService) RepairScan(_ context.Context, directory string) ([]app.
 	return nil, fake.err
 }
 
-func (fake *fakeService) RepairAccept(_ context.Context, proposalID int64, _ ...app.DecisionOption) (app.MaintenanceResult, error) {
+func (fake *fakeService) RepairAccept(_ context.Context, proposalID int64, options ...app.DecisionOption) (app.MaintenanceResult, error) {
 	fake.record("RepairAccept", proposalID)
-	return app.MaintenanceResult{ProposalID: proposalID, Applied: true, Warnings: fake.maintenanceWarnings}, fake.err
+	return fake.applied(proposalID, options)
 }
 
 func (*fakeService) Actions() []app.Action { return app.Actions() }
@@ -345,8 +360,9 @@ func TestCli_dedupeApplyAllAcceptedAppliesOnlyAcceptedProposals(t *testing.T) {
 	}
 	single := &fakeService{}
 	useFakeService(t, single)
-	if result := runCli(t, configDir, "repair", "apply", "9"); result.exitCode != 0 || !slices.Equal(single.calls, []string{"Accept 9", "RepairAccept 9"}) {
-		t.Fatalf("gotValue exit %d calls %v, expectedValue accept then apply", result.exitCode, single.calls)
+	result = runCli(t, configDir, "repair", "apply", "9")
+	if result.exitCode != 0 || !slices.Equal(single.calls, []string{"RepairAccept 9"}) || !slices.Contains(single.lastApplyOptions, app.AcceptPending) {
+		t.Fatalf("gotValue exit %d calls %v options %v, expectedValue one RepairAccept that accepts a pending proposal itself", result.exitCode, single.calls, single.lastApplyOptions)
 	}
 }
 
@@ -418,5 +434,104 @@ func TestCli_neverPrintsSecretsWithJSONEscapedCharacters(t *testing.T) {
 	}
 	if result := runCli(t, configDir, "status", "--json"); !json.Valid([]byte(result.stdout)) || !strings.Contains(result.stdout, `"error"`) {
 		t.Fatalf("gotValue %q, expectedValue a valid error object", result.stdout)
+	}
+}
+
+func TestCli_listOutputsAreAlwaysJSONArrays(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{}`)
+	oneAccepted := []app.Proposal{
+		{ID: 4, Kind: store.ProposalDedupe, Decision: store.ProposalAccepted},
+		{ID: 6, Kind: store.ProposalRepair, Decision: store.ProposalAccepted},
+	}
+	testCases := []struct {
+		name      string
+		proposals []app.Proposal
+		args      []string
+	}{
+		{"proposals list empty", nil, []string{"proposals", "list"}},
+		{"dedupe plan empty", nil, []string{"dedupe", "plan"}},
+		{"repair scan empty", nil, []string{"repair", "scan"}},
+		{"dedupe apply all nothing", nil, []string{"dedupe", "apply", "--all-accepted"}},
+		{"dedupe apply all one", oneAccepted, []string{"dedupe", "apply", "--all-accepted"}},
+		{"repair apply all nothing", nil, []string{"repair", "apply", "--all-accepted"}},
+		{"repair apply all one", oneAccepted, []string{"repair", "apply", "--all-accepted"}},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			useFakeService(t, &fakeService{proposals: testCase.proposals, dedupePlan: []app.DedupeProposal{}})
+
+			result := runCli(t, configDir, append(testCase.args, "--json")...)
+
+			var decoded any
+			if err := json.Unmarshal([]byte(result.stdout), &decoded); err != nil || result.exitCode != 0 {
+				t.Fatalf("gotValue %q exit %d %v, expectedValue valid JSON", result.stdout, result.exitCode, err)
+			}
+			if _, isArray := decoded.([]any); !isArray {
+				t.Fatalf("gotValue %T (%s), expectedValue a top-level array", decoded, result.stdout)
+			}
+		})
+	}
+}
+
+func TestCli_applyAllAcceptedAppliesEveryProposalAndReportsTheWorstFailure(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{}`)
+	accepted := []app.Proposal{
+		{ID: 1, Kind: store.ProposalDedupe, Decision: store.ProposalAccepted},
+		{ID: 2, Kind: store.ProposalDedupe, Decision: store.ProposalAccepted},
+		{ID: 3, Kind: store.ProposalDedupe, Decision: store.ProposalAccepted},
+	}
+	testCases := []struct {
+		name             string
+		applyErrors      map[int64]error
+		expectedExitCode int
+	}{
+		{"one failure", map[int64]error{1: errors.New("disk on fire")}, failureExitCode},
+		{"stale wins", map[int64]error{1: errors.New("disk on fire"), 2: app.ErrStaleProposal}, staleExitCode},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			fake := &fakeService{proposals: accepted, applyErrors: testCase.applyErrors}
+			useFakeService(t, fake)
+
+			result := runCli(t, configDir, "dedupe", "apply", "--all-accepted", "--json")
+
+			var items []struct {
+				ProposalID int64 `json:"proposal_id"`
+				Applied    bool  `json:"applied"`
+				Error      *struct{ Code string }
+			}
+			if err := json.Unmarshal([]byte(result.stdout), &items); err != nil || len(items) != 3 || !fake.called("DedupeAccept 3") {
+				t.Fatalf("gotValue %q %v calls %v, expectedValue all three applied independently", result.stdout, err, fake.calls)
+			}
+			if result.exitCode != testCase.expectedExitCode || items[0].Error == nil || !items[2].Applied {
+				t.Fatalf("gotValue exit %d items %+v, expectedValue %d with the per-item errors", result.exitCode, items, testCase.expectedExitCode)
+			}
+		})
+	}
+	useFakeService(t, &fakeService{applyErrors: map[int64]error{5: fmt.Errorf("%w: changed", app.ErrStaleProposal)}})
+	if result := runCli(t, configDir, "dedupe", "apply", "5"); result.exitCode != staleExitCode {
+		t.Fatalf("single stale: gotValue exit %d, expectedValue %d", result.exitCode, staleExitCode)
+	}
+}
+
+func TestCli_jsonStaysValidWithAssignmentsAndQuotesInMessages(t *testing.T) {
+	t.Setenv("LIBRARY_PROVIDER_TOKEN", `x"y`)
+	configDir := writeDoctorConfig(t, `{}`)
+	tricky := `token=x"y password=a\b"c url http://example.com/?apikey=k"q`
+	fake := &fakeService{status: app.Status{Warnings: []string{tricky}}, maintenanceWarnings: []string{tricky}}
+	useFakeService(t, fake)
+	runs := [][]string{{"status", "--json"}, {"dedupe", "apply", "2", "--json"}}
+
+	fake.err = nil
+	for _, args := range runs {
+		if result := runCli(t, configDir, args...); !json.Valid([]byte(result.stdout)) || strings.Contains(result.stdout, `x\"y`) {
+			t.Fatalf("%v: gotValue %q, expectedValue valid JSON without the secret", args, result.stdout)
+		}
+	}
+	fake.err = errors.New(tricky)
+	for _, args := range runs {
+		if result := runCli(t, configDir, args...); !json.Valid([]byte(result.stdout)) || !strings.Contains(result.stdout, `"error"`) {
+			t.Fatalf("%v: gotValue %q, expectedValue a valid error object", args, result.stdout)
+		}
 	}
 }

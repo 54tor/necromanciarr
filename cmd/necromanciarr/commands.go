@@ -106,17 +106,17 @@ func buildCommands() []command {
 		{path: []string{"dedupe", "plan"}, summary: "propose links for torrent-side copies of library files", actions: []string{actionDedupePlan}, execute: runDedupePlan},
 		{
 			path: []string{"dedupe", "apply"}, summary: "accept and apply <id>, or apply --all-accepted [--dry-run]",
-			actions: []string{actionProposalsAccept, actionDedupeApply}, arguments: []string{app.ArgumentProposalID}, optionalArguments: true,
-			boolFlags: []string{flagAllAccepted, flagDryRun}, execute: runDedupeApply,
+			actions: []string{actionDedupeApply}, arguments: []string{app.ArgumentProposalID}, optionalArguments: true,
+			boolFlags: []string{flagAllAccepted, flagDryRun}, execute: maintenanceApply(store.ProposalDedupe, app.Service.DedupeAccept),
 		},
 		{
 			path: []string{"repair", "scan"}, summary: "find broken links and propose their new target [--dir D]", actions: []string{actionRepairScan},
 			valueFlags: []string{flagDirectory}, execute: runRepairScan,
 		},
 		{
-			path: []string{"repair", "apply"}, summary: "accept and apply a repair proposal <id> [--dry-run]",
-			actions: []string{actionProposalsAccept, actionRepairApply}, arguments: []string{app.ArgumentProposalID},
-			boolFlags: []string{flagDryRun}, execute: runRepairApply,
+			path: []string{"repair", "apply"}, summary: "accept and apply <id>, or apply --all-accepted [--dry-run]",
+			actions: []string{actionRepairApply}, arguments: []string{app.ArgumentProposalID}, optionalArguments: true,
+			boolFlags: []string{flagAllAccepted, flagDryRun}, execute: maintenanceApply(store.ProposalRepair, app.Service.RepairAccept),
 		},
 		{
 			path: []string{"doctor"}, summary: "check every configured component [--check ID]...", actions: []string{actionDoctor},
@@ -309,63 +309,86 @@ func maintenanceOptions(call *invocation) []app.DecisionOption {
 	return nil
 }
 
-// runDedupeApply : avec un id, accepte puis applique cette proposition ; avec --all-accepted, applique seulement les
-// propositions dedupe déjà acceptées (jamais une proposition en attente).
-func runDedupeApply(ctx context.Context, call *invocation) (output, error) {
-	_, hasID := call.arguments[app.ArgumentProposalID]
-	if hasID == call.has(flagAllAccepted) {
-		return output{}, fmt.Errorf("%w: give either a proposal id or --%s", config.ErrUsage, flagAllAccepted)
-	}
-	if hasID {
-		return acceptAndApply(ctx, call, call.service.DedupeAccept)
-	}
-	accepted, err := call.service.ListProposals(ctx, app.ProposalFilter{Kind: store.ProposalDedupe, Decision: store.ProposalAccepted})
-	if err != nil {
-		return output{}, err
-	}
-	results := []app.MaintenanceResult{}
-	for _, proposal := range accepted {
-		result, err := call.service.DedupeAccept(ctx, proposal.ID, maintenanceOptions(call)...)
-		if err != nil {
-			return output{}, fmt.Errorf("proposal %d: %w", proposal.ID, err)
+// applyMethod est DedupeAccept ou RepairAccept, appelée sur le Service de l'invocation.
+type applyMethod func(service app.Service, ctx context.Context, proposalID int64, options ...app.DecisionOption) (app.MaintenanceResult, error)
+
+// maintenanceApply : avec un id, le Service contrôle la nature et la décision puis accepte (si en attente) et applique
+// cette proposition, sortie objet ; avec --all-accepted, il applique une à une les seules propositions déjà acceptées
+// de la nature, sortie tableau, sans s'arrêter à un échec.
+func maintenanceApply(kind store.ProposalKind, apply applyMethod) func(ctx context.Context, call *invocation) (output, error) {
+	return func(ctx context.Context, call *invocation) (output, error) {
+		_, hasID := call.arguments[app.ArgumentProposalID]
+		if hasID == call.has(flagAllAccepted) {
+			return output{}, fmt.Errorf("%w: give either a proposal id or --%s", config.ErrUsage, flagAllAccepted)
 		}
-		results = append(results, result)
-	}
-	return maintenanceOutput(results), nil
-}
-
-type applyFunc func(ctx context.Context, proposalID int64, options ...app.DecisionOption) (app.MaintenanceResult, error)
-
-// acceptAndApply : un essai à blanc n'accepte rien.
-func acceptAndApply(ctx context.Context, call *invocation, apply applyFunc) (output, error) {
-	proposalID, err := call.proposalID()
-	if err != nil {
-		return output{}, err
-	}
-	if !call.has(flagDryRun) {
-		if err := call.service.Accept(ctx, proposalID); err != nil {
+		if !hasID {
+			return applyAllAccepted(ctx, call, kind, apply)
+		}
+		proposalID, err := call.proposalID()
+		if err != nil {
 			return output{}, err
 		}
+		result, err := apply(call.service, ctx, proposalID, append(maintenanceOptions(call), app.AcceptPending)...)
+		if err != nil {
+			return output{}, err
+		}
+		items := []applyItem{{MaintenanceResult: result}}
+		return output{
+			jsonValue: result, warnings: itemWarnings(items),
+			text: func(writer io.Writer) { writeMaintenanceResults(writer, items) },
+		}, nil
 	}
-	result, err := apply(ctx, proposalID, maintenanceOptions(call)...)
+}
+
+// applyItem est une application de --all-accepted : son résultat, ou son erreur.
+type applyItem struct {
+	app.MaintenanceResult
+	Error *errorBody `json:"error,omitempty"`
+}
+
+// applyAllAccepted : code de sortie 3 si une proposition est périmée, sinon 1 si une a échoué, sinon 0.
+func applyAllAccepted(ctx context.Context, call *invocation, kind store.ProposalKind, apply applyMethod) (output, error) {
+	accepted, err := call.service.ListProposals(ctx, app.ProposalFilter{Kind: kind, Decision: store.ProposalAccepted})
 	if err != nil {
 		return output{}, err
 	}
-	return maintenanceOutput([]app.MaintenanceResult{result}), nil
+	items := []applyItem{}
+	exitCode := successExitCode
+	var failures []string
+	for _, proposal := range accepted {
+		result, err := apply(call.service, ctx, proposal.ID, maintenanceOptions(call)...)
+		item := applyItem{MaintenanceResult: result}
+		if err != nil {
+			class := classify(err)
+			item.ProposalID = proposal.ID
+			item.Error = &errorBody{Code: class.code, Message: errorMessage(err)}
+			failures = append(failures, fmt.Sprintf("proposal %d: %s", proposal.ID, item.Error.Message))
+			exitCode = worseExitCode(exitCode, class.exitCode)
+		}
+		items = append(items, item)
+	}
+	return output{
+		jsonValue: items, warnings: itemWarnings(items), failures: failures, exitCode: exitCode,
+		text: func(writer io.Writer) { writeMaintenanceResults(writer, items) },
+	}, nil
 }
 
-func maintenanceOutput(results []app.MaintenanceResult) output {
+// worseExitCode : une proposition périmée l'emporte (3) sur tout autre échec (1).
+func worseExitCode(current, candidate int) int {
+	if current == staleExitCode || candidate == staleExitCode {
+		return staleExitCode
+	}
+	return failureExitCode
+}
+
+func itemWarnings(items []applyItem) []string {
 	var warnings []string
-	for _, result := range results {
-		for _, warning := range result.Warnings {
-			warnings = append(warnings, fmt.Sprintf("proposal %d: %s", result.ProposalID, warning))
+	for _, item := range items {
+		for _, warning := range item.Warnings {
+			warnings = append(warnings, fmt.Sprintf("proposal %d: %s", item.ProposalID, warning))
 		}
 	}
-	var jsonValue any = results
-	if len(results) == 1 {
-		jsonValue = results[0]
-	}
-	return output{jsonValue: jsonValue, warnings: warnings, text: func(writer io.Writer) { writeMaintenanceResults(writer, results) }}
+	return warnings
 }
 
 func runRepairScan(ctx context.Context, call *invocation) (output, error) {
@@ -375,10 +398,6 @@ func runRepairScan(ctx context.Context, call *invocation) (output, error) {
 	}
 	proposals = nonNil(proposals)
 	return output{jsonValue: proposals, text: func(writer io.Writer) { writeRepairProposals(writer, proposals) }}, nil
-}
-
-func runRepairApply(ctx context.Context, call *invocation) (output, error) {
-	return acceptAndApply(ctx, call, call.service.RepairAccept)
 }
 
 func runDoctor(ctx context.Context, call *invocation) (output, error) {
@@ -429,6 +448,7 @@ func buildUsage() string {
 	usage.WriteString("  serve                   web interface (not available yet)\n" +
 		"  api-key                 print the API key of the web interface\n" +
 		"  config check            print the effective configuration, secrets masked\n" +
-		"\nexit codes: 0 ok (warnings on stderr), 1 failure, 2 usage, 3 stale proposal, 4 refused\n")
+		"\nexit codes: 0 ok (warnings on stderr), 1 failure, 2 usage, 3 stale proposal, 4 refused\n" +
+		"--all-accepted: 3 if a proposal was stale, else 1 if one failed\n")
 	return usage.String()
 }

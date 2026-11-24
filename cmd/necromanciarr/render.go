@@ -195,17 +195,19 @@ func writeRepairProposals(writer io.Writer, proposals []app.RepairProposal) {
 	}
 }
 
-func writeMaintenanceResults(writer io.Writer, results []app.MaintenanceResult) {
-	if len(results) == 0 {
+func writeMaintenanceResults(writer io.Writer, items []applyItem) {
+	if len(items) == 0 {
 		_, _ = fmt.Fprintln(writer, "no accepted proposal to apply")
 		return
 	}
-	for _, result := range results {
+	for _, item := range items {
 		switch {
-		case result.DryRun:
-			_, _ = fmt.Fprintf(writer, "proposal %d: dry run ok, would link to %s\n", result.ProposalID, result.LinkTarget)
+		case item.Error != nil:
+			_, _ = fmt.Fprintf(writer, "proposal %d: failed (%s)\n", item.ProposalID, item.Error.Code)
+		case item.DryRun:
+			_, _ = fmt.Fprintf(writer, "proposal %d: dry run ok, would link to %s\n", item.ProposalID, item.LinkTarget)
 		default:
-			_, _ = fmt.Fprintf(writer, "proposal %d: applied, link to %s (%s read)\n", result.ProposalID, result.LinkTarget, humanBytes(result.BytesRead))
+			_, _ = fmt.Fprintf(writer, "proposal %d: applied, link to %s (%s read)\n", item.ProposalID, item.LinkTarget, humanBytes(item.BytesRead))
 		}
 	}
 }
