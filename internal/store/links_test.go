@@ -251,3 +251,56 @@ func TestOpen_addsMtimeColumnToAnOlderLinksTable(t *testing.T) {
 		_ = reopened.Close()
 	}
 }
+
+func TestStore_upgradesLinksWithVolumeColumn(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "necromanciarr.db")
+	database, err := sql.Open("sqlite", dataSourceName(databasePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(v1Schema(t) + `INSERT INTO links (kind, link_path, target_path, relative, inode_reliable,
+	size, fingerprint, state, created_at, verified_at) VALUES ('hardlink', '/srv/links/a.mkv', '/srv/media/a.mkv', 0, 1, 5,
+	'f', 'ok', 1, 1);`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for openingIndex := range 2 {
+		openedStore, err := Open(databasePath)
+		if err != nil {
+			t.Fatalf("opening %d: %v", openingIndex, err)
+		}
+		links, err := openedStore.ListLinks(ctx, "")
+		if err != nil || len(links) != 1 {
+			t.Fatalf("opening %d: valeurObtenue %+v (err %v)", openingIndex, links, err)
+		}
+		valeurObtenue := links[0]
+		if valeurObtenue.Volume != "" || valeurObtenue.IdentityUnproven() || valeurObtenue.LinkPath != "/srv/links/a.mkv" || valeurObtenue.Size != 5 {
+			t.Fatalf("opening %d: valeurObtenue %+v, valeurAttendue the v1 row intact on the local volume", openingIndex, valeurObtenue)
+		}
+		if err := openedStore.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestRecordLink_keepsTheVolumeAndItsUnprovenIdentity(t *testing.T) {
+	ctx := context.Background()
+	testStore := openTestStore(t)
+	link := sampleLink()
+	link.LinkPath, link.TargetPath, link.Volume = "sftp://seedbox/srv/links/a.mkv", "sftp://seedbox/srv/media/a.mkv", "seedbox"
+	if err := testStore.RecordLink(ctx, link); err != nil {
+		t.Fatal(err)
+	}
+
+	links, err := testStore.ListLinks(ctx, "")
+	if err != nil || len(links) != 1 {
+		t.Fatalf("valeurObtenue %+v (err %v)", links, err)
+	}
+	if links[0].Volume != "seedbox" || !links[0].IdentityUnproven() {
+		t.Fatalf("valeurAttendue the volume seedbox and an unproven identity, valeurObtenue %+v", links[0])
+	}
+}

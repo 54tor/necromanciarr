@@ -26,7 +26,8 @@ var (
 )
 
 // Link est un lien créé, identifié par LinkPath. TargetDevice et TargetInode ne sont conservés que si InodeReliable
-// (volume local) : sur un montage FUSE ou réseau, l'inode est synthétique et change au renommage.
+// (volume local) : sur un montage FUSE ou réseau, l'inode est synthétique et change au renommage. Volume est le
+// fournisseur du lien (vide pour le disque local) ; LinkPath et TargetPath sont alors des adresses sftp://.
 type Link struct {
 	ID            int64
 	Kind          string
@@ -46,7 +47,12 @@ type Link struct {
 	// HashAlgo et Hash sont l'empreinte de contenu de la cible fournie par le stockage distant ; vides si inconnue.
 	HashAlgo string
 	Hash     string
+	Volume   string
 }
+
+// IdentityUnproven dit que l'identité du lien n'est pas prouvée par le fichier même (I4) : un lien distant ne l'est
+// jamais, même quand le volume rend une identité de fichier ; Seed ne lui accorde donc jamais skip_checking.
+func (link Link) IdentityUnproven() bool { return link.Volume != "" }
 
 func checkLinkState(state LinkState) error {
 	switch state {
@@ -65,15 +71,15 @@ func (openedStore *Store) RecordLink(ctx context.Context, link Link) error {
 	device, inode := nullableIdentity(link)
 	_, err := openedStore.database.ExecContext(ctx, `
 INSERT INTO links (kind, link_path, target_path, relative, target_dev, target_ino, inode_reliable, size, fingerprint,
-	state, created_at, verified_at, mtime, hash_algo, hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	state, created_at, verified_at, mtime, hash_algo, hash, volume) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(link_path) DO UPDATE SET kind = excluded.kind, target_path = excluded.target_path,
 	relative = excluded.relative, target_dev = excluded.target_dev, target_ino = excluded.target_ino,
 	inode_reliable = excluded.inode_reliable, size = excluded.size, fingerprint = excluded.fingerprint,
 	state = excluded.state, created_at = excluded.created_at, verified_at = excluded.verified_at, mtime = excluded.mtime,
-	hash_algo = excluded.hash_algo, hash = excluded.hash`,
+	hash_algo = excluded.hash_algo, hash = excluded.hash, volume = excluded.volume`,
 		link.Kind, link.LinkPath, link.TargetPath, link.Relative, device, inode, link.InodeReliable, link.Size,
 		link.Fingerprint, string(link.State), link.CreatedAt.UnixNano(), link.VerifiedAt.UnixNano(), nullableModTime(link.ModTime),
-		nullableText(link.HashAlgo), nullableText(link.Hash))
+		nullableText(link.HashAlgo), nullableText(link.Hash), link.Volume)
 	if err != nil {
 		return fmt.Errorf("record link: %w", err)
 	}
@@ -104,7 +110,7 @@ func nullableIdentity(link Link) (sql.NullInt64, sql.NullInt64) {
 func (openedStore *Store) ListLinks(ctx context.Context, state LinkState) ([]Link, error) {
 	rows, err := openedStore.database.QueryContext(ctx, `
 SELECT id, kind, link_path, target_path, relative, target_dev, target_ino, inode_reliable, size, fingerprint, state,
-	created_at, verified_at, mtime, hash_algo, hash FROM links WHERE ? = '' OR state = ? ORDER BY link_path`, string(state), string(state))
+	created_at, verified_at, mtime, hash_algo, hash, volume FROM links WHERE ? = '' OR state = ? ORDER BY link_path`, string(state), string(state))
 	if err != nil {
 		return nil, fmt.Errorf("list links: %w", err)
 	}
@@ -127,7 +133,7 @@ func scanLink(rows *sql.Rows) (Link, error) {
 	var state string
 	var createdAtNanoseconds, verifiedAtNanoseconds int64
 	err := rows.Scan(&link.ID, &link.Kind, &link.LinkPath, &link.TargetPath, &link.Relative, &device, &inode,
-		&link.InodeReliable, &link.Size, &link.Fingerprint, &state, &createdAtNanoseconds, &verifiedAtNanoseconds, &modTimeNanoseconds, &hashAlgo, &hash)
+		&link.InodeReliable, &link.Size, &link.Fingerprint, &state, &createdAtNanoseconds, &verifiedAtNanoseconds, &modTimeNanoseconds, &hashAlgo, &hash, &link.Volume)
 	if err != nil {
 		return Link{}, fmt.Errorf("scan link: %w", err)
 	}

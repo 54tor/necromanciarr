@@ -219,6 +219,7 @@ var columnUpgrades = []struct{ table, column, definition string }{
 	{"links", "mtime", "INTEGER"},
 	{"links", "hash_algo", "TEXT"},
 	{"links", "hash", "TEXT"},
+	{"links", "volume", "TEXT NOT NULL DEFAULT ''"},
 	{"fingerprints", "hash_algo", "TEXT"},
 	{"fingerprints", "hash", "TEXT"},
 	{"mount_capabilities", "provider", "TEXT NOT NULL DEFAULT ''"},
