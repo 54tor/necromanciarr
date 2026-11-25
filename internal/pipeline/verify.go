@@ -97,7 +97,10 @@ func (run candidateRun) verify(ctx context.Context, candidate store.Candidate) e
 	if err != nil {
 		return err
 	}
-	local, unchanged := run.currentLocalFiles(associations)
+	local, unchanged, err := run.currentLocalFiles(associations)
+	if err != nil {
+		return run.remoteUnavailable()
+	}
 	if !unchanged {
 		return run.markStale(ctx, candidate)
 	}
@@ -120,7 +123,7 @@ func (run candidateRun) verify(ctx context.Context, candidate store.Candidate) e
 	}
 	source, err := buildSource(assignment, annexes, opener)
 	if err != nil {
-		run.countReadError()
+		run.countReadError(err)
 		return nil
 	}
 	source, err = run.completeNfos(ctx, candidate, torrent, assignment, source)
@@ -135,8 +138,9 @@ func (run candidateRun) verify(ctx context.Context, candidate store.Candidate) e
 }
 
 // currentLocalFiles renvoie les fichiers locaux associés, tels que sur disque ; unchanged est faux si l'un a disparu
-// ou a changé de taille ou de date depuis l'association : un bitset enregistré ne vaudrait alors plus rien.
-func (run candidateRun) currentLocalFiles(associations []store.CandidateFile) ([]store.MediaFile, bool) {
+// ou a changé de taille ou de date depuis l'association : un bitset enregistré ne vaudrait alors plus rien. Un volume
+// distant qui ne répond pas ne prouve aucun changement : fsys.ErrRemoteUnavailable est rendu, jamais unchanged faux.
+func (run candidateRun) currentLocalFiles(associations []store.CandidateFile) ([]store.MediaFile, bool, error) {
 	seen := map[int64]bool{}
 	var local []store.MediaFile
 	for _, association := range associations {
@@ -146,17 +150,28 @@ func (run candidateRun) currentLocalFiles(associations []store.CandidateFile) ([
 		seen[association.MediaFileID] = true
 		mediaFile, known := run.mediaByID[association.MediaFileID]
 		if !known {
-			return nil, false
+			return nil, false, nil
 		}
 		info, err := statStored(run.deps.Registry, mediaFile.Path)
-		if err != nil || info.Size() != association.MediaSize || !info.ModTime().Equal(association.MediaModTime) {
-			return nil, false
+		if isRemoteUnavailable(err) {
+			return nil, false, err
+		}
+		isChanged := err != nil || info.Size() != association.MediaSize || !info.ModTime().Equal(association.MediaModTime)
+		if isChanged {
+			return nil, false, nil
 		}
 		// Taille et date de l'instantané d'association, identiques au disque : ce sont elles que Link recontrôlera.
 		mediaFile.Size, mediaFile.ModTime = association.MediaSize, association.MediaModTime
 		local = append(local, mediaFile)
 	}
-	return local, true
+	return local, true, nil
+}
+
+// remoteUnavailable laisse le candidat tel quel (ni stale ni failed) : la prochaine exécution le reprend.
+func (run candidateRun) remoteUnavailable() error {
+	run.result.Skipped++
+	run.result.count(ReasonRemoteUnavailable, 1)
+	return nil
 }
 
 func (run candidateRun) markStale(ctx context.Context, candidate store.Candidate) error {
@@ -286,7 +301,7 @@ func (run candidateRun) assign(ctx context.Context, candidate store.Candidate, t
 	case ctx.Err() != nil:
 		return assignment, false, err
 	default:
-		run.countReadError()
+		run.countReadError(err)
 		return assignment, false, nil
 	}
 	if len(assignment.ByTorrentFile) == 0 && len(assignment.Ambiguous) == 0 {
@@ -304,15 +319,20 @@ func (run candidateRun) readErrorOrStop(ctx context.Context, err error) error {
 		return err
 	}
 	if errors.Is(err, errReadLocal) {
-		run.countReadError()
+		run.countReadError(err)
 		return nil
 	}
 	return err
 }
 
-func (run candidateRun) countReadError() {
+// countReadError compte une lecture en échec ; un volume distant qui ne répond pas est compté remote_unavailable.
+func (run candidateRun) countReadError(err error) {
 	run.result.Failed++
-	run.result.count(ReasonReadError, 1)
+	reason := ReasonReadError
+	if isRemoteUnavailable(err) {
+		reason = ReasonRemoteUnavailable
+	}
+	run.result.count(reason, 1)
 }
 
 // finish relit l'état des fichiers (un fichier modifié pendant la lecture périme le candidat), puis : un média au hash
@@ -321,7 +341,11 @@ func (run candidateRun) countReadError() {
 func (run candidateRun) finish(ctx context.Context, candidate store.Candidate, associations []store.CandidateFile,
 	torrent *torrentcheck.Torrent, assignment matcher.Assignment, source compositeSource, report torrentcheck.Report,
 ) error {
-	if _, unchanged := run.currentLocalFiles(associations); !unchanged {
+	_, unchanged, err := run.currentLocalFiles(associations)
+	if err != nil {
+		return run.remoteUnavailable()
+	}
+	if !unchanged {
 		return run.markStale(ctx, candidate)
 	}
 	decided := classify(torrent, assignment, source, report)

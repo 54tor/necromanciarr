@@ -46,7 +46,7 @@ func (run candidateRun) cover(ctx context.Context, candidate store.Candidate, to
 	if ctx.Err() != nil {
 		return report, false, err
 	}
-	run.countReadError()
+	run.countReadError(err)
 	return report, false, nil
 }
 

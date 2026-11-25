@@ -3,9 +3,11 @@ package dedupe
 import (
 	"context"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -307,5 +309,23 @@ func TestDedupe_touchesTheDiskOnlyThroughTheRegistry(t *testing.T) {
 			}
 			return true
 		})
+	}
+}
+
+// outageReader rend la moitié de la lecture puis l'erreur d'un volume distant coupé, comme sftpfs sur une lecture
+// courte : jamais io.EOF.
+type outageReader struct{}
+
+func (outageReader) ReadAt(buffer []byte, _ int64) (int, error) {
+	return len(buffer) / 2, fmt.Errorf("%w: read ended before the file size", fsys.ErrRemoteUnavailable)
+}
+
+func TestRead_remoteOutageIsReturnedAsItIsNeverAsAShortenedFile(t *testing.T) {
+	readMeter := &meter{ctx: context.Background()}
+
+	_, err := fingerprintReader(readMeter, outageReader{}, 3*mebibyte)
+
+	if !errors.Is(err, fsys.ErrRemoteUnavailable) || errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("valeurObtenue %v, valeurAttendue ErrRemoteUnavailable, never a shortened file", err)
 	}
 }
