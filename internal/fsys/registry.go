@@ -106,7 +106,18 @@ func canonicalOf(volume Volume, name string) (string, error) {
 	if !isCanonical {
 		return "", ErrCannotCanonicalize
 	}
-	return canonical, nil
+	return rootSpelling(syntax, canonical), nil
+}
+
+// rootSpelling donne à une racine de volume la graphie que Dir rend pour le parent de ses enfants : sous Windows,
+// `\\server\share` devient `\\server\share\`, sinon une racine de partage écrite sans séparateur ne serait
+// jamais égale à l'ancêtre d'une bibliothèque placée dessous (`C:` seul, relatif au lecteur, est déjà refusé).
+func rootSpelling(syntax PathSyntax, canonical string) string {
+	isVolumeRoot := syntax.Dir(canonical) == canonical
+	if !isVolumeRoot {
+		return canonical
+	}
+	return syntax.Dir(syntax.Join(canonical, "child"))
 }
 
 // causeHidingError garde la cause pour errors.Is sans recopier son texte, qui peut contenir un chemin.

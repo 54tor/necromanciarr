@@ -352,3 +352,48 @@ func TestRegistry_readNeverExposesTheVolume(t *testing.T) {
 		t.Errorf("Volume() = %q, want %q", gotValue, expectedValue)
 	}
 }
+
+// shareRootPaths reproduit, en POSIX, la bizarrerie Windows des racines de partage UNC : filepath.Clean garde
+// `\\server\share` sans séparateur final (point fixe de Dir) alors que Dir d'un enfant rend `\\server\share\`.
+type shareRootPaths struct{ fsys.PathSyntax }
+
+const (
+	fakeShareRoot       = "/share"
+	fakeShareRootParent = "/share/"
+)
+
+func (shareRootPaths) Dir(name string) string {
+	if name == fakeShareRoot || name == fakeShareRootParent {
+		return name
+	}
+	parent := fsys.RemotePaths().Dir(name)
+	if parent == fakeShareRoot {
+		return fakeShareRootParent
+	}
+	return parent
+}
+
+func (shareRootPaths) Clean(name string) string {
+	if name == fakeShareRootParent {
+		return name
+	}
+	return fsys.RemotePaths().Clean(name)
+}
+
+func TestRegistry_shareRootSpellingsCompareEqual(t *testing.T) {
+	volume := newFakeVolume("seedbox")
+	volume.paths = shareRootPaths{fsys.RemotePaths()}
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"seedbox": volume},
+		[]fsys.Location{{Volume: "seedbox", Path: "/share/media"}})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	for _, dir := range []string{fakeShareRoot, fakeShareRootParent} {
+		if _, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: dir}); !errors.Is(err, fsys.ErrWriteInLibrary) {
+			t.Errorf("WriteRoot(%q) error = %v, want ErrWriteInLibrary", dir, err)
+		}
+	}
+	if _, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/share/links"}); err != nil {
+		t.Errorf("WriteRoot(/share/links): %v", err)
+	}
+}
