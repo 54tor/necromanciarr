@@ -13,6 +13,9 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - Torrent-side deduplication (`dedupe plan/apply`) and broken-link repair (`repair scan/apply`), guarded by a client recheck.
 - Cross-seed integration: sandboxed import of its `config.js`, `auto/delegate/native/off` modes, webhook notification.
 - rclone hash providers (`fsProviders`) with a per-mount capability cache.
+- SFTP file system providers (`fsProviders` type `sftp`) with pinned host keys.
+- pathMappings accepts an sftp://<provider>/<path> from side, compared case-sensitively; a remote link folder needs such a rule (client_path_unmapped otherwise), never gets skip_checking (identity_unproven), and a remote volume that does not answer leaves Link and Seed proposals for the next run (remote_unavailable).
+- dedupe and repair read and write through the volume registry: on a volume without atomic replace a dedupe proposal is not applicable (no_atomic_replace) and repair refuses, with no fallback; on an sftp:// volume dedupe proves by a full read announced as warning.dedupe.full_remote_read, and a remote path needs an sftp pathMappings rule before a client recheck (client_path_unmapped).
 - CLI with `--json`, web interface and API (bearer token, jobs), `doctor` diagnostics, Docker image (amd64, arm64, riscv64).
 - `seedTags` (`NECROMANCIARR_SEED_TAGS`): tags set on every added torrent; the list replaces the default `necromanciarr` tag. `doctor` shows the category and tags.
 - `NECROMANCIARR_SEED_CATEGORY` sets the seed category (`linkCategory`) from the environment.
