@@ -63,6 +63,30 @@ func TestForbiddenUsesIn_flagsEveryBypass(t *testing.T) {
 	}
 }
 
+// TestWriteRootCallsIn_flagsEverySelectorNamedOpenWriteRoot : appel direct, assertion vers une interface anonyme,
+// expression de méthode et valeur de méthode (référence sans appel) sont toutes relevées.
+func TestWriteRootCallsIn_flagsEverySelectorNamedOpenWriteRoot(t *testing.T) {
+	cases := map[string]string{
+		"direct call":         "func f(volume fsys.Volume) { _, _ = volume.OpenWriteRoot(\"/\") }",
+		"anonymous interface": "func f(volume any) { _, _ = volume.(interface{ OpenWriteRoot(string) (any, error) }).OpenWriteRoot(\"/\") }",
+		"method expression":   "func f(volume fsys.Volume) { _, _ = fsys.Volume.OpenWriteRoot(volume, \"/\") }",
+		"method value":        "func f(volume fsys.Volume) { open := volume.OpenWriteRoot; _, _ = open(\"/\") }",
+		"assertion value":     "func f(volume any) { open := volume.(interface{ OpenWriteRoot(string) (any, error) }).OpenWriteRoot; _ = open }",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotValue := writeRootCallsIn(parseFile(t, "fixture.go", "package scratch\n"+body+"\n"))
+			if len(gotValue) == 0 {
+				t.Fatal("expectedValue the OpenWriteRoot use flagged, gotValue nothing")
+			}
+		})
+	}
+	declarationOnly := "package scratch\ntype opener interface{ OpenWriteRoot(string) (any, error) }\n"
+	if gotValue := writeRootCallsIn(parseFile(t, "fixture.go", declarationOnly)); len(gotValue) != 0 {
+		t.Fatalf("expectedValue an interface declaration left alone, gotValue %v", gotValue)
+	}
+}
+
 // writeRootCallAllowList : hors de internal/fsys, seuls ces fichiers appellent OpenWriteRoot, avec leur raison.
 var writeRootCallAllowList = map[string]string{
 	"internal/pipeline/registry_test.go": "volume de test qui relaie OpenWriteRoot au volume local enveloppé ; seul le registre l'appelle",
@@ -156,16 +180,14 @@ func forbiddenUsesIn(parsed parsedFile) []string {
 	return append(found, writeRootCallsIn(parsed)...)
 }
 
+// writeRootCallsIn relève tout sélecteur nommé OpenWriteRoot, appelé ou non : une valeur de méthode gardée pour plus
+// tard ouvre une racine aussi bien qu'un appel direct.
 func writeRootCallsIn(parsed parsedFile) []string {
 	var found []string
 	ast.Inspect(parsed.file, func(node ast.Node) bool {
-		call, isCall := node.(*ast.CallExpr)
-		if !isCall {
-			return true
-		}
-		selector, isSelector := call.Fun.(*ast.SelectorExpr)
+		selector, isSelector := node.(*ast.SelectorExpr)
 		if isSelector && selector.Sel.Name == writeRootConstructor {
-			found = append(found, fmt.Sprintf("%s: call to %s", parsed.position(selector), writeRootConstructor))
+			found = append(found, fmt.Sprintf("%s: use of %s", parsed.position(selector), writeRootConstructor))
 		}
 		return true
 	})
