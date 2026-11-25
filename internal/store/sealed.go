@@ -58,14 +58,8 @@ func (openedStore *Store) SaveCandidateSealed(ctx context.Context, candidateID i
 // le bloc (une entrée trackers donne l'annonce). Rien n'est écrit si une copie est refusée (ErrUnsanitizedTorrent,
 // ErrTorrentTooLarge, ErrSealedTooLarge).
 func (openedStore *Store) SaveCandidateFetched(ctx context.Context, candidateID int64, source string, sanitized, sealed []byte, now time.Time) error {
-	if len(sanitized) > MaxTorrentBytes {
-		return ErrTorrentTooLarge
-	}
-	if err := refuseUnsanitized(sanitized); err != nil {
+	if err := checkFetchedCopies(sanitized, sealed); err != nil {
 		return err
-	}
-	if len(sealed) > MaxSealedBytes {
-		return ErrSealedTooLarge
 	}
 	var storedSealed any
 	if len(sealed) > 0 {
@@ -75,6 +69,76 @@ func (openedStore *Store) SaveCandidateFetched(ctx context.Context, candidateID 
 		`UPDATE torrent_candidates SET source = ?, torrent = ?, torrent_sealed = ?, updated_at = ? WHERE id = ?`,
 		source, sanitized, storedSealed, now.UnixNano(), candidateID)
 	return requireOneRow(result, err, ErrCandidateNotFound, "save candidate fetched torrent")
+}
+
+// SaveFetchedCandidate crée en une transaction un candidat trouvé chez un indexeur, directement à l'état fetched (le
+// .torrent est déjà là) : associations de fichiers, source, copie assainie et copie scellée (vide : pas de bloc, une
+// entrée trackers donne l'annonce). Si un candidat de même (Infohash, Tracker) existe, rien n'est écrit : la première
+// source de la chaîne reste (SaveUnchanged). Les copies sont contrôlées avant toute écriture.
+func (openedStore *Store) SaveFetchedCandidate(ctx context.Context, candidate Candidate, files []CandidateFile, sanitized, sealed []byte, now time.Time) (int64, SaveOutcome, error) {
+	if err := checkFetchedCopies(sanitized, sealed); err != nil {
+		return 0, "", err
+	}
+	if candidate.Source == "" || candidate.Source == SourceProvider {
+		return 0, "", errors.New("store: a fetched candidate needs its indexer source")
+	}
+	var candidateID int64
+	outcome := SaveCreated
+	err := openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
+		existsErr := transaction.QueryRowContext(ctx, `SELECT id FROM torrent_candidates WHERE infohash = ? AND tracker = ?`,
+			candidate.Infohash, candidate.Tracker).Scan(&candidateID)
+		if existsErr == nil {
+			outcome = SaveUnchanged
+			return nil
+		}
+		if !errors.Is(existsErr, sql.ErrNoRows) {
+			return existsErr
+		}
+		var insertErr error
+		candidateID, insertErr = insertFetchedCandidate(ctx, transaction, candidate, sanitized, sealed, now)
+		if insertErr != nil {
+			return insertErr
+		}
+		return insertCandidateFiles(ctx, transaction, candidateID, files)
+	})
+	if err != nil {
+		return 0, "", fmt.Errorf("save fetched candidate: %w", err)
+	}
+	return candidateID, outcome, nil
+}
+
+func insertFetchedCandidate(ctx context.Context, transaction *sql.Tx, candidate Candidate, sanitized, sealed []byte, now time.Time) (int64, error) {
+	providerJSON := candidate.ProviderJSON
+	if providerJSON == "" {
+		providerJSON = "{}"
+	}
+	var storedSealed any
+	if len(sealed) > 0 {
+		storedSealed = sealed
+	}
+	result, err := transaction.ExecContext(ctx, `INSERT INTO torrent_candidates
+	(infohash, tracker, name, total_size, provider_json, source, state, torrent, torrent_sealed, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		candidate.Infohash, candidate.Tracker, candidate.Name, candidate.TotalSize, providerJSON, candidate.Source,
+		string(CandidateFetched), sanitized, storedSealed, now.UnixNano(), now.UnixNano())
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// checkFetchedCopies refuse une copie en clair trop grosse ou porteuse d'annonce, et un bloc scellé trop gros.
+func checkFetchedCopies(sanitized, sealed []byte) error {
+	if len(sanitized) > MaxTorrentBytes {
+		return ErrTorrentTooLarge
+	}
+	if err := refuseUnsanitized(sanitized); err != nil {
+		return err
+	}
+	if len(sealed) > MaxSealedBytes {
+		return ErrSealedTooLarge
+	}
+	return nil
 }
 
 // CandidateSealed renvoie le bloc scellé du candidat ; found est faux s'il n'en a pas, ErrCandidateNotFound sans

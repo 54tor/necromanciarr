@@ -94,3 +94,78 @@ func TestSaveCandidateFetched_refusesWithoutWritingAnything(t *testing.T) {
 		t.Fatalf("gotValue %v, expectedValue ErrCandidateNotFound", err)
 	}
 }
+
+func fetchedTestCandidate(mediaFile MediaFile) (Candidate, []CandidateFile) {
+	candidate := Candidate{Infohash: "bb", Tracker: "tracker-a", Name: "Film", TotalSize: mediaFile.Size, Source: "torznab:alpha"}
+	files := []CandidateFile{{FileIndex: 0, Path: "Film/film.mkv", Size: mediaFile.Size, MediaFileID: mediaFile.ID, MediaSize: mediaFile.Size, MediaModTime: mediaFile.ModTime}}
+	return candidate, files
+}
+
+func TestSaveFetchedCandidate_createsAFetchedCandidateWithItsFilesAndCopies(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	candidate, files := fetchedTestCandidate(mediaFile)
+
+	candidateID, outcome, err := openedStore.SaveFetchedCandidate(ctx, candidate, files, []byte(sanitizedTestTorrent), testSealedBlob, testNow)
+	if err != nil || outcome != SaveCreated {
+		t.Fatalf("gotValue outcome %q err %v, expectedValue created", outcome, err)
+	}
+
+	stored, err := openedStore.ListCandidatesByState(ctx, CandidateFetched)
+	if err != nil || len(stored) != 1 || stored[0].ID != candidateID || stored[0].Source != "torznab:alpha" || !stored[0].HasSealed {
+		t.Fatalf("gotValue %+v err %v, expectedValue one fetched candidate from torznab:alpha with its sealed copy", stored, err)
+	}
+	storedFiles, err := openedStore.ListCandidateFiles(ctx, candidateID)
+	if err != nil || len(storedFiles) != 1 || storedFiles[0].MediaFileID != mediaFile.ID {
+		t.Fatalf("gotValue files %+v err %v, expectedValue the association", storedFiles, err)
+	}
+	torrent, err := openedStore.CandidateTorrent(ctx, candidateID)
+	if err != nil || string(torrent) != sanitizedTestTorrent {
+		t.Fatalf("gotValue torrent %q err %v, expectedValue the sanitized copy", torrent, err)
+	}
+}
+
+// La première source de la chaîne reste : un candidat déjà connu n'est ni réécrit ni scellé de nouveau.
+func TestSaveFetchedCandidate_keepsAnExistingCandidateUntouched(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	existingID, _ := saveTestCandidate(t, openedStore, "bb", mediaFile)
+	candidate, files := fetchedTestCandidate(mediaFile)
+
+	candidateID, outcome, err := openedStore.SaveFetchedCandidate(ctx, candidate, files, []byte(sanitizedTestTorrent), testSealedBlob, testNow)
+
+	if err != nil || outcome != SaveUnchanged || candidateID != existingID {
+		t.Fatalf("gotValue id %d outcome %q err %v, expectedValue the existing candidate unchanged", candidateID, outcome, err)
+	}
+	if gotValue := candidateSource(t, openedStore, existingID); gotValue != SourceProvider {
+		t.Fatalf("gotValue source %q, expectedValue %q kept", gotValue, SourceProvider)
+	}
+	if _, found, err := openedStore.CandidateSealed(ctx, existingID); err != nil || found {
+		t.Fatalf("gotValue sealed found %v err %v, expectedValue no sealed copy", found, err)
+	}
+}
+
+func TestSaveFetchedCandidate_refusesBeforeWriting(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidate, files := fetchedTestCandidate(insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	providerCandidate := candidate
+	providerCandidate.Source = SourceProvider
+
+	refusals := []error{}
+	_, _, err := openedStore.SaveFetchedCandidate(ctx, candidate, files, []byte(unsanitizedTestTorrent), nil, testNow)
+	refusals = append(refusals, err)
+	_, _, err = openedStore.SaveFetchedCandidate(ctx, candidate, files, []byte(sanitizedTestTorrent), make([]byte, MaxSealedBytes+1), testNow)
+	refusals = append(refusals, err)
+	_, _, err = openedStore.SaveFetchedCandidate(ctx, providerCandidate, files, []byte(sanitizedTestTorrent), nil, testNow)
+	refusals = append(refusals, err)
+
+	if !errors.Is(refusals[0], ErrUnsanitizedTorrent) || !errors.Is(refusals[1], ErrSealedTooLarge) || refusals[2] == nil {
+		t.Fatalf("gotValue %v, expectedValue unsanitized, sealed too large and missing source refused", refusals)
+	}
+	if stored, err := openedStore.ListCandidatesByState(ctx); err != nil || len(stored) != 0 {
+		t.Fatalf("gotValue %d candidates err %v, expectedValue nothing written", len(stored), err)
+	}
+}
