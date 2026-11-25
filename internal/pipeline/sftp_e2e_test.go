@@ -591,7 +591,7 @@ func (world *sftpWorld) plantInLibrary(t *testing.T) {
 	t.Helper()
 	careless := sftpfs.NewLazy(world.server.Provider(t, sftpVolumeName), sftpfs.Deps{LookupEnv: noEnvironment})
 	t.Cleanup(func() { _ = careless.Close() })
-	registry, err := fsys.NewRegistry(map[string]fsys.Volume{sftpVolumeName: careless}, []fsys.Location{{Volume: sftpVolumeName, Path: "/elsewhere"}})
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{sftpVolumeName: careless}, []fsys.Location{{Volume: sftpVolumeName, Path: sftpTorrentDir}})
 	if err != nil {
 		t.Fatal(err)
 	}
