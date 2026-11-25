@@ -243,7 +243,7 @@ Stable codes of a connection to an `sftp` provider, identical in both languages.
 | `host_key_mismatch` | refusal | the presented key differs from the pinned one, or it is revoked: the connection may be intercepted. Replace nothing before checking the new fingerprint on the server through another channel; only then replace the line |
 | `auth_refused` | refusal | the server refused every configured method (`agent`, `identityFile`, `password`), or none was usable: check `user`, the key authorized on the server (`authorized_keys`), the password variable |
 | `known_hosts_unreadable` | refusal | `knownHosts` missing, unreadable or without any valid entry: check the path (as seen by the process or the container), read permissions and the OpenSSH format |
-| `known_hosts_not_writable` | refusal | `sftp trust --yes` does not write: `knownHosts` is a symlink or a special file, its folder does not exist, or the file is not writable (Docker: folder mounted `:ro`). Nothing is written |
+| `known_hosts_not_writable` | refusal | `sftp trust` refuses `knownHosts`: a symlink or a special file (even without `--yes`), or, with `--yes`, a missing folder or a file that is not writable (Docker: folder mounted `:ro`). Nothing is written |
 | `no_link_dir` | refusal | `volumes probe`: no `linkDirs` folder on this volume, the probe has nowhere to write; add an `sftp://<name>/…` link folder. Nothing is written |
 | `identity_key_too_weak` | refusal | `identityFile` is an RSA key under 3072 bits: generate an ed25519 key (`ssh-keygen -t ed25519`) and authorize it on the server |
 | `identity_file_unusable` | refusal | `identityFile` is not a usable private key, or `identityPassphrase` is missing or wrong |
