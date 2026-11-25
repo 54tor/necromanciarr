@@ -148,15 +148,33 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `link-feasibility` | `same_volume` | `ok` | bibliothèque et liens sur un même volume |
 | `link-feasibility` | `volumes_differ_symlink_only` | `warn` | deux volumes : seuls les symlinks traversent |
 | `link-feasibility` | `volumes_differ` | `fail` | bibliothèque et liens sous deux montages : un seul montage commun ([05-docker-and-volumes.md](05-docker-and-volumes.md)) |
+| `link-feasibility` | `volume_identity_unknown` | `warn` | volume distant sans `statvfs` : identité du système de fichiers inconnue, lien dur non prouvé ; activer l'extension ou choisir `symlink` |
 | `fs-providers` | `no_fs_provider` | `skipped` | aucun fournisseur configuré |
 | `fs-providers` | `fs_providers_build_failed` | `fail` | `fsProviders` de `config.json` |
 | `fs-providers` | `mount_ok` | `ok` | montage décrit |
 | `fs-providers` | `mount_advice` | `warn` | le conseil du fournisseur (clés `advice.mount.*` de `hashsource`, rendues dans la langue) : démarrer rclone avec `--rc`, backend sans MD5 ou sans date (la comparaison relit les fichiers) |
+| `sftp:<name>` | `sftp_ok` | `ok` | le serveur répond, serveur POSIX ; l'adresse et l'utilisateur sont affichés, jamais un secret |
+| `sftp:<name>` | `host_key_unknown`, `host_key_mismatch`, `known_hosts_unreadable` | `fail` | clé d'hôte absente, différente ou `knownHosts` illisible : voir « Par code de connexion SFTP » |
+| `sftp:<name>` | `auth_refused`, `identity_key_too_weak`, `identity_file_unusable` | `fail` | méthodes d'authentification refusées, clé RSA de moins de 3072 bits, clé illisible ou passphrase fausse |
+| `sftp:<name>` | `identity_file_permissions`, `agent_unavailable` | `warn` | `identityFile` lisible par d'autres (`chmod 600`), agent SSH absent : la connexion continue |
+| `sftp:<name>` | `remote_windows_unsupported` | `fail` | `RealPath("/")` ou un dossier configuré rend `/C:/…` : serveur Windows non pris en charge (un dossier Unix nommé `/C` n'en est pas un) |
+| `sftp:<name>` | `remote_unavailable`, `hostile_response` | `fail` | serveur injoignable ou coupé (réseau, délai `timeout`), ou valeur impossible rendue par le serveur ; aucun texte du serveur n'est repris |
+| `sftp-library:<name>` | `root_ok` | `ok` | racine distante lisible, média trouvé |
+| `sftp-library:<name>` | `library_root_unreadable` | `fail` | racine absente, pas un dossier ou illisible pour le compte SFTP |
+| `sftp-library:<name>` | `no_media_in_first_2000` | `warn` | aucun média parmi les 2000 premières entrées listées (jamais plus) : racine vide ou mauvais montage côté serveur |
+| `sftp-library:<name>` | `library_maybe_writable` | `warn` | mode (écriture du groupe ou des autres) ou propriétaire du dossier de bibliothèque : le compte semble pouvoir écrire. Jamais déduit d'un essai d'écriture. Utiliser un compte SFTP en lecture seule sur la bibliothèque |
+| `sftp-library:<name>` | `no_library_root` | `skipped` | aucune racine de bibliothèque sur ce fournisseur |
+| `sftp-exec:<name>` | `exec_ok` | `ok` | commandes distantes disponibles ; indique les empreintes (`sha1`, `md5`), si `nice` et `ionice` sont présents et, sans dossier de liens du fournisseur, que les capacités ne sont pas sondées (`not_probed`) |
+| `sftp-exec:<name>` | `exec_off` | `ok` | `exec: off` : aucune commande n'est envoyée |
+| `sftp-exec:<name>` | `remote_exec_unavailable` | `warn` | `exec: auto` mais la sonde échoue (raison affichée : `exec_denied`, `login_shell_not_posix`, `exec_probe_failed`, `exec_inconsistent`) : lecture SFTP seule |
+| `sftp-exec:<name>` | `remote_exec_required_failed` | `fail` | `exec: required` et la sonde échoue : toute écriture sur le volume est refusée (`remote_exec_required`) |
+| `sftp-exec:<name>` | `capability_probe_failed` | `warn` | la sonde des capacités dans le dossier de liens a échoué |
 | `cross-seed` | `cross_seed_unset` | `skipped` | cross-seed non configuré |
 | `cross-seed` | `cross_seed_mode_invalid` | `fail` | `crossSeedMode` inconnu |
 | `cross-seed` | `cross_seed_warning` | `warn` | démon injoignable : repli `native` en mode `auto`, désactivé en `delegate` |
 | `cross-seed` | `blocked_environment` | `warn` | `config.js` lit des variables de cet outil, qui lui sont cachées |
-| `path-mappings` | `no_path_mapping` | `skipped` | aucune règle |
+| `path-mappings` | `no_path_mapping` | `skipped` | aucune règle et aucun dossier de liens distant |
+| `path-mappings` | `client_path_unmapped` | `fail` | dossier de liens distant sans règle `pathMappings` dont `from` est une adresse `sftp://` qui le couvre et dont `to` est la vue du client |
 | `path-mappings` | `rule_unreachable` | `warn` | ni `from` ni `to` n'existe sur cette machine |
 | `path-mappings` | `rule_no_library_root` | `warn` | règle qui ne couvre aucune racine |
 | `path-mappings` | `rule_ok` | `ok` | règle utilisable |
@@ -226,11 +244,36 @@ Codes stables d'une connexion à un fournisseur `sftp`, identiques dans les deux
 | `auth_refused` | refus | le serveur a refusé toutes les méthodes configurées (`agent`, `identityFile`, `password`), ou aucune n'était utilisable : vérifier `user`, la clé autorisée côté serveur (`authorized_keys`), la variable du mot de passe |
 | `known_hosts_unreadable` | refus | `knownHosts` absent, illisible ou sans aucune entrée valide : vérifier le chemin (vu par le processus ou le conteneur), les droits de lecture et le format OpenSSH |
 | `identity_key_too_weak` | refus | `identityFile` est une clé RSA de moins de 3072 bits : générer une clé ed25519 (`ssh-keygen -t ed25519`) et l'autoriser sur le serveur |
+| `identity_file_unusable` | refus | `identityFile` n'est pas une clé privée utilisable, ou `identityPassphrase` manque ou est fausse |
+| `remote_windows_unsupported` | refus | le serveur SFTP est un serveur Windows (`RealPath("/")` rend `/C:/…`) : non pris en charge, servir la bibliothèque depuis un hôte POSIX |
 | `identity_file_permissions` | avertissement | `identityFile` est lisible ou modifiable par le groupe ou les autres : `chmod 600` ; la connexion continue |
 | `agent_unavailable` | avertissement | `agent` est demandé mais `SSH_AUTH_SOCK` est absent ou injoignable, ou l'agent ne répond pas dans `timeout` (jamais transmis dans Docker) : la méthode est sautée, les autres sont essayées |
 | `remote_exec_unavailable` | avertissement | `exec: auto`, mais les commandes distantes sont refusées, absentes, pas GNU ou incohérentes avec SFTP (raison dans `remoteExec`) : lecture SFTP seule (pas d'inode ni d'empreinte distante), un seul avertissement par volume et par session |
 | `remote_exec_failed` | avertissement | une commande a échoué après une sonde réussie ; le compte dit combien d'éléments ont été relus par SFTP |
 | `link_dir_world_writable` | avertissement | des dossiers créés dans un dossier de liens distant sont modifiables par le groupe ou les autres (un seul avertissement par dossier de liens, avec leur nombre) : régler le umask du compte SFTP à `022` (par exemple `ForceCommand internal-sftp -u 022` côté OpenSSH) ou créer ces dossiers à l'avance ; l'opération continue |
+
+### Par raison de capacité SFTP (`Reasons`)
+
+Raison d'absence d'une fonction du volume `sftp` dans ses capacités (liens, remplacement atomique, copie côté serveur, identité du volume).
+
+| Code | Cause et action |
+|---|---|
+| `not_probed` | aucune sonde dans cette session : la sonde tourne dans le premier dossier de liens ouvert (Link, `dedupe plan`, `doctor`) ; sans dossier de liens sur le fournisseur, elle ne tourne jamais |
+| `extension_missing` | le serveur n'offre pas l'extension SFTP nécessaire (`hardlink`, `posix-rename`, `statvfs`, `copy-data` (extensions OpenSSH)) |
+| `probe_failed` | l'essai de la fonction a échoué : elle n'est pas prouvée, donc refusée |
+| `server_copy_unsupported_by_client` | le serveur offre `copy-data`, mais la bibliothèque cliente SFTP n'envoie jamais cette requête : Force reste refusé (`server_copy_unavailable`) |
+
+### Par erreur de volume SFTP
+
+Erreurs de lecture ou de commande distante d'un volume `sftp`, qui n'apparaissent pas comme motif d'étape : l'élément est relu par SFTP ou l'étape garde son état.
+
+| Code | Cause et action |
+|---|---|
+| `hostile_response` | le serveur a rendu une valeur impossible (taille, `statvfs`, cible de lien, liste démesurée) : refusée, jamais tronquée ; ne pas faire confiance au serveur avant de l'avoir vérifié |
+| `short_read` | une lecture a fini avant la taille du fichier (fichier qui grandit, coupure) : le fichier est indisponible pour cette lecture (`remote_unavailable`), jamais jugé différent |
+| `exec_output_too_large` | la sortie d'une commande distante a dépassé sa borne : session tuée, résultat rejeté, élément relu par SFTP (`remote_exec_failed`) |
+| `exec_path_outside_roots` | un chemin n'était sous aucune racine de bibliothèque, de liens ou torrent du volume : rien n'a été envoyé |
+| `exec_size_mismatch` | la taille de `stat` distant diffère de celle de SFTP : l'élément est relu par SFTP |
 
 ### Par raison d'exécution distante (`remoteExec`)
 

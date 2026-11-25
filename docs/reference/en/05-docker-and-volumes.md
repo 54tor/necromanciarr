@@ -137,6 +137,7 @@ An `fsProviders` entry of type `sftp` ([02-configuration.md](02-configuration.md
 - Recommended: an SFTP account with no write access to the library (ACL, group, or a read-only mount on the server side), writing only in the link folder, as defence in depth: SFTP has no folder-relative open, so write confinement relies on path checks ("Remote writes" in [02-configuration.md](02-configuration.md)). It is not required; a `doctor` check will report it.
 - The database (`dbPath`) stays in `/data`, never on the SFTP server.
 - Windows SFTP servers: not supported.
+- `necromanciarr doctor` checks every provider: `sftp:<name>` (connection, host key, Windows server refused), `sftp-library:<name>` (readable root, media in the first 2000 entries, `library_maybe_writable` warning when modes and owners suggest the account can write, never by a write attempt) and `sftp-exec:<name>` (remote commands), then `link-feasibility` and `path-mappings` for remote link folders ([06-limits-and-troubleshooting.md](06-limits-and-troubleshooting.md)).
 
 ### Restricted account and remote commands
 

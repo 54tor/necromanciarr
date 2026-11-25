@@ -137,6 +137,7 @@ Un fournisseur `fsProviders` de type `sftp` ([02-configuration.md](02-configurat
 - Recommandé : un compte SFTP sans droit d'écriture sur la bibliothèque (ACL, groupe ou montage en lecture seule côté serveur), qui n'écrit que dans le dossier de liens, en défense en profondeur : sans ouverture relative à un dossier en SFTP, le confinement des écritures repose sur des contrôles de chemin (« Écriture distante » dans [02-configuration.md](02-configuration.md)). Ce n'est pas exigé ; un contrôle de `doctor` le signalera.
 - La base (`dbPath`) reste dans `/data`, jamais sur le serveur SFTP.
 - Serveurs SFTP Windows : non pris en charge.
+- `necromanciarr doctor` vérifie chaque fournisseur : `sftp:<name>` (connexion, clé d'hôte, serveur Windows refusé), `sftp-library:<name>` (racine lisible, média dans les 2000 premières entrées, avertissement `library_maybe_writable` quand les modes et propriétaires laissent croire que le compte écrit, jamais par un essai d'écriture) et `sftp-exec:<name>` (commandes distantes), puis `link-feasibility` et `path-mappings` pour les dossiers de liens distants ([06-limits-and-troubleshooting.md](06-limits-and-troubleshooting.md)).
 
 ### Compte restreint et commandes distantes
 

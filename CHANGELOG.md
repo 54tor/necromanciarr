@@ -17,6 +17,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - pathMappings accepts an `sftp://<provider>/<path>` from side, compared case-sensitively; a remote link folder needs such a rule (client_path_unmapped otherwise), never gets skip_checking (identity_unproven), and a remote volume that does not answer leaves Link and Seed proposals for the next run (remote_unavailable).
 - Remote volumes are probed for symlink, hardlink, atomic replace, statvfs and server-side copy; Force is refused on SFTP without server-side copy.
 - Optional read-only `ssh exec` (`stat`, `sha1sum`, `md5sum`) on SFTP volumes for remote file identity and hashes, with automatic SFTP-only fallback.
+- Doctor checks for SFTP providers, remote libraries (including a warning when the account looks writable), path mappings for remote link folders, and remote commands.
 - dedupe and repair read and write through the volume registry: on a volume without atomic replace a dedupe proposal is not applicable (no_atomic_replace) and repair refuses, with no fallback; on an `sftp://` volume dedupe proves by a full read announced as warning.dedupe.full_remote_read, and a remote path needs an sftp pathMappings rule before a client recheck (client_path_unmapped).
 - CLI with `--json`, web interface and API (bearer token, jobs), `doctor` diagnostics, Docker image (amd64, arm64, riscv64).
 - `seedTags` (`NECROMANCIARR_SEED_TAGS`): tags set on every added torrent; the list replaces the default `necromanciarr` tag. `doctor` shows the category and tags.

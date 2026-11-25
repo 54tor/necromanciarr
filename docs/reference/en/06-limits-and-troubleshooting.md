@@ -148,15 +148,33 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `link-feasibility` | `same_volume` | `ok` | library and links on the same volume |
 | `link-feasibility` | `volumes_differ_symlink_only` | `warn` | two volumes: only symlinks cross |
 | `link-feasibility` | `volumes_differ` | `fail` | library and links under two mounts: a single common mount ([05-docker-and-volumes.md](05-docker-and-volumes.md)) |
+| `link-feasibility` | `volume_identity_unknown` | `warn` | remote volume without `statvfs`: filesystem identity unknown, hardlink not proven; enable the extension or choose `symlink` |
 | `fs-providers` | `no_fs_provider` | `skipped` | no provider configured |
 | `fs-providers` | `fs_providers_build_failed` | `fail` | `fsProviders` of `config.json` |
 | `fs-providers` | `mount_ok` | `ok` | mount described |
 | `fs-providers` | `mount_advice` | `warn` | the provider's advice (`advice.mount.*` keys of `hashsource`, rendered in the language): start rclone with `--rc`, backend without MD5 or without date (the comparison rereads the files) |
+| `sftp:<name>` | `sftp_ok` | `ok` | the server answers and serves POSIX paths; address and user are shown, never a secret |
+| `sftp:<name>` | `host_key_unknown`, `host_key_mismatch`, `known_hosts_unreadable` | `fail` | host key missing, different, or `knownHosts` unreadable: see "By SFTP connection code" |
+| `sftp:<name>` | `auth_refused`, `identity_key_too_weak`, `identity_file_unusable` | `fail` | authentication methods refused, RSA key under 3072 bits, unreadable key or wrong passphrase |
+| `sftp:<name>` | `identity_file_permissions`, `agent_unavailable` | `warn` | `identityFile` readable by others (`chmod 600`), SSH agent missing: the connection goes on |
+| `sftp:<name>` | `remote_windows_unsupported` | `fail` | `RealPath("/")` or a configured folder returns `/C:/…`: Windows server not supported (a Unix folder named `/C` is not one) |
+| `sftp:<name>` | `remote_unavailable`, `hostile_response` | `fail` | server unreachable or cut (network, `timeout`), or an impossible value from the server; no server text is repeated |
+| `sftp-library:<name>` | `root_ok` | `ok` | remote root readable, media found |
+| `sftp-library:<name>` | `library_root_unreadable` | `fail` | root missing, not a folder, or unreadable for the SFTP account |
+| `sftp-library:<name>` | `no_media_in_first_2000` | `warn` | no media among the first 2000 entries listed (never more): empty root or wrong mount on the server |
+| `sftp-library:<name>` | `library_maybe_writable` | `warn` | mode (group or others write bit) or owner of the library folder: the account looks able to write. Never inferred from a write attempt. Use an SFTP account that is read-only on the library |
+| `sftp-library:<name>` | `no_library_root` | `skipped` | no library root on this provider |
+| `sftp-exec:<name>` | `exec_ok` | `ok` | remote commands available; shows the hashes (`sha1`, `md5`), whether `nice` and `ionice` are present and, without a link folder on the provider, that capabilities are not probed (`not_probed`) |
+| `sftp-exec:<name>` | `exec_off` | `ok` | `exec: off`: no command is sent |
+| `sftp-exec:<name>` | `remote_exec_unavailable` | `warn` | `exec: auto` but the probe fails (reason shown: `exec_denied`, `login_shell_not_posix`, `exec_probe_failed`, `exec_inconsistent`): SFTP-only reads |
+| `sftp-exec:<name>` | `remote_exec_required_failed` | `fail` | `exec: required` and the probe fails: every write on the volume is refused (`remote_exec_required`) |
+| `sftp-exec:<name>` | `capability_probe_failed` | `warn` | the capability probe in the link folder failed |
 | `cross-seed` | `cross_seed_unset` | `skipped` | cross-seed not configured |
 | `cross-seed` | `cross_seed_mode_invalid` | `fail` | unknown `crossSeedMode` |
 | `cross-seed` | `cross_seed_warning` | `warn` | daemon unreachable: `native` fallback in `auto` mode, disabled in `delegate` |
 | `cross-seed` | `blocked_environment` | `warn` | `config.js` reads this tool's variables, which are hidden from it |
-| `path-mappings` | `no_path_mapping` | `skipped` | no rule |
+| `path-mappings` | `no_path_mapping` | `skipped` | no rule and no remote link folder |
+| `path-mappings` | `client_path_unmapped` | `fail` | remote link folder with no `pathMappings` rule whose `from` is an `sftp://` address covering it and whose `to` is the client's view |
 | `path-mappings` | `rule_unreachable` | `warn` | neither `from` nor `to` exists on this machine |
 | `path-mappings` | `rule_no_library_root` | `warn` | rule that covers no root |
 | `path-mappings` | `rule_ok` | `ok` | usable rule |
@@ -226,11 +244,36 @@ Stable codes of a connection to an `sftp` provider, identical in both languages.
 | `auth_refused` | refusal | the server refused every configured method (`agent`, `identityFile`, `password`), or none was usable: check `user`, the key authorized on the server (`authorized_keys`), the password variable |
 | `known_hosts_unreadable` | refusal | `knownHosts` missing, unreadable or without any valid entry: check the path (as seen by the process or the container), read permissions and the OpenSSH format |
 | `identity_key_too_weak` | refusal | `identityFile` is an RSA key under 3072 bits: generate an ed25519 key (`ssh-keygen -t ed25519`) and authorize it on the server |
+| `identity_file_unusable` | refusal | `identityFile` is not a usable private key, or `identityPassphrase` is missing or wrong |
+| `remote_windows_unsupported` | refusal | the SFTP server is a Windows server (`RealPath("/")` returns `/C:/…`): not supported, serve the library from a POSIX host |
 | `identity_file_permissions` | warning | `identityFile` is readable or writable by group or others: `chmod 600`; the connection goes on |
 | `agent_unavailable` | warning | `agent` is requested but `SSH_AUTH_SOCK` is missing or unreachable, or the agent does not answer within `timeout` (never forwarded in Docker): the method is skipped, the others are tried |
 | `remote_exec_unavailable` | warning | `exec: auto`, but remote commands are refused, missing, not GNU or inconsistent with SFTP (reason in `remoteExec`): SFTP-only reads (no inode, no remote hash), a single warning per volume and per session |
 | `remote_exec_failed` | warning | a command failed after a successful probe; the count says how many items were read again over SFTP |
 | `link_dir_world_writable` | warning | folders created in a remote link folder are writable by group or others (one warning per link folder, with their count): set the SFTP account's umask to `022` (for example `ForceCommand internal-sftp -u 022` on OpenSSH) or create these folders beforehand; the operation goes on |
+
+### By SFTP capability reason (`Reasons`)
+
+Reason a feature of the `sftp` volume is absent from its capabilities (links, atomic replace, server-side copy, volume identity).
+
+| Code | Cause and action |
+|---|---|
+| `not_probed` | no probe in this session: the probe runs in the first link folder opened (Link, `dedupe plan`, `doctor`); without a link folder on the provider it never runs |
+| `extension_missing` | the server does not offer the needed SFTP extension (`hardlink`, `posix-rename`, `statvfs`, `copy-data` (OpenSSH extensions)) |
+| `probe_failed` | the trial of the feature failed: it is not proven, so it is refused |
+| `server_copy_unsupported_by_client` | the server offers `copy-data`, but the SFTP client library never sends that request: Force stays refused (`server_copy_unavailable`) |
+
+### By SFTP volume error
+
+Read or remote command errors of an `sftp` volume that do not show up as a stage reason: the item is read again over SFTP or the stage keeps its state.
+
+| Code | Cause and action |
+|---|---|
+| `hostile_response` | the server answered an impossible value (size, `statvfs`, link target, oversized listing): refused, never truncated; do not trust the server until it is checked |
+| `short_read` | a read ended before the file size (growing file, dropped connection): the file is unavailable for this read (`remote_unavailable`), never judged different |
+| `exec_output_too_large` | a remote command output exceeded its bound: session killed, result rejected, item read again over SFTP (`remote_exec_failed`) |
+| `exec_path_outside_roots` | a path was under no library, link or torrent root of the volume: nothing was sent |
+| `exec_size_mismatch` | the size from remote `stat` differs from the SFTP size: the item is read again over SFTP |
 
 ### By remote execution reason (`remoteExec`)
 
