@@ -249,3 +249,43 @@ func sftpSecrets(provider FSProvider) []string {
 	}
 	return secrets
 }
+
+// SFTPAddressKey rend la clé de comparaison d'une adresse sftp : hôte en minuscules sans point final, port explicite
+// (22 par défaut), adresse IP sous sa forme canonique. Deux fournisseurs de même clé joignent le même serveur et
+// partagent leurs racines de bibliothèque ; un nom DNS et son adresse IP ne sont pas rapprochés.
+func SFTPAddressKey(rawAddress string) (string, error) {
+	address, err := normalizeSFTPAddress(rawAddress)
+	if err != nil {
+		return "", err
+	}
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return "", err
+	}
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if host == "" {
+		return "", fmt.Errorf("address %q has no host", rawAddress)
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		host = ip.String()
+	}
+	return net.JoinHostPort(host, port), nil
+}
+
+// IsLoopbackSFTPAddress dit si l'adresse vise la machine elle-même (localhost, 127.0.0.0/8, ::1) : un tel volume et
+// un chemin local peuvent désigner le même disque sans que le registre le voie. Adresse invalide : false.
+func IsLoopbackSFTPAddress(rawAddress string) bool {
+	key, err := SFTPAddressKey(rawAddress)
+	if err != nil {
+		return false
+	}
+	host, _, err := net.SplitHostPort(key)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}

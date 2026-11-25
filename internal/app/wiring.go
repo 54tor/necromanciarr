@@ -301,7 +301,8 @@ func wireCrossSeed(ctx context.Context, settings config.Config, stages *pipeline
 // bibliothèque de la configuration. Chaque racine d'écriture d'un volume sftp est sondée avant d'être rendue
 // (sftpVolumes.ensureProbed). deps.Limiter n'est jamais transmis aux volumes ; LibraryRoots y est remplacé par les
 // racines de bibliothèque de chaque fournisseur ; ses dossiers de liens et racines torrent sont admis par Exec. Le
-// Closer ferme les volumes sftp. Aucun accès disque ni réseau.
+// Closer ferme les volumes sftp. Les fournisseurs sftp de même adresse partagent leurs racines de bibliothèque
+// (withAliasedLibraryRoots). Aucun accès disque ni réseau.
 func buildRegistry(ctx context.Context, settings config.Config, deps sftpfs.Deps) (*fsys.Registry, io.Closer, error) {
 	libraryRoots := make([]fsys.Location, 0, len(settings.LibraryRoots))
 	for rootIndex, root := range settings.LibraryRoots {
@@ -310,6 +311,10 @@ func buildRegistry(ctx context.Context, settings config.Config, deps sftpfs.Deps
 			return nil, nil, fmt.Errorf("app: libraryRoots[%d]: %w", rootIndex, err)
 		}
 		libraryRoots = append(libraryRoots, location)
+	}
+	libraryRoots, err := withAliasedLibraryRoots(settings, libraryRoots)
+	if err != nil {
+		return nil, nil, err
 	}
 	remote := &sftpVolumes{volumes: map[string]*sftpfs.Volume{}, saved: map[string]fsys.Capabilities{}}
 	volumes := map[string]fsys.Volume{"": local.New()}
@@ -330,4 +335,37 @@ func buildRegistry(ctx context.Context, settings config.Config, deps sftpfs.Deps
 		return nil, nil, errors.Join(fmt.Errorf("app: filesystem registry: %w", err), remote.Close())
 	}
 	return registry, remote, nil
+}
+
+// withAliasedLibraryRoots ajoute à libraryRoots, pour chaque racine d'un volume sftp, la même racine sur chaque autre
+// fournisseur sftp de même adresse (config.SFTPAddressKey) : deux comptes d'un même serveur voient le même disque, et
+// une racine de bibliothèque déclarée sous un nom protège aussi les autres. Le texte du chemin est gardé tel quel.
+func withAliasedLibraryRoots(settings config.Config, libraryRoots []fsys.Location) ([]fsys.Location, error) {
+	providersByKey := map[string][]string{}
+	keyByProvider := map[string]string{}
+	for _, provider := range settings.FSProviders {
+		if provider.Type != config.FSProviderTypeSFTP {
+			continue
+		}
+		key, err := config.SFTPAddressKey(provider.Address)
+		if err != nil {
+			return nil, fmt.Errorf("app: sftp provider %q: %w", provider.Name, err)
+		}
+		keyByProvider[provider.Name] = key
+		providersByKey[key] = append(providersByKey[key], provider.Name)
+	}
+	shared := slices.Clone(libraryRoots)
+	for _, libraryRoot := range libraryRoots {
+		key, isSFTP := keyByProvider[libraryRoot.Volume]
+		if !isSFTP {
+			continue
+		}
+		for _, alias := range providersByKey[key] {
+			aliased := fsys.Location{Volume: alias, Path: libraryRoot.Path}
+			if !slices.Contains(shared, aliased) {
+				shared = append(shared, aliased)
+			}
+		}
+	}
+	return shared, nil
 }
