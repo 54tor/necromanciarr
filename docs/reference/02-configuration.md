@@ -200,6 +200,14 @@ Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer 
 - `knownHosts` absent, illisible ou sans entrée valide : refus `known_hosts_unreadable`.
 - `agent` sans `SSH_AUTH_SOCK` (ou socket injoignable, ou agent qui ne répond pas dans `timeout`) : la méthode est sautée avec l'avertissement `agent_unavailable`, qui nomme la variable, jamais le chemin de la socket ; `identityFile` lisible par le groupe ou les autres : avertissement `identity_file_permissions`, pas un refus.
 
+#### Débit et limites
+
+- Lecture seule : la bibliothèque distante est lue par des ouvertures `SSH_FXF_READ` seules ; aucune requête d'écriture n'y est envoyée.
+- Débit : chaque lecture attend, avant d'être envoyée, le limiteur du fournisseur (`readBytesPerSecond` du fournisseur) puis le limiteur global (`readBytesPerSecond` global) ; le plus strict des deux gouverne. Les octets sont comptés à la demande, par tranches de 32 Kio. Une lecture découpée en `maxConcurrentRequests` requêtes en vol ne transporte jamais plus que ce qui a été compté.
+- Listes de dossier : un nom vide, `.`, `..`, contenant `/` ou NUL, ou de plus de 4096 octets est écarté, comme une entrée à la taille impossible (négative ou au-delà de 2^62 octets) ; un nom en double ne garde que sa première entrée. Au-delà d'un million d'entrées, la liste est refusée. Les noms aux octets non UTF-8 restent lisibles.
+- Une cible de lien de plus de 4096 octets, une taille de fichier impossible ou une réponse `statvfs` incohérente sont refusées, jamais tronquées.
+- Place libre et identité du volume : lues par l'extension OpenSSH `statvfs`. Sans elle, la place libre est inconnue (aucune copie complète n'est tentée) et l'identité du volume aussi.
+
 #### Obtenir la ligne `known_hosts`
 
 L'outil ne fait jamais confiance à une clé d'hôte inconnue et n'écrit jamais dans `knownHosts`. Pour remplir le fichier sans risque :

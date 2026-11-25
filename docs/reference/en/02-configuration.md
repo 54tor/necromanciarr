@@ -200,6 +200,14 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 - `knownHosts` missing, unreadable or without a valid entry: `known_hosts_unreadable` refusal.
 - `agent` without `SSH_AUTH_SOCK` (or an unreachable socket, or an agent that does not answer within `timeout`): the method is skipped with the `agent_unavailable` warning, which names the variable, never the socket path; an `identityFile` readable by group or others: `identity_file_permissions` warning, not a refusal.
 
+#### Rate and limits
+
+- Read only: the remote library is read through `SSH_FXF_READ`-only opens; no write request is ever sent there.
+- Rate: each read waits, before it is sent, on the provider limiter (the provider's `readBytesPerSecond`) then on the global limiter (the global `readBytesPerSecond`); the stricter of the two wins. Bytes are counted when requested, in 32 KiB slices. A read split into `maxConcurrentRequests` requests in flight never carries more than what was counted.
+- Directory listings: a name that is empty, `.`, `..`, contains `/` or NUL, or is longer than 4096 bytes is dropped, as is an entry with an impossible size (negative or beyond 2^62 bytes); a duplicate name keeps only its first entry. Beyond one million entries, the listing is refused. Names with non-UTF-8 bytes stay readable.
+- A link target longer than 4096 bytes, an impossible file size or an inconsistent `statvfs` answer is refused, never truncated.
+- Free space and volume identity: read through the OpenSSH `statvfs` extension. Without it, free space is unknown (no full copy is attempted) and so is the volume identity.
+
 #### Getting the `known_hosts` line
 
 The tool never trusts an unknown host key and never writes to `knownHosts`. To fill the file safely:
