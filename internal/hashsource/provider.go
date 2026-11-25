@@ -47,7 +47,8 @@ type Registry struct {
 	providers []registeredProvider
 }
 
-// NewFromConfig construit la source de chaque fournisseur déclaré. Un type sans fabrique est une erreur.
+// NewFromConfig construit la source de chaque fournisseur déclaré, sauf les sftp (volumes du registre de fichiers).
+// Un autre type sans fabrique est une erreur.
 func NewFromConfig(providers []config.FSProvider, deps Deps) (Registry, error) {
 	return newRegistry(providers, deps, providerFactories)
 }
@@ -55,6 +56,9 @@ func NewFromConfig(providers []config.FSProvider, deps Deps) (Registry, error) {
 func newRegistry(providers []config.FSProvider, deps Deps, factories map[string]ProviderFactory) (Registry, error) {
 	var registry Registry
 	for _, spec := range providers {
+		if spec.Type == config.FSProviderTypeSFTP {
+			continue // volume du registre de fichiers, sans montage local à hacher
+		}
 		factory, known := factories[spec.Type]
 		if !known {
 			return Registry{}, fmt.Errorf("fs provider %q: unknown type %q", spec.Name, spec.Type)

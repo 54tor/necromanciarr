@@ -62,6 +62,17 @@ func TestNewFromConfig_buildsRcloneProvidersAndRejectsUnknownTypes(t *testing.T)
 	}
 }
 
+// Un fournisseur sftp est un volume (sftp://…), pas une source d'empreintes : il ne doit pas empêcher le lancement.
+func TestNewFromConfig_skipsSFTPFileSystemProviders(t *testing.T) {
+	sftpProvider := config.FSProvider{Type: config.FSProviderTypeSFTP, Name: "seedbox", Address: "seedbox.example.com:22"}
+
+	registry, err := NewFromConfig([]config.FSProvider{sftpProvider}, Deps{})
+
+	if err != nil || len(registry.DescribeMounts(context.Background())) != 0 {
+		t.Fatalf("valeurObtenue %v, valeurAttendue the sftp provider skipped without error", err)
+	}
+}
+
 func TestRegistry_describeMountsNamesTheProviderOfEachMount(t *testing.T) {
 	providers := []config.FSProvider{
 		{Type: "fake", Name: "ignored", Mounts: []config.FSMount{{LocalPath: "/home/u/x", Target: "a:"}}},
