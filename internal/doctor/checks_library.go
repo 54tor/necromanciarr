@@ -55,10 +55,11 @@ func inspectLibraryRoot(ctx context.Context, registry *fsys.Registry, root strin
 		return notFound()
 	case !info.IsDir():
 		return Fail, CodeRootNotDir, message(i18n.KeyDoctorRootNotDirectory, "root", root), i18n.Message{}
-	case !isReadable(reader, resolvedRoot):
-		return Fail, CodeRootUnreadable, message(i18n.KeyDoctorRootNotReadable, "root", root), message(i18n.KeyDoctorRootNotReadableHint)
 	}
 	walk := findMediaFile(ctx, reader, resolvedRoot)
+	if walk.rootUnreadable {
+		return Fail, CodeRootUnreadable, message(i18n.KeyDoctorRootNotReadable, "root", root), message(i18n.KeyDoctorRootNotReadableHint)
+	}
 	skipped := walk.unreadable > 0
 	count := strconv.Itoa(walk.unreadable)
 	if walk.found {
@@ -76,23 +77,21 @@ func inspectLibraryRoot(ctx context.Context, registry *fsys.Registry, root strin
 		message(i18n.KeyDoctorRootNoMediaHint)
 }
 
-func isReadable(reader fsys.ReadFS, directory string) bool {
-	_, err := reader.ReadDir(directory)
-	return err == nil
-}
-
+// mediaWalk : rootUnreadable dit que la racine elle-même ne se liste pas (aucune entrée vue).
 type mediaWalk struct {
-	found      bool
-	entries    int
-	unreadable int
-	stopped    bool
+	found          bool
+	entries        int
+	unreadable     int
+	stopped        bool
+	rootUnreadable bool
+	root           string
 }
 
 // findMediaFile parcourt au plus maxWalkEntries entrées sans ouvrir aucun fichier ni suivre un lien symbolique de
 // dossier ; un lien symbolique dont l'extension est média compte, un sous-dossier illisible est sauté et dénombré
 // (compté deux fois, comme filepath.WalkDir le présente : à l'entrée puis à l'échec de sa lecture).
 func findMediaFile(ctx context.Context, reader fsys.ReadFS, root string) mediaWalk {
-	var walk mediaWalk
+	walk := mediaWalk{root: root}
 	walk.visitDirectory(ctx, reader, root)
 	return walk
 }
@@ -110,6 +109,7 @@ func (walk *mediaWalk) visitDirectory(ctx context.Context, reader fsys.ReadFS, d
 	}
 	entries, err := reader.ReadDir(directory)
 	if err != nil {
+		walk.rootUnreadable = directory == walk.root
 		if !walk.visit(ctx) {
 			walk.unreadable++
 		}

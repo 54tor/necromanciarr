@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"necromanciarr/internal/config"
@@ -34,5 +35,25 @@ func TestRegistryFor_refusesEveryWriteRootWhenALibraryRootDoesNotParse(t *testin
 
 	if !errors.Is(err, fsys.ErrNoLibraryRoots) {
 		t.Fatalf("expectedValue fsys.ErrNoLibraryRoots, gotValue %v", err)
+	}
+}
+
+func TestChecks_libraryRootThatCannotBeListedIsUnreadable(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("permission bits do not lock a directory here")
+	}
+	lockedRoot := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(lockedRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(lockedRoot, 0o100); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(lockedRoot, 0o750) })
+
+	got := checkLibraryRoots(t.Context(), config.Config{LibraryRoots: []string{lockedRoot}}, Deps{})
+
+	if got.Status != Fail || got.Code != CodeRootUnreadable {
+		t.Fatalf("expectedValue fail %s, gotValue %v %s", CodeRootUnreadable, got.Status, got.Code)
 	}
 }
