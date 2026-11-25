@@ -297,7 +297,8 @@ func wireCrossSeed(ctx context.Context, settings config.Config, stages *pipeline
 // injoignable au lancement n'empêche ni les opérations locales, ni l'interface, ni doctor) et les racines de
 // bibliothèque de la configuration. Chaque racine d'écriture d'un volume sftp est sondée avant d'être rendue
 // (sftpVolumes.ensureProbed). deps.Limiter n'est jamais transmis aux volumes ; LibraryRoots y est remplacé par les
-// racines de bibliothèque de chaque fournisseur. Le Closer ferme les volumes sftp. Aucun accès disque ni réseau.
+// racines de bibliothèque de chaque fournisseur ; ses dossiers de liens et racines torrent sont admis par Exec. Le
+// Closer ferme les volumes sftp. Aucun accès disque ni réseau.
 func buildRegistry(ctx context.Context, settings config.Config, deps sftpfs.Deps) (*fsys.Registry, io.Closer, error) {
 	libraryRoots := make([]fsys.Location, 0, len(settings.LibraryRoots))
 	for rootIndex, root := range settings.LibraryRoots {
@@ -315,6 +316,9 @@ func buildRegistry(ctx context.Context, settings config.Config, deps sftpfs.Deps
 			continue
 		}
 		volume := newSFTPVolume(provider, libraryRoots, deps)
+		if err := allowExecRoots(volume, provider.Name, settings); err != nil {
+			return nil, nil, errors.Join(err, remote.Close(), volume.Close())
+		}
 		remote.volumes[provider.Name], volumes[provider.Name] = volume, volume
 		options = append(options, fsys.WithWriteRootCheck(provider.Name, remote.ensureProbed(ctx, provider.Name)))
 	}

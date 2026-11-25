@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -40,6 +41,25 @@ func newSFTPVolume(provider config.FSProvider, libraryRoots []fsys.Location, dep
 		}
 	}
 	return sftpfs.NewLazy(provider, deps)
+}
+
+// allowExecRoots admet, pour l'exécution distante du volume, ses dossiers de liens et ses racines torrent
+// (dedupe), en plus de ses racines de bibliothèque.
+func allowExecRoots(volume *sftpfs.Volume, name string, settings config.Config) error {
+	var roots []string
+	for _, configured := range slices.Concat(settings.LinkDirs, settings.Dedupe.TorrentRoots) {
+		location, err := fsys.ParseLocation(configured)
+		if err != nil {
+			return fmt.Errorf("app: exec root %q: %w", configured, err)
+		}
+		if location.Volume == name {
+			roots = append(roots, location.Path)
+		}
+	}
+	if err := volume.AllowExecRoots(roots...); err != nil {
+		return fmt.Errorf("app: sftp volume %q: %w", name, err)
+	}
+	return nil
 }
 
 // saveProbesTo enregistre désormais chaque nouvelle sonde dans capabilities.

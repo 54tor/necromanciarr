@@ -304,3 +304,23 @@ func TestDoctor_givesEachRemoteVolumeItsReconnect(t *testing.T) {
 		t.Fatalf("valeurObtenue %d resets, valeurAttendue 1", valeurObtenue)
 	}
 }
+
+func TestBuildRegistry_admitsLinkDirsAndTorrentRootsForRemoteCommands(t *testing.T) {
+	server := startSeedbox(t)
+	settings := seedboxSettings(t, server.Provider(t, seedboxName))
+	settings.Dedupe.TorrentRoots = []string{"sftp://" + seedboxName + "/torrents", "/local/torrents"}
+	_, volumes := buildTestRegistry(t, settings, sftpfs.Deps{})
+	volume := volumes.volumes[seedboxName]
+
+	for _, admitted := range []string{seedboxLibrary + "/movie.mkv", seedboxLinks + "/movie.mkv", "/torrents/movie.mkv"} {
+		_, err := volume.Exec(context.Background(), sftpfs.CommandStat, []string{admitted})
+		if errors.Is(err, sftpfs.ErrExecPathOutsideRoots) || !errors.Is(err, sftpfs.ErrExecDisabled) {
+			t.Errorf("%s : valeurObtenue %v, valeurAttendue admis puis exec refusé par le serveur de test", admitted, err)
+		}
+	}
+	for _, refused := range []string{"/local/torrents/movie.mkv", "/elsewhere/movie.mkv"} {
+		if _, err := volume.Exec(context.Background(), sftpfs.CommandStat, []string{refused}); !errors.Is(err, sftpfs.ErrExecPathOutsideRoots) {
+			t.Errorf("%s : valeurObtenue %v, valeurAttendue ErrExecPathOutsideRoots", refused, err)
+		}
+	}
+}
