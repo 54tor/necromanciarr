@@ -27,7 +27,8 @@ func (confirmer *Confirmer) Confirm(ctx context.Context, link store.Link, candid
 		return false, false, nil
 	}
 	result, err := confirmer.source.Hash(ctx, candidatePath, Algorithm(link.HashAlgo))
-	if errors.Is(err, ErrNoMountForPath) || errors.Is(err, ErrUnsafePath) {
+	// Une commande distante en échec laisse le candidat à la confirmation par lecture (empreinte début et fin).
+	if errors.Is(err, ErrNoMountForPath) || errors.Is(err, ErrUnsafePath) || errors.Is(err, ErrRemoteExecFailed) {
 		return false, false, nil
 	}
 	if err != nil {

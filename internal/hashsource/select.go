@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -40,4 +41,27 @@ type unavailableSource struct{}
 
 func (unavailableSource) Hash(context.Context, string, Algorithm) (Result, error) {
 	return Result{}, nil
+}
+
+// byVolume route chaque chemin vers la source de son volume.
+type byVolume struct {
+	local, remote HashSource
+}
+
+// ByVolume choisit la source par volume : un chemin sftp:// va à remote (SFTPExec, qui ne répond que pour un volume
+// dont la sonde annonce RemoteHash), tout autre chemin à local (montages rclone). Une source nil répond toujours
+// Available=false, sans erreur : le fichier sera relu.
+func ByVolume(local, remote HashSource) HashSource {
+	return byVolume{local: local, remote: remote}
+}
+
+func (sources byVolume) Hash(ctx context.Context, path string, algorithm Algorithm) (Result, error) {
+	source := sources.local
+	if strings.HasPrefix(path, "sftp://") {
+		source = sources.remote
+	}
+	if source == nil {
+		return Result{}, nil
+	}
+	return source.Hash(ctx, path, algorithm)
 }
