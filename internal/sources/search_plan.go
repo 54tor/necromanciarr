@@ -10,9 +10,12 @@ import (
 )
 
 const (
-	textSearchMode  = "search"
-	movieSearchMode = "movie"
-	tvSearchMode    = "tvsearch"
+	// maxGroupDownloads borne les téléchargements d'un groupe par exécution, tous indexeurs confondus : un groupe de
+	// leurres ne prive pas les suivants du budget (maxDownloadsPerRun 10) ; atteint, le groupe est clos pour l'exécution.
+	maxGroupDownloads = 3
+	textSearchMode    = "search"
+	movieSearchMode   = "movie"
+	tvSearchMode      = "tvsearch"
 	// movieSlackBytes et movieSlackDivisor bornent un film seul : la taille du fichier plus 1 % et 64 Mio d'annexes
 	// (sous-titres, .nfo, échantillon) ; un pack de série n'a pas de plafond.
 	movieSlackBytes   = int64(64) << 20

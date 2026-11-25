@@ -246,6 +246,13 @@ func (budget *Budget) Report() Report {
 	return report
 }
 
+// exhausted dit si un plafond de l'indexeur a déjà été atteint pendant l'exécution.
+func (budget *Budget) exhausted(indexer ID) bool {
+	budget.stateMutex.Lock()
+	defer budget.stateMutex.Unlock()
+	return budget.runOf(indexer).report.BudgetExhausted
+}
+
 func (budget *Budget) knownCaps(indexer ID) (torznab.Caps, bool) {
 	budget.stateMutex.Lock()
 	defer budget.stateMutex.Unlock()

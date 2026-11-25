@@ -50,8 +50,12 @@ func (chain *Chain) SearchCandidates(ctx context.Context, media MediaQuery, budg
 	}
 	search := &candidateSearch{chain: chain, budget: budget, media: media, uncovered: sizeSet(media.Uncovered), tried: map[string]bool{}}
 	for _, indexer := range chain.order[1:] {
-		if len(search.uncovered) == 0 {
+		if len(search.uncovered) == 0 || search.downloads >= maxGroupDownloads {
 			break
+		}
+		if budget.exhausted(indexer) {
+			// Déjà compté (indexer_budget_exhausted) au premier groupe refusé : les suivants passent sans bruit.
+			continue
 		}
 		search.indexer(ctx, indexer)
 		if err := ctx.Err(); err != nil {
@@ -69,9 +73,10 @@ type candidateSearch struct {
 	uncovered map[int64]bool
 	// tried : indexeur et GUID des éléments déjà téléchargés pour ce groupe ; la recherche texte rend souvent les mêmes que celle par
 	// identifiant, les retélécharger brûlerait le quota.
-	tried   map[string]bool
-	found   []Found
-	outcome SearchError
+	tried     map[string]bool
+	downloads int
+	found     []Found
+	outcome   SearchError
 }
 
 func (search *candidateSearch) refusals() error {
@@ -99,12 +104,24 @@ func (search *candidateSearch) indexer(ctx context.Context, indexer ID) {
 	}
 }
 
-// caps lit les capacités une fois par exécution : la requête est décomptée comme une recherche.
+// capsCache est la part optionnelle d'un client qui dit si ses capacités sont en cache (*torznab.Client).
+type capsCache interface {
+	CachedCaps() (torznab.Caps, bool)
+}
+
+// caps lit les capacités une fois par exécution : une vraie requête t=caps est décomptée comme une recherche, une
+// réponse du cache du client ne coûte rien (ni quota ni MinInterval).
 func (search *candidateSearch) caps(ctx context.Context, indexer ID) (torznab.Caps, error) {
 	if caps, known := search.budget.knownCaps(indexer); known {
 		return caps, nil
 	}
 	client := search.chain.indexers[indexer]
+	if cache, hasCache := client.(capsCache); hasCache {
+		if caps, cached := cache.CachedCaps(); cached {
+			search.budget.rememberCaps(indexer, caps)
+			return caps, nil
+		}
+	}
 	var caps torznab.Caps
 	err := search.chain.Call(ctx, search.budget, indexer, KindQuery, func(requestCtx context.Context) error {
 		var capsErr error
@@ -134,6 +151,9 @@ func (search *candidateSearch) query(ctx context.Context, indexer ID, query torz
 		return false, true
 	}
 	for _, item := range eligibleItems(results.Items, search.media) {
+		if search.downloads >= maxGroupDownloads {
+			return false, true
+		}
 		triedKey := string(indexer) + "\x00" + item.GUID
 		if search.tried[triedKey] {
 			continue
@@ -141,6 +161,7 @@ func (search *candidateSearch) query(ctx context.Context, indexer ID, query torz
 		if item.GUID != "" {
 			search.tried[triedKey] = true
 		}
+		search.downloads++
 		kept, err := search.download(ctx, indexer, item)
 		if err == nil {
 			search.accept(kept)
@@ -185,7 +206,8 @@ func (search *candidateSearch) download(ctx context.Context, indexer ID, item to
 	return search.keep(indexer, item, raw)
 }
 
-// keep prouve la taille (un fichier de la taille exacte d'un fichier local) avant tout le reste, assainit, contrôle
+// keep prouve la taille (un fichier de la taille exacte d'un fichier local encore sans candidat : un .torrent qui ne
+// couvre qu'un fichier déjà couvert n'est pas utile) avant tout le reste, assainit, contrôle
 // que l'assainissement n'a pas changé l'infohash calculé, puis scelle avec la liaison des valeurs qui seront
 // enregistrées sur la ligne du candidat (infohash calculé, tracker de l'indexeur, source) ; quand une entrée trackers
 // couvre ce tracker, rien n'est scellé.
@@ -198,7 +220,7 @@ func (search *candidateSearch) keep(indexer ID, item torznab.Item, raw []byte) (
 		return keptTorrent{}, err
 	}
 	fileSizes := torrentFileSizes(parsed)
-	if !hasLocalSize(fileSizes, search.media.Sizes) {
+	if !hasLocalSize(fileSizes, slices.Collect(maps.Keys(search.uncovered))) {
 		return keptTorrent{}, ErrNoExactSize
 	}
 	sanitized, err := Sanitize(raw)

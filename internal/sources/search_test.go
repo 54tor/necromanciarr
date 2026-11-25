@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -595,5 +598,106 @@ func TestIndexerReport_jsonFieldNames(t *testing.T) {
 	valeurAttendue := `{"torznab_queries":1,"torznab_downloads":2,"magnet_only":3,"budget_exhausted":true}`
 	if string(encoded) != valeurAttendue {
 		t.Fatalf("valeurObtenue %s, valeurAttendue %s", encoded, valeurAttendue)
+	}
+}
+
+// Un .torrent qui ne prouve qu'un fichier déjà couvert n'est pas utile : écarté, et l'indexeur continue.
+func TestSearch_provesExactSizeAgainstUncoveredFilesOnly(t *testing.T) {
+	setup := newSearchSetup(t)
+	indexer := setup.add(indexerA, tvCaps())
+	coveredSize, uncoveredSize := gibibyte, 2*gibibyte
+	indexer.results = torznab.Results{Items: []torznab.Item{indexer.serve("covered-only", 4*gibibyte, sizedTorrent(t, "pack", coveredSize, 3*gibibyte))}}
+	media := seriesQuery(1, 0, coveredSize, uncoveredSize)
+	media.Uncovered = []int64{uncoveredSize}
+
+	found, _, err := runSearch(t, setup.chain(t), media)
+
+	if len(found) != 0 || !containsError(searchRefusals(t, err).Skipped, ErrNoExactSize) || len(indexer.queries) != 2 {
+		t.Fatalf("valeurObtenue found %d err %v queries %d, valeurAttendue the pack refused and the text query still sent", len(found), err, len(indexer.queries))
+	}
+}
+
+// Au plus maxGroupDownloads téléchargements par groupe, tous indexeurs confondus : le groupe s'arrête là pour l'exécution,
+// le groupe suivant garde son budget.
+func TestSearch_capsDownloadsPerGroup(t *testing.T) {
+	setup := newSearchSetup(t)
+	first := setup.add(indexerA, movieCaps())
+	second := setup.add(indexerB, movieCaps())
+	size := 4 * gibibyte
+	for decoyIndex := range 5 {
+		guid := fmt.Sprintf("decoy-%d", decoyIndex)
+		first.results.Items = append(first.results.Items, first.serve(guid, size, sizedTorrent(t, guid, size+int64(decoyIndex)+1)))
+	}
+	second.results = first.results
+	second.torrents = first.torrents
+	chain := setup.chain(t)
+	budget := chain.NewBudget()
+
+	_, _, err := chain.SearchCandidates(context.Background(), movieQuery(size), budget)
+
+	if len(first.downloads) != maxGroupDownloads || len(second.queries) != 0 || len(searchRefusals(t, err).Skipped) != maxGroupDownloads {
+		t.Fatalf("valeurObtenue downloads %v second queries %d, valeurAttendue %d downloads and the group stopped", first.downloads, len(second.queries), maxGroupDownloads)
+	}
+	if _, _, err := chain.SearchCandidates(context.Background(), movieQuery(size-100), budget); err == nil || len(first.downloads) != 2*maxGroupDownloads {
+		t.Fatalf("valeurObtenue downloads %v, valeurAttendue the next group downloading again", first.downloads)
+	}
+}
+
+// Un indexeur dont le budget est épuisé est ignoré sans bruit pour les groupes suivants : la raison n'est comptée qu'une fois.
+func TestSearch_exhaustedIndexerIsSkippedSilentlyForLaterGroups(t *testing.T) {
+	setup := newSearchSetup(t)
+	setup.limits.MaxDownloadsPerRun = 0
+	indexer := setup.add(indexerA, movieCaps())
+	indexer.results = torznab.Results{Items: []torznab.Item{indexer.serve("win", 5, trackerTorrent("a.mkv"))}}
+	chain := setup.chain(t)
+	budget := chain.NewBudget()
+	if _, _, err := chain.SearchCandidates(context.Background(), movieQuery(5), budget); !containsError(searchRefusals(t, err).Interrupted, ErrBudgetExhausted) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue ErrBudgetExhausted for the first group", err)
+	}
+	queriesBefore := len(indexer.queries)
+
+	_, _, err := chain.SearchCandidates(context.Background(), movieQuery(6), budget)
+
+	if err != nil || len(indexer.queries) != queriesBefore {
+		t.Fatalf("valeurObtenue %v queries %d, valeurAttendue no refusal and no request for a later group", err, len(indexer.queries)-queriesBefore)
+	}
+}
+
+// Des capacités servies par le cache du client ne coûtent aucune requête au quota : seule la vraie requête t=caps compte.
+func TestSearch_cachedCapsCostNoQuota(t *testing.T) {
+	var capsRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+		if request.URL.Query().Get("t") == "caps" {
+			capsRequests.Add(1)
+			_, _ = writer.Write([]byte(`<caps><searching><search available="yes"/><movie-search available="yes" supportedParams="q,tmdbid"/></searching></caps>`))
+			return
+		}
+		_, _ = writer.Write([]byte(`<?xml version="1.0"?><rss xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel></channel></rss>`))
+	}))
+	t.Cleanup(server.Close)
+	client, err := torznab.New(torznab.Endpoint{Name: "a", URL: server.URL + "/api?apikey=k", MinInterval: time.Millisecond, Timeout: 5 * time.Second}, torznab.Deps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := testLimits()
+	limits.MinInterval = 0
+	chain, err := NewChain(&fakeProvider{log: &callLog{}}, map[ID]IndexerSource{indexerA: client}, []ID{ProviderID, indexerA},
+		map[ID]Limits{indexerA: limits}, realUsage(t), testSealer(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRun, secondRun := chain.NewBudget(), chain.NewBudget()
+	if _, _, err := chain.SearchCandidates(context.Background(), movieQuery(5), firstRun); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := chain.SearchCandidates(context.Background(), movieQuery(5), secondRun); err != nil {
+		t.Fatal(err)
+	}
+
+	if capsRequests.Load() != 1 || firstRun.Report()[indexerA].Queries != 3 || secondRun.Report()[indexerA].Queries != 2 {
+		t.Fatalf("valeurObtenue caps requests %d, queries %d then %d, valeurAttendue one caps request counted once (3 then 2)",
+			capsRequests.Load(), firstRun.Report()[indexerA].Queries, secondRun.Report()[indexerA].Queries)
 	}
 }

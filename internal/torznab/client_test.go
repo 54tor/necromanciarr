@@ -312,3 +312,28 @@ func TestCaps_concurrentCallsShareOneRequest(t *testing.T) {
 		t.Fatalf("expectedValue 1 shared request, gotValue %d", gotValue)
 	}
 }
+
+func TestCaps_cachedCapsAnswersOnlyFromAFreshCacheWithoutRequest(t *testing.T) {
+	indexer := newFakeIndexer(t, xmlResponse(fixture(t, "caps.xml")))
+	client, clock, _ := newTestClient(t, indexer.server.URL)
+	if _, cached := client.CachedCaps(); cached {
+		t.Fatal("expectedValue no cached caps before the first request")
+	}
+	if _, err := client.Caps(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	gotCaps, cached := client.CachedCaps()
+
+	if !cached || len(gotCaps.Modes) != 3 || indexer.requestCount() != 1 {
+		t.Fatalf("gotValue cached %v modes %v requests %d, expectedValue the cached caps without request", cached, gotCaps.Modes, indexer.requestCount())
+	}
+	gotCaps.Modes["search"][0] = "mutated"
+	if again, _ := client.CachedCaps(); again.Modes["search"][0] != "q" {
+		t.Fatal("expectedValue the cache protected from the caller")
+	}
+	clock.advance(24 * time.Hour)
+	if _, cached := client.CachedCaps(); cached {
+		t.Fatal("expectedValue an expired cache reported as absent")
+	}
+}

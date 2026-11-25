@@ -390,11 +390,12 @@ func TestMatch_budgetExhaustedIsNotFailure(t *testing.T) {
 	testCase := newIndexerMatchCase(t)
 	testCase.limits.MaxQueriesPerRun = 1
 	testCase.addMovie("/srv/media/missing.mkv", 4*gibibyte, 604, "Missing")
+	testCase.addMovie("/srv/media/other.mkv", 3*gibibyte, 605, "Other")
 	testCase.addIndexer(indexerSameTracker, sealedTracker)
 
 	result := testCase.run()
 
-	if result.Reasons[ReasonIndexerBudgetExhausted] == 0 || result.Failed != 0 || !result.Indexers[string(indexerSameTracker)].BudgetExhausted {
+	if result.Reasons[ReasonIndexerBudgetExhausted] != 1 || result.Failed != 0 || !result.Indexers[string(indexerSameTracker)].BudgetExhausted {
 		t.Fatalf("valeurObtenue %+v, valeurAttendue indexer_budget_exhausted without failure", result)
 	}
 }
@@ -422,5 +423,56 @@ func TestMatch_withoutIndexerReportsNoIndexers(t *testing.T) {
 
 	if result.Indexers != nil || len(result.Reasons) != 0 {
 		t.Fatalf("valeurObtenue %+v, valeurAttendue the provider-only result", result)
+	}
+}
+
+func indexerTVCaps() torznab.Caps {
+	return torznab.Caps{Modes: map[string][]string{"search": {"q"}, "tvsearch": {"q", "tvdbid", "season", "ep"}}, Categories: []int{5000}}
+}
+
+// Le pack du fournisseur couvre E01 ; le même pack servi par un indexeur sans tracker ne prouve aucun fichier encore
+// découvert (E02) : écarté, pas de seconde copie ni de litige, et l'indexeur continue par la recherche texte.
+func TestMatch_indexerCopyOfAPackCoveringNoUncoveredFileIsDiscarded(t *testing.T) {
+	testCase := newIndexerMatchCase(t)
+	episodeOne, episodeTwo := gibibyte, 2*gibibyte
+	testCase.addFile("/srv/media/show/e01.mkv", episodeOne, store.MediaMetadata{TVDBID: 81189, Title: "Show", Season: 1, Episode: 1})
+	testCase.addFile("/srv/media/show/e02.mkv", episodeTwo, store.MediaMetadata{TVDBID: 81189, Title: "Show", Season: 1, Episode: 2})
+	pack := indexerTorrent(t, "pack", episodeOne, 3*gibibyte)
+	fromProvider := release(infohashOfTorrent(t, pack), "tracker-p", 0, episodeOne, 3*gibibyte)
+	fromProvider.TVDBID = 81189
+	testCase.provider.releases = []libraryprovider.Release{fromProvider}
+	indexer := testCase.addIndexer(indexerSameTracker, "")
+	indexer.caps = indexerTVCaps()
+	indexer.offer("pack", 4*gibibyte, pack)
+
+	result := testCase.run()
+
+	if candidates := testCase.candidates(); len(candidates) != 1 || candidates[0].Source != store.SourceProvider {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue the provider candidate only", candidates)
+	}
+	if result.Reasons[ReasonTorznabNoExactSize] != 1 || len(indexer.queries) != 2 {
+		t.Fatalf("valeurObtenue %+v queries %+v, valeurAttendue the pack refused once and the text query sent", result, indexer.queries)
+	}
+}
+
+// Un candidat d'indexeur devenu stale est retrouvé : même ligne, génération suivante, de nouveau fetched.
+func TestMatch_revivesAStaleIndexerCandidate(t *testing.T) {
+	testCase := newIndexerMatchCase(t)
+	size := 4 * gibibyte
+	local := testCase.addMovie("/srv/media/missing.mkv", size, 604, "Missing")
+	indexer := testCase.addIndexer(indexerSameTracker, sealedTracker)
+	indexer.offer("win", size, indexerTorrent(t, "win", size))
+	testCase.run()
+	if _, err := testCase.store.InvalidateCandidatesForFile(context.Background(), local.ID, fixedNow); err != nil {
+		t.Fatal(err)
+	}
+	stale := testCase.candidates()[0]
+
+	result := testCase.run()
+
+	revived := testCase.candidates()
+	if len(revived) != 1 || stale.State != store.CandidateStale || revived[0].ID != stale.ID || revived[0].State != store.CandidateFetched ||
+		revived[0].Generation != stale.Generation+1 || !revived[0].HasSealed || result.CandidatesUpdated != 1 {
+		t.Fatalf("valeurObtenue %+v (result %+v), valeurAttendue the same candidate fetched again at the next generation", revived, result)
 	}
 }

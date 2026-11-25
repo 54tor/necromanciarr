@@ -59,7 +59,7 @@ func searchIndexers(ctx context.Context, deps Deps, result *Result, files []stor
 		if stopErr != nil {
 			return stopErr
 		}
-		if saveErr := saveFoundCandidates(ctx, deps, result, found, group, now); saveErr != nil {
+		if saveErr := saveFoundCandidates(ctx, deps, result, found, group, covered, now); saveErr != nil {
 			return saveErr
 		}
 		if stop {
@@ -157,8 +157,11 @@ func mediaQueryOf(deps Deps, key indexerGroupKey, group []store.MediaFile, uncov
 }
 
 // saveFoundCandidates enregistre chaque .torrent retenu, directement à fetched ; la preuve de taille exacte est refaite
-// sur les fichiers du groupe (elle donne aussi les associations), et un candidat déjà connu garde sa source.
-func saveFoundCandidates(ctx context.Context, deps Deps, result *Result, found []sources.Found, group []store.MediaFile, now time.Time) error {
+// sur les fichiers du groupe encore sans candidat (les associations couvrent, elles, tout le groupe), et un candidat
+// déjà connu garde sa source.
+func saveFoundCandidates(ctx context.Context, deps Deps, result *Result, found []sources.Found, group []store.MediaFile,
+	covered map[int64]bool, now time.Time,
+) error {
 	persistContext := context.WithoutCancel(ctx)
 	for _, kept := range found {
 		if lockLost(ctx) {
@@ -167,7 +170,7 @@ func saveFoundCandidates(ctx context.Context, deps Deps, result *Result, found [
 		release, failure := foundRelease(kept)
 		release.TMDBID, release.TVDBID, release.IMDBID = group[0].TMDBID, group[0].TVDBID, group[0].IMDBID
 		matches := matcher.Candidates(release, group)
-		if failure != "" || len(matches) == 0 {
+		if failure != "" || !provesAnUncoveredFile(matches, covered) {
 			result.Skipped++
 			result.count(cmp.Or(failure, ReasonTorznabNoExactSize), 1)
 			continue
@@ -199,4 +202,16 @@ func foundRelease(kept sources.Found) (libraryprovider.Release, string) {
 	return libraryprovider.Release{
 		Infohash: kept.Release.Infohash, Tracker: kept.Release.Tracker, Name: kept.Release.Name, TotalSize: kept.TotalSize, Files: files,
 	}, ""
+}
+
+// provesAnUncoveredFile dit si un fichier du .torrent a la taille exacte d'un fichier local encore sans candidat.
+func provesAnUncoveredFile(matches []matcher.FileMatch, covered map[int64]bool) bool {
+	for _, match := range matches {
+		for _, local := range match.LocalFiles {
+			if !covered[local.ID] {
+				return true
+			}
+		}
+	}
+	return false
 }

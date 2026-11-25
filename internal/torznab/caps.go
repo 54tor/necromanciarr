@@ -103,3 +103,14 @@ func splitParams(raw string) []string {
 	}
 	return params
 }
+
+// CachedCaps rend les capacités du cache si elles sont encore valables, sans aucune requête ; cached est faux sinon. Il
+// permet de ne décompter du quota que les vraies requêtes t=caps.
+func (client *Client) CachedCaps() (caps Caps, cached bool) {
+	client.capsMutex.Lock()
+	defer client.capsMutex.Unlock()
+	if client.cachedCaps == nil || client.now().Sub(client.capsFetchedAt) >= capsTTL {
+		return Caps{}, false
+	}
+	return cloneCaps(*client.cachedCaps), true
+}
