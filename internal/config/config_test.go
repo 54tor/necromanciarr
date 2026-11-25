@@ -325,6 +325,9 @@ func TestConfigExample_loadsFsProviders(t *testing.T) {
 	if provider := loadedConfig.FSProviders[0]; provider.Type != "rclone" || provider.Name != "remote" || len(provider.Mounts) != 1 {
 		t.Fatalf("unexpected example provider %+v", provider)
 	}
+	if provider := loadedConfig.FSProviders[1]; provider.Type != "sftp" || provider.Name != "seedbox" || provider.KnownHosts == "" {
+		t.Fatalf("unexpected example sftp provider %+v", provider)
+	}
 }
 
 func TestConfig_redactsUrlCredentials(t *testing.T) {

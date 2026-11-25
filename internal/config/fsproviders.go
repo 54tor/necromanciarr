@@ -23,7 +23,7 @@ const (
 )
 
 // fsProviderTypes liste les types connus, dans l'ordre affiché par les erreurs.
-var fsProviderTypes = []string{FSProviderTypeRclone}
+var fsProviderTypes = []string{FSProviderTypeRclone, FSProviderTypeSFTP}
 
 var fsProviderNamePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 
@@ -37,22 +37,45 @@ type FSMount struct {
 	Target    string `json:"target"`
 }
 
-// FSProvider décrit un fournisseur de système de fichiers. Les champs RC, Binary et Timeout ne servent qu'au type
-// rclone ; un type futur ajoutera les siens. RC porte des identifiants éventuels : masqué à tout affichage.
+// FSProvider décrit un fournisseur de système de fichiers. Mounts, RC et Binary ne servent qu'au type rclone ;
+// Address à Exec qu'au type sftp ; Timeout aux deux. RC, Password et IdentityPassphrase sont des secrets, masqués à
+// tout affichage ; Password et IdentityPassphrase ne viennent que d'une variable ${VAR}.
 type FSProvider struct {
-	Type    string        `json:"type"`
-	Name    string        `json:"name"`
-	Mounts  []FSMount     `json:"mounts"`
-	RC      string        `json:"rc,omitempty"`
-	Binary  string        `json:"binary,omitempty"`
-	Timeout time.Duration `json:"timeout,omitempty"`
+	Type                  string        `json:"type"`
+	Name                  string        `json:"name"`
+	Mounts                []FSMount     `json:"mounts"`
+	RC                    string        `json:"rc,omitempty"`
+	Binary                string        `json:"binary,omitempty"`
+	Timeout               time.Duration `json:"timeout,omitempty"`
+	Address               string        `json:"address,omitempty"`
+	User                  string        `json:"user,omitempty"`
+	IdentityFile          string        `json:"identityFile,omitempty"`
+	KnownHosts            string        `json:"knownHosts,omitempty"`
+	Agent                 bool          `json:"agent,omitempty"`
+	Password              string        `json:"password,omitempty"`
+	IdentityPassphrase    string        `json:"identityPassphrase,omitempty"`
+	ReadBytesPerSecond    int64         `json:"readBytesPerSecond,omitempty"`
+	MaxConcurrentRequests int           `json:"maxConcurrentRequests,omitempty"`
+	Keepalive             time.Duration `json:"keepalive,omitempty"`
+	ExecHashTimeout       time.Duration `json:"execHashTimeout,omitempty"`
+	Exec                  string        `json:"exec,omitempty"`
 }
 
 type plainProvider FSProvider
 
 func (provider FSProvider) redacted() plainProvider {
 	provider.RC = redactRCURL(provider.RC)
+	provider.Password = redactedIfSet(provider.Password)
+	provider.IdentityPassphrase = redactedIfSet(provider.IdentityPassphrase)
 	return plainProvider(provider)
+}
+
+// redactedIfSet remplace un secret présent par la marque ; une valeur absente reste vide, pour dire qu'elle manque.
+func redactedIfSet(secret string) string {
+	if secret == "" {
+		return ""
+	}
+	return redactedMark
 }
 
 // String masque les identifiants de l'URL rc pour %v et %+v.
@@ -106,6 +129,8 @@ func parseFSProvider(rawProvider json.RawMessage, lookup func(string) (string, b
 		return FSProvider{}, fmt.Errorf("type is required (known types: %s)", strings.Join(fsProviderTypes, ", "))
 	case FSProviderTypeRclone:
 		return parseRcloneProvider(rawProvider, lookup)
+	case FSProviderTypeSFTP:
+		return parseSFTPProvider(rawProvider, lookup)
 	default:
 		return FSProvider{}, fmt.Errorf("unknown type %q (known types: %s)", header.Type, strings.Join(fsProviderTypes, ", "))
 	}

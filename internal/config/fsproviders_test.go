@@ -49,7 +49,7 @@ func TestFsProviders_defaultsWhenAbsentOrMinimal(t *testing.T) {
 func TestFsProviders_rejectsUnknownTypeNamingKnownOnes(t *testing.T) {
 	_, err := loadFromJSON(t, `{"fsProviders": [{"type": "ftp", "name": "a"}]}`, nil)
 
-	if err == nil || !strings.Contains(err.Error(), `"ftp"`) || !strings.Contains(err.Error(), "known types: rclone") {
+	if err == nil || !strings.Contains(err.Error(), `"ftp"`) || !strings.Contains(err.Error(), "known types: rclone, sftp") {
 		t.Fatalf("got %v", err)
 	}
 	_, err = loadFromJSON(t, `{"fsProviders": [{"name": "a"}]}`, nil)

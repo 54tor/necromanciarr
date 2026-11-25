@@ -10,9 +10,8 @@ import (
 )
 
 // filesystemProviderTypes liste les types de fournisseurs qui exposent un système de fichiers lisible par un
-// chemin sftp://<fournisseur>/… ; rclone n'y est pas (fournisseur d'empreintes), le type sftp y entrera avec son
-// implémentation.
-var filesystemProviderTypes = []string{}
+// chemin sftp://<fournisseur>/… ; rclone n'y est pas (fournisseur d'empreintes).
+var filesystemProviderTypes = []string{FSProviderTypeSFTP}
 
 // validateLocations vérifie chaque racine (libraryRoots, linkDirs, dedupe.torrentRoots) : un chemin local absolu ou
 // une adresse sftp://<fournisseur>/<chemin absolu> dont le fournisseur est déclaré, de type système de fichiers ; et

@@ -487,6 +487,9 @@ func validate(loadedConfig Config) error {
 	if !slices.Contains(dedupeLinkKinds, loadedConfig.LinkType) {
 		return fmt.Errorf("linkType: unknown link kind (allowed: %v)", dedupeLinkKinds)
 	}
+	if err := validateDBPath(loadedConfig.DBPath); err != nil {
+		return err
+	}
 	if err := validateLocations(loadedConfig, filesystemProviderTypes); err != nil {
 		return err
 	}
@@ -587,7 +590,7 @@ func (loadedConfig Config) redacted() plainConfig {
 	redactedCopy.Prowlarr = redactedEndpoint(loadedConfig.Prowlarr)
 	redactedCopy.FSProviders = slices.Clone(loadedConfig.FSProviders)
 	for providerIndex := range redactedCopy.FSProviders {
-		redactedCopy.FSProviders[providerIndex].RC = redactRCURL(redactedCopy.FSProviders[providerIndex].RC)
+		redactedCopy.FSProviders[providerIndex] = FSProvider(redactedCopy.FSProviders[providerIndex].redacted())
 	}
 	if redactedCopy.AuthToken != "" {
 		redactedCopy.AuthToken = redactedSecret

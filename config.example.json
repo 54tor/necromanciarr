@@ -37,6 +37,20 @@
       "binary": "",
       "timeout": "60s",
       "mounts": ["/mnt/remote=remote:bucket/prefix"]
+    },
+    {
+      "type": "sftp",
+      "name": "seedbox",
+      "address": "seedbox.example.com:22",
+      "user": "media",
+      "identityFile": "/home/u/necromanciarr/ssh/id_ed25519",
+      "knownHosts": "/home/u/necromanciarr/ssh/known_hosts",
+      "agent": false,
+      "maxConcurrentRequests": 16,
+      "timeout": "30s",
+      "keepalive": "15s",
+      "exec": "auto",
+      "execHashTimeout": "30m"
     }
   ]
 }
