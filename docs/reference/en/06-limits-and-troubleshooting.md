@@ -176,7 +176,8 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `no_file_matched`, `no_exact_size` | Verify, Match | no local file of the right size |
 | `v2_only`, `invalid_torrent`, `infohash_mismatch` | Verify | `.torrent` unusable or not the announced one |
 | `torrent_not_found`, `torrent_fetch_failed`, `torrent_too_large` | Verify | provider: 404, outage, `.torrent` over 8 MiB; after the fallback, no indexer of the tracker has this `.torrent` (see `searched_sources`, and each indexer's `tracker`) |
-| `indexer_unavailable`, `indexer_access_denied`, `indexer_hostile_response` | Verify | indexer down, rate limited (`Retry-After`), API key refused, or response refused: the candidate stays `matched` and resumes later; `doctor` (`torznab:<name>`) |
+| `indexer_unavailable`, `indexer_access_denied`, `indexer_hostile_response` | Verify | indexer down, rate limited (`Retry-After`), API key refused, or hostile response: the indexer is set aside for the rest of the run, the candidate stays `matched` and resumes later; `doctor` (`torznab:<name>`) |
+| `torrent_fetch_failed` | Verify | fallback: unreadable indexer answer to a search (HTML page, wrong type, oversized body); same effect as the previous row |
 | `magnet_only`, `foreign_download_host` | Verify | indexer items ignored: magnet only, or download link outside the indexer's host |
 | `read_error` | Verify | local read failed: resumes on rerun |
 | `no_link_dir_on_same_device` | Link | no `linkDirs` on the source's volume; `linkType` is not `symlink` |

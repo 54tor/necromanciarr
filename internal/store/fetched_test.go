@@ -49,6 +49,23 @@ func TestSaveCandidateFetched_writesSourceTorrentAndSealedTogether(t *testing.T)
 	}
 }
 
+// Une annonce fournie par trackers rend le scellement inutile : la copie assainie seule est gardée, un ancien bloc effacé.
+func TestSaveCandidateFetched_withoutSealedCopyClearsTheBlob(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	candidateID, _ := saveTestCandidate(t, openedStore, "aa", insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10))
+	sealTestCandidate(t, openedStore, candidateID)
+
+	if err := openedStore.SaveCandidateFetched(ctx, candidateID, "torznab:alpha", []byte(sanitizedTestTorrent), nil, testNow); err != nil {
+		t.Fatal(err)
+	}
+
+	torrent, _ := openedStore.CandidateTorrent(ctx, candidateID)
+	if hasSealed(t, openedStore, candidateID) || string(torrent) != sanitizedTestTorrent || candidateSource(t, openedStore, candidateID) != "torznab:alpha" {
+		t.Fatal("gotValue a leftover blob or a missing write, expectedValue the sanitized copy and source only")
+	}
+}
+
 func TestSaveCandidateFetched_refusesWithoutWritingAnything(t *testing.T) {
 	ctx := context.Background()
 	openedStore := openTestStore(t)
@@ -58,7 +75,6 @@ func TestSaveCandidateFetched_refusesWithoutWritingAnything(t *testing.T) {
 		expectedErr     error
 	}{
 		"announce in the clear copy": {[]byte(unsanitizedTestTorrent), testSealedBlob, ErrUnsanitizedTorrent},
-		"no sealed copy":             {[]byte(sanitizedTestTorrent), nil, ErrSealedMissing},
 		"sealed copy too large":      {[]byte(sanitizedTestTorrent), make([]byte, MaxSealedBytes+1), ErrSealedTooLarge},
 		"torrent too large":          {make([]byte, MaxTorrentBytes+1), testSealedBlob, ErrTorrentTooLarge},
 	} {

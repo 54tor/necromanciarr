@@ -188,7 +188,11 @@ func (run candidateRun) loadTorrent(ctx context.Context, candidate store.Candida
 			return torrent, failure, nil
 		}
 	}
-	fetched, err := run.deps.Sources.FetchTorrent(ctx, sources.Release{Infohash: candidate.Infohash, Tracker: candidate.Tracker, Name: candidate.Name}, run.budget)
+	release := sources.Release{
+		Infohash: candidate.Infohash, Tracker: candidate.Tracker, Name: candidate.Name,
+		AnnounceConfigured: run.deps.Announces.Resolve(candidate.Tracker, false).Source == sources.AnnounceConfig,
+	}
+	fetched, err := run.deps.Sources.FetchTorrent(ctx, release, run.budget)
 	if err != nil {
 		if deferred := run.recordFallback(candidate, err); deferred {
 			return nil, "", errCandidateDeferred

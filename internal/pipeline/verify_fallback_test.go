@@ -22,7 +22,9 @@ import (
 )
 
 const (
-	fallbackTrackerName = "tracker-a"
+	// fallbackTrackerName n'a pas d'entrée trackers : le .torrent d'indexeur doit être scellé ; coveredTrackerName en a une.
+	fallbackTrackerName = "tracker-z"
+	coveredTrackerName  = "tracker-a"
 	fallbackPasskey     = "fake-passkey-fall"
 	indexerSameTracker  = sources.ID("torznab:a")
 )
@@ -115,8 +117,12 @@ func (testCase *fallbackCase) addIndexer(identifier sources.ID, tracker string) 
 
 // missingAtProvider ajoute un candidat que le fournisseur ne connaît pas ; rend aussi le .torrent servi par un indexeur.
 func (testCase *fallbackCase) missingAtProvider(name string) (store.Candidate, []byte) {
+	return testCase.missingAtProviderOn(name, fallbackTrackerName)
+}
+
+func (testCase *fallbackCase) missingAtProviderOn(name, tracker string) (store.Candidate, []byte) {
 	fixture := testCase.fixture
-	candidate := fixture.addCandidate(name, fallbackTrackerName, movieOnly())
+	candidate := fixture.addCandidate(name, tracker, movieOnly())
 	served := withPasskeyAnnounce(fixture.t, fixture.fetcher.torrents[candidate.Infohash])
 	delete(fixture.fetcher.torrents, candidate.Infohash)
 	return candidate, served
@@ -157,7 +163,7 @@ func storedCandidate(t *testing.T, fixture *verifyFixture, candidateID int64) st
 func TestVerify_fallsBackToIndexerOfSameTracker(t *testing.T) {
 	testCase := newFallbackCase(t)
 	candidate, served := testCase.missingAtProvider("Movie.2020")
-	indexer := testCase.addIndexer(indexerSameTracker, "Tracker-A")
+	indexer := testCase.addIndexer(indexerSameTracker, "Tracker-Z")
 	indexer.results = torznab.Results{Items: []torznab.Item{{GUID: "win"}}}
 	indexer.torrents["win"] = served
 
@@ -322,23 +328,62 @@ func v2OnlyFallbackError() error {
 	return fmt.Errorf("%w: %w", torznab.ErrBadResponse, torrentcheck.ErrV2Only)
 }
 
+// Une panne, un refus, une réponse hostile ou illisible écartent l'indexeur pour le reste de l'exécution : le second
+// candidat du même tracker ne le sollicite plus, et les deux restent matched pour la prochaine exécution.
 func TestVerify_fallbackIndexerFailureKeepsTheCandidateForTheNextRun(t *testing.T) {
-	for reason, failure := range map[string]error{
-		ReasonIndexerUnavailable:     &torznab.UnavailableError{},
-		ReasonIndexerAccessDenied:    torznab.ErrAccessDenied,
-		ReasonIndexerHostileResponse: torznab.ErrHostileResponse,
+	for name, testCase := range map[string]struct {
+		reason  string
+		failure error
+	}{
+		"unavailable":     {ReasonIndexerUnavailable, &torznab.UnavailableError{}},
+		"transport error": {ReasonIndexerUnavailable, fmt.Errorf("%w: request failed", torznab.ErrUnavailable)},
+		"access denied":   {ReasonIndexerAccessDenied, torznab.ErrAccessDenied},
+		"hostile":         {ReasonIndexerHostileResponse, torznab.ErrHostileResponse},
+		"bad response":    {ReasonTorrentFetchFailed, fmt.Errorf("%w: unexpected content type", torznab.ErrBadResponse)},
 	} {
-		t.Run(reason, func(t *testing.T) {
+		reason, failure := testCase.reason, testCase.failure
+		t.Run(name, func(t *testing.T) {
 			testCase := newFallbackCase(t)
-			candidate, _ := testCase.missingAtProvider("Movie.2020")
-			testCase.addIndexer(indexerSameTracker, fallbackTrackerName).searchErr = failure
+			first, _ := testCase.missingAtProvider("Movie.2020")
+			second, _ := testCase.missingAtProvider("Other.2021")
+			indexer := testCase.addIndexer(indexerSameTracker, fallbackTrackerName)
+			indexer.searchErr = failure
 
 			result := testCase.run()
 
-			if result.Reasons[reason] != 1 || result.Failed != 0 || testCase.fixture.candidate(candidate.Infohash).State != store.CandidateMatched {
-				t.Fatalf("valeurObtenue %+v, valeurAttendue %s and the candidate still matched", result, reason)
+			if result.Reasons[reason] != 2 || result.Failed != 0 || indexer.calls() != 1 {
+				t.Fatalf("valeurObtenue %+v calls %d, valeurAttendue %s twice from one request", result, indexer.calls(), reason)
+			}
+			for _, candidate := range []store.Candidate{first, second} {
+				if testCase.fixture.candidate(candidate.Infohash).State != store.CandidateMatched {
+					t.Fatalf("candidate %d: valeurAttendue still matched", candidate.ID)
+				}
 			}
 		})
+	}
+}
+
+func TestVerify_fallbackSkipsSealingWhenATrackersEntryCoversTheTracker(t *testing.T) {
+	testCase := newFallbackCase(t)
+	testCase.fixture.sealer = nil
+	candidate, served := testCase.missingAtProviderOn("Movie.2020", coveredTrackerName)
+	indexer := testCase.addIndexer(indexerSameTracker, coveredTrackerName)
+	indexer.results = torznab.Results{Items: []torznab.Item{{GUID: "win"}}}
+	indexer.torrents["win"] = served
+
+	result := testCase.run()
+
+	stored := storedCandidate(t, testCase.fixture, candidate.ID)
+	if result.Verified != 1 || stored.Source != string(indexerSameTracker) {
+		t.Fatalf("valeurObtenue %+v source %q, valeurAttendue verified from the indexer without a secret key", result, stored.Source)
+	}
+	ctx := context.Background()
+	torrent, err := testCase.fixture.store.CandidateTorrent(ctx, candidate.ID)
+	if err != nil || bytes.Contains(torrent, []byte(fallbackPasskey)) || infohashOf(t, torrent) != candidate.Infohash {
+		t.Fatalf("valeurObtenue torrent %q (err %v), valeurAttendue the sanitized copy", torrent, err)
+	}
+	if _, found, _ := testCase.fixture.store.CandidateSealed(ctx, candidate.ID); found {
+		t.Fatal("valeurAttendue no sealed blob: the trackers entry gives the announce")
 	}
 }
 

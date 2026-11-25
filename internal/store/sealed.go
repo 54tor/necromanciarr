@@ -53,12 +53,10 @@ func (openedStore *Store) SaveCandidateSealed(ctx context.Context, candidateID i
 	return requireOneRow(result, err, ErrCandidateNotFound, "save candidate sealed torrent")
 }
 
-// ErrSealedMissing refuse un .torrent d'indexeur sans sa copie scellée : sa passkey ne serait gardée nulle part.
-var ErrSealedMissing = errors.New("store: indexer torrent without its sealed copy")
-
 // SaveCandidateFetched enregistre un .torrent obtenu d'un indexeur en une seule instruction : la source
-// (« torznab:<nom> », à laquelle le scellement est lié), la copie assainie et la copie scellée. Rien n'est écrit si
-// l'une est refusée (ErrUnsanitizedTorrent, ErrTorrentTooLarge, ErrSealedMissing, ErrSealedTooLarge).
+// (« torznab:<nom> », à laquelle le scellement est lié), la copie assainie et la copie scellée. Un sealed vide efface
+// le bloc (une entrée trackers donne l'annonce). Rien n'est écrit si une copie est refusée (ErrUnsanitizedTorrent,
+// ErrTorrentTooLarge, ErrSealedTooLarge).
 func (openedStore *Store) SaveCandidateFetched(ctx context.Context, candidateID int64, source string, sanitized, sealed []byte, now time.Time) error {
 	if len(sanitized) > MaxTorrentBytes {
 		return ErrTorrentTooLarge
@@ -66,15 +64,16 @@ func (openedStore *Store) SaveCandidateFetched(ctx context.Context, candidateID 
 	if err := refuseUnsanitized(sanitized); err != nil {
 		return err
 	}
-	if len(sealed) == 0 {
-		return ErrSealedMissing
-	}
 	if len(sealed) > MaxSealedBytes {
 		return ErrSealedTooLarge
 	}
+	var storedSealed any
+	if len(sealed) > 0 {
+		storedSealed = sealed
+	}
 	result, err := openedStore.database.ExecContext(ctx,
 		`UPDATE torrent_candidates SET source = ?, torrent = ?, torrent_sealed = ?, updated_at = ? WHERE id = ?`,
-		source, sanitized, sealed, now.UnixNano(), candidateID)
+		source, sanitized, storedSealed, now.UnixNano(), candidateID)
 	return requireOneRow(result, err, ErrCandidateNotFound, "save candidate fetched torrent")
 }
 

@@ -57,15 +57,19 @@ func indexerReason(err error) string {
 		return ReasonIndexerAccessDenied
 	case errors.Is(err, torznab.ErrUnavailable):
 		return ReasonIndexerUnavailable
+	case errors.Is(err, torznab.ErrBadResponse):
+		// Réponse illisible (page HTML, mauvais type, corps trop gros) : pas de raison dédiée dans la spec.
+		return ReasonTorrentFetchFailed
 	default:
 		return ReasonTorrentFetchFailed
 	}
 }
 
-// saveFetched conserve la copie assainie ; un .torrent d'indexeur (copie scellée présente) est enregistré avec sa
-// source et son scellement en une seule écriture, la liaison du scellement reposant sur cette source.
+// saveFetched conserve la copie assainie ; un .torrent d'indexeur est enregistré avec sa source et son scellement
+// (vide quand une entrée trackers donne l'annonce) en une seule écriture, la liaison du scellement reposant sur
+// cette source.
 func (run candidateRun) saveFetched(ctx context.Context, candidate store.Candidate, fetched sources.Fetched, sanitized []byte) error {
-	if fetched.Sealed == nil {
+	if fetched.Source == sources.ProviderID || fetched.Source == "" {
 		return run.deps.Store.SaveCandidateTorrent(ctx, candidate.ID, sanitized, run.deps.now())
 	}
 	return run.deps.Store.SaveCandidateFetched(ctx, candidate.ID, string(fetched.Source), sanitized, fetched.Sealed, run.deps.now())
