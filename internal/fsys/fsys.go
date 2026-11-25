@@ -112,6 +112,12 @@ type TimesSetter interface {
 	Chtimes(relative string, accessTime, modTime time.Time) error
 }
 
+// Limiter plafonne un débit de lecture, en octets ; même forme que torrentcheck.Limiter et dedupe.Limiter,
+// compatible avec golang.org/x/time/rate.Limiter.
+type Limiter interface {
+	WaitN(ctx context.Context, n int) error
+}
+
 // Volume joint la lecture et l'ouverture d'une racine d'écriture. OpenWriteRoot n'est appelé que par
 // Registry.WriteRoot, après le contrôle de recouvrement des bibliothèques : aucun autre paquet ne l'appelle.
 // Go ne permet pas de sceller cet appel à la compilation : une règle forbidigo de golangci-lint l'interdira hors
