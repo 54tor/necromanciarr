@@ -562,7 +562,7 @@ func TestApply_refusesSymlinkSwappedInAfterPlanning(t *testing.T) {
 	fixture.assertNothingOutside(t)
 }
 
-func TestCheckParentInRoot_refusesSwappedParent(t *testing.T) {
+func TestCreate_refusesSwappedParent(t *testing.T) {
 	fixture := newConfinementFixture(t)
 	root := openRoot(t, fixture.operation.Root)
 	parent := filepath.Join(root.Root().Path, "Pack")

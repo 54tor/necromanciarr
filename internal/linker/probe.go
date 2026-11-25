@@ -35,9 +35,6 @@ const (
 	errProbeWrongInode = "linker: probe link does not resolve to the probe file"
 )
 
-// errNoProbeSample : le dossier source ne montre aucun fichier ordinaire vers lequel essayer un lien dur ou un reflink.
-var errNoProbeSample = errors.New("linker: no regular file in the source directory to probe from")
-
 // Probe sonde root en y créant puis supprimant des entrées « .necromanciarr-probe-<aléatoire> » ; aucun autre
 // fichier n'est touché, rien n'est écrit hors de root. Un montage rclone ou FUSE refuse souvent symlink et hardlink :
 // seule une vraie création le dit.
@@ -54,13 +51,6 @@ func ProbeDirectory(registry *fsys.Registry, directory fsys.Location) (Capabilit
 	}
 	defer func() { _ = root.Close() }()
 	return Probe(root)
-}
-
-// ProbeBetween sonde root comme Probe, puis la création dans root d'un lien dur et d'un reflink vers un fichier
-// déjà présent dans sourceDir, lu par source (le premier fichier ordinaire, par ordre de nom) : hardlink et
-// reflink exigent le même système de fichiers. Rien n'est écrit dans sourceDir.
-func ProbeBetween(source fsys.ReadFS, sourceDir string, root fsys.WriteRoot) (Capabilities, error) {
-	return systemApplier().probeBetween(source, sourceDir, root)
 }
 
 // probeSubject est le fichier que visent les liens d'essai ; view sert à suivre un lien et à comparer les
@@ -94,70 +84,6 @@ func (linkApplier applier) probe(root fsys.WriteRoot) (capabilities Capabilities
 	capabilities.RenameReason, err = linkApplier.probeRenameOverwrite(root, subject.view)
 	capabilities.RenameOverwrite = capabilities.RenameReason == nil
 	return capabilities, err
-}
-
-func (linkApplier applier) probeBetween(source fsys.ReadFS, sourceDir string, root fsys.WriteRoot) (Capabilities, error) {
-	resolvedSource, err := probeDirectory(source, sourceDir)
-	if err != nil {
-		return Capabilities{}, err
-	}
-	capabilities, err := linkApplier.probe(root)
-	if err != nil {
-		return Capabilities{}, err
-	}
-	capabilities.SourceDir = resolvedSource
-	subject, err := sampleSubject(source, resolvedSource, root)
-	for _, kind := range []Kind{Hardlink, Reflink} {
-		capabilities.reset(kind)
-		if err != nil {
-			capabilities.record(kind, err)
-			continue
-		}
-		if probeErr := linkApplier.probeAndRecord(&capabilities, kind, root, subject); probeErr != nil {
-			return Capabilities{}, probeErr
-		}
-	}
-	return capabilities, nil
-}
-
-// probeDirectory : un dossier lui-même symbolique est légitime, c'est sa cible qui est sondée.
-func probeDirectory(source fsys.ReadFS, directory string) (string, error) {
-	resolvedDirectory, err := source.Canonical(directory)
-	if err != nil {
-		return "", fmt.Errorf("linker: probe directory %s: %w", directory, err)
-	}
-	info, err := source.Stat(resolvedDirectory)
-	if err != nil {
-		return "", err
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("linker: probe directory %s is not a directory", directory)
-	}
-	return resolvedDirectory, nil
-}
-
-// sampleSubject choisit le premier fichier ordinaire de directory ; un autre volume que root ne peut porter ni lien
-// dur ni reflink.
-func sampleSubject(source fsys.ReadFS, directory string, root fsys.WriteRoot) (probeSubject, error) {
-	if source.Volume() != root.Root().Volume {
-		return probeSubject{}, fmt.Errorf("%w: source directory on another volume", ErrCrossDevice)
-	}
-	entries, err := source.ReadDir(directory)
-	if err != nil {
-		return probeSubject{}, err
-	}
-	for _, entry := range entries {
-		if !entry.Type().IsRegular() {
-			continue
-		}
-		samplePath := source.Paths().Join(directory, entry.Name())
-		info, err := source.Lstat(samplePath)
-		if err == nil && info.Mode().IsRegular() {
-			location := fsys.Location{Volume: source.Volume(), Path: samplePath}
-			return probeSubject{location: location, info: info, symlinkTarget: samplePath, view: source}, nil
-		}
-	}
-	return probeSubject{}, errNoProbeSample
 }
 
 // probeAndRecord note la raison d'un refus ; seul l'échec du nettoyage arrête la sonde.
@@ -240,16 +166,6 @@ func (capabilities *Capabilities) record(kind Kind, reason error) {
 		capabilities.Reflink = true
 	case Symlink:
 		capabilities.Symlink = true
-	}
-}
-
-func (capabilities *Capabilities) reset(kind Kind) {
-	delete(capabilities.Reasons, kind)
-	switch kind {
-	case Hardlink:
-		capabilities.Hardlink = false
-	case Reflink:
-		capabilities.Reflink = false
 	}
 }
 

@@ -156,23 +156,6 @@ func TestProbe_isSafeConcurrently(t *testing.T) {
 	}
 }
 
-func TestProbeBetween_reportsProbedDirectories(t *testing.T) {
-	sourceDir, destDir := t.TempDir(), t.TempDir()
-
-	capabilities, err := ProbeBetween(localSource(t), sourceDir, openRoot(t, destDir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	resolvedSource, _ := filepath.EvalSymlinks(sourceDir)
-	resolvedDest, _ := filepath.EvalSymlinks(destDir)
-	if capabilities.SourceDir != resolvedSource || capabilities.DestDir != resolvedDest {
-		t.Fatalf("probed %q -> %q, want %q -> %q", capabilities.SourceDir, capabilities.DestDir, resolvedSource, resolvedDest)
-	}
-	if len(directoryEntries(t, sourceDir))+len(directoryEntries(t, destDir)) != 0 {
-		t.Fatal("probe left files behind")
-	}
-}
-
 func TestProbe_refusesMissingDirectory(t *testing.T) {
 	root, err := testRegistry(t).WriteRoot(localLocation(filepath.Join(t.TempDir(), "missing")))
 	if err == nil {

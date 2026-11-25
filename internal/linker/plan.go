@@ -16,6 +16,9 @@ import (
 // ErrUnsafePath signale un chemin de torrent qui sortirait du répertoire de liens.
 var ErrUnsafePath = errors.New("linker: torrent path escapes the link root")
 
+// ErrNoPathSyntax refuse un Plan sans syntaxe de chemins.
+var ErrNoPathSyntax = errors.New("linker: no path syntax for the link root")
+
 const torrentPathSeparator = "/"
 
 // Op est un lien à créer : Destination pointera sur Source, dont la taille sur disque doit valoir Size ; Root est
@@ -32,6 +35,9 @@ type Op struct {
 // à distance, même sous Windows). Seuls les fichiers prouvés de l'Assignment donnent une Op : un fichier ambigu ou
 // absent laisse le torrent incomplet.
 func Plan(torrent *torrentcheck.Torrent, assignment matcher.Assignment, destRoot string, paths fsys.PathSyntax) ([]Op, error) {
+	if paths == nil {
+		return nil, ErrNoPathSyntax
+	}
 	fileIndexes := slices.Sorted(maps.Keys(assignment.ByTorrentFile))
 	ops := make([]Op, 0, len(fileIndexes))
 	for _, fileIndex := range fileIndexes {
@@ -58,16 +64,17 @@ func destinationOf(torrent *torrentcheck.Torrent, torrentFile torrentcheck.File,
 	if !isSingleFile(torrent) {
 		segments = append(segments, strings.Split(torrentFile.Path, torrentPathSeparator)...)
 	}
-	isLocal := paths == fsys.LocalPaths()
+	// Seule la syntaxe POSIX distante elle-même desserre les règles ; toute autre (enveloppée comprise) est stricte.
+	isRemote := paths == fsys.RemotePaths()
 	for _, segment := range segments {
-		if !isSafeSegment(segment, isLocal) {
+		if !isSafeSegment(segment, isRemote) {
 			return "", fmt.Errorf("%w: %q in %q", ErrUnsafePath, segment, torrentFile.Path)
 		}
 	}
 	destination := paths.Join(append([]string{destRoot}, segments...)...)
 	// Seconde barrière, indépendante de la validation des segments : le chemin joint doit rester sous destRoot.
 	relative, err := paths.Rel(destRoot, destination)
-	if err != nil || !isBelow(relative, isLocal) {
+	if err != nil || !isBelow(relative, isRemote) {
 		return "", fmt.Errorf("%w: %q", ErrUnsafePath, destination)
 	}
 	return destination, nil
@@ -77,11 +84,11 @@ func isSingleFile(torrent *torrentcheck.Torrent) bool {
 	return len(torrent.Files) == 1 && torrent.Files[0].Path == torrent.Root
 }
 
-// isSafeSegment refuse les segments vides, « . », « .. » et les séparateurs ; en local aussi « \ » et ce que l'OS
-// jugerait non local (lecteur, nom réservé Windows). À distance (POSIX), « \ » est un caractère de nom ordinaire.
-func isSafeSegment(segment string, isLocal bool) bool {
+// isSafeSegment refuse les segments vides, « . », « .. » et les séparateurs ; hors syntaxe distante aussi « \ » et
+// ce que l'OS jugerait non local (lecteur, nom réservé Windows). À distance (POSIX), « \ » est un nom ordinaire.
+func isSafeSegment(segment string, isRemote bool) bool {
 	isTraversal := segment == "" || segment == "." || segment == ".."
-	if !isLocal {
+	if isRemote {
 		return !isTraversal && !strings.Contains(segment, torrentPathSeparator)
 	}
 	hasSeparator := strings.ContainsAny(segment, `/\`)
@@ -89,8 +96,8 @@ func isSafeSegment(segment string, isLocal bool) bool {
 }
 
 // isBelow dit qu'un chemin relatif reste sous sa base : filepath.IsLocal en local, aucun segment « .. » à distance.
-func isBelow(relative string, isLocal bool) bool {
-	if isLocal {
+func isBelow(relative string, isRemote bool) bool {
+	if !isRemote {
 		return filepath.IsLocal(relative)
 	}
 	isEscape := relative == "." || relative == ".." || strings.HasPrefix(relative, "../") || strings.HasPrefix(relative, torrentPathSeparator)

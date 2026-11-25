@@ -7,6 +7,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/fsys/local"
@@ -121,14 +122,28 @@ func removeIfPresent(root fsys.WriteRoot, relative string) error {
 	return nil
 }
 
-// readViewOf rend la vue en lecture du volume d'une racine quand on la connaît sans registre : celle du disque
-// local. À distance, nil : les contrôles qui relisent un contenu ou suivent un lien s'en tiennent au Lstat.
+// readViewOf rend la vue en lecture seule (Registry.Read, jamais un Volume) du volume d'une racine quand on la
+// connaît sans registre : celle du disque local. À distance, nil : les contrôles qui relisent un contenu ou suivent
+// un lien s'en tiennent au Lstat.
 func readViewOf(root fsys.WriteRoot) fsys.ReadFS {
 	if root.Root().Volume == "" {
-		return local.New()
+		return localReadView()
 	}
 	return nil
 }
+
+// localReadView : un registre local sans racine de bibliothèque ne sert qu'à lire.
+var localReadView = sync.OnceValue(func() fsys.ReadFS {
+	registry, err := local.NewRegistry()
+	if err != nil {
+		return nil
+	}
+	readFS, _, err := registry.Read(fsys.Location{})
+	if err != nil {
+		return nil
+	}
+	return readFS
+})
 
 // sameFile compare deux entrées par FileID quand le volume les identifie, sinon par l'identité du disque local
 // (Windows, où FileInfo ne porte pas l'index du fichier).

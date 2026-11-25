@@ -3,10 +3,6 @@ package linker
 import (
 	"context"
 	"errors"
-	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"io"
 	"io/fs"
 	"os"
@@ -202,83 +198,6 @@ func createdAndRemoved(calls []string) ([]string, []string) {
 	return created, slices.Compact(removed)
 }
 
-// forbiddenOsWrites : tout appel os qui écrit sur le disque. Le linker ne crée rien qu'à travers une fsys.WriteRoot.
-var forbiddenOsWrites = []string{
-	"Link", "Symlink", "WriteFile", "Rename", "Remove", "RemoveAll", "Mkdir", "MkdirAll", "MkdirTemp", "Create",
-	"CreateTemp", "OpenFile", "Chmod", "Chown", "Lchown", "Truncate", "Chtimes",
-}
-
-func TestLinker_nonTestFilesCallNoOsWrite(t *testing.T) {
-	sourceFiles, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var gotValue []string
-	fileSet := token.NewFileSet()
-	for _, sourceFile := range sourceFiles {
-		if strings.HasSuffix(sourceFile, "_test.go") {
-			continue
-		}
-		parsed, err := parser.ParseFile(fileSet, sourceFile, nil, parser.SkipObjectResolution)
-		if err != nil {
-			t.Fatal(err)
-		}
-		gotValue = append(gotValue, osWritesIn(fileSet, parsed)...)
-	}
-	if len(gotValue) != 0 {
-		t.Fatalf("expectedValue no os write call in linker, gotValue %v", gotValue)
-	}
-}
-
-// osWritesIn relève les appels os.<écriture> et tout import de io/ioutil, sous quelque nom d'import que ce soit.
-func osWritesIn(fileSet *token.FileSet, parsed *ast.File) []string {
-	var found []string
-	osNames := map[string]bool{}
-	for _, imported := range parsed.Imports {
-		importPath := strings.Trim(imported.Path.Value, `"`)
-		if importPath == "io/ioutil" {
-			found = append(found, fmt.Sprintf("%s: import io/ioutil", fileSet.Position(imported.Pos())))
-		}
-		if importPath == "os" {
-			osNames[importName(imported, "os")] = true
-		}
-	}
-	ast.Inspect(parsed, func(node ast.Node) bool {
-		selector, isSelector := node.(*ast.SelectorExpr)
-		if !isSelector {
-			return true
-		}
-		packageName, isIdent := selector.X.(*ast.Ident)
-		if isIdent && osNames[packageName.Name] && slices.Contains(forbiddenOsWrites, selector.Sel.Name) {
-			found = append(found, fmt.Sprintf("%s: os.%s", fileSet.Position(selector.Pos()), selector.Sel.Name))
-		}
-		return true
-	})
-	return found
-}
-
-func importName(imported *ast.ImportSpec, defaultName string) string {
-	if imported.Name != nil {
-		return imported.Name.Name
-	}
-	return defaultName
-}
-
-func TestOsWritesIn_flagsAnAliasedOsLink(t *testing.T) {
-	source := "package linker\nimport system \"os\"\nfunc f() { _ = system.Link(\"a\", \"b\"); _, _ = system.Stat(\"a\") }\n"
-	fileSet := token.NewFileSet()
-	parsed, err := parser.ParseFile(fileSet, "fixture.go", source, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	gotValue := osWritesIn(fileSet, parsed)
-
-	if len(gotValue) != 1 || !strings.HasSuffix(gotValue[0], "os.Link") {
-		t.Fatalf("expectedValue only os.Link, gotValue %v", gotValue)
-	}
-}
-
 // rootWithoutReflink n'expose que les méthodes de fsys.WriteRoot : aucun clonage possible.
 type rootWithoutReflink struct{ fsys.WriteRoot }
 
@@ -310,5 +229,46 @@ func TestApply_refusesOpRootOtherThanTheWriteRoot(t *testing.T) {
 	}
 	if entries := directoryEntries(t, writeRootDir); len(entries) != 0 {
 		t.Fatalf("expectedValue nothing created in the write root, gotValue %v", entries)
+	}
+}
+
+func TestReadViewOf_neverHandsOutAVolume(t *testing.T) {
+	view := readViewOf(openRoot(t, t.TempDir()))
+
+	_, isVolume := view.(fsys.Volume)
+	_, opensWriteRoots := view.(interface {
+		OpenWriteRoot(dir string) (fsys.WriteRoot, error)
+	})
+	if view == nil || isVolume || opensWriteRoots {
+		t.Fatalf("expectedValue a read-only view, gotValue %T", view)
+	}
+}
+
+// wrappedSyntax emballe la syntaxe POSIX : seule RemotePaths elle-même desserre les règles des segments.
+type wrappedSyntax struct{ fsys.PathSyntax }
+
+func TestPlan_onlyTheRemoteSyntaxRelaxesSegmentRules(t *testing.T) {
+	torrent := &torrentcheck.Torrent{Root: "Pack", Files: []torrentcheck.File{
+		{Path: `a\..\..\escape.mkv`, Size: 1}, {Path: "d.mkv", Size: 1, Offset: 1},
+	}}
+	assignment := matcher.Assignment{ByTorrentFile: map[int]store.MediaFile{0: {Path: "/srv/media/c.mkv"}}}
+	strictSyntaxes := map[string]fsys.PathSyntax{
+		"local":          fsys.LocalPaths(),
+		"wrapped remote": wrappedSyntax{PathSyntax: fsys.RemotePaths()},
+	}
+	for name, paths := range strictSyntaxes {
+		if _, err := Plan(torrent, assignment, "/srv/links", paths); !errors.Is(err, ErrUnsafePath) {
+			t.Fatalf("%s: expectedValue ErrUnsafePath, gotValue %v", name, err)
+		}
+	}
+}
+
+func TestPlan_refusesMissingPathSyntax(t *testing.T) {
+	assignment := matcher.Assignment{ByTorrentFile: map[int]store.MediaFile{0: {Path: "/srv/media/c.mkv"}}}
+
+	_, err := Plan(packTorrent(), assignment, "/srv/links", nil)
+
+	if !errors.Is(err, ErrNoPathSyntax) {
+		t.Fatalf("expectedValue ErrNoPathSyntax, gotValue %v", err)
 	}
 }

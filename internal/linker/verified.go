@@ -1,6 +1,7 @@
 package linker
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -90,11 +91,24 @@ func syncWriter(writer io.Writer) error {
 // temporaryMarker distingue les fichiers temporaires de cet outil.
 const temporaryMarker = ".necromanciarr-tmp-"
 
-// checkSameContent relit l'entrée par la vue du volume ; sans elle, le contenu ne peut être prouvé identique.
+// checkSameContent relit l'entrée par la vue du volume : une lecture impossible rend son erreur brute (comme en v1) ;
+// sans vue (volume distant), le contenu ne peut être prouvé identique et l'entrée est refusée.
 func checkSameContent(root fsys.WriteRoot, destination string, data []byte) error {
+	conflict := fmt.Errorf("%w: %s", ErrDestinationExists, absoluteIn(root, destination))
+	info, err := root.Lstat(destination)
+	if err != nil {
+		return confined(err)
+	}
 	view := readViewOf(root)
-	if view == nil || !holdsContent(root, view, destination, string(data)) {
-		return fmt.Errorf("%w: %s", ErrDestinationExists, absoluteIn(root, destination))
+	if view == nil || !info.Mode().IsRegular() || info.Size() != int64(len(data)) {
+		return conflict
+	}
+	existing, err := readWhole(view, absoluteIn(root, destination), info.Size())
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(existing, data) {
+		return conflict
 	}
 	return nil
 }
