@@ -157,6 +157,7 @@ func wireSources(settings config.Config, stages *pipeline.Deps, usage sources.Us
 		return fmt.Errorf("app: source chain: %w", err)
 	}
 	chain.SetFallbackTrackers(indexerTrackers(settings))
+	chain.SetSearchCategories(indexerCategories(settings))
 	stages.Sources = chain
 	return nil
 }
@@ -204,6 +205,18 @@ func indexerTrackers(settings config.Config) map[sources.ID]string {
 		}
 	}
 	return trackers
+}
+
+// indexerCategories relie chaque indexeur à ses catégories configurées (torznab[].categories) ; vide : celles de ses
+// capacités, selon le genre du média.
+func indexerCategories(settings config.Config) map[sources.ID][]int {
+	categories := map[sources.ID][]int{}
+	for _, indexer := range settings.Torznab {
+		if len(indexer.Categories) > 0 {
+			categories[sources.ID(config.SourceTorznabPrefix+indexer.Name)] = indexer.Categories
+		}
+	}
+	return categories
 }
 
 func wireTorrentClient(settings config.Config, stages *pipeline.Deps, deps *Deps) error {

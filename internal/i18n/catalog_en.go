@@ -439,6 +439,7 @@ var english = map[Key]string{
 	KeyReasonIndexerHostileResponse:        "indexer response refused (hostile or unreadable): the candidate resumes on the next run",
 	KeyReasonForeignDownloadHost:           "download link outside the indexer's host: item ignored",
 	KeyReasonMagnetOnly:                    "result without a .torrent (magnet only): ignored",
+	KeyReasonTorznabNoExactSize:            "indexer .torrent without a file of the exact size of a local file: dropped",
 	KeyLogJobFailed:                        "job {id} ({action}) failed: {error}",
 	KeyLogSealedClearFailed:                "clearing the sealed .torrent files covered by trackers postponed: {error}",
 	KeyLogJobPanicked:                      "job {id} ({action}) panicked: {error}",

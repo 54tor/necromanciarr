@@ -118,3 +118,16 @@ func TestIndexerTrackers_keepsOnlyIndexersWithATrackerAsWritten(t *testing.T) {
 		t.Fatalf("valeurObtenue %v, valeurAttendue only torznab:a with its tracker as written", valeurObtenue)
 	}
 }
+
+func TestIndexerCategories_keepsOnlyIndexersWithConfiguredCategories(t *testing.T) {
+	settings := sourcesSettings(t)
+	withCategories, withoutCategories := torznabEntry("a"), torznabEntry("b")
+	withCategories.Categories = []int{2000, 2040}
+	settings.Torznab = []config.TorznabIndexer{withCategories, withoutCategories}
+
+	valeurObtenue := indexerCategories(settings)
+
+	if len(valeurObtenue) != 1 || !slices.Equal(valeurObtenue["torznab:a"], []int{2000, 2040}) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue only torznab:a with its categories", valeurObtenue)
+	}
+}

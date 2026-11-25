@@ -439,6 +439,7 @@ var french = map[Key]string{
 	KeyReasonIndexerHostileResponse:        "réponse de l'indexeur refusée (hostile ou illisible) : le candidat sera repris à la prochaine exécution",
 	KeyReasonForeignDownloadHost:           "lien de téléchargement hors de l'hôte de l'indexeur : élément ignoré",
 	KeyReasonMagnetOnly:                    "résultat sans .torrent (magnet seul) : ignoré",
+	KeyReasonTorznabNoExactSize:            ".torrent d'indexeur sans fichier de la taille exacte d'un fichier local : écarté",
 	KeyLogJobFailed:                        "le job {id} ({action}) a échoué : {error}",
 	KeyLogSealedClearFailed:                "effacement des .torrent scellés couverts par trackers reporté : {error}",
 	KeyLogJobPanicked:                      "le job {id} ({action}) a paniqué : {error}",

@@ -176,9 +176,11 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `no_file_matched`, `no_exact_size` | Verify, Match | aucun fichier local de la bonne taille |
 | `v2_only`, `invalid_torrent`, `infohash_mismatch` | Verify | `.torrent` inutilisable ou qui n'est pas celui annoncé |
 | `torrent_not_found`, `torrent_fetch_failed`, `torrent_too_large` | Verify | fournisseur : 404, panne, `.torrent` de plus de 8 Mio ; après le secours, aucun indexeur du tracker n'a ce `.torrent` (voir `searched_sources`, et `tracker` de chaque indexeur) |
-| `indexer_unavailable`, `indexer_access_denied`, `indexer_hostile_response` | Verify | indexeur en panne, limité (`Retry-After`), clé d'API refusée, ou réponse hostile : l'indexeur est écarté pour le reste de l'exécution, le candidat reste `matched` et sera repris ; `doctor` (`torznab:<name>`) |
+| `indexer_unavailable`, `indexer_access_denied`, `indexer_hostile_response` | Verify, Match | indexeur en panne, limité (`Retry-After`), clé d'API refusée, ou réponse hostile : l'indexeur est écarté pour le reste de l'exécution ; dans Verify, le candidat reste `matched` et sera repris, dans Match, les groupes restants le seront à la prochaine exécution ; `doctor` (`torznab:<name>`) |
 | `torrent_fetch_failed` | Verify | secours : réponse illisible d'un indexeur à une recherche (page HTML, mauvais type, corps trop gros) ; même effet que la ligne précédente |
-| `magnet_only`, `foreign_download_host` | Verify | éléments d'indexeur ignorés : magnet seul, ou lien de téléchargement hors de l'hôte de l'indexeur |
+| `magnet_only`, `foreign_download_host` | Verify, Match | éléments d'indexeur ignorés : magnet seul, ou lien de téléchargement hors de l'hôte de l'indexeur |
+| `torznab_no_exact_size` | Match | `.torrent` d'indexeur sans fichier de la taille exacte d'un fichier local (une taille totale juste ne suffit pas) : écarté, jamais enregistré ; le résultat suivant est essayé |
+| `secret_key_missing` | Match | `NECROMANCIARR_SECRET_KEY` absente : aucun indexeur n'est sollicité (compté une fois) |
 | `read_error` | Verify | lecture locale en échec : reprise à la relance |
 | `no_link_dir_on_same_device` | Link | aucun `linkDirs` sur le volume de la source ; `linkType` n'est pas `symlink` |
 | `link_kind_refused`, `cross_device` | Link | le dossier refuse la sorte (voir `doctor`), ou deux volumes |

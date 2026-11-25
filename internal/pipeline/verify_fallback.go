@@ -41,6 +41,8 @@ func indexerReason(err error) string {
 	switch {
 	case errors.Is(err, sources.ErrBudgetExhausted):
 		return ReasonIndexerBudgetExhausted
+	case errors.Is(err, sources.ErrNoExactSize):
+		return ReasonTorznabNoExactSize
 	case errors.Is(err, torrentcheck.ErrV2Only):
 		return ReasonV2Only
 	case errors.Is(err, sources.ErrInvalidTorrent) || errors.Is(err, torrentcheck.ErrInvalidTorrent):

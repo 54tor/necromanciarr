@@ -200,16 +200,6 @@ func TestChain_fetchTorrentKeepsProviderErrorsAndRefusesUnsanitizable(t *testing
 	}
 }
 
-func TestChain_searchCandidatesIsAStubUntilB12(t *testing.T) {
-	chain := newTestChain(t, &fakeProvider{log: &callLog{}}, []ID{ProviderID, indexerA})
-
-	found, report, err := chain.SearchCandidates(context.Background(), MediaQuery{TMDBID: 1}, chain.NewBudget())
-
-	if err != nil || len(found) != 0 || len(report) != 0 {
-		t.Fatalf("valeurObtenue %v %v %v, valeurAttendue nothing", found, report, err)
-	}
-}
-
 func TestChain_newBudgetUsesTheConfiguredLimits(t *testing.T) {
 	limits := testLimits()
 	limits.MinInterval, limits.MaxQueriesPerRun = 0, 1

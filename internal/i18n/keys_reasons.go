@@ -85,6 +85,7 @@ const (
 	KeyReasonIndexerHostileResponse     Key = "reason.indexer_hostile_response"
 	KeyReasonForeignDownloadHost        Key = "reason.foreign_download_host"
 	KeyReasonMagnetOnly                 Key = "reason.magnet_only"
+	KeyReasonTorznabNoExactSize         Key = "reason.torznab_no_exact_size"
 )
 
 var reasonKeys = []Key{
@@ -110,5 +111,5 @@ var reasonKeys = []Key{
 	KeyReasonLinkProbeFailed,
 	KeyReasonNoAnnounce, KeyReasonSealedTorrentUnreadable, KeyReasonSecretKeyMissing, KeyReasonInfohashChangedAfterInject,
 	KeyReasonIndexerBudgetExhausted, KeyReasonIndexerUnavailable, KeyReasonIndexerAccessDenied, KeyReasonIndexerHostileResponse,
-	KeyReasonForeignDownloadHost, KeyReasonMagnetOnly,
+	KeyReasonForeignDownloadHost, KeyReasonMagnetOnly, KeyReasonTorznabNoExactSize,
 }

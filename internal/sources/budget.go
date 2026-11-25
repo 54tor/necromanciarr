@@ -89,10 +89,12 @@ type Budget struct {
 	// stateMutex protège runs : il n'est tenu que le temps d'une lecture ou d'une écriture, jamais pendant une attente.
 	stateMutex sync.Mutex
 	runs       map[ID]*indexerRun
+	// caps garde les capacités lues pendant l'exécution : une seule requête t=caps par indexeur et par exécution.
+	caps map[ID]torznab.Caps
 }
 
 func newBudget(limits map[ID]Limits, usage UsageStore, now func() time.Time, sleep func(context.Context, time.Duration) error, board *retryBoard) *Budget {
-	return &Budget{gate: make(chan struct{}, 1), limits: limits, usage: usage, now: now, sleep: sleep, board: board, runs: map[ID]*indexerRun{}}
+	return &Budget{gate: make(chan struct{}, 1), limits: limits, usage: usage, now: now, sleep: sleep, board: board, runs: map[ID]*indexerRun{}, caps: map[ID]torznab.Caps{}}
 }
 
 // TakeQuery dépense une recherche chez l'indexeur, après avoir attendu MinInterval depuis sa dernière requête.
@@ -242,6 +244,19 @@ func (budget *Budget) Report() Report {
 		report[indexer] = run.report
 	}
 	return report
+}
+
+func (budget *Budget) knownCaps(indexer ID) (torznab.Caps, bool) {
+	budget.stateMutex.Lock()
+	defer budget.stateMutex.Unlock()
+	caps, known := budget.caps[indexer]
+	return caps, known
+}
+
+func (budget *Budget) rememberCaps(indexer ID, caps torznab.Caps) {
+	budget.stateMutex.Lock()
+	defer budget.stateMutex.Unlock()
+	budget.caps[indexer] = caps
 }
 
 func (budget *Budget) runOf(indexer ID) *indexerRun {

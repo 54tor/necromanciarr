@@ -31,8 +31,12 @@ type Chain struct {
 	now      func() time.Time
 	// board : les Retry-After reçus, communs à tous les budgets du processus.
 	board *retryBoard
-	// fallbackTrackers : tracker déclaré de chaque indexeur, pour le secours du .torrent.
+	// fallbackTrackers : tracker déclaré de chaque indexeur, pour le secours du .torrent et la recherche par groupe.
 	fallbackTrackers map[ID]string
+	// searchCategories : catégories configurées par indexeur (vide : celles de ses capacités).
+	searchCategories map[ID][]int
+	// sleep attend MinInterval ; remplacé par un faux sommeil dans les tests.
+	sleep func(ctx context.Context, duration time.Duration) error
 }
 
 // NewChain vérifie l'ordre (fournisseur en tête, une fois, chaque indexeur cité présent avec ses limites) et refuse
@@ -68,7 +72,10 @@ func NewChain(provider ProviderSource, indexers map[ID]IndexerSource, order []ID
 	if now == nil {
 		now = time.Now
 	}
-	return &Chain{provider: provider, indexers: cited, order: slices.Clone(order), limits: citedLimits, usage: usage, sealer: sealer, now: now, board: newRetryBoard()}, nil
+	return &Chain{
+		provider: provider, indexers: cited, order: slices.Clone(order), limits: citedLimits, usage: usage, sealer: sealer, now: now,
+		board: newRetryBoard(), sleep: sleepContext,
+	}, nil
 }
 
 // Order renvoie l'ordre des sources, fournisseur en tête.
@@ -76,7 +83,7 @@ func (chain *Chain) Order() []ID { return slices.Clone(chain.order) }
 
 // NewBudget ouvre les décomptes d'une exécution ; les quotas par jour viennent du store, partagés entre exécutions.
 func (chain *Chain) NewBudget() *Budget {
-	return newBudget(chain.limits, chain.usage, chain.now, sleepContext, chain.board)
+	return newBudget(chain.limits, chain.usage, chain.now, chain.sleep, chain.board)
 }
 
 // Call est le seul chemin vers un indexeur : il dépense le quota (TakeQuery ou TakeDownload selon kind), exécute la
@@ -135,11 +142,6 @@ func (chain *Chain) FetchTorrent(ctx context.Context, release Release, budget *B
 		return Fetched{}, ErrSecretKeyMissing
 	}
 	return chain.fetchFromIndexers(ctx, release, budget, indexers, query)
-}
-
-// SearchCandidates ne cherche rien tant que B12 n'a pas ajouté la recherche par indexeur.
-func (chain *Chain) SearchCandidates(_ context.Context, _ MediaQuery, budget *Budget) ([]Found, Report, error) {
-	return nil, budget.Report(), nil
 }
 
 func sleepContext(ctx context.Context, duration time.Duration) error {

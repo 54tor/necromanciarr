@@ -23,6 +23,9 @@ const (
 	// ReasonUpdateDeferred compte chaque candidat connu non réassocié : l'exécution n'a pas tout cherché et
 	// l'association trouvée perdrait des fichiers.
 	ReasonUpdateDeferred = "update_deferred_incomplete_run"
+	// ReasonTorznabNoExactSize compte chaque .torrent d'indexeur dont aucun fichier n'a la taille exacte d'un fichier
+	// local du groupe : il est écarté, jamais enregistré.
+	ReasonTorznabNoExactSize = "torznab_no_exact_size"
 )
 
 // candidateKey identifie un candidat : le même infohash sur deux trackers donne deux entrées distinctes.
@@ -38,7 +41,8 @@ type pendingCandidate struct {
 
 // runMatch périme chaque candidat dont un fichier a changé, cherche une fois par identifiant externe en cumulant pour
 // chaque release les fichiers locaux de tous les groupes où elle apparaît, puis enregistre chaque release une seule fois
-// si un de ses fichiers a exactement la taille d'un fichier local ; tous les torrents sont gardés.
+// si un de ses fichiers a exactement la taille d'un fichier local ; tous les torrents sont gardés. Les groupes que le
+// fournisseur ne couvre pas sont ensuite cherchés chez les indexeurs (searchIndexers).
 func runMatch(ctx context.Context, deps Deps) (Result, error) {
 	var result Result
 	now := deps.now()
@@ -64,7 +68,11 @@ func runMatch(ctx context.Context, deps Deps) (Result, error) {
 	}
 	complete := searchErr == nil && result.Failed == 0
 	saveErr := savePending(ctx, deps, &result, pending, known, complete, now)
-	return result, errors.Join(searchErr, saveErr, regroup(ctx, deps))
+	var indexerErr error
+	if searchErr == nil && saveErr == nil && !lockLost(ctx) {
+		indexerErr = searchIndexers(ctx, deps, &result, files, coveredFiles(pending), now)
+	}
+	return result, errors.Join(searchErr, saveErr, indexerErr, regroup(ctx, deps))
 }
 
 // regroup recalcule les groupes, même après annulation par l'appelant, mais jamais une fois le verrou perdu.
