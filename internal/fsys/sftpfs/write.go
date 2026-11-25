@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -146,7 +147,7 @@ func (root *writeRoot) ensureDirectory(client *sftp.Client, parent, directory st
 	}
 	isWritableByOthers := info.Mode().Perm()&othersWriteBits != 0
 	if mkdirErr == nil && isWritableByOthers {
-		root.volume.addWarning(Warning{Code: CodeLinkDirWorldWritable, Path: directory})
+		root.volume.countWarning(CodeLinkDirWorldWritable, strconv.Quote(root.dir))
 	}
 	return nil
 }

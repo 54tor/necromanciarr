@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -122,20 +121,27 @@ func (volume *Volume) State() string {
 }
 
 // Warnings rend les avertissements de la dernière connexion (identity_file_permissions, agent_unavailable) et des
-// racines d'écriture ouvertes depuis (link_dir_world_writable).
+// racines d'écriture ouvertes depuis (link_dir_world_writable : Path est la racine, entre guillemets, Count le
+// nombre de dossiers créés modifiables par d'autres).
 func (volume *Volume) Warnings() []Warning {
 	volume.mutex.Lock()
 	defer volume.mutex.Unlock()
 	return append([]Warning(nil), volume.warnings...)
 }
 
-// addWarning ajoute un avertissement à ceux de la connexion, sans doublon ; une reconnexion les remplace.
-func (volume *Volume) addWarning(warning Warning) {
+// countWarning compte un constat de plus sous (code, path) : un seul avertissement par racine, quel que soit le
+// nombre de dossiers en cause. Une reconnexion remplace la liste.
+func (volume *Volume) countWarning(code, path string) {
 	volume.mutex.Lock()
 	defer volume.mutex.Unlock()
-	if !slices.Contains(volume.warnings, warning) {
-		volume.warnings = append(volume.warnings, warning)
+	for warningIndex := range volume.warnings {
+		known := &volume.warnings[warningIndex]
+		if known.Code == code && known.Path == path {
+			known.Count++
+			return
+		}
 	}
+	volume.warnings = append(volume.warnings, Warning{Code: code, Path: path, Count: 1})
 }
 
 // ResetForStage ouvre une nouvelle étape : une reconnexion redevient autorisée.

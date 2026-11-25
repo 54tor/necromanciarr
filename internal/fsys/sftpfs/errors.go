@@ -71,7 +71,10 @@ func Code(err error) string {
 	return ""
 }
 
-// Warning est un constat qui n'empêche pas la connexion : Code stable, Path le fichier ou la socket en cause.
+// Warning est un constat qui n'empêche pas la connexion : Code stable, Path le fichier ou la socket en cause, ou la
+// racine d'écriture entre guillemets (strconv.Quote) pour un constat d'écriture.
 type Warning struct {
 	Code, Path string
+	// Count : nombre de constats regroupés sous ce code et ce chemin (0 pour un constat unique de connexion).
+	Count int
 }

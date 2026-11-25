@@ -2,12 +2,14 @@ package sftpfs_test
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -722,21 +724,21 @@ func TestSFTPMkdirAll_refusesExistingNonDirectoryAndKeepsExistingDirectories(t *
 	}
 }
 
-func TestSFTPMkdirAll_warnsWhenTheServerCreatesWritableDirectories(t *testing.T) {
+func TestSFTPMkdirAll_warnsOncePerRootWithACountAndAQuotedPath(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX modes")
 	}
+	const createdDirectories = 1000
 	_, volume := writeVolume(t, sftptest.WithDirectoryMode(0o777))
 	root := openLinksRoot(t, volume)
 
-	if err := root.MkdirAll("a/b", 0o755); err != nil {
-		t.Fatalf("valeurObtenue %v, valeurAttendue a warning, never a failure", err)
+	for directoryIndex := range createdDirectories {
+		if err := root.MkdirAll(fmt.Sprintf("d%d", directoryIndex), 0o755); err != nil {
+			t.Fatalf("valeurObtenue %v, valeurAttendue a warning, never a failure", err)
+		}
 	}
 
-	valeurAttendue := []sftpfs.Warning{
-		{Code: sftpfs.CodeLinkDirWorldWritable, Path: linksDir + "/a"},
-		{Code: sftpfs.CodeLinkDirWorldWritable, Path: linksDir + "/a/b"},
-	}
+	valeurAttendue := []sftpfs.Warning{{Code: sftpfs.CodeLinkDirWorldWritable, Path: strconv.Quote(linksDir), Count: createdDirectories}}
 	if valeurObtenue := volume.Warnings(); !slices.Equal(valeurObtenue, valeurAttendue) {
 		t.Errorf("valeurObtenue %+v, valeurAttendue %+v", valeurObtenue, valeurAttendue)
 	}

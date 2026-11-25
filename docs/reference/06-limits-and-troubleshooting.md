@@ -223,7 +223,7 @@ Codes stables d'une connexion à un fournisseur `sftp`, identiques dans les deux
 | `identity_key_too_weak` | refus | `identityFile` est une clé RSA de moins de 3072 bits : générer une clé ed25519 (`ssh-keygen -t ed25519`) et l'autoriser sur le serveur |
 | `identity_file_permissions` | avertissement | `identityFile` est lisible ou modifiable par le groupe ou les autres : `chmod 600` ; la connexion continue |
 | `agent_unavailable` | avertissement | `agent` est demandé mais `SSH_AUTH_SOCK` est absent ou injoignable, ou l'agent ne répond pas dans `timeout` (jamais transmis dans Docker) : la méthode est sautée, les autres sont essayées |
-| `link_dir_world_writable` | avertissement | un dossier créé dans un dossier de liens distant est modifiable par le groupe ou les autres : régler le umask du compte SFTP à `022` (par exemple `ForceCommand internal-sftp -u 022` côté OpenSSH) ou créer ces dossiers à l'avance ; l'opération continue |
+| `link_dir_world_writable` | avertissement | des dossiers créés dans un dossier de liens distant sont modifiables par le groupe ou les autres (un seul avertissement par dossier de liens, avec leur nombre) : régler le umask du compte SFTP à `022` (par exemple `ForceCommand internal-sftp -u 022` côté OpenSSH) ou créer ces dossiers à l'avance ; l'opération continue |
 
 ### Par code d'erreur
 
