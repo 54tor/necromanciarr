@@ -853,8 +853,9 @@ func TestSFTPWriteRoot_closedRootRefusesEveryOperation(t *testing.T) {
 	}
 }
 
-func TestSFTPCapabilities_followTheAdvertisedExtensions(t *testing.T) {
+func TestSFTPCapabilities_followTheProbedFunctions(t *testing.T) {
 	_, volume := writeVolume(t)
+	_ = mustProbeLinks(t, volume)
 
 	capabilities, err := volume.Capabilities(t.Context())
 	if err != nil {

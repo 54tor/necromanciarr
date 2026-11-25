@@ -33,11 +33,14 @@ const (
 )
 
 // Deps porte ce que Dial ne lit pas dans la configuration. Limiter est le plafond de lecture global, gardé pour les
-// lectures ; Now l'horloge ; LookupEnv lit SSH_AUTH_SOCK (nil : os.LookupEnv).
+// lectures ; Now l'horloge ; LookupEnv lit SSH_AUTH_SOCK (nil : os.LookupEnv). LibraryRoots liste les racines de
+// bibliothèque de ce volume (chemins POSIX canoniques) : ProbeCapabilities refuse d'écrire dans l'une d'elles, en
+// plus du contrôle du registre.
 type Deps struct {
-	Limiter   fsys.Limiter
-	Now       func() time.Time
-	LookupEnv func(string) (string, bool)
+	Limiter      fsys.Limiter
+	Now          func() time.Time
+	LookupEnv    func(string) (string, bool)
+	LibraryRoots []string
 }
 
 func (deps Deps) withDefaults() Deps {
@@ -62,6 +65,8 @@ type session struct {
 	closed    atomic.Bool
 	// symlinkOrder : verdict de la sonde d'ordre des arguments de SSH_FXP_SYMLINK sur cette session (symlinkOrder*).
 	symlinkOrder atomic.Int32
+	// capabilities : résultat de ProbeCapabilities sur cette session, nil tant qu'aucune sonde n'a abouti.
+	capabilities atomic.Pointer[fsys.Capabilities]
 }
 
 func newSession(sshClient *ssh.Client, client *sftp.Client) *session {
@@ -87,6 +92,8 @@ type Volume struct {
 	// providerLimiter plafonne les lectures de ce fournisseur (readBytesPerSecond) ; nil : seul deps.Limiter.
 	providerLimiter fsys.Limiter
 
+	// probe sérialise les sondes et les nettoyages de fichiers de sonde.
+	probeMutex sync.Mutex
 	// redial sérialise les reconnexions ; mutex protège les champs qui suivent.
 	redial        sync.Mutex
 	mutex         sync.Mutex

@@ -490,12 +490,14 @@ func TestSFTP_identityAndSyntax(t *testing.T) {
 		t.Errorf("valeurAttendue POSIX remote paths")
 	}
 	capabilities, err := volume.Capabilities(context.Background())
-	if err != nil || capabilities.FileIdentity || capabilities.RemoteStat || capabilities.ServerCopy || !capabilities.VolumeIdentity {
-		t.Errorf("valeurObtenue %+v (err %v), valeurAttendue VolumeIdentity only", capabilities, err)
+	isUnprobed := !capabilities.FileIdentity && !capabilities.RemoteStat && !capabilities.ServerCopy && !capabilities.VolumeIdentity &&
+		capabilities.Reasons["volumeIdentity"] == "not_probed"
+	if err != nil || !isUnprobed {
+		t.Errorf("valeurObtenue %+v (err %v), valeurAttendue nothing proven before a probe", capabilities, err)
 	}
 	_, withoutStatVFS := readVolume(t, testDeps(), sftptest.WithoutStatVFS())
-	if capabilities, err := withoutStatVFS.Capabilities(context.Background()); err != nil || capabilities.VolumeIdentity {
-		t.Errorf("valeurObtenue %+v (err %v), valeurAttendue no VolumeIdentity without statvfs", capabilities, err)
+	if capabilities, err := withoutStatVFS.Capabilities(context.Background()); err != nil || capabilities.Reasons["volumeIdentity"] != "extension_missing" {
+		t.Errorf("valeurObtenue %+v (err %v), valeurAttendue extension_missing without statvfs", capabilities, err)
 	}
 }
 

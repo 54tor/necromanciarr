@@ -3,7 +3,11 @@
 // keepalive, et au plus une reconnexion par étape.
 package sftpfs
 
-import "errors"
+import (
+	"errors"
+
+	"necromanciarr/internal/fsys"
+)
 
 // Codes stables des erreurs et avertissements de connexion, identiques dans toutes les langues (doctor, interface).
 const (
@@ -38,13 +42,15 @@ var (
 	// ErrHostileResponse : le serveur a rendu une valeur impossible (taille, statvfs, cible de lien, liste démesurée) ;
 	// elle est refusée, jamais tronquée.
 	ErrHostileResponse = errors.New("sftpfs: hostile response from the server")
-	// ErrSymlinkOrderUnverified refuse un lien symbolique tant que la sonde de la session n'a pas prouvé que le
-	// serveur lit les arguments dans l'ordre d'OpenSSH : un serveur à l'ordre inverse poserait le lien à la place de
-	// la cible, bibliothèque comprise.
-	ErrSymlinkOrderUnverified = errors.New("sftpfs: symlink argument order not verified on this session")
+	// ErrSymlinkOrderUnverified est fsys.ErrSymlinkOrderUnverified : un lien symbolique reste refusé tant que la sonde
+	// de la session n'a pas prouvé l'ordre des arguments d'OpenSSH.
+	ErrSymlinkOrderUnverified = fsys.ErrSymlinkOrderUnverified
 	// ErrShortRead : une lecture a fini avant la taille que donne fstat sur une session vivante ; toujours sous
 	// fsys.ErrRemoteUnavailable, jamais io.EOF : le fichier est indisponible pour cette lecture, pas différent.
 	ErrShortRead = errors.New("sftpfs: read ended before the file size")
+	// ErrNoProbeDir : ProbeCapabilities n'a reçu aucune racine d'écriture de ce volume (pas encore de dossier de liens
+	// ouvert par Registry.WriteRoot) ; l'appelant décide d'attendre ou de s'en passer.
+	ErrNoProbeDir = errors.New("sftpfs: no link directory write root of this volume to probe in")
 	// ErrOperationTimeout : une opération a dépassé timeout ; la connexion a été fermée.
 	ErrOperationTimeout = errors.New("sftpfs: operation timed out")
 )

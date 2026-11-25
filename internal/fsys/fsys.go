@@ -25,6 +25,10 @@ var (
 	// ErrServerCopyUnavailable refuse une copie qu'aucune copie côté serveur ne peut faire (SFTP sans copy-data) :
 	// jamais de repli sur une copie par flux à travers le réseau, qui relirait puis réécrirait tout le média (Force).
 	ErrServerCopyUnavailable = errors.New("fsys: server-side copy unavailable on the volume")
+	// ErrSymlinkOrderUnverified refuse un lien symbolique tant que la sonde de la session distante n'a pas prouvé que
+	// le serveur lit les arguments dans l'ordre d'OpenSSH : un serveur à l'ordre inverse poserait le lien à la place
+	// de la cible, bibliothèque comprise.
+	ErrSymlinkOrderUnverified = errors.New("fsys: symlink argument order not verified on this session")
 	// ErrRemoteUnavailable signale un volume distant injoignable ou cassé.
 	ErrRemoteUnavailable = errors.New("fsys: remote volume unavailable")
 	// ErrUnknownVolume signale une Location dont le volume n'est pas déclaré.

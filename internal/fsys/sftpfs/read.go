@@ -17,16 +17,21 @@ import (
 const (
 	extensionStatVFS = "statvfs@openssh.com"
 	// Clés et codes de Capabilities.Reasons (contrat machine, jamais traduits).
-	reasonKeyFileIdentity    = "fileIdentity"
-	reasonKeyVolumeIdentity  = "volumeIdentity"
-	reasonKeyServerCopy      = "serverCopy"
-	reasonKeyHardlink        = "hardlink"
-	reasonKeyAtomicReplace   = "atomicReplace"
-	reasonRemoteStatMissing  = "remote_stat_unavailable"
-	reasonStatVFSMissing     = "statvfs_unsupported"
-	reasonCopyDataMissing    = "copy_data_unsupported"
-	reasonHardlinkMissing    = "hardlink_unsupported"
-	reasonPosixRenameMissing = "posix_rename_unsupported"
+	reasonKeyFileIdentity   = "fileIdentity"
+	reasonKeyVolumeIdentity = "volumeIdentity"
+	reasonKeyServerCopy     = "serverCopy"
+	reasonKeySymlink        = "symlink"
+	reasonKeyHardlink       = "hardlink"
+	reasonKeyAtomicReplace  = "atomicReplace"
+	reasonRemoteStatMissing = "remote_stat_unavailable"
+	// reasonExtensionMissing : le serveur n'annonce pas l'extension ; aucune requête n'est envoyée pour elle.
+	reasonExtensionMissing = "extension_missing"
+	// reasonProbeFailed : l'extension est annoncée (ou la requête fait partie du protocole) mais l'essai réel a échoué.
+	reasonProbeFailed = "probe_failed"
+	// reasonServerCopyByClient : pkg/sftp n'envoie pas copy-data, quelle que soit l'annonce du serveur.
+	reasonServerCopyByClient = "server_copy_unsupported_by_client"
+	// reasonNotProbed : aucune sonde n'a encore abouti sur cette session.
+	reasonNotProbed = "not_probed"
 )
 
 // errStatVFSMissing : le serveur n'annonce pas statvfs@openssh.com.
@@ -207,41 +212,22 @@ func (volume *Volume) statVFS(name string) (*sftp.StatVFS, error) {
 	return reply, nil
 }
 
-// Capabilities sonde les extensions annoncées par la session : VolumeIdentity selon statvfs@openssh.com, Hardlink
-// selon hardlink@openssh.com, AtomicReplace selon posix-rename@openssh.com, Symlink toujours. Ni identité de
-// fichier ni RemoteStat (ssh exec), ni copie côté serveur (pkg/sftp n'a pas copy-data), ni reflink.
+// Capabilities rend, sans rien écrire ni sonder, les capacités prouvées par ProbeCapabilities sur la session
+// courante ; avant toute sonde (ou après une reconnexion), aucune fonction dépendant d'une sonde n'est annoncée :
+// raison extension_missing si le serveur ne l'annonce pas, not_probed sinon. Le registre l'appelle avant la première
+// racine d'écriture (identités de fichier) : elle ne peut donc ni écrire ni échouer faute de dossier de liens.
 func (volume *Volume) Capabilities(ctx context.Context) (fsys.Capabilities, error) {
-	offered := map[string]bool{}
-	err := volume.call(ctx, "capabilities", func(client *sftp.Client) error {
-		for _, extension := range []string{extensionStatVFS, extensionHardlink, extensionPosixRename} {
-			_, offered[extension] = client.HasExtension(extension)
+	var capabilities fsys.Capabilities
+	err := volume.callSession(ctx, "capabilities", func(current *session) error {
+		if probed := current.capabilities.Load(); probed != nil {
+			capabilities = cloneCapabilities(*probed)
+			return nil
 		}
+		capabilities = unprobedCapabilities(current.client)
 		return nil
 	})
 	if err != nil {
 		return fsys.Capabilities{}, err
-	}
-	capabilities := fsys.Capabilities{
-		VolumeIdentity: offered[extensionStatVFS],
-		Symlink:        true,
-		Hardlink:       offered[extensionHardlink],
-		AtomicReplace:  offered[extensionPosixRename],
-		Reasons: map[string]string{
-			reasonKeyFileIdentity: reasonRemoteStatMissing,
-			reasonKeyServerCopy:   reasonCopyDataMissing,
-		},
-	}
-	for _, missing := range []struct {
-		isMissing   bool
-		key, reason string
-	}{
-		{!capabilities.VolumeIdentity, reasonKeyVolumeIdentity, reasonStatVFSMissing},
-		{!capabilities.Hardlink, reasonKeyHardlink, reasonHardlinkMissing},
-		{!capabilities.AtomicReplace, reasonKeyAtomicReplace, reasonPosixRenameMissing},
-	} {
-		if missing.isMissing {
-			capabilities.Reasons[missing.key] = missing.reason
-		}
 	}
 	return capabilities, nil
 }
