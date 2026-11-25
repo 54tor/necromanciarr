@@ -169,3 +169,83 @@ func TestSaveFetchedCandidate_refusesBeforeWriting(t *testing.T) {
 		t.Fatalf("gotValue %d candidates err %v, expectedValue nothing written", len(stored), err)
 	}
 }
+
+func storedCandidate(t *testing.T, openedStore *Store, candidateID int64) Candidate {
+	t.Helper()
+	candidates, err := openedStore.ListCandidatesByState(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range candidates {
+		if candidate.ID == candidateID {
+			return candidate
+		}
+	}
+	t.Fatalf("candidate %d not found", candidateID)
+	return Candidate{}
+}
+
+// Un candidat stale retrouvé chez un indexeur repart comme le chemin du fournisseur (génération suivante, associations
+// remplacées), puis directement à fetched avec la copie téléchargée, sa source et son scellement.
+func TestSaveFetchedCandidate_revivesAStaleCandidate(t *testing.T) {
+	ctx := context.Background()
+	openedStore := openTestStore(t)
+	mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+	staleID, _ := saveTestCandidate(t, openedStore, "bb", mediaFile)
+	if _, err := openedStore.InvalidateCandidatesForFile(ctx, mediaFile.ID, testNow); err != nil {
+		t.Fatal(err)
+	}
+	before := storedCandidate(t, openedStore, staleID)
+	candidate, files := fetchedTestCandidate(mediaFile)
+	files[0].Path = "Film/renamed.mkv"
+
+	candidateID, outcome, err := openedStore.SaveFetchedCandidate(ctx, candidate, files, []byte(sanitizedTestTorrent), testSealedBlob, testNow)
+	if err != nil || outcome != SaveUpdated || candidateID != staleID {
+		t.Fatalf("gotValue id %d outcome %q err %v, expectedValue the stale candidate updated", candidateID, outcome, err)
+	}
+
+	revived := storedCandidate(t, openedStore, staleID)
+	if before.State != CandidateStale || revived.State != CandidateFetched || revived.Generation != before.Generation+1 ||
+		revived.Source != "torznab:alpha" || !revived.HasSealed {
+		t.Fatalf("gotValue before %+v after %+v, expectedValue stale revived at fetched, next generation, indexer source, sealed", before, revived)
+	}
+	storedFiles, err := openedStore.ListCandidateFiles(ctx, staleID)
+	if err != nil || len(storedFiles) != 1 || storedFiles[0].Path != "Film/renamed.mkv" {
+		t.Fatalf("gotValue files %+v err %v, expectedValue the associations replaced", storedFiles, err)
+	}
+	torrent, err := openedStore.CandidateTorrent(ctx, staleID)
+	if err != nil || string(torrent) != sanitizedTestTorrent {
+		t.Fatalf("gotValue torrent %q err %v, expectedValue the downloaded sanitized copy", torrent, err)
+	}
+}
+
+func TestSaveFetchedCandidate_keepsNonStaleRowsUntouched(t *testing.T) {
+	transitions := map[CandidateState][]CandidateState{
+		CandidateMatched:  nil,
+		CandidateFailed:   {CandidateFailed},
+		CandidateFetched:  {CandidateFetched},
+		CandidateVerified: {CandidateFetched, CandidateVerified},
+	}
+	for expectedState, steps := range transitions {
+		t.Run(string(expectedState), func(t *testing.T) {
+			ctx := context.Background()
+			openedStore := openTestStore(t)
+			mediaFile := insertTestMediaFile(t, openedStore, "/home/u/media/a.mkv", 10)
+			existingID, _ := saveTestCandidate(t, openedStore, "bb", mediaFile)
+			for _, step := range steps {
+				if err := openedStore.SetCandidateState(ctx, existingID, step, testNow); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := storedCandidate(t, openedStore, existingID)
+			candidate, files := fetchedTestCandidate(mediaFile)
+
+			_, outcome, err := openedStore.SaveFetchedCandidate(ctx, candidate, files, []byte(sanitizedTestTorrent), testSealedBlob, testNow)
+
+			after := storedCandidate(t, openedStore, existingID)
+			if err != nil || outcome != SaveUnchanged || after != before {
+				t.Fatalf("gotValue outcome %q err %v after %+v, expectedValue %+v untouched", outcome, err, after, before)
+			}
+		})
+	}
+}

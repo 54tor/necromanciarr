@@ -74,7 +74,9 @@ func (openedStore *Store) SaveCandidateFetched(ctx context.Context, candidateID 
 // SaveFetchedCandidate crée en une transaction un candidat trouvé chez un indexeur, directement à l'état fetched (le
 // .torrent est déjà là) : associations de fichiers, source, copie assainie et copie scellée (vide : pas de bloc, une
 // entrée trackers donne l'annonce). Si un candidat de même (Infohash, Tracker) existe, rien n'est écrit : la première
-// source de la chaîne reste (SaveUnchanged). Les copies sont contrôlées avant toute écriture.
+// source de la chaîne reste (SaveUnchanged) ; seul un candidat stale est repris (SaveUpdated) comme par SaveCandidate
+// (propositions ouvertes closes, vérification effacée, associations remplacées, génération suivante), puis passe à
+// fetched avec cette source et ces copies. Les copies sont contrôlées avant toute écriture.
 func (openedStore *Store) SaveFetchedCandidate(ctx context.Context, candidate Candidate, files []CandidateFile, sanitized, sealed []byte, now time.Time) (int64, SaveOutcome, error) {
 	if err := checkFetchedCopies(sanitized, sealed); err != nil {
 		return 0, "", err
@@ -85,11 +87,16 @@ func (openedStore *Store) SaveFetchedCandidate(ctx context.Context, candidate Ca
 	var candidateID int64
 	outcome := SaveCreated
 	err := openedStore.inTransaction(ctx, func(transaction *sql.Tx) error {
-		existsErr := transaction.QueryRowContext(ctx, `SELECT id FROM torrent_candidates WHERE infohash = ? AND tracker = ?`,
-			candidate.Infohash, candidate.Tracker).Scan(&candidateID)
-		if existsErr == nil {
+		var state string
+		existsErr := transaction.QueryRowContext(ctx, `SELECT id, state FROM torrent_candidates WHERE infohash = ? AND tracker = ?`,
+			candidate.Infohash, candidate.Tracker).Scan(&candidateID, &state)
+		if existsErr == nil && CandidateState(state) != CandidateStale {
 			outcome = SaveUnchanged
 			return nil
+		}
+		if existsErr == nil {
+			outcome = SaveUpdated
+			return reviveFetchedCandidate(ctx, transaction, candidateID, candidate, files, sanitized, sealed, now)
 		}
 		if !errors.Is(existsErr, sql.ErrNoRows) {
 			return existsErr
@@ -105,6 +112,28 @@ func (openedStore *Store) SaveFetchedCandidate(ctx context.Context, candidate Ca
 		return 0, "", fmt.Errorf("save fetched candidate: %w", err)
 	}
 	return candidateID, outcome, nil
+}
+
+// reviveFetchedCandidate reprend un candidat stale : remise à zéro du chemin du fournisseur, puis fetched avec la source
+// et les copies téléchargées (le scellement est lié à cette source).
+func reviveFetchedCandidate(ctx context.Context, transaction *sql.Tx, candidateID int64, candidate Candidate, files []CandidateFile,
+	sanitized, sealed []byte, now time.Time,
+) error {
+	if err := resetCandidate(ctx, transaction, candidateID, files, now); err != nil {
+		return err
+	}
+	providerJSON := candidate.ProviderJSON
+	if providerJSON == "" {
+		providerJSON = "{}"
+	}
+	var storedSealed any
+	if len(sealed) > 0 {
+		storedSealed = sealed
+	}
+	_, err := transaction.ExecContext(ctx, `UPDATE torrent_candidates SET name = ?, total_size = ?, provider_json = ?, source = ?, state = ?,
+	torrent = ?, torrent_sealed = ?, updated_at = ? WHERE id = ?`,
+		candidate.Name, candidate.TotalSize, providerJSON, candidate.Source, string(CandidateFetched), sanitized, storedSealed, now.UnixNano(), candidateID)
+	return err
 }
 
 func insertFetchedCandidate(ctx context.Context, transaction *sql.Tx, candidate Candidate, sanitized, sealed []byte, now time.Time) (int64, error) {
