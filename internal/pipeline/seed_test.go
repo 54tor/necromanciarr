@@ -7,8 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/i18n"
+	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
 	"necromanciarr/internal/store"
 )
@@ -250,4 +252,116 @@ func warningKeys(warnings []i18n.Message) []i18n.Key {
 		keys = append(keys, warning.Key)
 	}
 	return keys
+}
+
+// remoteClientMapper traduit le dossier de liens distant vers la vue du client.
+func remoteClientMapper() *linker.Mapper {
+	return linker.NewMapper([]config.PathRule{{From: "sftp://seedbox/srv/links", To: "/downloads/links"}})
+}
+
+func TestSeed_remoteLinkForcesClientRecheck(t *testing.T) {
+	for name, fileIdentityKnown := range map[string]bool{"file identity unknown": false, "file identity known": true} {
+		t.Run(name, func(t *testing.T) {
+			fixture, volume := newRemoteApplyFixture(t)
+			volume.FileIDKnown.Store(fileIdentityKnown)
+			fixture.skipRecheck = true
+			fixture.mapper = remoteClientMapper()
+			candidate, proposal := fixture.linkedProposal(movieOnly(), store.ProposalFull)
+			fixture.client.guardResults[candidate.Infohash] = qbit.RecheckResult{Progress: 1, Complete: true}
+
+			result := fixture.mustRunStage(StageSeed)
+
+			added, present := fixture.client.added[candidate.Infohash]
+			valeurAttendueChemin := "/downloads/links/Movie.2020 [" + candidate.Infohash + "]"
+			isRechecked := present && !added.options.SkipChecking && !added.options.Start && len(fixture.client.guardCalls) == 1
+			if !isRechecked || added.savePath != valeurAttendueChemin || result.Reasons[ReasonIdentityUnproven] != 1 {
+				t.Fatalf("valeurObtenue %+v guard=%v reasons %v, valeurAttendue a paused add at %s without skip_checking, "+
+					"rechecked by the client", added, fixture.client.guardCalls, result.Reasons, valeurAttendueChemin)
+			}
+			if fixture.progressOf(proposal.ID).Step != store.StepSeeded {
+				t.Fatalf("valeurObtenue step %s, valeurAttendue seeded once the client confirmed 100 %%", fixture.progressOf(proposal.ID).Step)
+			}
+		})
+	}
+}
+
+func TestSeed_refusesUnmappedRemoteLinkDir(t *testing.T) {
+	cases := map[string]ClientPathMapper{
+		"no mapper":                   nil,
+		"local rule with same path":   linker.NewMapper([]config.PathRule{{From: "/srv/links", To: "/downloads/links"}}),
+		"sftp rule on another volume": linker.NewMapper([]config.PathRule{{From: "sftp://other/srv/links", To: "/downloads/links"}}),
+	}
+	for name, mapper := range cases {
+		t.Run(name, func(t *testing.T) {
+			fixture, _ := newRemoteApplyFixture(t)
+			fixture.mapper = mapper
+			_, proposal := fixture.linkedProposal(movieOnly(), store.ProposalFull)
+
+			result := fixture.mustRunStage(StageSeed)
+
+			if len(fixture.client.added) != 0 || result.Reasons[ReasonClientPathUnmapped] != 1 || fixture.decisionOf(proposal.ID) != store.ProposalFailed {
+				t.Fatalf("valeurObtenue added=%v reasons %v, valeurAttendue nothing added and client_path_unmapped", fixture.client.added, result.Reasons)
+			}
+		})
+	}
+}
+
+func TestSeed_linkRecordedAsUnprovenNeverGetsSkipChecking(t *testing.T) {
+	fixture := newApplyFixture(t)
+	fixture.skipRecheck = true
+	candidate, _ := fixture.linkedProposal(movieOnly(), store.ProposalFull)
+	for _, link := range fixture.linksOf() {
+		link.Volume = remoteVolumeName
+		if err := fixture.store.RecordLink(context.Background(), link); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	fixture.mustRunStage(StageSeed)
+
+	added := fixture.client.added[candidate.Infohash]
+	if added.options.SkipChecking || added.options.Start || len(fixture.client.guardCalls) != 1 {
+		t.Fatalf("valeurObtenue %+v guard=%v, valeurAttendue the recorded unproven identity to force the client recheck",
+			added.options, fixture.client.guardCalls)
+	}
+}
+
+func TestSeed_unprovenPartialAnnexStaysPausedAndCannotBeIsolated(t *testing.T) {
+	fixture, _ := newRemoteApplyFixture(t)
+	fixture.skipRecheck = true
+	fixture.mapper = remoteClientMapper()
+	candidate, proposal, linkRoot := fixture.linkedPartialAnnex(movieWithAnnex(patternBytes(50, nfoSize)))
+
+	result := fixture.mustRunStage(StageSeed)
+
+	added := fixture.client.added[candidate.Infohash]
+	isPaused := !added.options.Start && !added.options.SkipChecking && len(fixture.client.resumed) == 0
+	if !isPaused || result.SeededPausedIncomplete != 1 || fixture.progressOf(proposal.ID).Step != store.StepSeededPausedIncomplete {
+		t.Fatalf("valeurObtenue %+v result %+v, valeurAttendue a paused partial_annex without skip_checking", added, result)
+	}
+	if _, err := fixture.isolate(candidate, proposal, linkRoot); !errors.Is(err, ErrIsolationImpossible) {
+		t.Fatalf("valeurAttendue ErrIsolationImpossible on the remote link dir, valeurObtenue %v", err)
+	}
+}
+
+func TestSeed_remoteUnavailableLeavesTheProposalLinkedForTheNextRun(t *testing.T) {
+	fixture, volume := newRemoteApplyFixture(t)
+	fixture.mapper = remoteClientMapper()
+	candidate, proposal := fixture.linkedProposal(movieOnly(), store.ProposalFull)
+	fixture.client.guardResults[candidate.Infohash] = qbit.RecheckResult{Progress: 1, Complete: true}
+	volume.Unavailable.Store(true)
+
+	unavailable := fixture.mustRunStage(StageSeed)
+
+	isKept := fixture.decisionOf(proposal.ID) == store.ProposalAccepted && fixture.progressOf(proposal.ID).Step == store.StepLinked
+	if len(fixture.client.added) != 0 || unavailable.Reasons[ReasonRemoteUnavailable] != 1 || !isKept {
+		t.Fatalf("valeurObtenue added=%v result %+v, valeurAttendue remote_unavailable with the proposal kept linked", fixture.client.added, unavailable)
+	}
+	volume.Unavailable.Store(false)
+
+	healed := fixture.mustRunStage(StageSeed)
+
+	if healed.Seeded != 1 || fixture.progressOf(proposal.ID).Step != store.StepSeeded {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue the proposal seeded on the next run", healed)
+	}
 }

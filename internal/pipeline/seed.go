@@ -9,9 +9,7 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
-	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/i18n"
-	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
 	"necromanciarr/internal/store"
 )
@@ -39,6 +37,13 @@ const (
 	ReasonClientPathInvalid      = "client_path_invalid"
 	ReasonPauseFailed            = "pause_failed"
 	ReasonNotPausedAfterAdd      = "not_paused_after_add"
+	// ReasonIdentityUnproven : un lien du torrent n'est pas prouvé par l'identité du fichier (lien distant) ;
+	// skip_checking est refusé, le client recontrôle et le torrent reste arrêté jusqu'à 100 %.
+	ReasonIdentityUnproven = "identity_unproven"
+	// ReasonClientPathUnmapped : aucune règle pathMappings ne traduit le dossier de liens distant vers la vue du client.
+	ReasonClientPathUnmapped = "client_path_unmapped"
+	// ReasonRemoteUnavailable : le volume distant ne répond pas ; la proposition reste en l'état, reprise à la relance.
+	ReasonRemoteUnavailable = "remote_unavailable"
 )
 
 // Avertissements consignés sur la proposition (message fixe, sans URL ni secret).
@@ -108,8 +113,14 @@ func (run seedRun) redact(err error) error {
 }
 
 // seedProposal ne renvoie une erreur que pour arrêter l'étape ; un refus (refusal) passe la proposition à failed.
+// Une coupure du volume distant laisse la proposition liée, reprise à la relance.
 func (run seedRun) seedProposal(ctx context.Context, proposal store.Proposal, candidate store.Candidate, linkRoot string) error {
 	err := run.seedChecked(ctx, proposal, candidate, linkRoot)
+	if isRemoteUnavailable(err) {
+		run.result.Skipped++
+		run.result.count(ReasonRemoteUnavailable, 1)
+		return nil
+	}
 	var refused refusal
 	if errors.As(err, &refused) {
 		return failProposal(ctx, run.deps, run.result, proposal.ID, string(refused))
@@ -134,7 +145,7 @@ func (run seedRun) seedChecked(ctx context.Context, proposal store.Proposal, can
 	case reason != "":
 		return refusal(reason)
 	}
-	certain, damage, err := run.checkPlacement(ctx, proven, linkRoot)
+	proof, damage, err := run.checkPlacement(ctx, proven, linkRoot)
 	if err != nil {
 		return err
 	}
@@ -144,9 +155,9 @@ func (run seedRun) seedChecked(ctx context.Context, proposal store.Proposal, can
 		}
 		return refusal(damage)
 	}
-	savePath, validPath := run.clientPath(linkRoot)
-	if !validPath {
-		return refusal(ReasonClientPathInvalid)
+	savePath, pathRefusal := run.clientPath(linkRoot)
+	if pathRefusal != "" {
+		return refusal(pathRefusal)
 	}
 	complete, err := run.verifiedComplete(ctx, proposal, candidate.ID)
 	if err != nil {
@@ -159,7 +170,11 @@ func (run seedRun) seedChecked(ctx context.Context, proposal store.Proposal, can
 	if present {
 		return run.takeOverExisting(ctx, proposal.ID, candidate.Infohash, existing, savePath, linkRoot, complete)
 	}
-	skipChecking := complete && run.deps.SkipRecheck && certain
+	skipAllowed := complete && run.deps.SkipRecheck
+	skipChecking := skipAllowed && proof.certain
+	if skipAllowed && proof.identityUnproven {
+		run.result.count(ReasonIdentityUnproven, 1)
+	}
 	if err := run.addStopped(ctx, candidate, savePath, skipChecking); err != nil {
 		return err
 	}
@@ -184,34 +199,77 @@ func (run seedRun) markSourcesChanged(ctx context.Context, proposalID, candidate
 	return run.deps.Store.SetCandidateState(ctx, candidateID, store.CandidateStale, run.deps.now())
 }
 
+// placementProof : certain dit que chaque lien est prouvé par l'identité du fichier (I4) ; identityUnproven, qu'un
+// lien distant (ou enregistré comme tel par une exécution précédente) l'empêche, quoi que dise le volume.
+type placementProof struct {
+	certain          bool
+	identityUnproven bool
+}
+
 // checkPlacement contrôle chaque lien (même fichier que sa source, ou même taille et même empreinte pour un reflink) et
-// chaque annexe (taille et sha256). certain est faux dès qu'un lien n'est prouvé que par l'empreinte début-fin : le
-// client doit alors recontrôler.
-func (run seedRun) checkPlacement(ctx context.Context, proven provenTorrent, linkRoot string) (certain bool, damage string, err error) {
-	ops, planErr := linker.Plan(proven.torrent, proven.assignment, linkRoot, fsys.LocalPaths())
+// chaque annexe (taille et sha256), par le registre. La preuve n'est certaine que si chaque lien l'est par l'identité du
+// fichier sur le disque local, et qu'aucun n'est enregistré comme non prouvé : le client doit sinon recontrôler.
+func (run seedRun) checkPlacement(ctx context.Context, proven provenTorrent, linkRoot string) (placementProof, string, error) {
+	root, rootErr := locationOfStoredPath(linkRoot)
+	if rootKnown := rootErr == nil; !rootKnown {
+		return placementProof{}, ReasonLinkChanged, nil
+	}
+	ops, planErr := planOps(proven, root)
 	planned := planErr == nil
 	if !planned {
-		return false, ReasonLinkChanged, nil
+		return placementProof{}, ReasonLinkChanged, nil
 	}
-	certain = true
+	readFS, _, err := readRegistryOrLocal(run.deps.Registry).Read(root)
+	if err != nil {
+		return placementProof{}, "", err
+	}
+	recordedUnproven, err := run.recordedUnproven(ctx)
+	if err != nil {
+		return placementProof{}, "", err
+	}
+	proof := placementProof{certain: true}
 	for _, operation := range ops {
-		kind, matches, err := entryMatches(ctx, run.deps, operation.Destination, operation.Source)
+		match, err := entryMatches(ctx, run.deps, readFS, operation.Destination, operation.Source)
 		if err != nil {
-			return false, "", err
+			return placementProof{}, "", err
 		}
-		if !matches {
-			return false, ReasonLinkChanged, nil
+		if !match.matches {
+			return placementProof{}, ReasonLinkChanged, nil
 		}
-		certain = certain && kind != linker.Reflink
+		isUnproven := root.Volume != "" || recordedUnproven[storedIn(root.Volume, operation.Destination)]
+		proof.identityUnproven = proof.identityUnproven || isUnproven
+		proof.certain = proof.certain && match.identityProven && !isUnproven
 	}
 	for _, annex := range proven.annexes {
-		path, pathErr := annexPath(proven.torrent, linkRoot, annex)
-		pathKnown := pathErr == nil
-		if !pathKnown || !annexMatches(path, annex) {
-			return false, ReasonAnnexChanged, nil
+		path, pathErr := annexPath(proven.torrent, root, annex)
+		if pathKnown := pathErr == nil; !pathKnown {
+			return placementProof{}, ReasonAnnexChanged, nil
+		}
+		matches, err := annexMatches(readFS, path, annex)
+		if err != nil {
+			return placementProof{}, "", err
+		}
+		if !matches {
+			return placementProof{}, ReasonAnnexChanged, nil
 		}
 	}
-	return certain, "", nil
+	return proof, "", nil
+}
+
+// recordedUnproven rend les liens enregistrés dont l'identité n'est pas prouvée : l'état survit d'une exécution à
+// l'autre, même si le volume rendait plus tard une identité.
+func (run seedRun) recordedUnproven(ctx context.Context) (map[string]bool, error) {
+	links, err := run.deps.Store.ListLinks(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	unproven := map[string]bool{}
+	for _, link := range links {
+		if link.IdentityUnproven() {
+			unproven[link.LinkPath] = true
+		}
+	}
+	return unproven, nil
 }
 
 // verifiedComplete : seul un torrent complet dont NOTRE vérification a couvert toutes les pièces peut être repris ;
@@ -346,16 +404,43 @@ type refusal string
 
 func (reason refusal) Error() string { return "pipeline: refused: " + string(reason) }
 
-// clientPath traduit le dossier du torrent vers la vue du client ; sans règle qui le couvre (linker.ErrNoRule), il
-// voit le même chemin. Un chemin Windows qui contient un caractère interdit par Windows est refusé.
-func (run seedRun) clientPath(linkRoot string) (string, bool) {
+// clientPath traduit le dossier du torrent vers la vue du client et rend, sinon, la raison du refus. En local, sans
+// règle qui le couvre (linker.ErrNoRule), le client voit le même chemin ; un dossier distant exige une règle
+// (client_path_unmapped), « même chemin » n'ayant aucun sens entre deux machines. Un chemin Windows qui contient un
+// caractère interdit par Windows est refusé.
+func (run seedRun) clientPath(linkRoot string) (string, string) {
+	if strings.HasPrefix(linkRoot, remoteLocationPrefix) {
+		return run.remoteClientPath(linkRoot)
+	}
 	translated := linkRoot
 	if run.deps.ClientMapper != nil {
 		if mapped, err := run.deps.ClientMapper.Translate(linkRoot); err == nil {
 			translated = mapped
 		}
 	}
-	return translated, !hasWindowsInvalidCharacters(translated)
+	return windowsChecked(translated)
+}
+
+// remoteLocationPrefix ouvre une adresse distante enregistrée ; la règle doit la traduire hors de cette forme.
+const remoteLocationPrefix = "sftp:"
+
+func (run seedRun) remoteClientPath(linkRoot string) (string, string) {
+	if run.deps.ClientMapper == nil {
+		return "", ReasonClientPathUnmapped
+	}
+	mapped, err := run.deps.ClientMapper.Translate(linkRoot)
+	isMapped := err == nil && mapped != "" && !strings.HasPrefix(mapped, remoteLocationPrefix)
+	if !isMapped {
+		return "", ReasonClientPathUnmapped
+	}
+	return windowsChecked(mapped)
+}
+
+func windowsChecked(clientPath string) (string, string) {
+	if hasWindowsInvalidCharacters(clientPath) {
+		return "", ReasonClientPathInvalid
+	}
+	return clientPath, ""
 }
 
 // windowsInvalidCharacters sont interdits dans un nom de fichier Windows (le « : » du lecteur mis à part).

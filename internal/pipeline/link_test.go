@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
@@ -289,5 +295,108 @@ func TestLinkStage_fallsBackOnlyToListedKinds(t *testing.T) {
 	links, err := fixture.store.ListLinks(context.Background(), "")
 	if err != nil || len(links) != 1 || links[0].Kind != "symlink" || links[0].Fingerprint == "" {
 		t.Fatalf("gotValue %+v %v, expectedValue one recorded symlink with its fingerprint", links, err)
+	}
+}
+
+func TestLink_remoteLinkDirLinksThroughTheRegistryAndRecordsTheVolume(t *testing.T) {
+	fixture, volume := newRemoteApplyFixture(t)
+	candidate, proposal := fixture.linkedProposal(movieOnly(), store.ProposalFull)
+
+	linkRoot := fixture.progressOf(proposal.ID).LinkRoot
+	valeurAttendueRacine := "sftp://seedbox/srv/links/Movie.2020 [" + candidate.Infohash + "]"
+	if linkRoot != valeurAttendueRacine {
+		t.Fatalf("valeurAttendue the link root %s, valeurObtenue %s", valeurAttendueRacine, linkRoot)
+	}
+	assertSameFile(t, volume.LocalPath("/srv/links/Movie.2020 ["+candidate.Infohash+"]/Movie.2020/movie.mkv"),
+		fixture.libraryPath("movie.mkv"))
+	links := fixture.linksOf()
+	if len(links) != 1 {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue one recorded link", links)
+	}
+	valeurObtenue := links[0]
+	isRemoteRow := valeurObtenue.Volume == remoteVolumeName && valeurObtenue.IdentityUnproven() && !valeurObtenue.InodeReliable &&
+		valeurObtenue.LinkPath == valeurAttendueRacine+"/Movie.2020/movie.mkv" &&
+		valeurObtenue.TargetPath == "sftp://seedbox/srv/media/movie.mkv"
+	if !isRemoteRow {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue the remote link recorded with its volume and an unproven identity", valeurObtenue)
+	}
+}
+
+func TestLink_remoteUnavailableIsRetriedOnTheNextRun(t *testing.T) {
+	fixture, volume := newRemoteApplyFixture(t)
+	candidate := fixture.addCandidate("Movie.2020", "", movieOnly())
+	proposal := fixture.verifiedProposal(candidate, store.ProposalFull)
+	fixture.accept(proposal.ID)
+	volume.Unavailable.Store(true)
+
+	unavailable := fixture.mustRunStage(StageLink)
+
+	isKept := fixture.decisionOf(proposal.ID) == store.ProposalAccepted && fixture.progressOf(proposal.ID).Step == ""
+	if unavailable.Reasons[ReasonRemoteUnavailable] != 1 || unavailable.Failed != 0 || !isKept {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue remote_unavailable with the proposal still accepted", unavailable)
+	}
+	volume.Unavailable.Store(false)
+
+	if healed := fixture.mustRunStage(StageLink); healed.Linked != 1 {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue the proposal linked on the next run", healed)
+	}
+}
+
+func TestLink_fingerprintReadsGoThroughTheRegistryUnderTheReadLimiter(t *testing.T) {
+	fixture := newApplyFixture(t)
+	recording := &recordingVolume{ReadFS: local.New(), inner: local.New()}
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"": recording}, []fsys.Location{{Path: fixture.root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.registry = registry
+	limiter := &byteCountingLimiter{}
+	fixture.limiter = limiter
+	candidate := fixture.addCandidate("Movie.2020", "", movieOnly())
+	proposal := fixture.verifiedProposal(candidate, store.ProposalFull)
+	fixture.accept(proposal.ID)
+	limiter.requested.Store(0)
+	recording.bytesRead.Store(0)
+
+	if result := fixture.mustRunStage(StageLink); result.Linked != 1 {
+		t.Fatalf("link: %+v", result)
+	}
+
+	octetsLus, valeurObtenue := recording.bytesRead.Load(), limiter.requested.Load()
+	if octetsLus == 0 || valeurObtenue < octetsLus {
+		t.Fatalf("valeurAttendue the limiter charged for the %d bytes read through the registry, valeurObtenue %d", octetsLus, valeurObtenue)
+	}
+}
+
+// stageFilesThroughRegistry sont les fichiers de Link, Seed et Force : aucun accès disque hors du registre.
+var stageFilesThroughRegistry = []string{"link.go", "proven.go", "isolate.go", "seed.go", "write_roots.go"}
+
+func TestLinkSeedAndForce_touchTheDiskOnlyThroughTheRegistry(t *testing.T) {
+	forbiddenFilepath := map[string]bool{"WalkDir": true, "Walk": true, "EvalSymlinks": true, "Abs": true, "Glob": true}
+	for _, fileName := range stageFilesThroughRegistry {
+		parsed, err := parser.ParseFile(token.NewFileSet(), fileName, nil, parser.ImportsOnly|parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, imported := range parsed.Imports {
+			if path := strings.Trim(imported.Path.Value, `"`); path == "os" || path == "syscall" || path == "io/ioutil" {
+				t.Errorf("%s imports %s, valeurAttendue disk access only through the registry", fileName, path)
+			}
+		}
+		full, err := parser.ParseFile(token.NewFileSet(), fileName, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(full, func(node ast.Node) bool {
+			selector, isSelector := node.(*ast.SelectorExpr)
+			if !isSelector {
+				return true
+			}
+			qualifier, isIdentifier := selector.X.(*ast.Ident)
+			if isIdentifier && qualifier.Name == "filepath" && forbiddenFilepath[selector.Sel.Name] {
+				t.Errorf("%s calls filepath.%s, valeurAttendue disk access only through the registry", fileName, selector.Sel.Name)
+			}
+			return true
+		})
 	}
 }

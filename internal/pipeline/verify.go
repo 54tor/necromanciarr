@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 
 	"necromanciarr/internal/libraryprovider"
@@ -149,7 +148,7 @@ func (run candidateRun) currentLocalFiles(associations []store.CandidateFile) ([
 		if !known {
 			return nil, false
 		}
-		info, err := os.Stat(mediaFile.Path)
+		info, err := statStored(run.deps.Registry, mediaFile.Path)
 		if err != nil || info.Size() != association.MediaSize || !info.ModTime().Equal(association.MediaModTime) {
 			return nil, false
 		}

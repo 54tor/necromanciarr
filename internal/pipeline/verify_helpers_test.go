@@ -200,6 +200,8 @@ type verifyFixture struct {
 	realChain bool
 	// chain remplace la chaîne de sources (secours par les indexeurs) ; nil garde les deux cas ci-dessus.
 	chain SourceChain
+	// remoteLibrary, non vide, est l'adresse sftp:// de root : l'inventaire enregistre alors les chemins distants.
+	remoteLibrary string
 }
 
 // testTracker remplace le tracker vide d'un candidat de test : une entrée trackers le couvre, comme un candidat réel
@@ -244,11 +246,15 @@ func (fixture *verifyFixture) writeLocal(name string, content []byte) store.Medi
 	if err != nil {
 		fixture.t.Fatal(err)
 	}
+	storedPath := localPath
+	if fixture.remoteLibrary != "" {
+		storedPath = fixture.remoteLibrary + "/" + name
+	}
 	ctx := context.Background()
-	if err := fixture.store.UpsertMediaFile(ctx, store.MediaFile{Path: localPath, Size: info.Size(), ModTime: info.ModTime(), TMDBID: 603}); err != nil {
+	if err := fixture.store.UpsertMediaFile(ctx, store.MediaFile{Path: storedPath, Size: info.Size(), ModTime: info.ModTime(), TMDBID: 603}); err != nil {
 		fixture.t.Fatal(err)
 	}
-	return mediaFilesByPath(fixture.t, fixture.store)[localPath]
+	return mediaFilesByPath(fixture.t, fixture.store)[storedPath]
 }
 
 // addCandidate enregistre le torrent chez le fournisseur factice et le candidat associé aux fichiers locaux, puis regroupe.

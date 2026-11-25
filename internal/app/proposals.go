@@ -368,8 +368,14 @@ func (svc *service) checkSourcesUnchanged(ctx context.Context, candidateID int64
 	if err != nil && !errors.Is(err, store.ErrAssignmentMismatch) {
 		return err
 	}
-	if found && err == nil && !pipeline.AssignedFilesChanged(assignment.Files) {
-		return nil
+	if found && err == nil {
+		changed, statErr := pipeline.AssignedFilesChanged(svc.deps.Stages.Registry, assignment.Files)
+		if statErr != nil {
+			return statErr
+		}
+		if !changed {
+			return nil
+		}
 	}
 	if err := svc.deps.Store.SetCandidateState(ctx, candidateID, store.CandidateStale, svc.now()); err != nil {
 		return err

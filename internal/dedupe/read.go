@@ -36,7 +36,7 @@ type meter struct {
 	bytesRead int64
 }
 
-func (readMeter *meter) readAt(file *os.File, buffer []byte, offset int64) error {
+func (readMeter *meter) readAt(file io.ReaderAt, buffer []byte, offset int64) error {
 	if err := readMeter.wait(len(buffer)); err != nil {
 		return err
 	}
@@ -106,6 +106,11 @@ func fingerprintFile(readMeter *meter, path string, size int64) (string, error) 
 		return "", err
 	}
 	defer func() { _ = file.Close() }()
+	return fingerprintReader(readMeter, file, size)
+}
+
+// fingerprintReader calcule l'empreinte début-fin sur un lecteur déjà ouvert (fichier d'un volume fsys compris).
+func fingerprintReader(readMeter *meter, file io.ReaderAt, size int64) (string, error) {
 	hasher := sha256.New()
 	buffer := make([]byte, readChunkSize)
 	for _, span := range headTailRanges(size) {

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
-	"os"
 	"slices"
 
 	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
 )
@@ -47,19 +47,24 @@ func IsolateStraddlingMedia(ctx context.Context, deps Deps, proposal store.Propo
 	if reason != "" {
 		return IsolationResult{}, fmt.Errorf("%w: %s", ErrPlacementChanged, reason)
 	}
-	ops, err := straddlingLinks(proven, linkRoot)
+	root, err := locationOfStoredPath(linkRoot)
 	if err != nil {
 		return IsolationResult{}, fmt.Errorf("%w: %w", ErrPlacementChanged, err)
 	}
-	prepared, err := prepareCopies(deps, ops)
+	ops, err := straddlingLinks(deps, proven, root)
+	if err != nil {
+		return IsolationResult{}, fmt.Errorf("%w: %w", ErrPlacementChanged, err)
+	}
+	prepared, err := prepareCopies(deps, root.Volume, ops)
 	if err != nil {
 		return IsolationResult{}, err
 	}
-	if AssignedFilesChanged(assignedFilesOf(proven)) {
+	changed, err := AssignedFilesChanged(deps.Registry, assignedFilesOf(proven))
+	if err != nil || changed {
 		discardCopies(prepared)
-		return IsolationResult{}, fmt.Errorf("%w: %s", ErrPlacementChanged, ReasonChangedFile)
+		return IsolationResult{}, errors.Join(err, fmt.Errorf("%w: %s", ErrPlacementChanged, ReasonChangedFile))
 	}
-	result, err := commitCopies(ctx, deps, ops, prepared)
+	result, err := commitCopies(ctx, deps, root.Volume, ops, prepared)
 	if err != nil {
 		return result, err
 	}
@@ -71,8 +76,12 @@ func IsolateStraddlingMedia(ctx context.Context, deps Deps, proposal store.Propo
 
 // straddlingLinks liste les liens du dossier qui désignent encore le fichier de la bibliothèque (lien dur ou
 // symbolique) et recouvrent une pièce que le client devra télécharger ; un reflink ou une copie est déjà indépendant.
-func straddlingLinks(proven provenTorrent, linkRoot string) ([]linker.Op, error) {
-	ops, err := linker.Plan(proven.torrent, proven.assignment, linkRoot, fsys.LocalPaths())
+func straddlingLinks(deps Deps, proven provenTorrent, root fsys.Location) ([]linker.Op, error) {
+	ops, err := planOps(proven, root)
+	if err != nil {
+		return nil, err
+	}
+	readFS, _, err := readRegistryOrLocal(deps.Registry).Read(root)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +92,7 @@ func straddlingLinks(proven provenTorrent, linkRoot string) ([]linker.Op, error)
 		if !exposed[fileIndexes[opIndex]] {
 			continue
 		}
-		shared, err := sharesLibraryFile(operation)
+		shared, err := sharesLibraryFile(readFS, operation)
 		if err != nil {
 			return nil, err
 		}
@@ -120,30 +129,36 @@ func filesSharingMissingPieces(proven provenTorrent) map[int]bool {
 }
 
 // sharesLibraryFile : un lien symbolique, ou un fichier qui est le même inode que la source, ferait écrire le client
-// dans la bibliothèque.
-func sharesLibraryFile(operation linker.Op) (bool, error) {
-	entryInfo, err := os.Lstat(operation.Destination)
+// dans la bibliothèque. À distance, une identité inconnue compte comme partagée : rien ne prouve le contraire.
+func sharesLibraryFile(readFS fsys.ReadFS, operation linker.Op) (bool, error) {
+	entryInfo, err := readFS.Lstat(operation.Destination)
 	if err != nil {
 		return false, err
 	}
 	if entryInfo.Mode()&fs.ModeSymlink != 0 {
 		return true, nil
 	}
-	sourceInfo, err := os.Stat(operation.Source)
+	sourceInfo, err := readFS.Stat(operation.Source)
 	if err != nil {
 		return false, err
 	}
-	return os.SameFile(entryInfo, sourceInfo), nil
+	if readFS.Volume() == "" {
+		return local.SameFile(entryInfo, sourceInfo), nil
+	}
+	entryID, entryKnown := readFS.FileID(entryInfo)
+	sourceID, sourceKnown := readFS.FileID(sourceInfo)
+	return !entryKnown || !sourceKnown || entryID == sourceID, nil
 }
 
-func prepareCopies(deps Deps, ops []linker.Op) ([]linker.PreparedCopy, error) {
+// prepareCopies prépare chaque copie ; les chemins passés à Deps.PrepareCopy sont sous leur forme enregistrée.
+func prepareCopies(deps Deps, volume string, ops []linker.Op) ([]linker.PreparedCopy, error) {
 	prepare := deps.PrepareCopy
 	if prepare == nil {
 		prepare = deps.prepareCopyUnder
 	}
 	prepared := make([]linker.PreparedCopy, 0, len(ops))
 	for _, operation := range ops {
-		copied, err := prepare(operation.Source, operation.Destination, operation.Root)
+		copied, err := prepare(storedIn(volume, operation.Source), storedIn(volume, operation.Destination), storedIn(volume, operation.Root))
 		if err != nil {
 			discardCopies(prepared)
 			return nil, fmt.Errorf("%w: %w", ErrIsolationImpossible, err)
@@ -161,17 +176,17 @@ func discardCopies(prepared []linker.PreparedCopy) {
 
 // commitCopies met chaque copie en place puis l'enregistre avec sa sorte ; un échec de renommage arrête et retire les
 // copies non encore posées.
-func commitCopies(ctx context.Context, deps Deps, ops []linker.Op, prepared []linker.PreparedCopy) (IsolationResult, error) {
+func commitCopies(ctx context.Context, deps Deps, volume string, ops []linker.Op, prepared []linker.PreparedCopy) (IsolationResult, error) {
 	var result IsolationResult
 	for copyIndex, copied := range prepared {
 		if err := copied.Commit(); err != nil {
 			discardCopies(prepared[copyIndex:])
 			return result, err
 		}
-		if err := recordLink(ctx, deps, ops[copyIndex], copied.Kind); err != nil {
+		if err := recordLink(ctx, deps, volume, ops[copyIndex], copied.Kind); err != nil {
 			return result, err
 		}
-		result.Replaced = append(result.Replaced, IsolatedFile{LinkPath: ops[copyIndex].Destination, Kind: copied.Kind.String()})
+		result.Replaced = append(result.Replaced, IsolatedFile{LinkPath: storedIn(volume, ops[copyIndex].Destination), Kind: copied.Kind.String()})
 	}
 	return result, nil
 }

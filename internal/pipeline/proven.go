@@ -6,11 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
-	"os"
-	"path/filepath"
 
 	"necromanciarr/internal/dedupe"
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/matcher"
 	"necromanciarr/internal/store"
@@ -37,7 +38,11 @@ func loadProven(ctx context.Context, deps Deps, proposal store.Proposal, candida
 	case !found:
 		return provenTorrent{}, ReasonNoVerifiedAssignment, nil
 	}
-	if AssignedFilesChanged(assignment.Files) {
+	changed, err := AssignedFilesChanged(deps.Registry, assignment.Files)
+	if err != nil {
+		return provenTorrent{}, "", err
+	}
+	if changed {
 		return provenTorrent{}, ReasonChangedFile, nil
 	}
 	raw, err := deps.Store.CandidateTorrent(ctx, candidate.ID)
@@ -60,16 +65,21 @@ func loadProven(ctx context.Context, deps Deps, proposal store.Proposal, candida
 	return proven, "", nil
 }
 
-// AssignedFilesChanged compare chaque fichier associé à son instantané de vérification (taille, date à la
-// nanoseconde) ; un fichier absent compte comme changé.
-func AssignedFilesChanged(files []store.AssignedFile) bool {
+// AssignedFilesChanged compare, par le registre (nil : disque local), chaque fichier associé à son instantané de
+// vérification (taille, date à la nanoseconde) ; un fichier absent compte comme changé. Seule une coupure du volume
+// distant (fsys.ErrRemoteUnavailable) est une erreur : rien n'est conclu, la reprise se fera à la relance.
+func AssignedFilesChanged(registry *fsys.Registry, files []store.AssignedFile) (bool, error) {
 	for _, file := range files {
-		info, err := os.Stat(file.Path)
-		if err != nil || info.Size() != file.Size || !info.ModTime().Equal(file.ModTime) {
-			return true
+		info, statErr := statStored(registry, file.Path)
+		if isRemoteUnavailable(statErr) {
+			return false, statErr
+		}
+		isUnchanged := statErr == nil && info.Size() == file.Size && info.ModTime().Equal(file.ModTime)
+		if !isUnchanged {
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func excludedPaths(proposal store.Proposal) map[string]bool {
@@ -98,63 +108,127 @@ func provenAssignment(torrent *torrentcheck.Torrent, assignment store.VerifiedAs
 	return proven
 }
 
-// annexPath est le chemin de l'annexe sous le dossier du torrent.
-func annexPath(torrent *torrentcheck.Torrent, linkRoot string, annex store.VerifiedFile) (string, error) {
+// annexPath est le chemin, dans le volume de linkRoot, de l'annexe sous le dossier du torrent.
+func annexPath(torrent *torrentcheck.Torrent, linkRoot fsys.Location, annex store.VerifiedFile) (string, error) {
 	relative, err := linker.RelativeDestination(torrent, annex.FileIndex)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(linkRoot, filepath.FromSlash(relative)), nil
+	return absoluteOf(linkRoot, relative), nil
 }
 
-// entryMatches dit si destination porte déjà le contenu de source, et sous quelle sorte : même fichier (lien dur ou
-// symbolique), ou fichier ordinaire de même taille et de même empreinte début-fin (un reflink ne se distingue pas
-// d'une copie). Une destination absente ne correspond pas.
-func entryMatches(ctx context.Context, deps Deps, destination, source string) (linker.Kind, bool, error) {
-	entryInfo, err := os.Lstat(destination)
+// linkMatch dit si une destination porte le contenu de sa source, sous quelle sorte, et si l'identité du fichier le
+// prouve (I4) : seulement le même fichier sur le disque local ; à distance, jamais, même avec une identité connue.
+type linkMatch struct {
+	kind           linker.Kind
+	matches        bool
+	identityProven bool
+}
+
+// entryMatches dit si destination porte déjà le contenu de source (chemins du volume de readFS) : même fichier (lien
+// dur ou symbolique), ou fichier ordinaire de même taille et de même empreinte début-fin (un reflink ne se distingue
+// pas d'une copie). Une destination absente ne correspond pas ; une coupure du volume distant est une erreur.
+func entryMatches(ctx context.Context, deps Deps, readFS fsys.ReadFS, destination, source string) (linkMatch, error) {
+	entryInfo, err := readFS.Lstat(destination)
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, false, nil
+		return linkMatch{}, nil
 	}
 	if err != nil {
-		return 0, false, err
+		return linkMatch{}, err
 	}
 	// Une source illisible ne prouve rien : la destination ne correspond pas.
-	sourceInfo, sourceErr := os.Stat(source)
-	sourceReadable := sourceErr == nil
-	if !sourceReadable {
-		return 0, false, nil
+	sourceInfo, sourceErr := readFS.Stat(source)
+	if isRemoteUnavailable(sourceErr) {
+		return linkMatch{}, sourceErr
 	}
-	if resolved, statErr := os.Stat(destination); statErr == nil && os.SameFile(resolved, sourceInfo) {
-		if entryInfo.Mode()&fs.ModeSymlink != 0 {
-			return linker.Symlink, true, nil
+	if sourceReadable := sourceErr == nil; !sourceReadable {
+		return linkMatch{}, nil
+	}
+	isSymlink := entryInfo.Mode()&fs.ModeSymlink != 0
+	isLocal := readFS.Volume() == ""
+	if sameFileByIdentity(readFS, destination, sourceInfo) {
+		kind := linker.Hardlink
+		if isSymlink {
+			kind = linker.Symlink
 		}
-		return linker.Hardlink, true, nil
+		return linkMatch{kind: kind, matches: true, identityProven: isLocal}, nil
+	}
+	if isSymlink && !isLocal {
+		target, err := readFS.Readlink(destination)
+		if isRemoteUnavailable(err) {
+			return linkMatch{}, err
+		}
+		return linkMatch{kind: linker.Symlink, matches: err == nil && target == source}, nil
 	}
 	if !entryInfo.Mode().IsRegular() || entryInfo.Size() != sourceInfo.Size() {
-		return 0, false, nil
+		return linkMatch{}, nil
 	}
-	// Empreinte de la destination sans cache : elle ne doit jamais emprunter celle d'un autre fichier.
-	destinationPrint, _, err := dedupe.HeadTailFingerprint(ctx, nil, deps.ReadLimiter, destination, entryInfo.Size(), entryInfo.ModTime(), true)
-	if err != nil {
-		return 0, false, err
-	}
-	sourcePrint, _, err := dedupe.HeadTailFingerprint(ctx, deps.Store, deps.ReadLimiter, source, sourceInfo.Size(), sourceInfo.ModTime(), true)
-	if err != nil {
-		return 0, false, err
-	}
-	return linker.Reflink, destinationPrint == sourcePrint, nil
+	sameContent, err := sameHeadTail(ctx, deps, readFS, destination, entryInfo, source, sourceInfo)
+	return linkMatch{kind: linker.Reflink, matches: sameContent}, err
 }
 
-// annexMatches dit si path est un fichier ordinaire de la taille et du sha256 de l'annexe vérifiée.
-func annexMatches(path string, annex store.VerifiedFile) bool {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() != annex.Size {
-		return false
-	}
-	content, err := os.ReadFile(path) // #nosec G304 -- chemin sous le dossier de liens du torrent
+// sameFileByIdentity : en local, même fichier au sens du système (comme os.SameFile) ; à distance, identités connues
+// et égales, sinon rien n'est conclu.
+func sameFileByIdentity(readFS fsys.ReadFS, destination string, sourceInfo fs.FileInfo) bool {
+	resolved, err := readFS.Stat(destination)
 	if err != nil {
 		return false
 	}
-	sum := sha256.Sum256(content)
-	return hex.EncodeToString(sum[:]) == annex.SHA256
+	if readFS.Volume() == "" {
+		return local.SameFile(resolved, sourceInfo)
+	}
+	destinationID, destinationKnown := readFS.FileID(resolved)
+	sourceID, sourceKnown := readFS.FileID(sourceInfo)
+	return destinationKnown && sourceKnown && destinationID == sourceID
+}
+
+// sameHeadTail compare les empreintes début-fin, lues par readFS sous le limiteur de lecture ; celle de la
+// destination est calculée sans cache : elle ne doit jamais emprunter celle d'un autre fichier.
+func sameHeadTail(ctx context.Context, deps Deps, readFS fsys.ReadFS, destination string, destinationInfo fs.FileInfo, source string, sourceInfo fs.FileInfo) (bool, error) {
+	volume := readFS.Volume()
+	destinationPrint, err := dedupe.HeadTailFingerprintOf(ctx, nil, deps.ReadLimiter, openerOf(readFS, destination),
+		storedIn(volume, destination), destinationInfo.Size(), destinationInfo.ModTime())
+	if err != nil {
+		return false, err
+	}
+	sourcePrint, err := dedupe.HeadTailFingerprintOf(ctx, deps.Store, deps.ReadLimiter, openerOf(readFS, source),
+		storedIn(volume, source), sourceInfo.Size(), sourceInfo.ModTime())
+	if err != nil {
+		return false, err
+	}
+	return destinationPrint == sourcePrint, nil
+}
+
+func openerOf(readFS fsys.ReadFS, name string) func() (dedupe.ReadAtCloser, error) {
+	return func() (dedupe.ReadAtCloser, error) { return readFS.Open(name) }
+}
+
+// annexMatches dit si path est un fichier ordinaire de la taille et du sha256 de l'annexe vérifiée ; seule une
+// coupure du volume distant est une erreur.
+func annexMatches(readFS fsys.ReadFS, path string, annex store.VerifiedFile) (bool, error) {
+	info, err := readFS.Lstat(path)
+	if isRemoteUnavailable(err) {
+		return false, err
+	}
+	if err != nil || !info.Mode().IsRegular() || info.Size() != annex.Size {
+		return false, nil
+	}
+	file, err := readFS.Open(path)
+	if isRemoteUnavailable(err) {
+		return false, err
+	}
+	if err != nil {
+		return false, nil
+	}
+	defer func() { _ = file.Close() }()
+	hasher := sha256.New()
+	// Un octet de plus : un fichier qui a grandi depuis le Lstat ne correspond plus.
+	copied, err := io.Copy(hasher, io.NewSectionReader(file, 0, annex.Size+1))
+	if isRemoteUnavailable(err) {
+		return false, err
+	}
+	if err != nil || copied != annex.Size {
+		return false, nil
+	}
+	return hex.EncodeToString(hasher.Sum(nil)) == annex.SHA256, nil
 }
