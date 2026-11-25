@@ -15,8 +15,10 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/pkg/sftp"
+	"golang.org/x/time/rate"
 
 	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/fsys/sftpfs"
@@ -531,5 +533,119 @@ func TestSources_neverUseFilepath(t *testing.T) {
 		if bytes.Contains(source, []byte("PathSeparator")) || bytes.Contains(source, []byte("IsPathSeparator")) {
 			t.Errorf("%s uses the local path separator", sourceFile)
 		}
+	}
+}
+
+// waitForRequest attend que le serveur ait reçu une requête de cette méthode.
+func waitForRequest(t *testing.T, server *sftptest.Server, method string) {
+	t.Helper()
+	deadline := time.Now().Add(settleTimeout)
+	for time.Now().Before(deadline) {
+		for _, request := range server.Requests() {
+			if request.Method == method {
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("valeurAttendue a %s request", method)
+}
+
+func assertRemoteUnavailableNotEndOfFile(t *testing.T, label string, err error) {
+	t.Helper()
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("%s: valeurObtenue %v matching end of file, valeurAttendue a lost connection only", label, err)
+	}
+	if !errors.Is(err, fsys.ErrRemoteUnavailable) {
+		t.Errorf("%s: valeurObtenue %v, valeurAttendue ErrRemoteUnavailable", label, err)
+	}
+}
+
+func TestSFTP_lostConnectionIsNeverEndOfFile(t *testing.T) {
+	operations := map[string]func(volume *sftpfs.Volume) error{
+		"Stat": func(volume *sftpfs.Volume) error { _, err := volume.Stat("/"); return err },
+		"List": func(volume *sftpfs.Volume) error { _, err := volume.ReadDir("/"); return err },
+	}
+	for method, operation := range operations {
+		server, volume := readVolume(t, testDeps(), sftptest.StallMethod(method))
+		outcome := make(chan error, 1)
+		go func() { outcome <- operation(volume) }()
+		waitForRequest(t, server, method)
+
+		server.DropConnections()
+
+		lostErr := <-outcome
+		assertRemoteUnavailableNotEndOfFile(t, method, lostErr)
+		waitForState(t, volume, sftpfs.StateBroken)
+	}
+}
+
+func TestSFTPReader_lostConnectionIsNeverEndOfFile(t *testing.T) {
+	server, volume := readVolume(t, testDeps())
+	writeServedFile(t, server, "/movie.mkv", patternBytes(readFileBytes))
+	file := openRemote(t, volume, "/movie.mkv")
+
+	server.DropConnections()
+	_, err := file.ReadAt(make([]byte, readFileBytes), 0)
+
+	assertRemoteUnavailableNotEndOfFile(t, "ReadAt", err)
+	waitForState(t, volume, sftpfs.StateBroken)
+}
+
+func TestSFTPReader_closeReleasesALimiterWait(t *testing.T) {
+	server, volume := readVolume(t, testDeps())
+	sftpfs.SetProviderLimiter(volume, rate.NewLimiter(1, sftpfs.LimiterChunkBytes))
+	writeServedFile(t, server, "/movie.mkv", patternBytes(2*sftpfs.LimiterChunkBytes))
+	file := openRemote(t, volume, "/movie.mkv")
+	outcome := make(chan error, 1)
+	go func() {
+		_, err := file.ReadAt(make([]byte, 2*sftpfs.LimiterChunkBytes), 0)
+		outcome <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+
+	_ = volume.Close()
+
+	select {
+	case err := <-outcome:
+		if !errors.Is(err, fsys.ErrRemoteUnavailable) {
+			t.Fatalf("valeurObtenue %v, valeurAttendue ErrRemoteUnavailable", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("valeurObtenue a limiter wait still blocked 1 s after Close, valeurAttendue released")
+	}
+}
+
+func TestSFTPReader_staleHandlePaysNoTokens(t *testing.T) {
+	global := &countingLimiter{}
+	deps := testDeps()
+	deps.Limiter = global
+	server, volume := readVolume(t, deps)
+	provider := &countingLimiter{}
+	sftpfs.SetProviderLimiter(volume, provider)
+	writeServedFile(t, server, "/movie.mkv", []byte("movie"))
+	file := openRemote(t, volume, "/movie.mkv")
+	server.DropConnections()
+	waitForState(t, volume, sftpfs.StateBroken)
+
+	_, err := file.ReadAt(make([]byte, 5), 0)
+
+	if !errors.Is(err, fsys.ErrRemoteUnavailable) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue ErrRemoteUnavailable", err)
+	}
+	for name, limiter := range map[string]*countingLimiter{"provider": provider, "global": global} {
+		if waited, _ := limiter.totals(); waited != 0 {
+			t.Errorf("%s: valeurObtenue %d bytes waited, valeurAttendue 0 for a stale handle", name, waited)
+		}
+	}
+}
+
+func TestSFTPReader_negativeOffsetIsInvalid(t *testing.T) {
+	server, volume := readVolume(t, testDeps())
+	writeServedFile(t, server, "/movie.mkv", []byte("movie"))
+	file := openRemote(t, volume, "/movie.mkv")
+
+	if _, err := file.ReadAt(make([]byte, 5), -1); !errors.Is(err, fs.ErrInvalid) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue fs.ErrInvalid", err)
 	}
 }

@@ -51,23 +51,28 @@ func (deps Deps) withDefaults() Deps {
 	return deps
 }
 
-// session est une connexion SSH et son client SFTP ; done se ferme quand la connexion est tombée.
+// session est une connexion SSH et son client SFTP ; done se ferme quand la connexion est tombée, lifetime est
+// annulé à sa fermeture (attentes des limiteurs comprises).
 type session struct {
 	sshClient *ssh.Client
 	client    *sftp.Client
 	done      chan struct{}
+	lifetime  context.Context
+	cancel    context.CancelFunc
 	closeOnce sync.Once
 	closed    atomic.Bool
 }
 
 func newSession(sshClient *ssh.Client, client *sftp.Client) *session {
-	return &session{sshClient: sshClient, client: client, done: make(chan struct{})}
+	lifetime, cancel := context.WithCancel(context.Background())
+	return &session{sshClient: sshClient, client: client, done: make(chan struct{}), lifetime: lifetime, cancel: cancel}
 }
 
 // close ferme la connexion SSH avant le client SFTP : c'est elle qui débloque les requêtes en vol.
 func (current *session) close() {
 	current.closeOnce.Do(func() {
 		current.closed.Store(true)
+		current.cancel()
 		_ = current.sshClient.Close()
 		_ = current.client.Close()
 	})
@@ -176,10 +181,18 @@ func (volume *Volume) callOn(ctx context.Context, current *session, operation st
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if current.closed.Load() {
-		return fmt.Errorf("%w: sftpfs: %s on %s: session closed", fsys.ErrRemoteUnavailable, operation, volume.provider.Address)
+	if err := volume.sessionGone(current, operation); err != nil {
+		return err
 	}
 	return volume.run(ctx, current, operation, fn)
+}
+
+// sessionGone rend fsys.ErrRemoteUnavailable pour une session fermée, sans appel réseau.
+func (volume *Volume) sessionGone(current *session, operation string) error {
+	if !current.closed.Load() {
+		return nil
+	}
+	return fmt.Errorf("%w: sftpfs: %s on %s: session closed", fsys.ErrRemoteUnavailable, operation, volume.provider.Address)
 }
 
 func (volume *Volume) run(ctx context.Context, current *session, operation string, fn func(current *session) error) error {
@@ -215,7 +228,9 @@ func (volume *Volume) operationError(current *session, operation string, err err
 		return err
 	}
 	volume.drop(current)
-	return fmt.Errorf("%w: sftpfs: %s on %s: %w", fsys.ErrRemoteUnavailable, operation, volume.provider.Address, err)
+	// %v : pkg/sftp rend « connection lost: EOF », qui porte io.EOF ; une coupure ne doit jamais passer pour une fin
+	// de fichier (pièce fausse, fichier raccourci).
+	return fmt.Errorf("%w: sftpfs: %s on %s: %v", fsys.ErrRemoteUnavailable, operation, volume.provider.Address, err) //nolint:errorlint // cause citée sans être enveloppée : jamais io.EOF
 }
 
 // acquire rend la session vivante, ou en rouvre une si l'étape ne l'a pas déjà fait.

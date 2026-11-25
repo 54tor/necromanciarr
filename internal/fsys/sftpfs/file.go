@@ -2,6 +2,7 @@ package sftpfs
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 
 	"github.com/pkg/sftp"
@@ -55,6 +56,9 @@ type readOnlyFile struct {
 // ReadAt attend les limiteurs pour len(buffer) octets, puis lit. pkg/sftp peut découper la lecture en
 // maxConcurrentRequests requêtes en vol : elles ne transportent jamais plus que les octets déjà payés.
 func (readOnly readOnlyFile) ReadAt(buffer []byte, offset int64) (int, error) {
+	if offset < 0 {
+		return 0, fmt.Errorf("sftpfs: read %q: %w: negative offset", readOnly.name, fs.ErrInvalid)
+	}
 	return readOnly.read(len(buffer), func(file *sftp.File) (int, error) { return file.ReadAt(buffer, offset) })
 }
 
@@ -64,17 +68,27 @@ func (readOnly readOnlyFile) Read(buffer []byte) (int, error) {
 }
 
 func (readOnly readOnlyFile) read(byteCount int, readFn func(file *sftp.File) (int, error)) (int, error) {
-	ctx := context.Background()
-	if err := readOnly.volume.throttle(ctx, byteCount); err != nil {
+	if err := readOnly.volume.sessionGone(readOnly.current, "read"); err != nil {
 		return 0, err
 	}
+	if err := readOnly.volume.throttle(readOnly.current.lifetime, byteCount); err != nil {
+		return 0, readOnly.throttleError(err)
+	}
 	readCount := 0
-	err := readOnly.volume.callOn(ctx, readOnly.current, "read", func(*session) error {
+	err := readOnly.volume.callOn(context.Background(), readOnly.current, "read", func(*session) error {
 		var readErr error
 		readCount, readErr = readFn(readOnly.file)
 		return readErr
 	})
 	return readCount, mapError("read", readOnly.name, err)
+}
+
+// throttleError : une attente coupée par la fermeture de la session est une indisponibilité du volume.
+func (readOnly readOnlyFile) throttleError(err error) error {
+	if readOnly.current.lifetime.Err() == nil {
+		return err
+	}
+	return fmt.Errorf("%w: sftpfs: read %q: session closed while waiting for the read rate: %v", fsys.ErrRemoteUnavailable, readOnly.name, err) //nolint:errorlint // context.Canceled ne doit pas passer pour l'annulation de l'étape
 }
 
 // Seek déplace la position de Read.
