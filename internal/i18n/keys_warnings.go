@@ -18,11 +18,16 @@ const (
 	KeyWarningNoClientRecheck              Key = "warning.no_client_recheck"
 	KeyWarningLinkNotRecorded              Key = "warning.link_not_recorded"
 
-	KeyWarningDedupeUnreliableInode        Key = "warning.dedupe.unreliable_inode"
-	KeyWarningDedupeFullNetworkRead        Key = "warning.dedupe.full_network_read"
-	KeyWarningDedupeSampledVerify          Key = "warning.dedupe.sampled_verify"
-	KeyWarningDedupeRenameNotAtomic        Key = "warning.dedupe.rename_not_atomic"
-	KeyWarningDedupeFullRemoteRead         Key = "warning.dedupe.full_remote_read"
+	KeyWarningDedupeUnreliableInode Key = "warning.dedupe.unreliable_inode"
+	KeyWarningDedupeFullNetworkRead Key = "warning.dedupe.full_network_read"
+	KeyWarningDedupeSampledVerify   Key = "warning.dedupe.sampled_verify"
+	KeyWarningDedupeRenameNotAtomic Key = "warning.dedupe.rename_not_atomic"
+	KeyWarningDedupeFullRemoteRead  Key = "warning.dedupe.full_remote_read"
+	// KeyWarningDedupeRemoteHashBytes : empreintes calculées par l'hôte distant ; le nombre d'octets est dans remote_hash_bytes.
+	KeyWarningDedupeRemoteHashBytes  Key = "warning.dedupe.remote_hash_bytes"
+	KeyWarningDedupeRemoteExecFailed Key = "warning.dedupe.remote_exec_failed"
+	// KeyWarningRemoteExecUnavailable : paramètre volume ; un seul avertissement par volume et par session.
+	KeyWarningRemoteExecUnavailable        Key = "warning.remote_exec_unavailable"
 	KeyWarningCrossSeedDelegateNoDaemon    Key = "warning.crossseed.delegate_no_daemon"
 	KeyWarningCrossSeedDelegateUnreachable Key = "warning.crossseed.delegate_unreachable"
 	KeyWarningCrossSeedFallbackNative      Key = "warning.crossseed.fallback_native"
@@ -52,7 +57,8 @@ var warningKeys = []Key{
 	KeyWarningApplicationFailedKindRefused, KeyWarningApplicationFailedDetail, KeyWarningPausedIncompleteAfterRecheck,
 	KeyWarningRecheckFailed, KeyWarningNoClientRecheck, KeyWarningLinkNotRecorded,
 	KeyWarningDedupeUnreliableInode, KeyWarningDedupeFullNetworkRead, KeyWarningDedupeSampledVerify,
-	KeyWarningDedupeRenameNotAtomic, KeyWarningDedupeFullRemoteRead, KeyWarningCrossSeedDelegateNoDaemon, KeyWarningCrossSeedDelegateUnreachable,
+	KeyWarningDedupeRenameNotAtomic, KeyWarningDedupeFullRemoteRead, KeyWarningDedupeRemoteHashBytes,
+	KeyWarningDedupeRemoteExecFailed, KeyWarningRemoteExecUnavailable, KeyWarningCrossSeedDelegateNoDaemon, KeyWarningCrossSeedDelegateUnreachable,
 	KeyWarningCrossSeedFallbackNative, KeyWarningMultipleClients, KeyWarningNoAnnounce, KeyWarningNoAnnounceUnknownTracker,
 	KeyAdviceMountStartRC, KeyAdviceMountNoHash, KeyAdviceMountNoModTime, KeyAdviceMountModTimeUnknown,
 	KeyAdviceMountVFSLinks, KeyAdviceMountRcloneError, KeyAdviceMountNoSample, KeyAdviceMountInvalid,

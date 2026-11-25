@@ -83,6 +83,8 @@ const (
 	KeyReasonServerCopyUnavailable  Key = "reason.server_copy_unavailable"
 	KeyReasonFreeSpaceUnknown       Key = "reason.free_space_unknown"
 	KeyReasonSymlinkOrderUnverified Key = "reason.symlink_order_unverified"
+	KeyReasonRemoteExecRequired     Key = "reason.remote_exec_required"
+	KeyReasonRemoteExecFailed       Key = "reason.remote_exec_failed"
 
 	KeyReasonNoAnnounce                 Key = "reason.no_announce"
 	KeyReasonSealedTorrentUnreadable    Key = "reason.sealed_torrent_unreadable"
@@ -120,6 +122,7 @@ var reasonKeys = []Key{
 	KeyReasonLinkInspectionFailed, KeyReasonHashUnavailable, KeyReasonNoLinkKind, KeyReasonLinkKindUnsupported,
 	KeyReasonLinkProbeFailed, KeyReasonNoAtomicReplace,
 	KeyReasonServerCopyUnavailable, KeyReasonFreeSpaceUnknown, KeyReasonSymlinkOrderUnverified,
+	KeyReasonRemoteExecRequired, KeyReasonRemoteExecFailed,
 	KeyReasonNoAnnounce, KeyReasonSealedTorrentUnreadable, KeyReasonSecretKeyMissing, KeyReasonInfohashChangedAfterInject,
 	KeyReasonIndexerBudgetExhausted, KeyReasonIndexerUnavailable, KeyReasonIndexerAccessDenied, KeyReasonIndexerHostileResponse,
 	KeyReasonForeignDownloadHost, KeyReasonMagnetOnly, KeyReasonTorznabNoExactSize,

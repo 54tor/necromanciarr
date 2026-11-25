@@ -457,6 +457,11 @@ var french = map[Key]string{
 	KeyReasonLinkKindUnsupported:           "aucune sorte de lien demandée n'est prise en charge ici",
 	KeyReasonLinkProbeFailed:               "la sonde du dossier torrent a échoué",
 	KeyReasonNoAtomicReplace:               "le volume ne sait pas remplacer un fichier de façon atomique : aucun remplacement",
+	KeyWarningDedupeRemoteHashBytes:        "empreintes calculées par l'hôte distant : le serveur relit chaque fichier distant en entier (remote_hash_bytes), sans transfert réseau",
+	KeyWarningDedupeRemoteExecFailed:       "commande d'empreinte distante en échec : preuve par lecture complète à travers SFTP",
+	KeyWarningRemoteExecUnavailable:        "commandes distantes indisponibles sur {volume} : lecture SFTP seule (pas d'inode ni d'empreinte distante)", //nolint:misspell // texte français
+	KeyReasonRemoteExecRequired:            "exécution distante exigée (exec: required) mais indisponible sur ce volume : étape refusée",
+	KeyReasonRemoteExecFailed:              "commande distante en échec pour cet élément : relu par SFTP",
 	KeyReasonServerCopyUnavailable:         "Forcer est impossible sur {volume} : le serveur n'offre pas la copie côté serveur (copy-data)",
 	KeyReasonFreeSpaceUnknown:              "Forcer est impossible sur {volume} : la place libre du dossier de liens est inconnue (statvfs absent)",
 	KeyReasonSymlinkOrderUnverified:        "le serveur SFTP n'a pas prouvé l'ordre des arguments d'un lien symbolique : liens symboliques refusés sur ce volume",

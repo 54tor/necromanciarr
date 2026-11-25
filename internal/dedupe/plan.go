@@ -41,6 +41,10 @@ var (
 	warningRenameNotAtomic = i18n.Message{Key: i18n.KeyWarningDedupeRenameNotAtomic}
 	// warningFullRemoteRead annonce le coût d'une preuve par lecture complète sur un volume distant sans empreinte.
 	warningFullRemoteRead = i18n.Message{Key: i18n.KeyWarningDedupeFullRemoteRead}
+	// warningRemoteExecFailed : une commande d'empreinte distante a échoué ; la preuve est une lecture complète.
+	warningRemoteExecFailed = i18n.Message{Key: i18n.KeyWarningDedupeRemoteExecFailed}
+	// warningRemoteHashBytes : les empreintes sont calculées par l'hôte distant (RemoteHashBytes octets lus là-bas).
+	warningRemoteHashBytes = i18n.Message{Key: i18n.KeyWarningDedupeRemoteHashBytes}
 )
 
 // toolEntryMarker repère les entrées temporaires de necromanciarr (sonde, lien en cours) : jamais candidates.
@@ -114,6 +118,12 @@ type Replacement struct {
 	LibraryDevice      uint64
 	LibraryInode       uint64
 	InodeReliable      bool
+	// RemoteHashBytes estime les octets que l'hôte distant lira pour les empreintes de la preuve (sftp-exec), une
+	// lecture par fichier distant ; ils ne passent pas par le réseau ni par BytesToRead.
+	RemoteHashBytes int64
+
+	// remoteExecFailed : une empreinte distante a échoué au plan (remote_exec_failed).
+	remoteExecFailed bool
 }
 
 type libraryFile struct {
@@ -382,7 +392,7 @@ func (run *planRun) describe(replacement *Replacement, torrentInfo fs.FileInfo, 
 	for _, libraryEntry := range identical {
 		libraryPaths = append(libraryPaths, libraryEntry.path)
 	}
-	replacement.Warnings = run.warnings(replacement.TorrentPath, libraryPaths, replacement.Method)
+	replacement.Warnings = append(run.warnings(replacement.TorrentPath, libraryPaths, replacement.Method), remoteExecWarnings(*replacement)...)
 	if len(identical) > 1 {
 		slices.Sort(libraryPaths)
 		replacement.Ambiguous = libraryPaths
@@ -481,6 +491,19 @@ func (run *planRun) warnings(torrentPath string, libraryPaths []string, method M
 	}
 	if method == MethodSampled {
 		warnings = append(warnings, warningSampledVerify)
+	}
+	return warnings
+}
+
+// remoteExecWarnings annonce le coût d'une empreinte calculée par l'hôte distant (remote_hash_bytes, chiffré par
+// RemoteHashBytes) et l'échec d'une commande distante (remote_exec_failed).
+func remoteExecWarnings(replacement Replacement) []i18n.Message {
+	var warnings []i18n.Message
+	if replacement.Method == MethodHash && replacement.RemoteHashBytes > 0 {
+		warnings = append(warnings, warningRemoteHashBytes)
+	}
+	if replacement.remoteExecFailed {
+		warnings = append(warnings, warningRemoteExecFailed)
 	}
 	return warnings
 }

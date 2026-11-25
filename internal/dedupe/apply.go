@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
 )
@@ -208,12 +209,19 @@ func proveIdentity(ctx context.Context, files Files, replacement Replacement, op
 	if err := checkFingerprints(readMeter, files, replacement); err != nil {
 		return finish(err)
 	}
+	verification := options.Verify
 	if method == MethodHash {
 		hashProof, err := proveByHash(ctx, replacement, options, readMeter)
-		proven.algorithm, proven.hash = hashProof.algorithm, hashProof.hash
-		return finish(err)
+		// Empreinte distante en échec en cours d'étape : en auto, la preuve devient une lecture complète (jamais par
+		// échantillons) ; en hash, aucune lecture n'est faite (ErrHashUnavailable).
+		fallsBackToFullRead := errors.Is(err, hashsource.ErrRemoteExecFailed) && options.Verify == VerifyAuto
+		if !fallsBackToFullRead {
+			proven.algorithm, proven.hash = hashProof.algorithm, hashProof.hash
+			return finish(err)
+		}
+		proven.method, verification = MethodFull, VerifyFull
 	}
-	equal, err := sameBytes(readMeter, files, replacement.TorrentPath, replacement.LibraryPath, comparisonRanges(replacement.Size, options.Verify))
+	equal, err := sameBytes(readMeter, files, replacement.TorrentPath, replacement.LibraryPath, comparisonRanges(replacement.Size, verification))
 	if err == nil && !equal {
 		err = fmt.Errorf("%w: %s differs from %s", ErrNotIdentical, replacement.TorrentPath, replacement.LibraryPath)
 	}

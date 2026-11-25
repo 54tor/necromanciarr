@@ -27,10 +27,12 @@ var ErrHashUnavailable = hashsource.ErrHashUnavailable
 var defaultHashAlgorithms = []hashsource.Algorithm{hashsource.MD5}
 
 // hashDecision dit quel algorithme sert et quel côté doit être lu localement faute d'empreinte du stockage.
+// remoteExecFailed : une commande d'empreinte distante a échoué pour l'un des deux fichiers (remote_exec_failed).
 type hashDecision struct {
-	algorithm hashsource.Algorithm
-	torrent   hashsource.Result
-	library   hashsource.Result
+	algorithm        hashsource.Algorithm
+	torrent          hashsource.Result
+	library          hashsource.Result
+	remoteExecFailed bool
 }
 
 func (decision hashDecision) torrentNeedsLocalRead() bool { return !decision.torrent.Available }
@@ -44,6 +46,28 @@ func (decision hashDecision) localReadBytes(size int64) int64 {
 	return 0
 }
 
+// remoteHashBytes : octets que l'hôte distant lit pour calculer les empreintes, une fois par fichier distant haché.
+func (decision hashDecision) remoteHashBytes(torrentPath, libraryPath string, size int64) int64 {
+	var hashedRemotely int64
+	for _, side := range []struct {
+		path   string
+		result hashsource.Result
+	}{{torrentPath, decision.torrent}, {libraryPath, decision.library}} {
+		if IsRemote(side.path) && side.result.Available {
+			hashedRemotely += size
+		}
+	}
+	return hashedRemotely
+}
+
+// usable : un côté sans empreinte se relit en local (hashsource.NewLocal), ce qui n'est possible que sur le disque
+// local ; un fichier distant doit donc avoir son empreinte (sftp-exec).
+func (decision hashDecision) usable(torrentPath, libraryPath string) bool {
+	torrentReadable := decision.torrent.Available || !IsRemote(torrentPath)
+	libraryReadable := decision.library.Available || !IsRemote(libraryPath)
+	return (decision.torrent.Available || decision.library.Available) && torrentReadable && libraryReadable
+}
+
 func (options Options) hashAlgorithms() []hashsource.Algorithm {
 	if len(options.HashAlgorithms) == 0 {
 		return defaultHashAlgorithms
@@ -52,45 +76,52 @@ func (options Options) hashAlgorithms() []hashsource.Algorithm {
 }
 
 // decideHash interroge le stockage pour les deux fichiers. Préfère un algorithme fourni des deux côtés ; sinon, un
-// algorithme fourni d'un seul côté (l'autre sera lu une fois en local) ; found est faux si aucun côté n'en fournit.
-// Un chemin distant n'a encore aucune empreinte du stockage (pas de source sftp-exec) : la preuve est une lecture.
+// algorithme fourni d'un seul côté (l'autre, local, sera lu une fois) ; found est faux si aucun ne convient. Un
+// fichier distant n'a d'empreinte que par sftp-exec ; une commande distante en échec n'est pas une erreur : la
+// décision le note (remoteExecFailed) et la preuve repasse par une lecture complète, jamais par échantillons.
 func decideHash(ctx context.Context, backend hashsource.HashSource, algorithms []hashsource.Algorithm, torrentPath, libraryPath string) (decision hashDecision, found bool, err error) {
-	if backend == nil || IsRemote(torrentPath) || IsRemote(libraryPath) {
+	if backend == nil {
 		return hashDecision{}, false, nil
 	}
 	var oneSided hashDecision
-	foundOneSided := false
+	foundOneSided, execFailed := false, false
 	for _, algorithm := range algorithms {
-		torrent, err := backendHash(ctx, backend, torrentPath, algorithm)
+		torrent, torrentFailed, err := backendHash(ctx, backend, torrentPath, algorithm)
 		if err != nil {
 			return hashDecision{}, false, err
 		}
-		library, err := backendHash(ctx, backend, libraryPath, algorithm)
+		library, libraryFailed, err := backendHash(ctx, backend, libraryPath, algorithm)
 		if err != nil {
 			return hashDecision{}, false, err
 		}
+		execFailed = execFailed || torrentFailed || libraryFailed
 		candidate := hashDecision{algorithm: algorithm, torrent: torrent, library: library}
 		switch {
 		case torrent.Available && library.Available:
 			return candidate, true, nil
-		case (torrent.Available || library.Available) && !foundOneSided:
+		case candidate.usable(torrentPath, libraryPath) && !foundOneSided:
 			oneSided, foundOneSided = candidate, true
 		}
 	}
+	oneSided.remoteExecFailed = execFailed
 	return oneSided, foundOneSided, nil
 }
 
-// backendHash : un chemin hors de tout montage n'a simplement pas d'empreinte du stockage ; toute autre erreur (rclone
-// en panne, annulation) remonte, pour ne pas basculer sans bruit sur la lecture de dizaines de Go.
-func backendHash(ctx context.Context, backend hashsource.HashSource, path string, algorithm hashsource.Algorithm) (hashsource.Result, error) {
-	result, err := backend.Hash(ctx, path, algorithm)
+// backendHash : un chemin hors de tout montage n'a simplement pas d'empreinte du stockage, une commande distante en
+// échec non plus (failed vrai) ; toute autre erreur (rclone en panne, volume distant coupé, annulation) remonte, pour
+// ne pas basculer sans bruit sur la lecture de dizaines de Go.
+func backendHash(ctx context.Context, backend hashsource.HashSource, path string, algorithm hashsource.Algorithm) (result hashsource.Result, failed bool, err error) {
+	result, err = backend.Hash(ctx, path, algorithm)
+	if errors.Is(err, hashsource.ErrRemoteExecFailed) {
+		return hashsource.Result{}, true, nil
+	}
 	if errors.Is(err, hashsource.ErrNoMountForPath) || errors.Is(err, hashsource.ErrUnsafePath) {
-		return hashsource.Result{}, nil
+		return hashsource.Result{}, false, nil
 	}
 	if err != nil || result.Origin != hashsource.Backend || !result.Available || len(result.Value) != hexLength(algorithm) {
-		return hashsource.Result{}, err
+		return hashsource.Result{}, false, err
 	}
-	return result, nil
+	return result, false, nil
 }
 
 // chooseMethod fixe Method, HashAlgorithm et BytesToRead d'un Replacement dont le fichier de la bibliothèque est connu.
@@ -101,9 +132,11 @@ func (run *planRun) chooseMethod(replacement *Replacement, libraryPath string) e
 		if err != nil {
 			return err
 		}
+		replacement.remoteExecFailed = decision.remoteExecFailed
 		if found {
 			replacement.Method, replacement.HashAlgorithm = MethodHash, decision.algorithm
 			replacement.BytesToRead = decision.localReadBytes(replacement.Size)
+			replacement.RemoteHashBytes = decision.remoteHashBytes(replacement.TorrentPath, libraryPath, replacement.Size)
 			return nil
 		}
 	}
@@ -155,6 +188,9 @@ func proveByHash(ctx context.Context, replacement Replacement, options Options, 
 	decision, found, err := decideHash(ctx, options.Backend, algorithms, replacement.TorrentPath, replacement.LibraryPath)
 	if err != nil {
 		return proof{}, err
+	}
+	if !found && decision.remoteExecFailed {
+		return proof{}, fmt.Errorf("%w: %w", ErrHashUnavailable, hashsource.ErrRemoteExecFailed)
 	}
 	if !found {
 		return proof{}, ErrHashUnavailable

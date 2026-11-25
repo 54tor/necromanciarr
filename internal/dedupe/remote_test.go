@@ -37,8 +37,13 @@ const (
 
 func newRemoteLayout(t *testing.T) remoteLayout {
 	t.Helper()
+	return newRemoteLayoutOfSize(t, 3*mebibyte)
+}
+
+func newRemoteLayoutOfSize(t *testing.T, size int) remoteLayout {
+	t.Helper()
 	volume := fsystest.NewRemoteVolume(t, "seedbox")
-	content := patterned(3*mebibyte, 7)
+	content := patterned(size, 7)
 	writeAged(t, volume.LocalPath(remoteTorrentDir+"/movie.mkv"), content)
 	writeAged(t, volume.LocalPath(remoteLibraryDir+"/movie.mkv"), content)
 	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"": local.New(), "seedbox": volume},
