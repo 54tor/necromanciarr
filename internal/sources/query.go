@@ -38,6 +38,9 @@ type MediaQuery struct {
 	// AnnounceConfigured dit si une entrée trackers couvre ce tracker (même règle que Verify et Seed) : rien n'est
 	// alors scellé ; nil vaut jamais.
 	AnnounceConfigured func(tracker string) bool
+	// GroupKey identifie le groupe et l'état de ses fichiers sans candidat (voir pipeline) : la recherche chez un
+	// indexeur n'est marquée, et sautée à la reprise, que sous cette clé ; vide : aucune marque.
+	GroupKey string
 }
 
 // Found est un résultat d'indexeur retenu après le filtre de taille ; il porte déjà son .torrent.
@@ -54,6 +57,8 @@ type IndexerReport struct {
 	Downloads       int  `json:"torznab_downloads"`
 	MagnetOnly      int  `json:"magnet_only"`
 	BudgetExhausted bool `json:"budget_exhausted"`
+	// CacheHits compte les recherches servies par le cache des réponses (ni requête ni quota).
+	CacheHits int `json:"cache_hits,omitempty"`
 }
 
 // Report associe chaque indexeur sollicité à son résumé.

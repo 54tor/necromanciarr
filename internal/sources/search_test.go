@@ -18,6 +18,7 @@ import (
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 
+	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
 	"necromanciarr/internal/torznab"
 )
@@ -36,6 +37,7 @@ type searchIndexer struct {
 	capsErr      error
 	results      torznab.Results
 	respond      func(torznab.Query) torznab.Results
+	searchErr    error
 	torrents     map[string][]byte
 	queries      []torznab.Query
 	downloads    []string
@@ -65,6 +67,9 @@ func (indexer *searchIndexer) Search(_ context.Context, query torznab.Query) (to
 	defer indexer.mutex.Unlock()
 	indexer.note()
 	indexer.queries = append(indexer.queries, query)
+	if indexer.searchErr != nil {
+		return torznab.Results{}, indexer.searchErr
+	}
 	if indexer.respond != nil {
 		return indexer.respond(query), nil
 	}
@@ -139,6 +144,9 @@ type searchSetup struct {
 	limits     Limits
 	sealer     *Sealer
 	clock      *fakeClock
+	// usage est la base de la chaîne ; withCache la branche aussi comme cache et marques de recherche.
+	usage     *store.Store
+	withCache bool
 }
 
 func newSearchSetup(t *testing.T) *searchSetup {
@@ -171,12 +179,18 @@ func (setup *searchSetup) chain(t *testing.T) *Chain {
 			indexer.clock = setup.clock
 		}
 	}
-	chain, err := NewChain(&fakeProvider{log: &callLog{}}, indexers, setup.order, limits, realUsage(t), setup.sealer, now)
+	if setup.usage == nil {
+		setup.usage = realUsage(t)
+	}
+	chain, err := NewChain(&fakeProvider{log: &callLog{}}, indexers, setup.order, limits, setup.usage, setup.sealer, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if setup.clock != nil {
 		chain.sleep = setup.clock.Sleep
+	}
+	if setup.withCache {
+		chain.SetSearchStore(setup.usage)
 	}
 	chain.SetFallbackTrackers(setup.trackers)
 	chain.SetSearchCategories(setup.categories)
@@ -598,6 +612,10 @@ func TestIndexerReport_jsonFieldNames(t *testing.T) {
 	valeurAttendue := `{"torznab_queries":1,"torznab_downloads":2,"magnet_only":3,"budget_exhausted":true}`
 	if string(encoded) != valeurAttendue {
 		t.Fatalf("valeurObtenue %s, valeurAttendue %s", encoded, valeurAttendue)
+	}
+	withHits, _ := json.Marshal(IndexerReport{CacheHits: 4})
+	if !strings.Contains(string(withHits), `"cache_hits":4`) {
+		t.Fatalf("valeurObtenue %s, valeurAttendue the cache_hits count", withHits)
 	}
 }
 

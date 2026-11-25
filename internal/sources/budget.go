@@ -232,6 +232,13 @@ func (budget *Budget) CountMagnetOnly(indexer ID, count int) {
 	budget.runOf(indexer).report.MagnetOnly += count
 }
 
+// CountCacheHit compte une recherche servie par le cache : aucune requête, aucun quota.
+func (budget *Budget) CountCacheHit(indexer ID) {
+	budget.stateMutex.Lock()
+	defer budget.stateMutex.Unlock()
+	budget.runOf(indexer).report.CacheHits++
+}
+
 // Report renvoie une copie du résumé par indexeur ; budget nil donne un résumé vide.
 func (budget *Budget) Report() Report {
 	report := Report{}

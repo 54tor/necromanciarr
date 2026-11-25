@@ -57,9 +57,16 @@ func (chain *Chain) SearchCandidates(ctx context.Context, media MediaQuery, budg
 			// Déjà compté (indexer_budget_exhausted) au premier groupe refusé : les suivants passent sans bruit.
 			continue
 		}
+		if search.alreadySearched(ctx, indexer) {
+			continue
+		}
+		interruptedBefore := len(search.outcome.Interrupted)
 		search.indexer(ctx, indexer)
 		if err := ctx.Err(); err != nil {
 			return search.found, budget.Report(), err
+		}
+		if len(search.outcome.Interrupted) == interruptedBefore {
+			search.markSearched(ctx, indexer)
 		}
 	}
 	return search.found, budget.Report(), search.refusals()
@@ -138,6 +145,11 @@ func (search *candidateSearch) caps(ctx context.Context, indexer ID) (torznab.Ca
 // query lance une recherche et télécharge ses résultats un à un ; useful : un .torrent est retenu, stop : l'indexeur
 // est à laisser pour ce groupe (recherche en échec, budget, indisponibilité, refus).
 func (search *candidateSearch) query(ctx context.Context, indexer ID, query torznab.Query) (useful, stop bool) {
+	key := queryKey(indexer, query)
+	if cached, hit := search.cachedAnswer(ctx, indexer, key); hit && !search.needsFreshLink(ctx, indexer, cached) {
+		search.budget.CountCacheHit(indexer)
+		return false, false
+	}
 	client := search.chain.indexers[indexer]
 	var results torznab.Results
 	err := search.chain.Call(ctx, search.budget, indexer, KindQuery, func(requestCtx context.Context) error {
@@ -150,6 +162,7 @@ func (search *candidateSearch) query(ctx context.Context, indexer ID, query torz
 		search.outcome.Interrupted = append(search.outcome.Interrupted, err)
 		return false, true
 	}
+	search.rememberAnswer(ctx, indexer, key, query.Mode, results.Items)
 	for _, item := range eligibleItems(results.Items, search.media) {
 		if search.downloads >= maxGroupDownloads {
 			return false, true
@@ -160,6 +173,9 @@ func (search *candidateSearch) query(ctx context.Context, indexer ID, query torz
 		}
 		if item.GUID != "" {
 			search.tried[triedKey] = true
+		}
+		if search.knownInfohash(ctx, indexer, item.InfoHash) {
+			continue
 		}
 		search.downloads++
 		kept, err := search.download(ctx, indexer, item)

@@ -3,7 +3,10 @@ package pipeline
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"time"
@@ -125,6 +128,14 @@ func indexerGroups(files []store.MediaFile) map[indexerGroupKey][]store.MediaFil
 	return groups
 }
 
+// groupKeyOf identifie le groupe et l'état de ses fichiers sans candidat : l'empreinte des identifiants, de la saison et
+// des tailles encore à couvrir (triées). Une bibliothèque qui change donne une autre clé, donc une nouvelle recherche.
+func groupKeyOf(key indexerGroupKey, uncovered []int64) string {
+	sizes := slices.Sorted(slices.Values(uncovered))
+	digest := sha256.Sum256([]byte(fmt.Sprintf("tmdb=%d;tvdb=%d;season=%d;sizes=%v", key.tmdbID, key.tvdbID, key.season, sizes)))
+	return hex.EncodeToString(digest[:])
+}
+
 func uncoveredSizes(group []store.MediaFile, covered map[int64]bool) []int64 {
 	var sizes []int64
 	for _, file := range group {
@@ -140,7 +151,7 @@ func uncoveredSizes(group []store.MediaFile, covered map[int64]bool) []int64 {
 func mediaQueryOf(deps Deps, key indexerGroupKey, group []store.MediaFile, uncovered []int64) sources.MediaQuery {
 	query := sources.MediaQuery{
 		TMDBID: key.tmdbID, TVDBID: key.tvdbID, Season: key.season, Series: key.tmdbID == 0,
-		Sizes: groupQuery(externalIDs{}, group).Sizes, Uncovered: uncovered,
+		Sizes: groupQuery(externalIDs{}, group).Sizes, Uncovered: uncovered, GroupKey: groupKeyOf(key, uncovered),
 		AnnounceConfigured: func(tracker string) bool {
 			return deps.Announces.Resolve(tracker, false).Source == sources.AnnounceConfig
 		},

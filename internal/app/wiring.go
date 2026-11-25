@@ -158,6 +158,9 @@ func wireSources(settings config.Config, stages *pipeline.Deps, usage sources.Us
 	}
 	chain.SetFallbackTrackers(indexerTrackers(settings))
 	chain.SetSearchCategories(indexerCategories(settings))
+	if searchStore, hasStore := usage.(sources.SearchStore); hasStore {
+		chain.SetSearchStore(searchStore)
+	}
 	stages.Sources = chain
 	return nil
 }

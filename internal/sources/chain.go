@@ -35,6 +35,8 @@ type Chain struct {
 	fallbackTrackers map[ID]string
 	// searchCategories : catégories configurées par indexeur (vide : celles de ses capacités).
 	searchCategories map[ID][]int
+	// searchStore : cache des réponses, marques de reprise et infohash connus (SetSearchStore) ; nil : aucun.
+	searchStore SearchStore
 	// sleep attend MinInterval ; remplacé par un faux sommeil dans les tests.
 	sleep func(ctx context.Context, duration time.Duration) error
 }

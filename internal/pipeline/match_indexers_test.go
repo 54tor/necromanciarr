@@ -117,13 +117,15 @@ type indexerMatchCase struct {
 	trackers map[sources.ID]string
 	limits   sources.Limits
 	sealer   *sources.Sealer
+	// now est l'horloge de la chaîne et du pipeline : un test l'avance pour faire expirer cache et marques.
+	now time.Time
 }
 
 func newIndexerMatchCase(t *testing.T) *indexerMatchCase {
 	t.Helper()
 	return &indexerMatchCase{
 		t: t, store: openTestStore(t), provider: &fakeProvider{}, indexers: map[sources.ID]*matchIndexer{},
-		order: []sources.ID{sources.ProviderID}, trackers: map[sources.ID]string{}, sealer: testSealer(t),
+		order: []sources.ID{sources.ProviderID}, trackers: map[sources.ID]string{}, sealer: testSealer(t), now: fixedNow,
 		limits: sources.Limits{MaxQueriesPerRun: 30, MaxDownloadsPerRun: 10, MaxQueriesPerDay: 200, MaxDownloadsPerDay: 50},
 	}
 }
@@ -169,12 +171,13 @@ func (testCase *indexerMatchCase) deps() Deps {
 		indexers[identifier], limits[identifier] = indexer, testCase.limits
 	}
 	chain, err := sources.NewChain(matchProvider{testCase.provider}, indexers, testCase.order, limits, testCase.store, testCase.sealer,
-		func() time.Time { return fixedNow })
+		func() time.Time { return testCase.now })
 	if err != nil {
 		testCase.t.Fatal(err)
 	}
 	chain.SetFallbackTrackers(testCase.trackers)
-	return Deps{Store: testCase.store, Sources: chain, Now: func() time.Time { return fixedNow }, Announces: sources.NewResolver(testTrackers())}
+	chain.SetSearchStore(testCase.store)
+	return Deps{Store: testCase.store, Sources: chain, Now: func() time.Time { return testCase.now }, Announces: sources.NewResolver(testTrackers())}
 }
 
 func (testCase *indexerMatchCase) candidates() []store.Candidate {
