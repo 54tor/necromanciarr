@@ -311,6 +311,7 @@ func Run(ctx context.Context, stage Stage, deps Deps) (Result, error) {
 		return Result{Stage: stage}, err
 	}
 	defer release()
+	deps.openStage()
 	result, err := runner(runContext, deps)
 	result.Stage = stage
 	if lockLost(runContext) {
@@ -329,11 +330,19 @@ func WithLock(ctx context.Context, deps Deps, name string, work func(ctx context
 		return err
 	}
 	defer release()
+	deps.openStage()
 	err = work(runContext)
 	if lockLost(runContext) {
 		return fmt.Errorf("pipeline %s: %w", name, ErrLockLost)
 	}
 	return err
+}
+
+// openStage permet à chaque volume distant une reconnexion de plus : une par étape ou action, jamais en boucle.
+func (deps Deps) openStage() {
+	if deps.Registry != nil {
+		deps.Registry.ResetForStage()
+	}
 }
 
 func lockLost(ctx context.Context) bool {
