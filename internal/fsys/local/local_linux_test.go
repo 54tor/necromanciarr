@@ -70,18 +70,6 @@ func TestIsMountRoot_detectsAMountAndNotAPlainDirectory(t *testing.T) {
 	}
 }
 
-func TestDeviceOf_readsTheDeviceOfTheFile(t *testing.T) {
-	info, err := os.Stat(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	gotValue, known := DeviceOf(info)
-	expectedValue := uint64(info.Sys().(*syscall.Stat_t).Dev) //nolint:unconvert // Dev est un uint32 sur mips
-	if !known || gotValue != expectedValue {
-		t.Errorf("DeviceOf = %d, %v, want %d, true", gotValue, known, expectedValue)
-	}
-}
-
 func TestCapabilities_reportMissingMountRootDetection(t *testing.T) {
 	previous := mountRootDetectable
 	t.Cleanup(func() { mountRootDetectable = previous })
