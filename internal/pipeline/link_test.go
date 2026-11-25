@@ -379,7 +379,7 @@ func TestLinkSeedAndForce_touchTheDiskOnlyThroughTheRegistry(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, imported := range parsed.Imports {
-			if path := strings.Trim(imported.Path.Value, `"`); path == "os" || path == "syscall" || path == "io/ioutil" {
+			if path := strings.Trim(imported.Path.Value, `"`); isBannedDiskImport(path) {
 				t.Errorf("%s imports %s, valeurAttendue disk access only through the registry", fileName, path)
 			}
 		}
@@ -417,4 +417,11 @@ func TestLink_unverifiedSymlinkOrderFailsTheProposalWithItsOwnReason(t *testing.
 	if valeurObtenue := fixture.decisionOf(proposal.ID); valeurObtenue != store.ProposalFailed {
 		t.Errorf("valeurObtenue %s, valeurAttendue the proposal failed like any refused link kind", valeurObtenue)
 	}
+}
+
+// isBannedDiskImport : os, os/exec, syscall, io/ioutil et golang.org/x/sys/… ouvriraient un accès disque (ou un
+// programme externe) hors du registre ; même liste que la garde du linker (internal/linker/guard_test.go).
+func isBannedDiskImport(importPath string) bool {
+	bannedImports := []string{"os", "os/exec", "syscall", "io/ioutil"}
+	return slices.Contains(bannedImports, importPath) || strings.HasPrefix(importPath, "golang.org/x/sys/")
 }

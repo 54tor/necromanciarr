@@ -299,7 +299,7 @@ func TestDedupe_touchesTheDiskOnlyThroughTheRegistry(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, imported := range parsed.Imports {
-			if importPath := strings.Trim(imported.Path.Value, `"`); importPath == "os" || importPath == "syscall" {
+			if importPath := strings.Trim(imported.Path.Value, `"`); isBannedDiskImport(importPath) {
 				t.Errorf("%s imports %s, expectedValue disk access only through the registry", fileName, importPath)
 			}
 		}
@@ -333,4 +333,11 @@ func TestRead_remoteOutageIsReturnedAsItIsNeverAsAShortenedFile(t *testing.T) {
 	if !errors.Is(err, fsys.ErrRemoteUnavailable) || errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Errorf("valeurObtenue %v, valeurAttendue ErrRemoteUnavailable, never a shortened file", err)
 	}
+}
+
+// isBannedDiskImport : os, os/exec, syscall, io/ioutil et golang.org/x/sys/… ouvriraient un accès disque (ou un
+// programme externe) hors du registre ; même liste que la garde du linker (internal/linker/guard_test.go).
+func isBannedDiskImport(importPath string) bool {
+	bannedImports := []string{"os", "os/exec", "syscall", "io/ioutil"}
+	return slices.Contains(bannedImports, importPath) || strings.HasPrefix(importPath, "golang.org/x/sys/")
 }

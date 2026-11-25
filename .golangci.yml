@@ -35,7 +35,7 @@ linters:
           pkg: '^io/ioutil$'
           msg: write to disk only through fsys.WriteRoot (fsys.Registry.WriteRoot)
         # Appels système qui modifient le disque : seul le volume local les emploie (hardlink confiné).
-        - pattern: '^(syscall|unix)\.(Unlink|Unlinkat|Rename|Renameat|Renameat2|Link|Linkat|Symlink|Symlinkat|Mkdir|Mkdirat|Rmdir|Chmod|Fchmod|Fchmodat|Chown|Fchown|Truncate|Ftruncate|Utimes|UtimesNano|UtimesNanoAt|Creat)$'
+        - pattern: '^(syscall|unix)\.(Unlink|Unlinkat|Rename|Renameat|Renameat2|Link|Linkat|Symlink|Symlinkat|Mkdir|Mkdirat|Rmdir|Chmod|Fchmod|Fchmodat|Chown|Fchown|Fchownat|Truncate|Ftruncate|Utimes|UtimesNano|UtimesNanoAt|Creat|Open|Openat|Openat2|Write|Pwrite|Mknod|Mknodat|Setxattr|Removexattr|Fallocate|CopyFileRange|IoctlFileClone)$'
           pkg: '^(syscall|golang\.org/x/sys/unix)$'
           msg: mutate the disk by system call only inside internal/fsys/local
         # Un programme externe pourrait écrire n'importe où : seul le client rclone en lance un.
@@ -78,8 +78,9 @@ linters:
       - path: '^internal/pipeline/registry_test\.go$'
         linters: [forbidigo]
         text: only fsys.Registry.WriteRoot
-      # Hardlink confiné du volume local (linkat depuis le handle du parent).
-      - path: '^internal/fsys/local/hardlink_unix\.go$'
+      # Hardlink confiné du volume local (linkat depuis le handle du parent) et clone reflink (FICLONE entre deux
+      # handles déjà ouverts par le volume).
+      - path: '^internal/fsys/local/(hardlink_unix|clone_linux)\.go$'
         linters: [forbidigo]
         text: mutate the disk by system call only
       # Client rclone : seul lanceur de programme externe (lecture d'empreintes).

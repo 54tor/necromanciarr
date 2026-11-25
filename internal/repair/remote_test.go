@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -232,7 +233,7 @@ func TestRepair_touchesTheDiskOnlyThroughTheRegistry(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, imported := range parsed.Imports {
-			if importPath := strings.Trim(imported.Path.Value, `"`); importPath == "os" || importPath == "syscall" {
+			if importPath := strings.Trim(imported.Path.Value, `"`); isBannedDiskImport(importPath) {
 				t.Errorf("%s imports %s, expectedValue disk access only through the registry", fileName, importPath)
 			}
 		}
@@ -248,4 +249,11 @@ func TestRepair_touchesTheDiskOnlyThroughTheRegistry(t *testing.T) {
 			return true
 		})
 	}
+}
+
+// isBannedDiskImport : os, os/exec, syscall, io/ioutil et golang.org/x/sys/… ouvriraient un accès disque (ou un
+// programme externe) hors du registre ; même liste que la garde du linker (internal/linker/guard_test.go).
+func isBannedDiskImport(importPath string) bool {
+	bannedImports := []string{"os", "os/exec", "syscall", "io/ioutil"}
+	return slices.Contains(bannedImports, importPath) || strings.HasPrefix(importPath, "golang.org/x/sys/")
 }
