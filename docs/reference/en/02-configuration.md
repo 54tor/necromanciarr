@@ -176,7 +176,7 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 |---|---|---|
 | `type` | required | `sftp` |
 | `name` | required | `[a-z0-9-]+`, unique; it is the `<name>` of the `sftp://<name>/…` locations |
-| `address` | required | `host` or `host:port` (host name or IP address), port `22` by default; IPv6 between brackets (`[::1]` or `[::1]:22`) |
+| `address` | required | `host` or `host:port` (host name or IP address), port `22` by default; IPv6 between brackets (`[::1]` or `[::1]:22`); no URL (`sftp://…`), control character or stray bracket |
 | `user` | required | SSH account; an account with no write access to the library is recommended |
 | `knownHosts` | required | absolute local path of an OpenSSH `known_hosts` file; the host key is always checked, no option skips it. Whether the file exists is a `doctor` matter |
 | `identityFile` | empty | absolute local path of a private key (ed25519, ecdsa or rsa ≥ 3072) |
@@ -184,7 +184,7 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 | `agent` | `false` | SSH agent (`SSH_AUTH_SOCK`), read at connection time only |
 | `password` | empty | only as a `${VAR}` reference; the least recommended method |
 | `readBytesPerSecond` | global rate | bytes per second; `0` or absent keeps the global `readBytesPerSecond`, both limits apply |
-| `maxConcurrentRequests` | `16` | SFTP requests in flight per file, strictly positive integer |
+| `maxConcurrentRequests` | `16` | SFTP requests in flight per file, integer from 1 to 256 |
 | `timeout` | `30s` | timeout of one SFTP operation, strictly positive Go duration |
 | `keepalive` | `15s` | interval of the OpenSSH keepalive requests (three unanswered: dead session), strictly positive Go duration |
 | `exec` | `auto` | `auto`, `off` or `required`: read-only remote commands (`stat`, `sha1sum`, `md5sum`) |

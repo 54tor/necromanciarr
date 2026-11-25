@@ -256,3 +256,40 @@ func TestConfigCheck_masksSFTPSecrets(t *testing.T) {
 		t.Fatal("redaction must not alter the loaded configuration")
 	}
 }
+
+func TestConfig_sftpAddressRefusesURLsControlCharactersAndStrayBrackets(t *testing.T) {
+	cases := map[string]string{
+		"sftp://seedbox.example.com":   "not a URL",
+		"SFTP://seedbox.example.com":   "not a URL",
+		"ssh://seedbox.example.com:22": "not a URL",
+		"seedbox\x00.example.com":      "control characters",
+		"seedbox\n.example.com":        "control characters",
+		"[::1]x":                       "address",
+		"host]":                        "address",
+		"[host":                        "address",
+		"a]:22":                        "address",
+	}
+	for rawAddress, valeurAttendue := range cases {
+		_, err := loadFromJSON(t, configWith(t, sftpProvider(map[string]any{"address": rawAddress}), nil), nil)
+
+		if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), valeurAttendue) {
+			t.Fatalf("%q: valeurObtenue %v, valeurAttendue a usage error naming %q", rawAddress, err, valeurAttendue)
+		}
+		if strings.ContainsAny(err.Error(), "\x00\n") {
+			t.Fatalf("%q: the error echoes a control character: %q", rawAddress, err)
+		}
+	}
+}
+
+func TestConfig_sftpCapsConcurrentRequests(t *testing.T) {
+	accepted, err := loadFromJSON(t, configWith(t, sftpProvider(map[string]any{"maxConcurrentRequests": 256}), nil), nil)
+	if err != nil || accepted.FSProviders[0].MaxConcurrentRequests != 256 {
+		t.Fatalf("256: valeurObtenue %v, valeurAttendue accepted", err)
+	}
+
+	_, err = loadFromJSON(t, configWith(t, sftpProvider(map[string]any{"maxConcurrentRequests": 257}), nil), nil)
+
+	if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "maxConcurrentRequests") || !strings.Contains(err.Error(), "256") {
+		t.Fatalf("257: valeurObtenue %v, valeurAttendue a usage error naming the key and the limit", err)
+	}
+}

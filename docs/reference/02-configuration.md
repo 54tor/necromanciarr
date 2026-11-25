@@ -176,7 +176,7 @@ Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer 
 |---|---|---|
 | `type` | obligatoire | `sftp` |
 | `name` | obligatoire | `[a-z0-9-]+`, unique ; c'est le `<name>` des adresses `sftp://<name>/…` |
-| `address` | obligatoire | `host` ou `host:port` (nom d'hôte ou adresse IP), port `22` par défaut ; IPv6 entre crochets (`[::1]` ou `[::1]:22`) |
+| `address` | obligatoire | `host` ou `host:port` (nom d'hôte ou adresse IP), port `22` par défaut ; IPv6 entre crochets (`[::1]` ou `[::1]:22`) ; ni URL (`sftp://…`), ni caractère de contrôle, ni crochet isolé |
 | `user` | obligatoire | compte SSH ; un compte sans droit d'écriture sur la bibliothèque est recommandé |
 | `knownHosts` | obligatoire | chemin local absolu d'un fichier `known_hosts` OpenSSH ; la clé d'hôte est toujours vérifiée, aucune option ne l'ignore. L'existence du fichier relève de `doctor` |
 | `identityFile` | vide | chemin local absolu d'une clé privée (ed25519, ecdsa ou rsa ≥ 3072) |
@@ -184,7 +184,7 @@ Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer 
 | `agent` | `false` | agent SSH (`SSH_AUTH_SOCK`), lu à la connexion seulement |
 | `password` | vide | seulement par une référence `${VAR}` ; méthode la moins recommandée |
 | `readBytesPerSecond` | débit global | octets par seconde ; `0` ou absent garde `readBytesPerSecond` global, les deux limites s'appliquent |
-| `maxConcurrentRequests` | `16` | requêtes SFTP en vol par fichier, entier strictement positif |
+| `maxConcurrentRequests` | `16` | requêtes SFTP en vol par fichier, entier de 1 à 256 |
 | `timeout` | `30s` | délai d'une opération SFTP, durée Go strictement positive |
 | `keepalive` | `15s` | intervalle des requêtes keepalive OpenSSH (trois sans réponse : session morte), durée Go strictement positive |
 | `exec` | `auto` | `auto`, `off` ou `required` : commandes distantes en lecture seule (`stat`, `sha1sum`, `md5sum`) |

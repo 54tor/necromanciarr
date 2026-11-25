@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
@@ -25,9 +26,11 @@ const (
 
 	defaultSFTPPort                  = "22"
 	defaultSFTPMaxConcurrentRequests = 16
-	defaultSFTPTimeout               = 30 * time.Second
-	defaultSFTPKeepalive             = 15 * time.Second
-	defaultSFTPExecHashTimeout       = 30 * time.Minute
+	// maxSFTPConcurrentRequests borne la mémoire des lectures en vol (256 × 32 Kio = 8 Mio par fichier).
+	maxSFTPConcurrentRequests  = 256
+	defaultSFTPTimeout         = 30 * time.Second
+	defaultSFTPKeepalive       = 15 * time.Second
+	defaultSFTPExecHashTimeout = 30 * time.Minute
 )
 
 var sftpExecModes = []string{SFTPExecAuto, SFTPExecOff, SFTPExecRequired}
@@ -120,18 +123,28 @@ func buildSFTPProvider(rawFile sftpProviderFile) (FSProvider, error) {
 }
 
 // normalizeSFTPAddress accepte « hôte », « hôte:port », « [ipv6] » et « [ipv6]:port » et rend toujours hôte:port.
+// Un caractère de contrôle n'est jamais recopié dans l'erreur.
 func normalizeSFTPAddress(rawAddress string) (string, error) {
+	if strings.Contains(rawAddress, "://") {
+		return "", errors.New("address is a host or host:port, not a URL")
+	}
+	if strings.IndexFunc(rawAddress, unicode.IsControl) >= 0 {
+		return "", errors.New("address must not contain control characters")
+	}
 	host, port, err := net.SplitHostPort(rawAddress)
 	if err != nil {
-		host, port = strings.TrimSuffix(strings.TrimPrefix(rawAddress, "["), "]"), defaultSFTPPort
-		isBareIPv6 := strings.Contains(host, ":") && !strings.HasPrefix(rawAddress, "[")
-		if isBareIPv6 {
+		host, port = rawAddress, defaultSFTPPort
+		isBracketed := strings.HasPrefix(rawAddress, "[") && strings.HasSuffix(rawAddress, "]")
+		if isBracketed {
+			host = rawAddress[1 : len(rawAddress)-1]
+		}
+		if strings.Contains(host, ":") && !isBracketed {
 			return "", fmt.Errorf("address %q: write an IPv6 host between brackets ([::1] or [::1]:22)", rawAddress)
 		}
 	}
 	portNumber, portErr := strconv.Atoi(port)
 	isValidPort := portErr == nil && portNumber > 0 && portNumber <= 65535
-	if host == "" || strings.ContainsAny(host, "/@ \t") || !isValidPort {
+	if host == "" || strings.ContainsAny(host, "/@[] \t") || !isValidPort {
 		return "", fmt.Errorf("address %q is required as host or host:port (port 1-65535)", rawAddress)
 	}
 	return net.JoinHostPort(host, port), nil
@@ -178,8 +191,9 @@ func applySFTPLimits(provider *FSProvider, rawFile sftpProviderFile) error {
 		return errors.New("readBytesPerSecond must not be negative (0 or absent keeps the global limit)")
 	}
 	if rawFile.MaxConcurrentRequests != nil {
-		if *rawFile.MaxConcurrentRequests <= 0 {
-			return errors.New("maxConcurrentRequests must be positive")
+		requested := *rawFile.MaxConcurrentRequests
+		if requested <= 0 || requested > maxSFTPConcurrentRequests {
+			return fmt.Errorf("maxConcurrentRequests must be between 1 and %d", maxSFTPConcurrentRequests)
 		}
 		provider.MaxConcurrentRequests = *rawFile.MaxConcurrentRequests
 	}
