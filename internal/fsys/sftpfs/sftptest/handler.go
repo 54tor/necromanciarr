@@ -29,6 +29,9 @@ var extensionOfMethod = map[string]string{
 	"StatVFS":     extensionStatVFS,
 }
 
+// chmodBits : droits et bits setuid, setgid et sticky qu'un Setstat de droits applique.
+const chmodBits = os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+
 var errSizeUnsupported = errors.New("sftptest: setstat of the size is not supported")
 
 // fileHandler sert les requêtes SFTP dans server.root (os.Root : aucun chemin ne sort du dossier servi) ; ended se
@@ -38,10 +41,12 @@ type fileHandler struct {
 	ended  <-chan struct{}
 }
 
-// admit enregistre la requête, la fige si sa méthode l'est, puis la refuse si son extension est masquée.
+// admit enregistre la requête, lance les crochets OnRequest, la fige si sa méthode l'est, puis la refuse si son
+// extension est masquée.
 func (handler *fileHandler) admit(request Request, requestContext context.Context) error {
 	server := handler.server
 	server.record(request)
+	server.runHooks(request)
 	if server.settings.stalledMethods[request.Method] {
 		select {
 		case <-requestContext.Done():
@@ -114,7 +119,8 @@ func (handler *fileHandler) openForWrite(request *sftp.Request, accessFlag int) 
 			flags |= option.flag
 		}
 	}
-	relativePath, err := handler.followed(request.Filepath)
+	// O_EXCL ne suit jamais un lien final, comme open(2) : un lien pendant n'est pas une place libre.
+	relativePath, err := handler.resolve(request.Filepath, !openFlags.Excl)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +199,8 @@ func (handler *fileHandler) setstat(request *sftp.Request, relativePath string) 
 		return errSizeUnsupported
 	}
 	if flags.Permissions {
-		if err := handler.server.root.Chmod(relativePath, attributes.FileMode().Perm()); err != nil {
+		// Bits spéciaux compris, comme chmod(2) d'OpenSSH : un client qui ne les masque pas se voit.
+		if err := handler.server.root.Chmod(relativePath, attributes.FileMode()&chmodBits); err != nil {
 			return err
 		}
 	}

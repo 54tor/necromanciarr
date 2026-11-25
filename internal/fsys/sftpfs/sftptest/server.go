@@ -54,6 +54,7 @@ type settings struct {
 	listings            map[string][]Entry
 	readlinkTargets     map[string]string
 	statVFSMutator      func(*sftp.StatVFS)
+	requestHooks        map[string][]func(Request)
 }
 
 // AuthAttempt est un essai d'authentification reçu, dans l'ordre d'arrivée : Method vaut « publickey » (avec
@@ -142,7 +143,7 @@ func Start(t *testing.T, options ...Option) *Server {
 		Root: t.TempDir(), stopped: make(chan struct{}), connections: map[net.Conn]bool{},
 		settings: settings{
 			hiddenExtensions: map[string]bool{}, stalledMethods: map[string]bool{},
-			listings: map[string][]Entry{}, readlinkTargets: map[string]string{},
+			listings: map[string][]Entry{}, readlinkTargets: map[string]string{}, requestHooks: map[string][]func(Request){},
 		},
 	}
 	for _, option := range options {
