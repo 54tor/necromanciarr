@@ -62,11 +62,15 @@ func (registry *Registry) Read(location Location) (ReadFS, string, error) {
 	return readOnlyView{inner: entry.volume}, location.Path, nil
 }
 
-// WriteRoot est le seul constructeur de WriteRoot hors des paquets de volume : il canonicalise dir par son volume
+// WriteRoot est le seul constructeur de WriteRoot hors des paquets de volume : il refuse (ErrNoLibraryRoots) un
+// registre sans aucune racine de bibliothèque (lecture seule), puis il canonicalise dir par son volume
 // et refuse (ErrWriteInLibrary) un dossier égal à une racine de bibliothèque du même volume, qui en contient une
 // ou qui y est contenu, par le texte canonique et, si le volume la fournit, par l'identité de fichier. Le volume
 // reçoit la forme canonique (sur disque, casse d'origine).
 func (registry *Registry) WriteRoot(dir Location) (WriteRoot, error) {
+	if !registry.hasLibraryRoots() {
+		return nil, ErrNoLibraryRoots
+	}
 	entry, err := registry.entry(dir.Volume)
 	if err != nil {
 		return nil, err
@@ -87,6 +91,15 @@ func (registry *Registry) WriteRoot(dir Location) (WriteRoot, error) {
 		return nil, fmt.Errorf("%w (volume %q)", ErrWriteInLibrary, dir.Volume)
 	}
 	return entry.volume.OpenWriteRoot(canonical)
+}
+
+func (registry *Registry) hasLibraryRoots() bool {
+	for _, entry := range registry.volumes {
+		if len(entry.rawLibraryRoots) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (registry *Registry) entry(name string) (*volumeEntry, error) {

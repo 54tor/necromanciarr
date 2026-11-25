@@ -149,7 +149,7 @@ func LibraryScanner(mediaStore *store.Store, registry *fsys.Registry) RootScanne
 		if err != nil {
 			return fmt.Errorf("scan %s: %w", root, err)
 		}
-		return library.Scan(ctx, location, registryOrLocal(registry), mediaStore)
+		return library.Scan(ctx, location, readRegistryOrLocal(registry), mediaStore)
 	}
 }
 

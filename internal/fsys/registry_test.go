@@ -495,3 +495,17 @@ func TestRegistry_unknownIdentityFallsBackToTheTextFloorForThatPathOnly(t *testi
 		t.Errorf("identity gaps = %v, want %v", gotValue, expectedValue)
 	}
 }
+
+func TestWriteRoot_refusesWithoutLibraryRoots(t *testing.T) {
+	volume := newFakeVolume("seedbox")
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"seedbox": volume}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, valeurObtenue := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/links"})
+
+	if !errors.Is(valeurObtenue, fsys.ErrNoLibraryRoots) {
+		t.Fatalf("valeurAttendue ErrNoLibraryRoots, valeurObtenue %v", valeurObtenue)
+	}
+}

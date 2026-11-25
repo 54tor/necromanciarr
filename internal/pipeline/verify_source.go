@@ -55,7 +55,8 @@ func locationOfStoredPath(name string) (fsys.Location, error) {
 	return fsys.Location{Path: name}, nil
 }
 
-// localRegistry est le registre du seul disque local, pris quand Deps.Registry est nil.
+// localRegistry est le registre du seul disque local, pris quand Deps.Registry est nil. Sans racine de bibliothèque,
+// il ne sert qu'à lire : WriteRoot le refuse (fsys.ErrNoLibraryRoots).
 var localRegistry = sync.OnceValue(func() *fsys.Registry {
 	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"": local.New()}, nil)
 	if err != nil {
@@ -64,7 +65,8 @@ var localRegistry = sync.OnceValue(func() *fsys.Registry {
 	return registry
 })
 
-func registryOrLocal(registry *fsys.Registry) *fsys.Registry {
+// readRegistryOrLocal sert les seules lectures ; toute écriture exige un Deps.Registry non nil construit avec les racines.
+func readRegistryOrLocal(registry *fsys.Registry) *fsys.Registry {
 	if registry == nil {
 		return localRegistry()
 	}
@@ -76,7 +78,7 @@ func (deps Deps) openFile() func(path string) (LocalFile, error) {
 	if deps.OpenLocal != nil {
 		return deps.OpenLocal
 	}
-	registry := registryOrLocal(deps.Registry)
+	registry := readRegistryOrLocal(deps.Registry)
 	return func(name string) (LocalFile, error) { return openReadOnly(registry, name) }
 }
 

@@ -104,7 +104,7 @@ func removeVanishedFiles(ctx context.Context, deps Deps, result *Result, files [
 	removedIDs := map[int64]bool{}
 	for _, root := range deps.LibraryRoots {
 		underRoot := filesUnder(files, root)
-		vanished := vanishedFiles(registryOrLocal(deps.Registry), underRoot)
+		vanished := vanishedFiles(readRegistryOrLocal(deps.Registry), underRoot)
 		if len(vanished) == 0 {
 			continue
 		}

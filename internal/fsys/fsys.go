@@ -14,6 +14,9 @@ import (
 var (
 	// ErrWriteInLibrary refuse une racine d'écriture égale à une racine de bibliothèque, qui la contient ou y est contenue.
 	ErrWriteInLibrary = errors.New("fsys: write root overlaps a library root")
+	// ErrNoLibraryRoots refuse toute racine d'écriture quand le registre ne connaît aucune racine de bibliothèque :
+	// sans elles, rien ne prouve l'absence de recouvrement. Un tel registre ne sert qu'à lire.
+	ErrNoLibraryRoots = errors.New("fsys: no library root registered, write roots are refused")
 	// ErrUnconfined refuse un chemin relatif qui sort de la racine d'écriture (absolu, "..", parent symbolique).
 	ErrUnconfined = errors.New("fsys: path escapes the write root")
 	// ErrNoAtomicReplace signale un volume incapable de remplacer une entrée existante de façon atomique.

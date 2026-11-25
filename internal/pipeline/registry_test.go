@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -100,5 +101,13 @@ func TestVerify_registryReaderStaysUnderTheReadLimiter(t *testing.T) {
 	valeurObtenue := limiter.requested.Load()
 	if volume.bytesRead.Load() == 0 || valeurObtenue < volume.bytesRead.Load() {
 		t.Fatalf("valeurAttendue the limiter to be charged for the %d bytes read, valeurObtenue %d", volume.bytesRead.Load(), valeurObtenue)
+	}
+}
+
+func TestFallbackRegistry_refusesWriteRoots(t *testing.T) {
+	_, valeurObtenue := readRegistryOrLocal(nil).WriteRoot(fsys.Location{Path: t.TempDir()})
+
+	if !errors.Is(valeurObtenue, fsys.ErrNoLibraryRoots) {
+		t.Fatalf("valeurAttendue ErrNoLibraryRoots, valeurObtenue %v", valeurObtenue)
 	}
 }
