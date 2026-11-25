@@ -36,6 +36,14 @@ describe('format', () => {
     expect(formatPercent(99.54).replace(/\s/g, ' ')).toBe('99,5 %')
   })
 
+  it('formatPercent_followsTheActiveLanguage', () => {
+    setLanguage('en')
+    const gotEnglish = formatPercent(99.54)
+    setLanguage('fr')
+
+    expect(gotEnglish).toBe('99.5%')
+  })
+
   it('formatDateTime_keepsUnreadableValuesAsTheyAre', () => {
     expect(formatDateTime('pas une date')).toBe('pas une date')
     expect(formatDateTime('2026-01-01T10:00:00Z')).toContain('2026')

@@ -26,9 +26,12 @@ export function formatExactBytes(bytes: number): string {
   return `${bytes.toLocaleString(language)} ${BYTE_UNITS[language][0]}`
 }
 
-/** formatPercent arrondit un pourcentage à une décimale (« 99,9 % »). */
+/** formatPercent arrondit un pourcentage à une décimale dans la langue active (« 99,5 % » / "99.5%"). */
 export function formatPercent(percent: number): string {
-  return `${percent.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %`
+  return (percent / 100).toLocaleString(currentLanguage(), {
+    style: 'percent',
+    maximumFractionDigits: 1,
+  })
 }
 
 /** formatDateTime affiche un horodatage ISO dans la langue active ; une valeur illisible est rendue telle quelle. */
