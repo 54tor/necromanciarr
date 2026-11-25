@@ -76,7 +76,7 @@ type MediaFile struct {
 	TMDBID  int
 	TVDBID  int
 	// IMDBID, Title, Year, Season et Episode viennent de Radarr/Sonarr ; vides ou 0 si inconnus. Title est non fiable
-	// (nettoyé par arr, jamais journalisé tel quel). Season 0 avec Episode > 0 : épisode spécial.
+	// (nettoyé par arr, jamais écrit tel quel dans les traces). Season 0 avec Episode > 0 : épisode spécial.
 	IMDBID  string
 	Title   string
 	Year    int
