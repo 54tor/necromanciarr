@@ -102,4 +102,30 @@ const (
 	CodeSealedTorrentUnreadable = "sealed_torrent_unreadable"
 	// CodeSealedTorrentsUnchecked : les blocs scellés n'ont pas pu être lus en base.
 	CodeSealedTorrentsUnchecked = "sealed_torrents_unchecked"
+
+	// Contrôles sftp:<nom>, sftp-library:<nom> et sftp-exec:<nom>.
+	CodeSFTPOK                   = "sftp_ok"
+	CodeHostKeyUnknown           = "host_key_unknown"
+	CodeHostKeyMismatch          = "host_key_mismatch"
+	CodeAuthRefused              = "auth_refused"
+	CodeKnownHostsUnreadable     = "known_hosts_unreadable"
+	CodeIdentityKeyTooWeak       = "identity_key_too_weak"
+	CodeIdentityFileUnusable     = "identity_file_unusable"
+	CodeIdentityFilePermissions  = "identity_file_permissions"
+	CodeAgentUnavailable         = "agent_unavailable"
+	CodeHostileResponse          = "hostile_response"
+	CodeRemoteWindowsUnsupported = "remote_windows_unsupported"
+	// CodeRemoteUnavailable : le serveur distant ne répond pas (réseau, délai, connexion coupée).
+	CodeRemoteUnavailable        = "remote_unavailable"
+	CodeLibraryRootUnreadable    = "library_root_unreadable"
+	CodeNoMediaInFirst2000       = "no_media_in_first_2000"
+	CodeLibraryMaybeWritable     = "library_maybe_writable"
+	CodeExecOK                   = "exec_ok"
+	CodeExecOff                  = "exec_off"
+	CodeRemoteExecUnavailable    = "remote_exec_unavailable"
+	CodeRemoteExecRequiredFailed = "remote_exec_required_failed"
+	CodeCapabilityProbeFailed    = "capability_probe_failed"
+	CodeVolumeIdentityUnknown    = "volume_identity_unknown"
+	// CodeClientPathUnmapped : un dossier de liens distant sans règle pathMappings vers la vue du client.
+	CodeClientPathUnmapped = "client_path_unmapped"
 )

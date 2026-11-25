@@ -24,6 +24,7 @@ import (
 	"necromanciarr/internal/fsys/sftpfs"
 	"necromanciarr/internal/fsys/sftpfs/sftptest"
 	"necromanciarr/internal/pipeline"
+	"necromanciarr/internal/store"
 )
 
 // Adresses du serveur de test : bibliothèque et dossier de liens voisins, comme sur une seedbox.
@@ -322,5 +323,88 @@ func TestBuildRegistry_admitsLinkDirsAndTorrentRootsForRemoteCommands(t *testing
 		if _, err := volume.Exec(context.Background(), sftpfs.CommandStat, []string{refused}); !errors.Is(err, sftpfs.ErrExecPathOutsideRoots) {
 			t.Errorf("%s : valeurObtenue %v, valeurAttendue ErrExecPathOutsideRoots", refused, err)
 		}
+	}
+}
+
+func sftpCheckIDs() []string {
+	return []string{"sftp:" + seedboxName, "sftp-library:" + seedboxName, "sftp-exec:" + seedboxName}
+}
+
+func TestDoctor_runsTheSFTPChecksPerProviderAndLeavesNoConnectionOpen(t *testing.T) {
+	server := startSeedbox(t)
+	settings := seedboxSettings(t, server.Provider(t, seedboxName))
+	service, closer, err := NewFromConfig(context.Background(), settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+
+	report, err := service.Doctor(context.Background(), DoctorOptions{CheckIDs: sftpCheckIDs()})
+
+	if err != nil || len(report.Checks) != 3 {
+		t.Fatalf("valeurObtenue %d checks, err %v, valeurAttendue the three sftp checks", len(report.Checks), err)
+	}
+	if first := report.Checks[0].Result; first.Code != doctor.CodeSFTPOK {
+		t.Fatalf("valeurObtenue %q, valeurAttendue %q", first.Code, doctor.CodeSFTPOK)
+	}
+	if writes := writeRequestsUnder(server, seedboxLibrary); len(writes) != 0 {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue no write request in the library", writes)
+	}
+	if open := waitUntilClosed(server); open != 0 {
+		t.Fatalf("valeurObtenue %d connections left open, valeurAttendue none after the diagnostic", open)
+	}
+}
+
+func TestDoctor_unreachableSeedboxGivesRemoteUnavailableResultsNotACrash(t *testing.T) {
+	server := startSeedbox(t)
+	provider := server.Provider(t, seedboxName)
+	provider.Address = closedAddress(t)
+	service, closer, err := NewFromConfig(context.Background(), seedboxSettings(t, provider))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+
+	report, err := service.Doctor(context.Background(), DoctorOptions{CheckIDs: sftpCheckIDs()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, outcome := range report.Checks {
+		if outcome.Result.Status != doctor.Fail || outcome.Result.Code != doctor.CodeRemoteUnavailable {
+			t.Errorf("%s: valeurObtenue %s/%s, valeurAttendue fail/remote_unavailable", outcome.ID, outcome.Result.Status, outcome.Result.Code)
+		}
+	}
+}
+
+// waitUntilClosed attend, au plus deux secondes, que le serveur ne voie plus de connexion ouverte.
+func waitUntilClosed(server *sftptest.Server) int {
+	deadline := time.Now().Add(writeWaitTimeout)
+	for server.OpenConnections() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	return server.OpenConnections()
+}
+
+func TestDoctor_keepsTheConnectionOfARunningStage(t *testing.T) {
+	server := startSeedbox(t)
+	openedStore, err := store.Open(filepath.Join(t.TempDir(), "necromanciarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	deps, closer, err := buildDeps(context.Background(), seedboxSettings(t, server.Provider(t, seedboxName)), openedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = closer.Close() })
+	now := time.Now()
+	if err := openedStore.AcquireRunLock(context.Background(), "running-stage", "scan", now, now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = New(deps).Doctor(context.Background(), DoctorOptions{CheckIDs: []string{"sftp:" + seedboxName}})
+
+	if open := server.OpenConnections(); err != nil || open != 1 {
+		t.Fatalf("valeurObtenue %d open connections, err %v, valeurAttendue the running stage's connection kept", open, err)
 	}
 }

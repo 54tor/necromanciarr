@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/doctor"
+	"necromanciarr/internal/pipeline"
 )
 
 // ErrUnknownCheck : un identifiant de contrôle demandé n'existe pas ; le message liste les identifiants valides.
@@ -34,7 +35,32 @@ func (svc *service) Doctor(ctx context.Context, options DoctorOptions) (doctor.R
 	if options.Timeout > 0 {
 		runOptions = append(runOptions, doctor.WithTimeout(options.Timeout))
 	}
-	return doctor.Run(ctx, selected, runOptions...), nil
+	report := doctor.Run(ctx, selected, runOptions...)
+	svc.releaseRemoteVolumes(ctx)
+	return report, nil
+}
+
+// doctorLockName nomme le verrou pris pour fermer les sessions distantes du diagnostic.
+const doctorLockName = "doctor"
+
+// releaseRemoteVolumes ferme la session de chaque volume sftp pour qu'aucune connexion ne survive au diagnostic. Elle
+// ne le fait que sous le verrou des étapes : une étape ou une action en cours garde sa connexion et la ferme à sa fin.
+func (svc *service) releaseRemoteVolumes(ctx context.Context) {
+	volumes := svc.deps.DoctorDeps.RemoteVolumes
+	if len(volumes) == 0 {
+		return
+	}
+	release := func(context.Context) error {
+		for _, volume := range volumes {
+			volume.Release()
+		}
+		return nil
+	}
+	if svc.deps.Stages.Store == nil {
+		_ = release(ctx)
+		return
+	}
+	_ = pipeline.WithLock(context.WithoutCancel(ctx), svc.deps.Stages, doctorLockName, release)
 }
 
 // selectChecks garde l'ordre de Build ; un identifiant inconnu refuse tout plutôt que d'en ignorer un.

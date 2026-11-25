@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/doctor"
 	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/fsys/sftpfs"
 )
@@ -97,6 +98,15 @@ func (remote *sftpVolumes) record(ctx context.Context, name string, capabilities
 	}
 	remote.saved[name] = capabilities
 	return nil
+}
+
+// doctorVolumes donne au diagnostic les volumes sftp du registre, par nom de fournisseur.
+func (remote *sftpVolumes) doctorVolumes() map[string]doctor.RemoteVolume {
+	volumes := make(map[string]doctor.RemoteVolume, len(remote.volumes))
+	for name, volume := range remote.volumes {
+		volumes[name] = volume
+	}
+	return volumes
 }
 
 // Close ferme chaque volume ; il ne se reconnecte plus.

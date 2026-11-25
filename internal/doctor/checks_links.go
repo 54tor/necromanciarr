@@ -146,6 +146,10 @@ func isFuse(directory string, deps Deps) bool {
 // compareVolumes ne touche pas au disque : types de volume et périphériques seulement, jamais de création dans la racine.
 func compareVolumes(libraryRoot, linkDirectory string, kinds []linker.Kind, deps Deps) (Status, string, i18n.Message, i18n.Message) {
 	same, err := deps.SameVolume(libraryRoot, linkDirectory)
+	if errors.Is(err, linker.ErrVolumeIdentityUnknown) {
+		return Warn, CodeVolumeIdentityUnknown, message(i18n.KeyDoctorVolumeIdentityUnknown, "from", libraryRoot, "to", linkDirectory),
+			message(i18n.KeyDoctorVolumeIdentityUnknownHint)
+	}
 	if err != nil {
 		return Warn, CodeVolumesNotComparable,
 			message(i18n.KeyDoctorVolumesNotComparable, "from", libraryRoot, "to", linkDirectory, "error", err.Error()),

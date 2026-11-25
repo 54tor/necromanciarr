@@ -5,6 +5,7 @@ import (
 	"io"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
@@ -69,6 +70,9 @@ type Deps struct {
 	CapsCache *CapsCache
 	// SealedProbe lit les .torrent scellés en base pour tenter de les desceller (nil : contrôle de la clé seul).
 	SealedProbe SealedProbe
+	// RemoteVolumes donne, par nom de fournisseur sftp, ce que les contrôles sftp-* lisent du volume du registre
+	// (avertissements de connexion, verdict de l'exec distant) ; nil : ces lectures sont absentes.
+	RemoteVolumes map[string]RemoteVolume
 	// Registry lit la bibliothèque et les dossiers de liens et ouvre la racine d'écriture de la sonde des liens (nil :
 	// disque local et racines de bibliothèque de la configuration).
 	Registry *fsys.Registry
@@ -132,6 +136,7 @@ func Build(settings config.Config, deps Deps) []Check {
 	checks = append(checks, arrChecks(settings, deps)...)
 	checks = append(checks, sourceChecks(settings, deps)...)
 	checks = append(checks, secretKeyChecks(settings, deps)...)
+	checks = append(checks, sftpChecks(settings, deps)...)
 	checks = append(checks,
 		newCheck(IDQbittorrent, i18n.KeyDoctorTitleQbittorrent, func(ctx context.Context) Result { return checkQbittorrent(ctx, settings, deps) }),
 		newCheck(IDLinks, i18n.KeyDoctorTitleLinks, func(context.Context) Result { return checkLinkFeasibility(settings, deps) }),
@@ -291,11 +296,12 @@ func checkAuth(settings config.Config) Result {
 }
 
 func checkPathMappings(settings config.Config, deps Deps) Result {
-	if len(settings.PathRules) == 0 {
+	var collected findings
+	addUnmappedRemoteLinkDirs(&collected, settings)
+	if len(settings.PathRules) == 0 && collected.code == "" {
 		return Result{Status: Skipped, Code: CodeNoPathMapping, Detail: message(i18n.KeyDoctorPathMappingsNone)}
 	}
 	registry := deps.registryFor(settings)
-	var collected findings
 	for ruleIndex, rule := range settings.PathRules {
 		index := strconv.Itoa(ruleIndex)
 		if !pathExists(registry, rule.From) && !pathExists(registry, rule.To) {
@@ -311,6 +317,25 @@ func checkPathMappings(settings config.Config, deps Deps) Result {
 		collected.add(OK, CodeRuleOK, message(i18n.KeyDoctorPathRuleOK, "index", index), i18n.Message{})
 	}
 	return collected.result()
+}
+
+// addUnmappedRemoteLinkDirs échoue pour chaque dossier de liens distant qu'aucune règle ne traduit vers la vue du client
+// (Seed, dedupe apply et repair apply le refuseraient : client_path_unmapped). La règle est celle du mapper des étapes :
+// une règle dont la cible reste une adresse sftp:// ne traduit rien.
+func addUnmappedRemoteLinkDirs(collected *findings, settings config.Config) {
+	mapper := linker.NewMapper(settings.PathRules)
+	for _, directory := range linkDirectories(settings) {
+		location, err := fsys.StoredLocation(directory)
+		if err != nil || location.Volume == "" {
+			continue
+		}
+		clientPath, translateErr := mapper.Translate(directory)
+		isMapped := translateErr == nil && clientPath != "" && !strings.HasPrefix(clientPath, "sftp:")
+		if !isMapped {
+			collected.add(Fail, CodeClientPathUnmapped, message(i18n.KeyDoctorPathRuleRemoteUnmapped, "dir", directory),
+				message(i18n.KeyDoctorPathRuleRemoteUnmappedHint))
+		}
+	}
 }
 
 func coversAnyRoot(rule config.PathRule, roots []string) bool {
