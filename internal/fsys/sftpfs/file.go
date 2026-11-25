@@ -93,8 +93,10 @@ func (readOnly readOnlyFile) read(byteCount int, readFn func(file *sftp.File) (i
 	return readCount, mapError("read", readOnly.name, err)
 }
 
-// confirmEndOfFile ne rend io.EOF que si la position atteinte touche la taille du fichier : une fin de fichier
-// avant la taille connue est une connexion qui lâche (pièce faussement mauvaise sinon), le volume passe broken.
+// confirmEndOfFile ne rend io.EOF que si la position atteinte touche la taille du fichier (fstat). Une fin de fichier
+// avant cette taille, fstat réussi, rend ErrShortRead (sous fsys.ErrRemoteUnavailable, jamais io.EOF) et garde la
+// session, qui répond : torrentcheck et dedupe rangent alors le fichier comme indisponible, jamais comme faux (un
+// fichier qui grandit encore, un serveur qui coupe une lecture). Un fstat en échec rend fsys.ErrRemoteUnavailable.
 func (readOnly readOnlyFile) confirmEndOfFile(end int64, positionErr error) error {
 	if positionErr != nil {
 		return fmt.Errorf("%w: sftpfs: read %q: end of file unconfirmed: %v", fsys.ErrRemoteUnavailable, readOnly.name, positionErr) //nolint:errorlint // jamais io.EOF dans la chaîne
@@ -106,8 +108,7 @@ func (readOnly readOnlyFile) confirmEndOfFile(end int64, positionErr error) erro
 	if end >= info.Size() {
 		return io.EOF
 	}
-	readOnly.volume.drop(readOnly.current)
-	return fmt.Errorf("%w: sftpfs: read %q: end of file at %d before the size %d", fsys.ErrRemoteUnavailable, readOnly.name, end, info.Size())
+	return fmt.Errorf("%w: %w: sftpfs: read %q: end of file at %d before the size %d", fsys.ErrRemoteUnavailable, ErrShortRead, readOnly.name, end, info.Size())
 }
 
 // throttleError : une attente coupée par la fermeture de la session est une indisponibilité du volume.

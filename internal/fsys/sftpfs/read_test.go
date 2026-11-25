@@ -686,18 +686,30 @@ func TestSFTP_transportFailuresAreConnectionLosses(t *testing.T) {
 	}
 }
 
-func TestSFTPReader_endOfFileBeforeTheKnownSizeIsALostConnection(t *testing.T) {
+// assertShortReadKeepsTheSession : une fin de fichier avant la taille, fstat réussi, n'est ni io.EOF ni une session
+// cassée : ErrShortRead (sous ErrRemoteUnavailable), session gardée.
+func assertShortReadKeepsTheSession(t *testing.T, label string, volume *sftpfs.Volume, err error) {
+	t.Helper()
+	assertRemoteUnavailableNotEndOfFile(t, label, err)
+	if !errors.Is(err, sftpfs.ErrShortRead) {
+		t.Errorf("%s: valeurObtenue %v, valeurAttendue ErrShortRead", label, err)
+	}
+	if valeurObtenue := volume.State(); valeurObtenue != sftpfs.StateOK {
+		t.Errorf("%s: valeurObtenue state %q, valeurAttendue the live session kept", label, valeurObtenue)
+	}
+}
+
+func TestSFTPReader_endOfFileBeforeTheKnownSizeIsAShortReadOnALiveSession(t *testing.T) {
 	server, volume := readVolume(t, testDeps(), sftptest.WithTruncatedReads("/movie.mkv", 1000))
 	writeServedFile(t, server, "/movie.mkv", patternBytes(readFileBytes))
 	file := openRemote(t, volume, "/movie.mkv")
 
 	_, err := file.ReadAt(make([]byte, readFileBytes), 0)
 
-	assertRemoteUnavailableNotEndOfFile(t, "ReadAt", err)
-	waitForState(t, volume, sftpfs.StateBroken)
+	assertShortReadKeepsTheSession(t, "ReadAt", volume, err)
 }
 
-func TestSFTPReader_sequentialEndOfFileBeforeTheKnownSizeIsALostConnection(t *testing.T) {
+func TestSFTPReader_sequentialEndOfFileBeforeTheKnownSizeIsAShortRead(t *testing.T) {
 	server, volume := readVolume(t, testDeps(), sftptest.WithTruncatedReads("/movie.mkv", 4))
 	writeServedFile(t, server, "/movie.mkv", []byte("0123456789"))
 	file := openRemote(t, volume, "/movie.mkv")
@@ -708,7 +720,7 @@ func TestSFTPReader_sequentialEndOfFileBeforeTheKnownSizeIsALostConnection(t *te
 
 	_, err := io.ReadAll(reader)
 
-	assertRemoteUnavailableNotEndOfFile(t, "Read", err)
+	assertShortReadKeepsTheSession(t, "Read", volume, err)
 }
 
 func TestSFTPReader_readReachingTheSizeIsEndOfFile(t *testing.T) {

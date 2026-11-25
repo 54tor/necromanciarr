@@ -42,6 +42,9 @@ var (
 	// serveur lit les arguments dans l'ordre d'OpenSSH : un serveur à l'ordre inverse poserait le lien à la place de
 	// la cible, bibliothèque comprise.
 	ErrSymlinkOrderUnverified = errors.New("sftpfs: symlink argument order not verified on this session")
+	// ErrShortRead : une lecture a fini avant la taille que donne fstat sur une session vivante ; toujours sous
+	// fsys.ErrRemoteUnavailable, jamais io.EOF : le fichier est indisponible pour cette lecture, pas différent.
+	ErrShortRead = errors.New("sftpfs: read ended before the file size")
 	// ErrOperationTimeout : une opération a dépassé timeout ; la connexion a été fermée.
 	ErrOperationTimeout = errors.New("sftpfs: operation timed out")
 )
