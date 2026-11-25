@@ -210,6 +210,18 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `infohash_changed_after_inject` | Seed | le `.torrent` construit n'a plus l'infohash du candidat : rien n'est ajouté, relancer Verify |
 | `indexer_budget_exhausted` | Verify, Match | un plafond de requêtes à un indexeur (par exécution ou par jour, fenêtre glissante de 24 h) est atteint : ce n'est pas un échec, la suite reprend à la prochaine exécution ; le décompte par jour survit aux redémarrages |
 
+### Par code de connexion SFTP
+
+Codes stables d'une connexion à un fournisseur `sftp`, identiques dans les deux langues.
+
+| Code | Gravité | Cause et action |
+|---|---|---|
+| `host_key_unknown` | refus | l'hôte n'a aucune entrée dans `knownHosts` : ajoutez la clé avec `ssh-keyscan -H seedbox.example.com >> known_hosts` (votre hôte), après avoir vérifié l'empreinte par un autre canal (voir « Obtenir la ligne `known_hosts` » dans la configuration) |
+| `host_key_mismatch` | refus | la clé présentée diffère de celle épinglée, ou elle est révoquée : connexion peut-être interceptée. Ne rien remplacer avant d'avoir vérifié la nouvelle empreinte sur le serveur par un autre canal ; ensuite seulement, remplacer la ligne |
+| `auth_refused` | refus | le serveur a refusé toutes les méthodes configurées (`agent`, `identityFile`, `password`), ou aucune n'était utilisable : vérifier `user`, la clé autorisée côté serveur (`authorized_keys`), la variable du mot de passe |
+| `identity_file_permissions` | avertissement | `identityFile` est lisible ou modifiable par le groupe ou les autres : `chmod 600` ; la connexion continue |
+| `agent_unavailable` | avertissement | `agent` est demandé mais `SSH_AUTH_SOCK` est absent ou injoignable (jamais transmis dans Docker) : la méthode est sautée, les autres sont essayées |
+
 ### Par code d'erreur
 
 | Code | Cause et action |

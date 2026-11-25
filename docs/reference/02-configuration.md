@@ -195,6 +195,17 @@ Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer 
 - `mounts`, `rc` et `binary` ne s'appliquent pas au type `sftp` : refusés.
 - La base SQLite (`dbPath`) reste sur un disque local.
 - Serveurs SFTP Windows (chemins `/C:/…`) : non pris en charge.
+- Connexion : `timeout` borne aussi l'ouverture (TCP, SSH, SFTP). Une opération qui dépasse `timeout`, ou trois keepalive sans réponse, ferme toute la connexion : le volume passe `broken` et l'étape s'arrête (`remote_unavailable`). La reconnexion se fait à l'opération suivante, une seule fois par étape.
+- `agent` sans `SSH_AUTH_SOCK` (ou socket injoignable) : la méthode est sautée avec l'avertissement `agent_unavailable` ; `identityFile` lisible par le groupe ou les autres : avertissement `identity_file_permissions`, pas un refus.
+
+#### Obtenir la ligne `known_hosts`
+
+L'outil ne fait jamais confiance à une clé d'hôte inconnue et n'écrit jamais dans `knownHosts`. Pour remplir le fichier sans risque :
+
+1. Sur le serveur, par un accès déjà sûr (console, session existante), afficher l'empreinte : `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
+2. Depuis la machine de l'outil : `ssh-keyscan -H -p 22 seedbox.example.com >> /data/ssh/known_hosts`, puis `ssh-keygen -lf /data/ssh/known_hosts`. Comparer avec l'empreinte de l'étape 1 ; si elles diffèrent, retirer la ligne : la connexion est peut-être interceptée.
+
+Les entrées hachées (`-H`) sont prises en charge. Seuls les types de clé présents pour l'hôte sont demandés au serveur en premier : un serveur qui a aussi une clé d'un autre type n'est pas refusé à tort. Le fichier est relu à chaque connexion.
 
 ## Indexeurs (`torznab`, `prowlarr`, `sourceOrder`)
 

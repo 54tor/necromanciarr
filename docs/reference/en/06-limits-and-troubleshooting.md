@@ -210,6 +210,18 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `infohash_changed_after_inject` | Seed | the built `.torrent` no longer has the candidate's infohash: nothing is added, run Verify again |
 | `indexer_budget_exhausted` | Verify, Match | a request quota for an indexer (per run or per day, sliding 24 h window) is reached: not a failure, the rest resumes on the next run; the daily count survives restarts |
 
+### By SFTP connection code
+
+Stable codes of a connection to an `sftp` provider, identical in both languages.
+
+| Code | Severity | Cause and action |
+|---|---|---|
+| `host_key_unknown` | refusal | the host has no entry in `knownHosts`: add the key with `ssh-keyscan -H seedbox.example.com >> known_hosts` (your host), after checking the fingerprint through another channel (see "Getting the `known_hosts` line" in the configuration) |
+| `host_key_mismatch` | refusal | the presented key differs from the pinned one, or it is revoked: the connection may be intercepted. Replace nothing before checking the new fingerprint on the server through another channel; only then replace the line |
+| `auth_refused` | refusal | the server refused every configured method (`agent`, `identityFile`, `password`), or none was usable: check `user`, the key authorized on the server (`authorized_keys`), the password variable |
+| `identity_file_permissions` | warning | `identityFile` is readable or writable by group or others: `chmod 600`; the connection goes on |
+| `agent_unavailable` | warning | `agent` is requested but `SSH_AUTH_SOCK` is missing or unreachable (never forwarded in Docker): the method is skipped, the others are tried |
+
 ### By error code
 
 | Code | Cause and action |
