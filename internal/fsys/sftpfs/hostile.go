@@ -20,9 +20,10 @@ const (
 	maxPlausibleBytes = 1 << 62
 )
 
-// maxListingEntries borne une liste de dossier. ponytail: pkg/sftp garde la liste entière en mémoire avant de la rendre,
-// le plafond se vérifie après coup ; une liste sans fin n'est arrêtée que par timeout (mémoire ≈ débit × timeout).
-// Passer par une lecture de dossier en flux si pkg/sftp en expose une.
+// maxListingEntries borne une liste de dossier. ponytail: pkg/sftp v1.13.13 n'offre que ReadDirContext, qui garde
+// la liste entière en mémoire avant de la rendre : le plafond se vérifie après coup, et une liste sans fin n'est
+// arrêtée que par timeout. Mémoire ≈ débit × timeout × 10 (une entrée ≈ 13 octets sur le fil, ≈ 150 octets
+// décodée). Passer à une lecture de dossier en flux si pkg/sftp en expose une.
 var maxListingEntries = 1_000_000
 
 // keepListingName garde un nom d'entrée sûr à joindre à son dossier : ni vide, ni « . », ni « .. », sans « / » ni

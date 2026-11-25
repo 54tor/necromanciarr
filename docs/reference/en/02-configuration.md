@@ -204,9 +204,9 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 
 - Read only: the remote library is read through `SSH_FXF_READ`-only opens; no write request is ever sent there.
 - Rate: each read waits, before it is sent, on the provider limiter (the provider's `readBytesPerSecond`) then on the global limiter (the global `readBytesPerSecond`); the stricter of the two wins. Bytes are counted when requested, in 32 KiB slices. A read split into `maxConcurrentRequests` requests in flight never carries more than what was counted.
-- Directory listings: a name that is empty, `.`, `..`, contains `/` or NUL, or is longer than 4096 bytes is dropped, as is an entry with an impossible size (negative or beyond 2^62 bytes); a duplicate name keeps only its first entry. Beyond one million entries, the listing is refused. Names with non-UTF-8 bytes stay readable.
+- Directory listings: a name that is empty, `.`, `..`, contains `/` or NUL, or is longer than 4096 bytes is dropped, as is an entry with an impossible size (negative or beyond 2^62 bytes); a duplicate name keeps only its first entry. Beyond one million entries, the listing is refused. The received listing is held whole in memory before this check: an endless listing is stopped only by `timeout`, and can take about throughput × `timeout` × 10 bytes of memory (a decoded entry weighs about ten times its size on the network). Names with non-UTF-8 bytes stay readable.
 - A link target longer than 4096 bytes, an impossible file size or an inconsistent `statvfs` answer is refused, never truncated.
-- Free space and volume identity: read through the OpenSSH `statvfs` extension. Without it, free space is unknown (no full copy is attempted) and so is the volume identity.
+- Free space and volume identity: read through the OpenSSH `statvfs` extension. Without it, free space is unknown (no full copy is attempted) and so is the volume identity. The volume identity comes from the server's `statvfs`: a lying server only skews the choices of the scan and of links (same volume or not), never a write into the library.
 
 #### Getting the `known_hosts` line
 
