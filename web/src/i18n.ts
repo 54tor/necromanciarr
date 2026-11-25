@@ -22,9 +22,10 @@ const composer = i18n.global as unknown as Composer
 export const { t } = composer
 export const { te } = composer
 
-/** setLanguage bascule la langue de l'interface (toute l'interface suit : la locale est réactive). */
+/** setLanguage bascule la langue de l'interface (toute l'interface suit : la locale est réactive) et l'attribut lang de la page. */
 export function setLanguage(language: Language): void {
   composer.locale.value = language
+  document.documentElement.lang = language
 }
 
 /** initialLanguage choisit `fr` ou `en` d'après les langues du navigateur (première reconnue), `fr` sinon. */
