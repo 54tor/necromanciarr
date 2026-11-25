@@ -223,6 +223,7 @@ Stable codes of a connection to an `sftp` provider, identical in both languages.
 | `identity_key_too_weak` | refusal | `identityFile` is an RSA key under 3072 bits: generate an ed25519 key (`ssh-keygen -t ed25519`) and authorize it on the server |
 | `identity_file_permissions` | warning | `identityFile` is readable or writable by group or others: `chmod 600`; the connection goes on |
 | `agent_unavailable` | warning | `agent` is requested but `SSH_AUTH_SOCK` is missing or unreachable, or the agent does not answer within `timeout` (never forwarded in Docker): the method is skipped, the others are tried |
+| `link_dir_world_writable` | warning | a folder created in a remote link folder is writable by group or others: set the SFTP account's umask to `022` (for example `ForceCommand internal-sftp -u 022` on OpenSSH) or create these folders beforehand; the operation goes on |
 
 ### By error code
 
