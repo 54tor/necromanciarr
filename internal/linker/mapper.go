@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/fsys"
 )
 
 // ErrNoRule signale qu'aucune règle de mapping ne couvre le chemin demandé.
@@ -19,14 +20,18 @@ const (
 	slashSeparator   = "/"
 	windowsSeparator = `\`
 	uncPrefix        = `\\`
+	// remoteScheme ouvre un côté de règle distant ; « sftp:/x » (une seule barre) est aussi distant, donc refusé.
+	remoteScheme = "sftp:"
 )
 
 // Mapper applique les règles de mapping de chemins.
 //
 // Règle de nettoyage : chemins et préfixes sont nettoyés selon la sémantique de path (« / », « .. » résolu avant la
 // comparaison). Un côté de règle qui commence par une lettre de lecteur (« D: ») ou par « \\ » est traité comme un
-// chemin Windows : « \ » y vaut « / », la comparaison ignore la casse et le résultat reprend « \ ». Un préfixe ne
-// correspond que sur une frontière de segment ; à égalité de longueur, la première règle l'emporte.
+// chemin Windows : « \ » y vaut « / », la comparaison ignore la casse et le résultat reprend « \ ». Un côté
+// « sftp:// » est une adresse fsys (fsys.ParseLocation) : il ne couvre que les adresses du même fournisseur, comparées
+// en POSIX et en respectant la casse (« \ » y est un caractère de nom). Un préfixe ne correspond que sur une frontière
+// de segment ; à égalité de longueur, la première règle l'emporte.
 type Mapper struct {
 	rules []config.PathRule
 }
@@ -47,7 +52,6 @@ func (mapper *Mapper) Reverse(original string) (string, error) {
 }
 
 func (mapper *Mapper) remap(original string, sides func(config.PathRule) (string, string)) (string, error) {
-	cleanedPath := normalize(original)
 	bestLength := -1
 	var bestRest, bestTarget string
 	for _, rule := range mapper.rules {
@@ -55,16 +59,44 @@ func (mapper *Mapper) remap(original string, sides func(config.PathRule) (string
 		if prefix == "" {
 			continue
 		}
-		boundary := strings.TrimSuffix(normalize(prefix), slashSeparator)
-		rest, matched := cutSegmentPrefix(cleanedPath, boundary, isWindowsStyle(prefix))
-		if matched && len(boundary) > bestLength {
-			bestLength, bestRest, bestTarget = len(boundary), rest, target
+		rest, boundaryLength, matched := matchPrefix(original, prefix)
+		if matched && boundaryLength > bestLength {
+			bestLength, bestRest, bestTarget = boundaryLength, rest, target
 		}
 	}
 	if bestLength < 0 {
 		return "", fmt.Errorf("%w: %s", ErrNoRule, original)
 	}
 	return joinTarget(bestTarget, bestRest), nil
+}
+
+// matchPrefix rend le reste de original sous prefix et la longueur de la frontière comparée.
+func matchPrefix(original, prefix string) (string, int, bool) {
+	if isRemoteSide(prefix) || isRemoteSide(original) {
+		return matchRemotePrefix(original, prefix)
+	}
+	boundary := strings.TrimSuffix(normalize(prefix), slashSeparator)
+	rest, matched := cutSegmentPrefix(normalize(original), boundary, isWindowsStyle(prefix))
+	return rest, len(boundary), matched
+}
+
+// matchRemotePrefix : deux adresses sftp:// valides du même fournisseur, comparées en POSIX et sensibles à la casse ;
+// une adresse invalide ou un côté local ne correspond jamais.
+func matchRemotePrefix(original, prefix string) (string, int, bool) {
+	originalLocation, originalErr := fsys.ParseLocation(original)
+	prefixLocation, prefixErr := fsys.ParseLocation(prefix)
+	isComparable := originalErr == nil && prefixErr == nil && originalLocation.Volume != "" &&
+		originalLocation.Volume == prefixLocation.Volume
+	if !isComparable {
+		return "", 0, false
+	}
+	boundary := strings.TrimSuffix(prefixLocation.Path, slashSeparator)
+	rest, matched := cutSegmentPrefix(originalLocation.Path, boundary, false)
+	return rest, len(prefixLocation.Volume) + len(boundary), matched
+}
+
+func isRemoteSide(candidate string) bool {
+	return strings.HasPrefix(candidate, remoteScheme)
 }
 
 func cutSegmentPrefix(cleanedPath, boundary string, ignoreCase bool) (string, bool) {
@@ -78,6 +110,9 @@ func cutSegmentPrefix(cleanedPath, boundary string, ignoreCase bool) (string, bo
 }
 
 func joinTarget(target, rest string) string {
+	if isRemoteSide(target) {
+		return joinRemoteTarget(target, rest)
+	}
 	joined := strings.TrimSuffix(normalize(target), slashSeparator) + rest
 	if joined == "" || isBareDrive(joined) {
 		joined += slashSeparator
@@ -86,6 +121,16 @@ func joinTarget(target, rest string) string {
 		return strings.ReplaceAll(joined, slashSeparator, windowsSeparator)
 	}
 	return joined
+}
+
+// joinRemoteTarget rebâtit l'adresse sftp:// ; la cible a été validée au chargement de la configuration.
+func joinRemoteTarget(target, rest string) string {
+	location, err := fsys.ParseLocation(target)
+	if err != nil {
+		return target + rest
+	}
+	location.Path = path.Clean(location.Path + rest)
+	return location.String()
 }
 
 func normalize(original string) string {
