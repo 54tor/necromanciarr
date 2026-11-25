@@ -2,9 +2,15 @@ package sources
 
 import (
 	"context"
+	"errors"
 
 	"necromanciarr/internal/libraryprovider"
+	"necromanciarr/internal/store"
 )
+
+// ErrTorrentTooLarge : le .torrent dépasse la taille conservée (store.MaxTorrentBytes) ; testé avant l'assainissement,
+// qui le refuserait sous une autre raison.
+var ErrTorrentTooLarge = errors.New("sources: torrent exceeds the size limit")
 
 // ProviderSource est la part de libraryprovider.Client que la chaîne utilise ; *libraryprovider.Client convient sans
 // adaptation, son code ne change pas.
@@ -20,6 +26,9 @@ func fetchFromProvider(ctx context.Context, provider ProviderSource, release Rel
 	raw, err := provider.Torrent(ctx, release.Infohash, release.Tracker)
 	if err != nil {
 		return Fetched{}, err
+	}
+	if len(raw) > store.MaxTorrentBytes {
+		return Fetched{}, ErrTorrentTooLarge
 	}
 	sanitized, err := Sanitize(raw)
 	if err != nil {

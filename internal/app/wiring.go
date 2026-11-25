@@ -169,7 +169,8 @@ func indexerSources(settings config.Config) ([]sources.ID, map[sources.ID]source
 			order = append(order, sources.ID(config.SourceTorznabPrefix+indexer.Name))
 		}
 	} else {
-		for _, name := range settings.SourceOrder[1:] {
+		order = order[:0]
+		for _, name := range settings.SourceOrder {
 			order = append(order, sources.ID(name))
 		}
 	}

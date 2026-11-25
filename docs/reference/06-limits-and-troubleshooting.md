@@ -195,6 +195,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `no_announce` | Verify, Link, Seed | ni entrée `trackers` ni `.torrent` scellé d'indexeur : ajouter l'entrée `trackers`, puis réaccepter (aucune revérification) |
 | `sealed_torrent_unreadable`, `secret_key_missing` | Seed | `.torrent` scellé illisible (clé changée) ou clé absente : remettre `NECROMANCIARR_SECRET_KEY`, ou relancer Verify sur le candidat |
 | `infohash_changed_after_inject` | Seed | le `.torrent` construit n'a plus l'infohash du candidat : rien n'est ajouté, relancer Verify |
+| `indexer_budget_exhausted` | Verify, Match | un plafond de requêtes à un indexeur (par exécution ou par jour, fenêtre glissante de 24 h) est atteint : ce n'est pas un échec, la suite reprend à la prochaine exécution ; le décompte par jour survit aux redémarrages |
 
 ### Par code d'erreur
 

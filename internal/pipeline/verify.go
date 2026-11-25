@@ -221,7 +221,7 @@ func fetchFailure(err error) (string, error) {
 	if errors.Is(err, libraryprovider.ErrNotFound) {
 		return ReasonTorrentNotFound, nil
 	}
-	if errors.Is(err, libraryprovider.ErrResponseTooLarge) {
+	if errors.Is(err, libraryprovider.ErrResponseTooLarge) || errors.Is(err, sources.ErrTorrentTooLarge) {
 		return ReasonTorrentTooLarge, nil
 	}
 	return ReasonTorrentFetchFailed, nil

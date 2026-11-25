@@ -37,7 +37,8 @@ func (openedStore *Store) RecordIndexerUsage(ctx context.Context, indexer, kind 
 
 // TakeIndexerUsage ajoute la ligne seulement si l'indexeur a moins de limit lignes de ce kind après since, et dit si
 // elle l'a fait ; le test et l'ajout sont une seule instruction dans une transaction qui prend le verrou d'écriture,
-// donc sûrs entre processus. La purge des lignes de plus d'un jour avant at a lieu dans la même transaction.
+// donc sûrs entre processus. ponytail: une ligne datée dans le futur (horloge reculée) compte jusqu'à ce que
+// l'horloge la rattrape, puis vieillit normalement ; pas de correction tant que cela ne s'est pas vu. La purge des lignes de plus d'un jour avant at a lieu dans la même transaction.
 func (openedStore *Store) TakeIndexerUsage(ctx context.Context, indexer, kind string, at, since time.Time, limit int) (bool, error) {
 	return openedStore.writeIndexerUsage(ctx, at, takeIndexerUsageSQL,
 		indexer, at.UnixNano(), kind, indexer, kind, since.UnixNano(), limit)

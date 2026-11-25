@@ -195,6 +195,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `no_announce` | Verify, Link, Seed | neither a `trackers` entry nor a sealed indexer `.torrent`: add the `trackers` entry, then accept again (no re-verification) |
 | `sealed_torrent_unreadable`, `secret_key_missing` | Seed | sealed `.torrent` unreadable (key changed) or key missing: restore `NECROMANCIARR_SECRET_KEY`, or run Verify again on the candidate |
 | `infohash_changed_after_inject` | Seed | the built `.torrent` no longer has the candidate's infohash: nothing is added, run Verify again |
+| `indexer_budget_exhausted` | Verify, Match | a request quota for an indexer (per run or per day, sliding 24 h window) is reached: not a failure, the rest resumes on the next run; the daily count survives restarts |
 
 ### By error code
 

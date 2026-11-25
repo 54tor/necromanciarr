@@ -193,6 +193,8 @@ type verifyFixture struct {
 	sealer   *sources.Sealer
 	// keepEmptyTracker garde un tracker vide tel quel (candidat du fournisseur sans tracker, cas N1).
 	keepEmptyTracker bool
+	// realChain passe par une vraie sources.Chain (fournisseur seul) au lieu du faux adaptateur.
+	realChain bool
 }
 
 // testTracker remplace le tracker vide d'un candidat de test : une entrée trackers le couvre, comme un candidat réel
@@ -316,8 +318,16 @@ func (fixture *verifyFixture) candidate(infohash string) store.Candidate {
 }
 
 func (fixture *verifyFixture) deps() Deps {
+	var chain SourceChain = fakeChain{fetcher: fixture.fetcher}
+	if fixture.realChain {
+		realChain, err := sources.NewChain(providerOnly{fixture.fetcher}, nil, []sources.ID{sources.ProviderID}, nil, nil, nil, nil)
+		if err != nil {
+			fixture.t.Fatal(err)
+		}
+		chain = realChain
+	}
 	deps := Deps{
-		Store: fixture.store, Sources: fakeChain{fetcher: fixture.fetcher}, OpenLocal: fixture.opener.open, CrossSeed: fixture.crossSeed,
+		Store: fixture.store, Sources: chain, OpenLocal: fixture.opener.open, CrossSeed: fixture.crossSeed,
 		ReadLimiter: fixture.limiter, ReadBudget: fixture.readBudget, ProgressEvery: 1,
 		PartialMaxMissingPercent: fixture.partialCap, Now: func() time.Time { return fixedNow },
 		Announces: sources.NewResolver(fixture.trackers), Sealer: fixture.sealer,
