@@ -89,7 +89,7 @@ lint:
 	$(GO_RUN) tool golangci-lint run --concurrency $(QUALITY_PARALLELISM)
 
 # Un paquet à la fois : -race multiplie la RAM et le CPU.
-test:
+test: ui
 	@packages=$$($(PACKAGE_LIST_CMD)) || exit 1; \
 	test -n "$$packages" || { echo "aucun paquet à tester"; exit 1; }; \
 	status=0; \
