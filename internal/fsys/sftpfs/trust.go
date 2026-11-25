@@ -30,6 +30,9 @@ var ErrKnownHostsNotWritable = errors.New("sftpfs: knownHosts is not a regular w
 const knownHostsFileMode = 0o600
 
 // errHostKeyCaptured interrompt la poignée de main une fois la clé lue : aucune authentification n'a lieu.
+// beforeKnownHostsOpen est appelé entre le Lstat de knownHosts et son ouverture ; les tests y remplacent le fichier.
+var beforeKnownHostsOpen = func(string) {}
+
 var errHostKeyCaptured = errors.New("sftpfs: host key captured, handshake stopped before authentication")
 
 // TrustOutcome est l'issue de TrustHostKey.
@@ -126,8 +129,11 @@ func TrustHostKey(provider config.FSProvider, hostKey HostKey, confirmed bool) (
 	}
 	if exists {
 		pinned, err := pinnedVerdict(provider, hostKey)
-		if err != nil || pinned {
-			return TrustAlreadyPinned, err
+		if err != nil {
+			return "", err
+		}
+		if pinned {
+			return TrustAlreadyPinned, nil
 		}
 	}
 	if !confirmed {
@@ -177,16 +183,17 @@ func pinnedVerdict(provider config.FSProvider, hostKey HostKey) (bool, error) {
 	}
 }
 
-// appendHostKeyLine ajoute la ligne en O_APPEND. Fichier présent : ouvert sans O_CREATE puis comparé à celui vu par
-// Lstat (un remplacement par un lien entre-temps est refusé) ; fichier absent : créé en O_EXCL (un lien posé
+// appendHostKeyLine ajoute la ligne en O_APPEND. Fichier présent : ouvert sans O_CREATE ni suivre de lien (O_NOFOLLOW
+// hors Windows), puis comparé à celui vu par Lstat (un remplacement entre-temps est refusé) ; fichier absent : créé en O_EXCL (un lien posé
 // entre-temps fait échouer la création).
 func appendHostKeyLine(provider config.FSProvider, hostKey HostKey, existing fs.FileInfo) error {
 	path := provider.KnownHosts
 	// O_RDWR : le dernier octet se relit par le même descripteur, jamais par le chemin.
-	flags := os.O_RDWR | os.O_APPEND
+	flags := os.O_RDWR | os.O_APPEND | noFollowFlag
 	if existing == nil {
 		flags |= os.O_CREATE | os.O_EXCL
 	}
+	beforeKnownHostsOpen(path)
 	file, err := os.OpenFile(path, flags, knownHostsFileMode) // #nosec G304 -- knownHosts configuré par l'opérateur, lien refusé
 	if err != nil {
 		return fmt.Errorf("%w: %s: %w", ErrKnownHostsNotWritable, path, err)

@@ -122,7 +122,7 @@ func TestTrustHostKey_neverReplacesADifferentPinnedKey(t *testing.T) {
 	for _, confirmed := range []bool{false, true} {
 		outcome, err := sftpfs.TrustHostKey(provider, fetchHostKey(t, provider), confirmed)
 
-		if !errors.Is(err, sftpfs.ErrHostKeyMismatch) || sftpfs.Code(err) != sftpfs.CodeHostKeyMismatch {
+		if !errors.Is(err, sftpfs.ErrHostKeyMismatch) || sftpfs.Code(err) != sftpfs.CodeHostKeyMismatch || outcome != "" {
 			t.Fatalf("confirmed %v: gotValue %q, %v, expectedValue host_key_mismatch", confirmed, outcome, err)
 		}
 	}
@@ -184,5 +184,31 @@ func TestTrustHostKey_refusesASymlinkedFileAndLeavesItsTargetAlone(t *testing.T)
 	}
 	if gotValue := string(readKnownHosts(t, target)); gotValue != "kept\n" {
 		t.Fatalf("gotValue %q, expectedValue the symlink target unchanged", gotValue)
+	}
+}
+
+func TestTrustHostKey_refusesASymlinkSwappedInBeforeTheOpen(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	server := sftptest.Start(t)
+	directory := t.TempDir()
+	knownHosts := filepath.Join(directory, "known_hosts")
+	moved := filepath.Join(directory, "moved")
+	sftptest.WriteFile(t, knownHosts, []byte("# operator file\n"), 0o600)
+	provider := providerFor(server, knownHosts)
+	hostKey := fetchHostKey(t, provider)
+	sftpfs.SetBeforeKnownHostsOpen(t, func(path string) {
+		sftptest.Rename(t, path, moved)
+		sftptest.Symlink(t, moved, path)
+	})
+
+	_, err := sftpfs.TrustHostKey(provider, hostKey, true)
+
+	if !errors.Is(err, sftpfs.ErrKnownHostsNotWritable) {
+		t.Fatalf("gotValue %v, expectedValue known_hosts_not_writable for a symlink swapped in", err)
+	}
+	if gotValue := string(readKnownHosts(t, moved)); gotValue != "# operator file\n" {
+		t.Fatalf("gotValue %q, expectedValue the file behind the symlink unchanged", gotValue)
 	}
 }

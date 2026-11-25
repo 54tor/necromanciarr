@@ -85,3 +85,11 @@ func SetStatExecTimeout(t testing.TB, timeout time.Duration) {
 	statExecTimeout = timeout
 	t.Cleanup(func() { statExecTimeout = previous })
 }
+
+// SetBeforeKnownHostsOpen pose, pour un test, l'appel fait entre le Lstat de knownHosts et son ouverture.
+func SetBeforeKnownHostsOpen(t *testing.T, hook func(path string)) {
+	t.Helper()
+	previous := beforeKnownHostsOpen
+	beforeKnownHostsOpen = hook
+	t.Cleanup(func() { beforeKnownHostsOpen = previous })
+}
