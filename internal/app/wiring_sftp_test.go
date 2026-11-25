@@ -131,7 +131,7 @@ func TestBuildRegistry_givesEachSFTPVolumeItsLibraryRoots(t *testing.T) {
 	server := startSeedbox(t)
 	_, volumes := buildTestRegistry(t, seedboxSettings(t, server.Provider(t, seedboxName)), sftpfs.Deps{})
 	careless, err := fsys.NewRegistry(map[string]fsys.Volume{seedboxName: volumes.volumes[seedboxName]},
-		[]fsys.Location{seedboxLocation("/elsewhere")})
+		[]fsys.Location{seedboxLocation(seedboxLinks)})
 	if err != nil {
 		t.Fatal(err)
 	}

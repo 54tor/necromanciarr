@@ -335,7 +335,8 @@ func (handler *fileHandler) Readlink(clientPath string) (string, error) {
 }
 
 // RealPath rend le chemin absolu canonique, liens résolus comme le fait OpenSSH, préfixé par « /C: » pour un
-// serveur Windows simulé.
+// serveur Windows simulé. Comme sftp-realpath d'OpenSSH, seul le dernier segment peut manquer : un segment
+// intermédiaire absent (ou qui n'est pas un dossier) rend os.ErrNotExist (SSH_FX_NO_SUCH_FILE).
 func (handler *fileHandler) RealPath(clientPath string) (string, error) {
 	if err := handler.admit(Request{Method: "RealPath", Path: clientPath}, context.Background()); err != nil {
 		return "", err
@@ -344,11 +345,27 @@ func (handler *fileHandler) RealPath(clientPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := handler.requireParentDirectory(relativePath); err != nil {
+		return "", err
+	}
 	canonical := path.Clean("/" + relativePath)
 	if handler.server.settings.windowsRoot {
 		canonical = windowsDrivePrefix + canonical
 	}
 	return canonical, nil
+}
+
+// requireParentDirectory : le parent d'un chemin déjà sans lien doit exister et être un dossier.
+func (handler *fileHandler) requireParentDirectory(relativePath string) error {
+	parent := path.Dir(relativePath)
+	if parent == "." {
+		return nil
+	}
+	info, err := handler.server.root.Lstat(parent)
+	if err != nil || !info.IsDir() {
+		return os.ErrNotExist
+	}
+	return nil
 }
 
 // fileInfos sert une liste déjà lue par tranches, comme l'attend pkg/sftp.

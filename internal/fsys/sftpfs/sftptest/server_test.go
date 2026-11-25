@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -630,5 +631,36 @@ func TestServer_recordsAnUnknownExtendedRequest(t *testing.T) {
 	valeurAttendue := sftptest.Request{Method: sftptest.ExtendedMethodPrefix + "fsync@openssh.com"}
 	if valeurObtenue := server.Requests(); !slices.Contains(valeurObtenue, valeurAttendue) {
 		t.Fatalf("valeurObtenue %+v, valeurAttendue %+v recorded", valeurObtenue, valeurAttendue)
+	}
+}
+
+// RealPath suit OpenSSH : liens des segments existants résolus, dernier segment absent permis, segment
+// intermédiaire absent refusé (SSH_FX_NO_SUCH_FILE) au lieu d'un chemin inventé.
+func TestServer_realPathBehavesLikeOpenSSH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need a privilege on Windows")
+	}
+	server := sftptest.Start(t)
+	sftptest.Mkdir(t, filepath.Join(server.Root, "library"))
+	if err := os.Symlink("/library", filepath.Join(server.Root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/missing/library", filepath.Join(server.Root, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	client := connect(t, server)
+
+	resolved := map[string]string{"/alias": "/library", "/alias/new": "/library/new", "/library/new": "/library/new"}
+	for clientPath, valeurAttendue := range resolved {
+		valeurObtenue, err := client.RealPath(clientPath)
+		if err != nil || valeurObtenue != valeurAttendue {
+			t.Errorf("RealPath(%q) = %q, %v; want %q", clientPath, valeurObtenue, err, valeurAttendue)
+		}
+	}
+	for _, clientPath := range []string{"/missing/x", "/dangling", "/dangling/x", "/alias/missing/x"} {
+		valeurObtenue, err := client.RealPath(clientPath)
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("RealPath(%q) = %q, %v; want fs.ErrNotExist", clientPath, valeurObtenue, err)
+		}
 	}
 }

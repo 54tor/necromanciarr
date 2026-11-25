@@ -25,6 +25,8 @@ type fakeVolume struct {
 	statError map[string]error
 	// unknownIDs : FileID rend known=false pour ces chemins.
 	unknownIDs map[string]bool
+	// lstatModes remplace le mode rendu par Lstat (lien symbolique, fichier) ; par défaut un dossier.
+	lstatModes map[string]fs.FileMode
 	paths      fsys.PathSyntax
 	// unavailable simule un volume injoignable, réparable en cours de test.
 	unavailable      atomic.Bool
@@ -59,7 +61,6 @@ var errFake = errors.New("fake: not implemented")
 
 func (volume *fakeVolume) Volume() string                        { return volume.name }
 func (volume *fakeVolume) Open(string) (fsys.File, error)        { return nil, errFake }
-func (volume *fakeVolume) Lstat(string) (fs.FileInfo, error)     { return nil, errFake }
 func (volume *fakeVolume) ReadDir(string) ([]fs.DirEntry, error) { return nil, errFake }
 func (volume *fakeVolume) Readlink(string) (string, error)       { return "", errFake }
 func (volume *fakeVolume) VolumeID(string) (string, bool, error) { return "", false, errFake }
@@ -97,7 +98,17 @@ func (volume *fakeVolume) Stat(name string) (fs.FileInfo, error) {
 	if err := volume.statError[name]; err != nil {
 		return nil, err
 	}
-	return fakeInfo{path: name}, nil
+	return fakeInfo{path: name, mode: fs.ModeDir}, nil
+}
+
+func (volume *fakeVolume) Lstat(name string) (fs.FileInfo, error) {
+	if err := volume.statError[name]; err != nil {
+		return nil, err
+	}
+	if mode, overridden := volume.lstatModes[name]; overridden {
+		return fakeInfo{path: name, mode: mode}, nil
+	}
+	return fakeInfo{path: name, mode: fs.ModeDir}, nil
 }
 
 func (volume *fakeVolume) FileID(info fs.FileInfo) (fsys.FileID, bool) {
@@ -117,13 +128,16 @@ func (volume *fakeVolume) OpenWriteRoot(dir string) (fsys.WriteRoot, error) {
 	return &fakeWriteRoot{root: fsys.Location{Volume: volume.name, Path: dir}}, nil
 }
 
-type fakeInfo struct{ path string }
+type fakeInfo struct {
+	path string
+	mode fs.FileMode
+}
 
 func (info fakeInfo) Name() string       { return info.path }
 func (info fakeInfo) Size() int64        { return 0 }
-func (info fakeInfo) Mode() fs.FileMode  { return fs.ModeDir }
+func (info fakeInfo) Mode() fs.FileMode  { return info.mode }
 func (info fakeInfo) ModTime() time.Time { return time.Time{} }
-func (info fakeInfo) IsDir() bool        { return true }
+func (info fakeInfo) IsDir() bool        { return info.mode.IsDir() }
 func (info fakeInfo) Sys() any           { return info.path }
 
 type fakeWriteRoot struct {

@@ -587,3 +587,33 @@ func TestCapabilities_probedOnlyWhenNoFunctionAwaitsItsProbe(t *testing.T) {
 		t.Fatalf("valeurObtenue %v %v, valeurAttendue false then true", pending.Probed(), settled.Probed())
 	}
 }
+
+// Un serveur au realpath laxiste (lexical, non OpenSSH) laisse un alias symbolique non résolu : la racine de
+// bibliothèque canonique doit être un vrai dossier, sinon aucune racine d'écriture n'est ouverte sur ce volume.
+func TestRegistry_refusesEveryWriteRootWhenALibraryRootIsNotARealDirectory(t *testing.T) {
+	for name, mode := range map[string]fs.FileMode{"symlink": fs.ModeSymlink, "symlink with a dir bit": fs.ModeDir | fs.ModeSymlink, "file": 0} {
+		t.Run(name, func(t *testing.T) {
+			volume := newFakeVolume("seedbox")
+			volume.lstatModes = map[string]fs.FileMode{"/srv/media": mode}
+			registry := newTestRegistry(t, volume)
+
+			root, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/links"})
+
+			if root != nil || !errors.Is(err, fsys.ErrCannotCanonicalize) {
+				t.Fatalf("valeurObtenue %v, valeurAttendue fsys.ErrCannotCanonicalize (library root not a real directory)", err)
+			}
+		})
+	}
+}
+
+func TestRegistry_refusesEveryWriteRootWhenALibraryRootCannotBeLstated(t *testing.T) {
+	volume := newFakeVolume("seedbox")
+	volume.statError = map[string]error{"/srv/media": fs.ErrNotExist}
+	registry := newTestRegistry(t, volume)
+
+	root, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/links"})
+
+	if root != nil || !errors.Is(err, fsys.ErrCannotCanonicalize) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue fsys.ErrCannotCanonicalize", err)
+	}
+}

@@ -2,6 +2,8 @@ package fsys
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"strings"
 	"sync"
 	"time"
@@ -63,6 +65,9 @@ func (entry *volumeEntry) buildState() (*volumeState, error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := requireRealDirectory(entry.volume, canonical); err != nil {
+			return nil, err
+		}
 		canonicalRoots = append(canonicalRoots, canonical)
 		state.libraryKeys = append(state.libraryKeys, entry.comparisonKey(canonical))
 	}
@@ -100,6 +105,20 @@ func (entry *volumeEntry) recordLibraryIdentities(state *volumeState, canonicalR
 			}
 			state.libraryAncestry[ancestorID] = true
 		}
+	}
+	return nil
+}
+
+// requireRealDirectory échoue fermé si la racine canonique n'est pas un vrai dossier : un realpath laxiste (lexical,
+// hors OpenSSH) peut rendre un lien symbolique non résolu, dont le texte ne protégerait pas la bibliothèque visée.
+func requireRealDirectory(volume Volume, canonical string) error {
+	info, err := volume.Lstat(canonical)
+	if err != nil {
+		return &causeHidingError{sentinel: ErrCannotCanonicalize, cause: err}
+	}
+	isRealDirectory := info.IsDir() && info.Mode()&fs.ModeSymlink == 0
+	if !isRealDirectory {
+		return fmt.Errorf("%w: a library root is not a real directory", ErrCannotCanonicalize)
 	}
 	return nil
 }

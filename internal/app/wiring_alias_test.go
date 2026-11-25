@@ -2,6 +2,9 @@ package app
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"necromanciarr/internal/fsys"
@@ -59,5 +62,40 @@ func TestBuildRegistry_keepsLibraryRootsApartBetweenDifferentAddresses(t *testin
 	_ = root.Close()
 	if writes := writeRequestsUnder(server, seedboxLibrary); len(writes) != 0 {
 		t.Fatalf("valeurObtenue %+v, valeurAttendue no write on the library server", writes)
+	}
+}
+
+// Régression du finding F1 C2 : une racine de bibliothèque écrite par un alias symbolique, absolu dans la vue du
+// serveur ou dans celle de l'hôte (absent côté serveur), ne laisse jamais ouvrir une racine d'écriture dans la
+// bibliothèque.
+func TestBuildRegistry_refusesALinkDirInTheLibraryNamedThroughASymlinkAlias(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need a privilege on Windows")
+	}
+	server := startSeedbox(t)
+	sub := filepath.Join(server.Root, "library", "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aliases := map[string]string{"/server-alias": "/library", "/host-alias": filepath.Join(server.Root, "library")}
+	for alias, target := range aliases {
+		if err := os.Symlink(target, filepath.Join(server.Root, alias)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for alias := range aliases {
+		settings := seedboxSettings(t, server.Provider(t, seedboxName))
+		settings.LibraryRoots = []string{"sftp://" + seedboxName + alias}
+		registry, _ := buildTestRegistry(t, settings, sftpfs.Deps{})
+
+		root, err := registry.WriteRoot(seedboxLocation(seedboxLibrary + "/sub"))
+
+		if root != nil || err == nil {
+			_ = root.Close()
+			t.Errorf("library root %s: valeurObtenue a write root in the library, valeurAttendue a refusal", alias)
+		}
+	}
+	if writes := writeRequestsUnder(server, seedboxLibrary); len(writes) != 0 {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue no write request under the library", writes)
 	}
 }
