@@ -97,9 +97,10 @@ func TestConfig_explicitJsonOverridesCrossSeedValues(t *testing.T) {
 }
 
 func TestConfig_listsAreReplacedNotMerged(t *testing.T) {
+	importedLinks := absPath("home", "u", "imported-links")
 	crossSeedPath := writeCrossSeedJS(t, `module.exports = {
 		sonarr: ["http://first.example.com:8989?apikey=a", "http://second.example.com:8989?apikey=b"],
-		linkDirs: ["/home/u/imported-links"],
+		linkDirs: ["`+jsonText(importedLinks)+`"],
 	};`)
 	configDir := configWithCrossSeed(t, crossSeedPath, `,
 		"sonarr": ["http://json.example.com:8989?apikey=c"],
@@ -110,7 +111,7 @@ func TestConfig_listsAreReplacedNotMerged(t *testing.T) {
 	if len(loadedConfig.Sonarr) != 1 || loadedConfig.Sonarr[0].BaseURL != "http://json.example.com:8989" {
 		t.Fatalf("gotValue %v, expectedValue only the config.json sonarr", loadedConfig.Sonarr)
 	}
-	if !slices.Equal(loadedConfig.LinkDirs, []string{"/home/u/imported-links"}) {
+	if !slices.Equal(loadedConfig.LinkDirs, []string{importedLinks}) {
 		t.Fatalf("an empty list must not hide the imported one: gotValue %v", loadedConfig.LinkDirs)
 	}
 	expectedSources := Sources{Radarr: sourceNone, Sonarr: sourceConfigFile, TorrentClients: sourceNone, LinkDirs: sourceCrossSeed}

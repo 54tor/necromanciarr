@@ -11,7 +11,7 @@
 - Un montage qui ne restitue pas la date de modification du fichier (backend `mega` classique) désactive la méthode « taille et date » de la réparation ; un objet réécrit change de date et rend les candidats concernés périmés au scan suivant.
 - Un renommage par-dessus un fichier n'est pas atomique sur certains volumes (le VFS de rclone peut supprimer la destination avant de renommer) : la déduplication l'écrit en avertissement et `dedupe plan` reprend les entrées temporaires restantes.
 - Un `Force` sur un `partial_annex` copie dans le dossier de liens chaque média à cheval sur une pièce manquante : sans reflink, cela coûte la taille du média en place libre (et en lecture sur un stockage distant).
-- Scan n'inventorie que les fichiers média, ne suit aucun lien symbolique à l'intérieur d'une racine et ignore un sous-dossier monté sur un autre système de fichiers : déclarer chaque montage comme sa propre racine dans `libraryRoots`.
+- Scan n'inventorie que les fichiers média, ne suit aucun lien symbolique à l'intérieur d'une racine et ignore un sous-dossier monté sur un autre système de fichiers (sur toutes les plateformes) : déclarer chaque montage comme sa propre racine dans `libraryRoots`.
 
 ### Types de volumes
 
@@ -86,7 +86,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | tous | `panic` | `fail` | bogue : le type et un message masqué sont donnés ; le signaler |
 | `config` | `working_dir_dotenv` | `warn` | un `.env` du dossier de travail a été lu : le déplacer dans le dossier de configuration, ou le supprimer |
 | `config` | `tracker_value_too_short` | `warn` | une variable de `trackers` fait moins de 8 caractères : sa valeur n'est masquée que dans les URL (quel que soit le nom du paramètre, à l'identique), jamais dans le texte libre ; `config check` la nomme aussi |
-| `config` | `config_invalid` | `fail` | `config.json` invalide (`unknown field …`, `parse config.json`, `undefined variable X`, `linkDirs[i] … overlaps libraryRoots[j]`) : corriger, puis `config check` |
+| `config` | `config_invalid` | `fail` | `config.json` invalide (`unknown field …`, `parse config.json`, `undefined variable X`, `linkDirs[i] … overlaps libraryRoots[j]`, `usage: libraryRoots[i]: … local path is not absolute` ou `… contains ..`, `… provider "x" is not declared in fsProviders`, `… provider "x" has type "rclone", which does not expose a filesystem`) : corriger, puis `config check` |
 | `config-dir` | `config_dir_missing` | `fail` | dossier de configuration absent : le créer ou passer `--config-dir` |
 | `config-dir` | `database_dir_unresolved` | `fail` | dossier de la base introuvable : le créer ou corriger `dbPath` |
 | `config-dir` | `database_in_library` | `fail` | `dbPath` dans une racine de bibliothèque : le placer ailleurs |

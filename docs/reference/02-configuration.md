@@ -44,11 +44,11 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 | `readBytesPerSecond` | entier (octets/s) | `20971520` (20 Mio/s) | strictement positif |
 | `tieBreakReadBytes` | entier (octets) | `53687091200` (50 Gio) | strictement positif. Octets lus au plus, par candidat, pour départager des fichiers locaux de même taille ; la couverture n'est pas concernée |
 | `libraryApi` | URL | vide | `http(s)`, sans fragment. Vide : Match et Verify refusent (`not_configured`) |
-| `libraryRoots` | liste de chemins | vide | vus par ce processus |
+| `libraryRoots` | liste de chemins | vide | vus par ce processus ; chemins absolus, sans segment `..` (refus au chargement). Le préfixe `sftp://<provider>/<absolute path>` est réservé aux fournisseurs de système de fichiers, pas encore disponibles |
 | `pathMappings` | liste `{from, to}` | vide | `from` : vue de ce processus ; `to` : vue de Radarr, Sonarr et du client torrent |
 | `radarr`, `sonarr` | liste d'URL | vide | `http(s)://host:port[/path]?apikey=KEY`, `user:password@` facultatif (proxy en authentification basique) ; seul `apikey` est admis |
 | `torrentClients` | liste de chaînes | vide | `qbittorrent[:readonly]:http(s)://[user:password@]host:port[/path]`, sans paramètre de requête. Seul le premier client reçoit les torrents (avertissement s'il y en a plusieurs) |
-| `linkDirs` | liste de chemins | vide | ne chevauche jamais une racine de `libraryRoots` |
+| `linkDirs` | liste de chemins | vide | chemins absolus sans `..` ; ne chevauche jamais une racine de `libraryRoots` du même volume |
 | `linkType` | `hardlink`, `symlink`, `reflink` | `hardlink` | une seule sorte, sans repli ; un échec dit la cause et le réglage à changer |
 | `skipRecheck` | booléen | `true` | voir [03-seed-safety.md](03-seed-safety.md) |
 | `linkCategory` | chaîne | vide | catégorie qBittorrent des torrents ajoutés ; `NECROMANCIARR_SEED_CATEGORY` l'emporte (espaces retirés) |
@@ -114,7 +114,7 @@ Remplace, côté torrent, une copie d'un fichier de la bibliothèque par un lien
 
 | Clé | Type | Défaut | Rôle |
 |---|---|---|---|
-| `torrentRoots` | liste de chemins | vide | dossiers parcourus. Vide : fonction inactive (`not_configured`). Ne chevauche jamais une racine de bibliothèque |
+| `torrentRoots` | liste de chemins | vide | chemins absolus sans `..` ; dossiers parcourus. Vide : fonction inactive (`not_configured`). Ne chevauche jamais une racine de bibliothèque |
 | `kinds` | liste parmi `symlink`, `hardlink`, `reflink` | `["symlink"]` | sortes essayées dans cet ordre, selon ce que le volume accepte (sonde réelle) |
 | `relativeSymlinks` | booléen | `true` | symlink relatif ; si impossible (volumes Windows distincts), erreur, jamais repli sur un chemin absolu |
 | `minFileAge` | durée Go ≥ 0 | `10m` | fichiers modifiés plus récemment ignorés (en cours d'écriture) |

@@ -44,11 +44,11 @@ The configuration folder must exist when it is given. With no option or variable
 | `readBytesPerSecond` | integer (bytes/s) | `20971520` (20 MiB/s) | strictly positive |
 | `tieBreakReadBytes` | integer (bytes) | `53687091200` (50 GiB) | strictly positive. Maximum bytes read, per candidate, to tell same-size local files apart; coverage is not affected |
 | `libraryApi` | URL | empty | `http(s)`, no fragment. Empty: Match and Verify refuse (`not_configured`) |
-| `libraryRoots` | list of paths | empty | as seen by this process |
+| `libraryRoots` | list of paths | empty | as seen by this process; absolute paths without a `..` segment (refused at load time). The `sftp://<provider>/<absolute path>` prefix is reserved for filesystem providers, not available yet |
 | `pathMappings` | list of `{from, to}` | empty | `from`: this process's view; `to`: the view of Radarr, Sonarr and the torrent client |
 | `radarr`, `sonarr` | list of URLs | empty | `http(s)://host:port[/path]?apikey=KEY`, optional `user:password@` (basic-authentication proxy); only `apikey` is allowed |
 | `torrentClients` | list of strings | empty | `qbittorrent[:readonly]:http(s)://[user:password@]host:port[/path]`, no query parameter. Only the first client receives torrents (warning if there are several) |
-| `linkDirs` | list of paths | empty | never overlaps a `libraryRoots` root |
+| `linkDirs` | list of paths | empty | absolute paths without `..`; never overlaps a `libraryRoots` root of the same volume |
 | `linkType` | `hardlink`, `symlink`, `reflink` | `hardlink` | a single kind, no fallback; a failure states the cause and the setting to change |
 | `skipRecheck` | boolean | `true` | see [03-seed-safety.md](03-seed-safety.md) |
 | `linkCategory` | string | empty | qBittorrent category of the added torrents; `NECROMANCIARR_SEED_CATEGORY` wins (spaces removed) |
@@ -114,7 +114,7 @@ Replaces, on the torrent side, a copy of a library file with a link to it. Alway
 
 | Key | Type | Default | Role |
 |---|---|---|---|
-| `torrentRoots` | list of paths | empty | folders scanned. Empty: feature inactive (`not_configured`). Never overlaps a library root |
+| `torrentRoots` | list of paths | empty | absolute paths without `..`; folders scanned. Empty: feature inactive (`not_configured`). Never overlaps a library root |
 | `kinds` | list among `symlink`, `hardlink`, `reflink` | `["symlink"]` | kinds tried in this order, depending on what the volume accepts (real probe) |
 | `relativeSymlinks` | boolean | `true` | relative symlink; if impossible (distinct Windows volumes), error, never a fallback to an absolute path |
 | `minFileAge` | Go duration ≥ 0 | `10m` | files modified more recently are ignored (being written) |

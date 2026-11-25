@@ -11,7 +11,7 @@
 - A mount that does not return the file's modification date (classic `mega` backend) disables the "size and date" method of repair; a rewritten object changes date and makes the affected candidates stale at the next scan.
 - A rename over a file is not atomic on some volumes (rclone's VFS can delete the destination before renaming): deduplication writes this as a warning and `dedupe plan` picks up the remaining temporary entries.
 - A `Force` on a `partial_annex` copies into the link directory each media file straddling a missing piece: without reflink, this costs the media file's size in free space (and in reads on remote storage).
-- Scan only inventories media files, follows no symlink inside a root and ignores a subfolder mounted on another filesystem: declare each mount as its own root in `libraryRoots`.
+- Scan only inventories media files, follows no symlink inside a root and ignores a subfolder mounted on another filesystem (on every platform): declare each mount as its own root in `libraryRoots`.
 
 ### Volume types
 
@@ -86,7 +86,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | all | `panic` | `fail` | bug: the type and a masked message are given; report it |
 | `config` | `working_dir_dotenv` | `warn` | a working-directory `.env` was read: move it to the configuration folder, or delete it |
 | `config` | `tracker_value_too_short` | `warn` | a `trackers` variable is shorter than 8 characters: its value is masked only inside URLs (any parameter name, exact match), never in free text; `config check` names it too |
-| `config` | `config_invalid` | `fail` | invalid `config.json` (`unknown field …`, `parse config.json`, `undefined variable X`, `linkDirs[i] … overlaps libraryRoots[j]`): fix, then `config check` |
+| `config` | `config_invalid` | `fail` | invalid `config.json` (`unknown field …`, `parse config.json`, `undefined variable X`, `linkDirs[i] … overlaps libraryRoots[j]`, `usage: libraryRoots[i]: … local path is not absolute` or `… contains ..`, `… provider "x" is not declared in fsProviders`, `… provider "x" has type "rclone", which does not expose a filesystem`): fix, then `config check` |
 | `config-dir` | `config_dir_missing` | `fail` | configuration folder missing: create it or pass `--config-dir` |
 | `config-dir` | `database_dir_unresolved` | `fail` | database folder not found: create it or fix `dbPath` |
 | `config-dir` | `database_in_library` | `fail` | `dbPath` in a library root: put it elsewhere |
