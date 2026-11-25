@@ -159,13 +159,14 @@ func TestLoad_ignoresTheWorkingDirectoryDotEnvWhenTheConfigDirHasOne(t *testing.
 
 func TestLoad_readsTheWorkingDirectoryDotEnvOnlyWithoutAConfigDirOneAndSaysSo(t *testing.T) {
 	configDir, workingDir := t.TempDir(), t.TempDir()
-	writeFile(t, workingDir, ".env", "ONLY_CWD=cwd-value\n")
+	cwdRoot := absPath("cwd-value")
+	writeFile(t, workingDir, ".env", "ONLY_CWD="+cwdRoot+"\n")
 	writeFile(t, configDir, configFileName, `{"libraryRoots": ["${ONLY_CWD}"]}`)
 	t.Chdir(workingDir)
 
 	loadedConfig := mustLoad(t, nil, nil, configDir)
 
-	if loadedConfig.LibraryRoots[0] != "cwd-value" || !loadedConfig.WorkingDirDotEnv {
+	if loadedConfig.LibraryRoots[0] != cwdRoot || !loadedConfig.WorkingDirDotEnv {
 		t.Fatalf("gotValue %v (cwd .env used %v), expectedValue the working directory .env used and flagged", loadedConfig.LibraryRoots, loadedConfig.WorkingDirDotEnv)
 	}
 }
@@ -435,7 +436,7 @@ func TestConfig_rejectsDedupeRootsOverlappingLibraryRoots(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			configDir := t.TempDir()
 			writeFile(t, configDir, configFileName, fmt.Sprintf(`{"libraryRoots": [%q], "dedupe": {"torrentRoots": [%q]}}`,
-				testCase.libraryRoot, testCase.torrentRoot))
+				onThisSystem(testCase.libraryRoot), onThisSystem(testCase.torrentRoot)))
 
 			_, err := Load(nil, lookupFrom(nil), configDir)
 
@@ -464,7 +465,8 @@ func TestConfig_rejectsLinkDirsOverlappingLibraryRoots(t *testing.T) {
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
 			configDir := t.TempDir()
-			writeFile(t, configDir, configFileName, fmt.Sprintf(`{"libraryRoots": ["/mnt/remote/1080p"], "linkDirs": [%q]}`, testCase.linkDir))
+			writeFile(t, configDir, configFileName, fmt.Sprintf(`{"libraryRoots": [%q], "linkDirs": [%q]}`,
+				onThisSystem("/mnt/remote/1080p"), onThisSystem(testCase.linkDir)))
 
 			_, err := Load(nil, lookupFrom(nil), configDir)
 

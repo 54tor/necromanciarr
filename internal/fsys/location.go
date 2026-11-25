@@ -103,3 +103,27 @@ func isValidVolumeName(name string) bool {
 func invalidLocation(reason string) error {
 	return fmt.Errorf("%w: %s", ErrInvalidLocation, reason)
 }
+
+// Overlaps dit si deux Location sont sur le même volume et égales, ou si l'une contient l'autre, segment par
+// segment (« /data/tv » ne contient pas « /data/tvshows »). Comparaison lexicale sur les formes de ParseLocation,
+// sans accès disque ni repli de casse : le contrôle réel est celui de Registry.WriteRoot. Deux volumes différents
+// ne se recouvrent jamais.
+func (location Location) Overlaps(other Location) bool {
+	if location.Volume != other.Volume {
+		return false
+	}
+	syntax := LocalPaths()
+	if location.Volume != "" {
+		syntax = RemotePaths()
+	}
+	return containsPath(syntax, location.Path, other.Path) || containsPath(syntax, other.Path, location.Path)
+}
+
+func containsPath(syntax PathSyntax, parentPath, childPath string) bool {
+	relative, err := syntax.Rel(parentPath, childPath)
+	if err != nil {
+		return false
+	}
+	firstSegment := strings.FieldsFunc(relative, func(character rune) bool { return character == '/' || character == filepath.Separator })[0]
+	return firstSegment != ".."
+}

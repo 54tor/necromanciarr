@@ -30,3 +30,11 @@ func skipOnWindows(t *testing.T) {
 		t.Skip("fixture with POSIX-only absolute paths: a Windows mount path needs a drive letter")
 	}
 }
+
+// onThisSystem donne à un chemin POSIX de test son lecteur sous Windows ; ailleurs il reste tel quel.
+func onThisSystem(posixPath string) string {
+	if runtime.GOOS == "windows" {
+		return "C:" + filepath.FromSlash(posixPath)
+	}
+	return posixPath
+}

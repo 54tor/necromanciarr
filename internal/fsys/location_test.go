@@ -148,3 +148,49 @@ func FuzzParseLocation(f *testing.F) {
 		}
 	})
 }
+
+func TestLocation_overlapsComparesPerVolumeWithoutTouchingTheDisk(t *testing.T) {
+	cases := []struct {
+		name            string
+		first, second   string
+		expectedOverlap bool
+	}{
+		{"local equal", "/srv/media", "/srv/media/", true},
+		{"local parent", "/srv", "/srv/media", true},
+		{"local child", "/srv/media/tv", "/srv/media", true},
+		{"local siblings", "/srv/media", "/srv/links", false},
+		{"local shared prefix is not a parent", "/data/tv", "/data/tvshows", false},
+		{"remote equal", "sftp://seedbox/srv/media", "sftp://seedbox/srv/media", true},
+		{"remote parent", "sftp://seedbox/srv", "sftp://seedbox/srv/media", true},
+		{"remote child", "sftp://seedbox/srv/media/tv", "sftp://seedbox/srv/media", true},
+		{"remote shared prefix is not a parent", "sftp://seedbox/data/tv", "sftp://seedbox/data/tvshows", false},
+		{"same path on two remote volumes", "sftp://seedbox/srv/media", "sftp://other/srv/media", false},
+		{"remote root against a nested path of another volume", "sftp://seedbox/", "sftp://other/srv", false},
+		{"same path on local and remote", "/srv/media", "sftp://seedbox/srv/media", false},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			first, err := fsys.ParseLocation(portableLocation(testCase.first))
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := fsys.ParseLocation(portableLocation(testCase.second))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			valeurObtenue := first.Overlaps(second) && second.Overlaps(first)
+			if valeurObtenue != testCase.expectedOverlap {
+				t.Fatalf("valeurAttendue %v, valeurObtenue %v", testCase.expectedOverlap, valeurObtenue)
+			}
+		})
+	}
+}
+
+// portableLocation donne à un chemin local de test son lecteur sous Windows ; une adresse sftp:// reste telle quelle.
+func portableLocation(raw string) string {
+	if strings.HasPrefix(raw, "sftp://") {
+		return raw
+	}
+	return filepath.VolumeName(mustAbs(".")) + filepath.FromSlash(raw)
+}

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/i18n"
 )
 
@@ -486,6 +487,9 @@ func validate(loadedConfig Config) error {
 	if !slices.Contains(dedupeLinkKinds, loadedConfig.LinkType) {
 		return fmt.Errorf("linkType: unknown link kind (allowed: %v)", dedupeLinkKinds)
 	}
+	if err := validateLocations(loadedConfig, filesystemProviderTypes); err != nil {
+		return err
+	}
 	if err := validateDedupeRoots(loadedConfig); err != nil {
 		return err
 	}
@@ -539,9 +543,16 @@ func validateLinkDirs(loadedConfig Config) error {
 	return nil
 }
 
-// PathsOverlap dit si deux chemins, une fois nettoyés, sont égaux ou si l'un contient l'autre, segment par segment
-// (« /data/tv » ne contient pas « /data/tvshows »). Comparaison lexicale, sensible à la casse.
+// PathsOverlap dit si deux racines sont sur le même volume et égales, ou si l'une contient l'autre, segment par
+// segment (« /data/tv » ne contient pas « /data/tvshows »). Chaque argument est lu comme une fsys.Location (chemin
+// local ou sftp://<fournisseur>/…) : deux volumes différents ne se recouvrent jamais. Un texte qui n'est pas une
+// Location (chemin relatif, « .. ») est comparé comme un chemin local, lexicalement et en respectant la casse.
 func PathsOverlap(firstPath, secondPath string) bool {
+	first, firstErr := fsys.ParseLocation(firstPath)
+	second, secondErr := fsys.ParseLocation(secondPath)
+	if firstErr == nil && secondErr == nil {
+		return first.Overlaps(second)
+	}
 	return contains(firstPath, secondPath) || contains(secondPath, firstPath)
 }
 
