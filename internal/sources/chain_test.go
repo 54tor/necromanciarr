@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -78,12 +79,15 @@ func newTestChain(t *testing.T, provider ProviderSource, order []ID) *Chain {
 func TestChain_queriesProviderBeforeIndexers(t *testing.T) {
 	log := &callLog{}
 	provider := &fakeProvider{log: log, torrent: indexerTorrent()}
-	indexers := map[ID]IndexerSource{indexerA: &fakeIndexer{log: log}, indexerB: &fakeIndexer{log: log}}
+	recordingA := &recordingIndexer{name: string(indexerA), log: log}
+	recordingB := &recordingIndexer{name: string(indexerB), log: log}
+	indexers := map[ID]IndexerSource{indexerA: recordingA, indexerB: recordingB}
 	chain, err := NewChain(provider, indexers, []ID{ProviderID, indexerB, indexerA},
-		map[ID]Limits{indexerA: testLimits(), indexerB: testLimits()}, openUsageStore(t, filepath.Join(t.TempDir(), "necromanciarr.db")), nil, nil)
+		map[ID]Limits{indexerA: testLimits(), indexerB: testLimits()}, openUsageStore(t, filepath.Join(t.TempDir(), "necromanciarr.db")), testSealer(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	chain.SetFallbackTrackers(map[ID]string{indexerA: "t", indexerB: "t"})
 	ctx := context.Background()
 
 	if _, err := chain.Search(ctx, libraryprovider.Query{TMDBID: 1}); err != nil {
@@ -105,6 +109,15 @@ func TestChain_queriesProviderBeforeIndexers(t *testing.T) {
 	}
 	if valeurObtenue := chain.Order(); !slices.Equal(valeurObtenue, []ID{ProviderID, indexerB, indexerA}) {
 		t.Fatalf("valeurObtenue order %v, valeurAttendue the configured order, provider first", valeurObtenue)
+	}
+
+	provider.failure = libraryprovider.ErrNotFound
+	if _, err := chain.FetchTorrent(ctx, Release{Infohash: strings.Repeat("a", 40), Tracker: "t", Name: "n"}, chain.NewBudget()); !errors.Is(err, libraryprovider.ErrNotFound) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue torrent not found everywhere", err)
+	}
+	valeurAttendue = append(valeurAttendue, "provider.torrent", "torznab:b.search", "torznab:a.search")
+	if valeurObtenue := log.calls; !slices.Equal(valeurObtenue, valeurAttendue) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue %v: the provider first, then the indexers in the configured order", valeurObtenue, valeurAttendue)
 	}
 }
 

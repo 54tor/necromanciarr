@@ -175,7 +175,9 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `read_budget_exceeded` | Verify | départage des copies de même taille arrêté à `tieBreakReadBytes` : les copies restent en litige ; supprimer les doublons ou relever la valeur |
 | `no_file_matched`, `no_exact_size` | Verify, Match | aucun fichier local de la bonne taille |
 | `v2_only`, `invalid_torrent`, `infohash_mismatch` | Verify | `.torrent` inutilisable ou qui n'est pas celui annoncé |
-| `torrent_not_found`, `torrent_fetch_failed`, `torrent_too_large` | Verify | fournisseur : 404, panne, `.torrent` de plus de 8 Mio |
+| `torrent_not_found`, `torrent_fetch_failed`, `torrent_too_large` | Verify | fournisseur : 404, panne, `.torrent` de plus de 8 Mio ; après le secours, aucun indexeur du tracker n'a ce `.torrent` (voir `searched_sources`, et `tracker` de chaque indexeur) |
+| `indexer_unavailable`, `indexer_access_denied`, `indexer_hostile_response` | Verify | indexeur en panne, limité (`Retry-After`), clé d'API refusée, ou réponse refusée : le candidat reste `matched` et sera repris ; `doctor` (`torznab:<name>`) |
+| `magnet_only`, `foreign_download_host` | Verify | éléments d'indexeur ignorés : magnet seul, ou lien de téléchargement hors de l'hôte de l'indexeur |
 | `read_error` | Verify | lecture locale en échec : reprise à la relance |
 | `no_link_dir_on_same_device` | Link | aucun `linkDirs` sur le volume de la source ; `linkType` n'est pas `symlink` |
 | `link_kind_refused`, `cross_device` | Link | le dossier refuse la sorte (voir `doctor`), ou deux volumes |

@@ -105,3 +105,16 @@ func TestBuildDeps_indexersWithoutLibraryApiKeepMatchAndVerifyNotConfigured(t *t
 		}
 	}
 }
+
+func TestIndexerTrackers_keepsOnlyIndexersWithATrackerAsWritten(t *testing.T) {
+	settings := sourcesSettings(t)
+	withTracker, withoutTracker := torznabEntry("a"), torznabEntry("b")
+	withTracker.Tracker = "Tracker A"
+	settings.Torznab = []config.TorznabIndexer{withTracker, withoutTracker}
+
+	valeurObtenue := indexerTrackers(settings)
+
+	if len(valeurObtenue) != 1 || valeurObtenue["torznab:a"] != "Tracker A" {
+		t.Fatalf("valeurObtenue %v, valeurAttendue only torznab:a with its tracker as written", valeurObtenue)
+	}
+}

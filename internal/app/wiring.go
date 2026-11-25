@@ -156,6 +156,7 @@ func wireSources(settings config.Config, stages *pipeline.Deps, usage sources.Us
 	if err != nil {
 		return fmt.Errorf("app: source chain: %w", err)
 	}
+	chain.SetFallbackTrackers(indexerTrackers(settings))
 	stages.Sources = chain
 	return nil
 }
@@ -191,6 +192,18 @@ func indexerSources(settings config.Config) ([]sources.ID, map[sources.ID]source
 		}
 	}
 	return order, indexers, limits, nil
+}
+
+// indexerTrackers relie chaque indexeur à son tracker déclaré (torznab[].tracker) : seul ce lien ouvre le secours du
+// .torrent dans Verify.
+func indexerTrackers(settings config.Config) map[sources.ID]string {
+	trackers := map[sources.ID]string{}
+	for _, indexer := range settings.Torznab {
+		if indexer.Tracker != "" {
+			trackers[sources.ID(config.SourceTorznabPrefix+indexer.Name)] = indexer.Tracker
+		}
+	}
+	return trackers
 }
 
 func wireTorrentClient(settings config.Config, stages *pipeline.Deps, deps *Deps) error {

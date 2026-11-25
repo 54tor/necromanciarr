@@ -68,6 +68,7 @@ type Store interface {
 	RegroupCandidates(ctx context.Context) error
 	SetCandidateState(ctx context.Context, candidateID int64, state store.CandidateState, now time.Time) error
 	SaveCandidateTorrent(ctx context.Context, candidateID int64, raw []byte, now time.Time) error
+	SaveCandidateFetched(ctx context.Context, candidateID int64, source string, sanitized, sealed []byte, now time.Time) error
 	CandidateTorrent(ctx context.Context, candidateID int64) ([]byte, error)
 	CandidateSealed(ctx context.Context, candidateID int64) ([]byte, bool, error)
 	PurgeSealedOlderThan(ctx context.Context, now time.Time, olderThan time.Duration) (int, error)
@@ -232,6 +233,9 @@ type Result struct {
 	Conflicts        int `json:"conflicts"`
 	Resumed          int `json:"resumed"`
 	ProposalsCreated int `json:"proposals_created"`
+	// SearchedSources donne, par candidat cherché en secours chez les indexeurs, les sources interrogées (identifiants
+	// seulement, jamais d'URL).
+	SearchedSources map[int64][]sources.ID `json:"searched_sources,omitempty"`
 	// Totaux de Link et Seed : torrent lié, ajouté puis repris à 100 %, ajouté et laissé en pause car incomplet.
 	Linked                 int `json:"linked"`
 	Seeded                 int `json:"seeded"`

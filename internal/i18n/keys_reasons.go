@@ -80,6 +80,11 @@ const (
 	KeyReasonSecretKeyMissing           Key = "reason.secret_key_missing"
 	KeyReasonInfohashChangedAfterInject Key = "reason.infohash_changed_after_inject"
 	KeyReasonIndexerBudgetExhausted     Key = "reason.indexer_budget_exhausted"
+	KeyReasonIndexerUnavailable         Key = "reason.indexer_unavailable"
+	KeyReasonIndexerAccessDenied        Key = "reason.indexer_access_denied"
+	KeyReasonIndexerHostileResponse     Key = "reason.indexer_hostile_response"
+	KeyReasonForeignDownloadHost        Key = "reason.foreign_download_host"
+	KeyReasonMagnetOnly                 Key = "reason.magnet_only"
 )
 
 var reasonKeys = []Key{
@@ -104,5 +109,6 @@ var reasonKeys = []Key{
 	KeyReasonLinkInspectionFailed, KeyReasonHashUnavailable, KeyReasonNoLinkKind, KeyReasonLinkKindUnsupported,
 	KeyReasonLinkProbeFailed,
 	KeyReasonNoAnnounce, KeyReasonSealedTorrentUnreadable, KeyReasonSecretKeyMissing, KeyReasonInfohashChangedAfterInject,
-	KeyReasonIndexerBudgetExhausted,
+	KeyReasonIndexerBudgetExhausted, KeyReasonIndexerUnavailable, KeyReasonIndexerAccessDenied, KeyReasonIndexerHostileResponse,
+	KeyReasonForeignDownloadHost, KeyReasonMagnetOnly,
 }

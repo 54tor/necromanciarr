@@ -31,6 +31,8 @@ type Chain struct {
 	now      func() time.Time
 	// board : les Retry-After reçus, communs à tous les budgets du processus.
 	board *retryBoard
+	// fallbackTrackers : tracker déclaré de chaque indexeur, pour le secours du .torrent.
+	fallbackTrackers map[ID]string
 }
 
 // NewChain vérifie l'ordre (fournisseur en tête, une fois, chaque indexeur cité présent avec ses limites) et refuse
@@ -111,10 +113,23 @@ func (chain *Chain) Nfos(ctx context.Context, infohash, tracker string) ([]libra
 	return chain.provider.Nfos(ctx, infohash, tracker)
 }
 
-// FetchTorrent obtient le .torrent chez le fournisseur ; le budget n'est pas consulté pour lui (nil accepté).
-// Le secours par les indexeurs vient avec B10.
-func (chain *Chain) FetchTorrent(ctx context.Context, release Release, _ *Budget) (Fetched, error) {
-	return fetchFromProvider(ctx, chain.provider, release)
+// FetchTorrent obtient le .torrent chez le fournisseur ; sur son seul « introuvable », il le cherche chez les
+// indexeurs du même tracker (SetFallbackTrackers) avec le budget de l'exécution. Sans indexeur du tracker, sans nom
+// de release, ou budget nil, l'erreur du fournisseur revient telle quelle ; sans clé de scellement,
+// ErrSecretKeyMissing sans aucune requête ; sinon un échec du secours est une *FallbackError.
+func (chain *Chain) FetchTorrent(ctx context.Context, release Release, budget *Budget) (Fetched, error) {
+	fetched, err := fetchFromProvider(ctx, chain.provider, release)
+	if !errors.Is(err, libraryprovider.ErrNotFound) {
+		return fetched, err
+	}
+	indexers, query := chain.fallbackIndexers(release.Tracker), fallbackQueryText(release.Name)
+	if len(indexers) == 0 || budget == nil || !fallbackEligible(release, query) {
+		return Fetched{}, err
+	}
+	if chain.sealer == nil {
+		return Fetched{}, ErrSecretKeyMissing
+	}
+	return chain.fetchFromIndexers(ctx, release, budget, indexers, query)
 }
 
 // SearchCandidates ne cherche rien tant que B12 n'a pas ajouté la recherche par indexeur.

@@ -24,6 +24,13 @@ const (
 	// ReasonIndexerBudgetExhausted : un plafond de requêtes à un indexeur est atteint ; pas un échec, la suite attend
 	// la prochaine exécution.
 	ReasonIndexerBudgetExhausted = "indexer_budget_exhausted"
+	// Raisons du secours par les indexeurs : un indexeur laissé pour cette exécution (le candidat reste matched et sera
+	// repris), ou un élément refusé (la recherche continue) ; aucune ne cite de lien, de clé ni de nom de release.
+	ReasonIndexerUnavailable     = "indexer_unavailable"
+	ReasonIndexerAccessDenied    = "indexer_access_denied"
+	ReasonIndexerHostileResponse = "indexer_hostile_response"
+	ReasonForeignDownloadHost    = "foreign_download_host"
+	ReasonMagnetOnly             = "magnet_only"
 	ReasonInfohashMismatch       = "infohash_mismatch"
 	ReasonNoFileMatched          = "no_file_matched"
 	ReasonChangedFile            = "changed_file_stale"
@@ -96,6 +103,9 @@ func (run candidateRun) verify(ctx context.Context, candidate store.Candidate) e
 		return run.markStale(ctx, candidate)
 	}
 	torrent, failure, err := run.loadTorrent(ctx, candidate)
+	if errors.Is(err, errCandidateDeferred) {
+		return nil
+	}
 	if err != nil || failure != "" {
 		return run.failOrStop(ctx, candidate, failure, err)
 	}
@@ -180,6 +190,9 @@ func (run candidateRun) loadTorrent(ctx context.Context, candidate store.Candida
 	}
 	fetched, err := run.deps.Sources.FetchTorrent(ctx, sources.Release{Infohash: candidate.Infohash, Tracker: candidate.Tracker, Name: candidate.Name}, run.budget)
 	if err != nil {
+		if deferred := run.recordFallback(candidate, err); deferred {
+			return nil, "", errCandidateDeferred
+		}
 		failure, stopErr := fetchFailure(err)
 		return nil, failure, stopErr
 	}
@@ -196,7 +209,7 @@ func (run candidateRun) loadTorrent(ctx context.Context, candidate store.Candida
 	if failure != "" {
 		return nil, failure, nil
 	}
-	if err := run.deps.Store.SaveCandidateTorrent(ctx, candidate.ID, sanitized, run.deps.now()); err != nil {
+	if err := run.saveFetched(ctx, candidate, fetched, sanitized); err != nil {
 		return nil, "", err
 	}
 	return torrent, "", run.deps.Store.SetCandidateState(ctx, candidate.ID, store.CandidateFetched, run.deps.now())
@@ -223,6 +236,9 @@ func fetchFailure(err error) (string, error) {
 	}
 	if errors.Is(err, libraryprovider.ErrResponseTooLarge) || errors.Is(err, sources.ErrTorrentTooLarge) {
 		return ReasonTorrentTooLarge, nil
+	}
+	if errors.Is(err, sources.ErrSecretKeyMissing) {
+		return ReasonSecretKeyMissing, nil
 	}
 	return ReasonTorrentFetchFailed, nil
 }

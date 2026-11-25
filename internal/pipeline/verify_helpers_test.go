@@ -195,6 +195,8 @@ type verifyFixture struct {
 	keepEmptyTracker bool
 	// realChain passe par une vraie sources.Chain (fournisseur seul) au lieu du faux adaptateur.
 	realChain bool
+	// chain remplace la chaîne de sources (secours par les indexeurs) ; nil garde les deux cas ci-dessus.
+	chain SourceChain
 }
 
 // testTracker remplace le tracker vide d'un candidat de test : une entrée trackers le couvre, comme un candidat réel
@@ -325,6 +327,9 @@ func (fixture *verifyFixture) deps() Deps {
 			fixture.t.Fatal(err)
 		}
 		chain = realChain
+	}
+	if fixture.chain != nil {
+		chain = fixture.chain
 	}
 	deps := Deps{
 		Store: fixture.store, Sources: chain, OpenLocal: fixture.opener.open, CrossSeed: fixture.crossSeed,

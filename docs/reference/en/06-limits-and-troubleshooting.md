@@ -175,7 +175,9 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `read_budget_exceeded` | Verify | tie-breaking of same-size copies stopped at `tieBreakReadBytes`: the copies stay in conflict; delete the duplicates or raise the value |
 | `no_file_matched`, `no_exact_size` | Verify, Match | no local file of the right size |
 | `v2_only`, `invalid_torrent`, `infohash_mismatch` | Verify | `.torrent` unusable or not the announced one |
-| `torrent_not_found`, `torrent_fetch_failed`, `torrent_too_large` | Verify | provider: 404, outage, `.torrent` over 8 MiB |
+| `torrent_not_found`, `torrent_fetch_failed`, `torrent_too_large` | Verify | provider: 404, outage, `.torrent` over 8 MiB; after the fallback, no indexer of the tracker has this `.torrent` (see `searched_sources`, and each indexer's `tracker`) |
+| `indexer_unavailable`, `indexer_access_denied`, `indexer_hostile_response` | Verify | indexer down, rate limited (`Retry-After`), API key refused, or response refused: the candidate stays `matched` and resumes later; `doctor` (`torznab:<name>`) |
+| `magnet_only`, `foreign_download_host` | Verify | indexer items ignored: magnet only, or download link outside the indexer's host |
 | `read_error` | Verify | local read failed: resumes on rerun |
 | `no_link_dir_on_same_device` | Link | no `linkDirs` on the source's volume; `linkType` is not `symlink` |
 | `link_kind_refused`, `cross_device` | Link | the folder refuses the kind (see `doctor`), or two volumes |
