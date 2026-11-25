@@ -40,6 +40,10 @@ type Subject struct {
 	// target, chemin du volume : la suite ne dépend ainsi pas de WriteRoot.Symlink pour tester un parent piégé.
 	// Il appelle t.Fatal si la pose échoue, t.Skip seulement quand la plateforme l'interdit (PlantLocalSymlink).
 	PlantSymlink func(t *testing.T, linkDirRelative, target string)
+	// CopyNeedsServerCopy : le volume ne copie que côté serveur (SFTP, où copier par le client ferait transiter tout
+	// le média par le réseau). Sans Capabilities.ServerCopy, CopyFromLibrary attend alors ErrServerCopyUnavailable
+	// et aucune entrée créée, au lieu d'une copie.
+	CopyNeedsServerCopy bool
 }
 
 // NewVolume construit un volume neuf pour un cas.

@@ -162,12 +162,19 @@ func caseSymlinkAndHardlinkFromLibrary(t *testing.T, subject Subject) {
 	assertLibraryIntact(t, subject.readSubject())
 }
 
-// caseCopyFromLibrary prouve que CopyFrom rend une copie complète et compte ses octets.
+// caseCopyFromLibrary prouve que CopyFrom rend une copie complète et compte ses octets ; un volume qui ne copie que
+// côté serveur et n'en a pas (CopyNeedsServerCopy) refuse sans rien créer.
 func caseCopyFromLibrary(t *testing.T, subject Subject) {
 	volume := subject.Volume
+	isRefusalExpected := subject.CopyNeedsServerCopy && !capabilitiesOf(t, volume).ServerCopy
 	root := openWriteRoot(t, subject)
 	source := fsys.Location{Volume: volume.Volume(), Path: volume.Paths().Join(subject.LibraryRoot, FixtureMovieName)}
 	copied, err := root.CopyFrom(t.Context(), source, "copy.mkv")
+	if isRefusalExpected {
+		assertCopyRefused(t, root, copied, err)
+		assertLibraryIntact(t, subject.readSubject())
+		return
+	}
 	if err != nil {
 		t.Fatalf("CopyFrom: %v", err)
 	}
@@ -176,6 +183,17 @@ func caseCopyFromLibrary(t *testing.T, subject Subject) {
 	}
 	assertContent(t, volume, volume.Paths().Join(subject.LinkDir, "copy.mkv"), FixtureMovieContent)
 	assertLibraryIntact(t, subject.readSubject())
+}
+
+// assertCopyRefused attend ErrServerCopyUnavailable, zéro octet et aucune destination.
+func assertCopyRefused(t *testing.T, root fsys.WriteRoot, copied int64, err error) {
+	t.Helper()
+	if !errors.Is(err, fsys.ErrServerCopyUnavailable) || copied != 0 {
+		t.Errorf("CopyFrom = %d bytes, error %v, want 0 and ErrServerCopyUnavailable", copied, err)
+	}
+	if _, err := root.Lstat("copy.mkv"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Lstat(copy.mkv) error = %v, want fs.ErrNotExist", err)
+	}
 }
 
 // assertEveryMethodUnconfined appelle chaque méthode de WriteRoot avec relative en destination (et en second

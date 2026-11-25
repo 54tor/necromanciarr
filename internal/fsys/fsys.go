@@ -22,6 +22,9 @@ var (
 	ErrUnconfined = errors.New("fsys: path escapes the write root")
 	// ErrNoAtomicReplace signale un volume incapable de remplacer une entrée existante de façon atomique.
 	ErrNoAtomicReplace = errors.New("fsys: atomic replace unsupported by the volume")
+	// ErrServerCopyUnavailable refuse une copie qu'aucune copie côté serveur ne peut faire (SFTP sans copy-data) :
+	// jamais de repli sur une copie par flux à travers le réseau, qui relirait puis réécrirait tout le média (Force).
+	ErrServerCopyUnavailable = errors.New("fsys: server-side copy unavailable on the volume")
 	// ErrRemoteUnavailable signale un volume distant injoignable ou cassé.
 	ErrRemoteUnavailable = errors.New("fsys: remote volume unavailable")
 	// ErrUnknownVolume signale une Location dont le volume n'est pas déclaré.

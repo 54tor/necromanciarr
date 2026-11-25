@@ -17,18 +17,23 @@ import (
 const (
 	extensionStatVFS = "statvfs@openssh.com"
 	// Clés et codes de Capabilities.Reasons (contrat machine, jamais traduits).
-	reasonKeyFileIdentity   = "fileIdentity"
-	reasonKeyVolumeIdentity = "volumeIdentity"
-	reasonKeyServerCopy     = "serverCopy"
-	reasonRemoteStatMissing = "remote_stat_unavailable"
-	reasonStatVFSMissing    = "statvfs_unsupported"
-	reasonCopyDataMissing   = "copy_data_unsupported"
+	reasonKeyFileIdentity    = "fileIdentity"
+	reasonKeyVolumeIdentity  = "volumeIdentity"
+	reasonKeyServerCopy      = "serverCopy"
+	reasonKeyHardlink        = "hardlink"
+	reasonKeyAtomicReplace   = "atomicReplace"
+	reasonRemoteStatMissing  = "remote_stat_unavailable"
+	reasonStatVFSMissing     = "statvfs_unsupported"
+	reasonCopyDataMissing    = "copy_data_unsupported"
+	reasonHardlinkMissing    = "hardlink_unsupported"
+	reasonPosixRenameMissing = "posix_rename_unsupported"
 )
 
 // errStatVFSMissing : le serveur n'annonce pas statvfs@openssh.com.
 var errStatVFSMissing = fmt.Errorf("sftpfs: %s not offered by the server: %w", extensionStatVFS, errors.ErrUnsupported)
 
-// Le volume est la vue en lecture seule d'un fournisseur sftp : aucune méthode de ce fichier n'écrit.
+// Le volume est la vue en lecture seule d'un fournisseur sftp : aucune méthode de ce fichier n'écrit (les écritures
+// passent par la racine confinée de write.go).
 var _ fsys.ReadFS = (*Volume)(nil)
 
 // background : l'interface ReadFS ne porte pas de contexte ; timeout borne chaque opération.
@@ -202,27 +207,41 @@ func (volume *Volume) statVFS(name string) (*sftp.StatVFS, error) {
 	return reply, nil
 }
 
-// Capabilities rend la part lecture : VolumeIdentity selon statvfs@openssh.com ; ni identité de fichier ni
-// RemoteStat (ssh exec), ni copie côté serveur (pkg/sftp n'a pas copy-data). Les capacités d'écriture (liens,
-// remplacement atomique) appartiennent à la racine d'écriture distante.
+// Capabilities sonde les extensions annoncées par la session : VolumeIdentity selon statvfs@openssh.com, Hardlink
+// selon hardlink@openssh.com, AtomicReplace selon posix-rename@openssh.com, Symlink toujours. Ni identité de
+// fichier ni RemoteStat (ssh exec), ni copie côté serveur (pkg/sftp n'a pas copy-data), ni reflink.
 func (volume *Volume) Capabilities(ctx context.Context) (fsys.Capabilities, error) {
-	offered := false
+	offered := map[string]bool{}
 	err := volume.call(ctx, "capabilities", func(client *sftp.Client) error {
-		_, offered = client.HasExtension(extensionStatVFS)
+		for _, extension := range []string{extensionStatVFS, extensionHardlink, extensionPosixRename} {
+			_, offered[extension] = client.HasExtension(extension)
+		}
 		return nil
 	})
 	if err != nil {
 		return fsys.Capabilities{}, err
 	}
 	capabilities := fsys.Capabilities{
-		VolumeIdentity: offered,
+		VolumeIdentity: offered[extensionStatVFS],
+		Symlink:        true,
+		Hardlink:       offered[extensionHardlink],
+		AtomicReplace:  offered[extensionPosixRename],
 		Reasons: map[string]string{
 			reasonKeyFileIdentity: reasonRemoteStatMissing,
 			reasonKeyServerCopy:   reasonCopyDataMissing,
 		},
 	}
-	if !offered {
-		capabilities.Reasons[reasonKeyVolumeIdentity] = reasonStatVFSMissing
+	for _, missing := range []struct {
+		isMissing   bool
+		key, reason string
+	}{
+		{!capabilities.VolumeIdentity, reasonKeyVolumeIdentity, reasonStatVFSMissing},
+		{!capabilities.Hardlink, reasonKeyHardlink, reasonHardlinkMissing},
+		{!capabilities.AtomicReplace, reasonKeyAtomicReplace, reasonPosixRenameMissing},
+	} {
+		if missing.isMissing {
+			capabilities.Reasons[missing.key] = missing.reason
+		}
 	}
 	return capabilities, nil
 }
