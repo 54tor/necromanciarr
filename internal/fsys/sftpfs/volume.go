@@ -120,6 +120,15 @@ func Dial(ctx context.Context, provider config.FSProvider, deps Deps) (*Volume, 
 	return volume, nil
 }
 
+// NewLazy rend le volume du fournisseur sans le joindre : la session s'ouvre à la première opération, qui consomme la
+// reconnexion de l'étape. Un serveur injoignable au lancement n'empêche donc rien d'autre ; ses opérations rendent
+// fsys.ErrRemoteUnavailable (cause et code de connexion gardés pour errors.Is et Code) jusqu'à l'étape suivante.
+func NewLazy(provider config.FSProvider, deps Deps) *Volume {
+	return &Volume{
+		provider: provider, deps: deps.withDefaults(), providerLimiter: newProviderLimiter(provider), state: StateUnknown,
+	}
+}
+
 // State rend ok, broken ou unknown.
 func (volume *Volume) State() string {
 	volume.mutex.Lock()
