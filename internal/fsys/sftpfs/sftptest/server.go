@@ -59,6 +59,9 @@ type settings struct {
 	directoryMode       os.FileMode
 	truncatedReads      map[string]int64
 	failures            map[string]int
+	gnuExec             bool
+	execOutputFilter    func(command string, stdout []byte) []byte
+	beforeExec          func(command string)
 }
 
 // AuthAttempt est un essai d'authentification reçu, dans l'ordre d'arrivée : Method vaut « publickey » (avec
@@ -119,9 +122,9 @@ func StallExec(command string) Option {
 	return func(current *settings) { current.stalledExecs[command] = true }
 }
 
-// DenyExec refuse les requêtes exec (enregistrées quand même), même après WithExec.
+// DenyExec refuse les requêtes exec (enregistrées quand même), même après WithExec ou WithGNUExec.
 func DenyExec() Option {
-	return func(current *settings) { current.execHandler = nil }
+	return func(current *settings) { current.execHandler, current.gnuExec = nil, false }
 }
 
 // Server est un serveur en cours. Address est « 127.0.0.1:port » ; HostKeyLine une ligne known_hosts de sa clé

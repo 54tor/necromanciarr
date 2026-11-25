@@ -37,7 +37,7 @@ func (server *Server) serveSession(channel ssh.Channel, requests <-chan *ssh.Req
 			return
 		case request.Type == "exec":
 			server.record(Request{Method: "Exec", Path: payload.Value})
-			handler := server.settings.execHandler
+			handler := server.execHandler()
 			_ = request.Reply(handler != nil, nil)
 			if handler == nil {
 				continue
@@ -174,4 +174,27 @@ func cutSSHString(buffer []byte) (field, value, rest []byte, ok bool) {
 	}
 	end := 4 + int(valueLength)
 	return buffer[:end], buffer[4:end], buffer[end:], true
+}
+
+// execHandler rend le handler d'exec réglé (WithExec, sinon WithGNUExec), précédé de BeforeExec et filtré par
+// WithExecOutputFilter ; nil : exec refusé.
+func (server *Server) execHandler() ExecHandler {
+	handler := server.settings.execHandler
+	if handler == nil && server.settings.gnuExec {
+		handler = server.gnuExec
+	}
+	filter, before := server.settings.execOutputFilter, server.settings.beforeExec
+	if handler == nil || (filter == nil && before == nil) {
+		return handler
+	}
+	return func(command string, stdin []byte) ([]byte, []byte, int) {
+		if before != nil {
+			before(command)
+		}
+		stdout, stderr, exit := handler(command, stdin)
+		if filter != nil {
+			stdout = filter(command, stdout)
+		}
+		return stdout, stderr, exit
+	}
 }
