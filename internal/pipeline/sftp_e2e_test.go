@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -142,7 +143,7 @@ func probeEveryRoot(volume *sftpfs.Volume) func(fsys.WriteRoot) error {
 
 func newSFTPWorld(t *testing.T) *sftpWorld {
 	t.Helper()
-	if os.Getenv("GOOS") == "windows" || filepath.Separator == '\\' {
+	if runtime.GOOS == "windows" {
 		t.Skip("the served tree needs symlinks planted on a Unix host")
 	}
 	server := sftptest.Start(t)
