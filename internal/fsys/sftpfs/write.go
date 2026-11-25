@@ -35,7 +35,9 @@ type writeRoot struct {
 	dir           string
 	hardlink      bool
 	atomicReplace bool
-	closed        atomic.Bool
+	// symlinkVerified : la sonde de la session a vu le serveur appliquer l'ordre d'OpenSSH.
+	symlinkVerified bool
+	closed          atomic.Bool
 }
 
 // OpenWriteRoot ouvre dir, chemin canonique reçu du seul Registry.WriteRoot : il doit être absolu, propre, un vrai
@@ -61,9 +63,16 @@ func (volume *Volume) OpenWriteRoot(dir string) (fsys.WriteRoot, error) {
 		if err := checkResolvesTo(current.client, dir); err != nil {
 			return err
 		}
+		symlinkVerified, err := probeSymlinkOrder(current, dir)
+		if err != nil {
+			return err
+		}
 		_, hasHardlink := current.client.HasExtension(extensionHardlink)
 		_, hasPosixRename := current.client.HasExtension(extensionPosixRename)
-		opened = &writeRoot{volume: volume, current: current, dir: dir, hardlink: hasHardlink, atomicReplace: hasPosixRename}
+		opened = &writeRoot{
+			volume: volume, current: current, dir: dir,
+			hardlink: hasHardlink, atomicReplace: hasPosixRename, symlinkVerified: symlinkVerified,
+		}
 		return nil
 	})
 	if err != nil {
@@ -130,7 +139,8 @@ func ensureDirectory(client *sftp.Client, parent, directory string) error {
 	return nil
 }
 
-// Symlink pose relative -> target, dans l'ordre d'arguments d'OpenSSH que suit pkg/sftp. target est envoyé tel quel
+// Symlink pose relative -> target, dans l'ordre d'arguments d'OpenSSH que suit pkg/sftp, seulement si la sonde de la
+// session l'a vérifié (sinon ErrSymlinkOrderUnverified, sans requête). target est envoyé tel quel
 // et le serveur le lit depuis le dossier du lien : une cible relative est calculée par l'appelant depuis
 // l'emplacement du lien, jamais réécrite ici. Après coup, Readlink doit rendre target au chemin demandé : un serveur
 // qui lit les arguments dans l'ordre RFC (lien posé ailleurs) est refusé (fsys.ErrUnconfined).
@@ -141,6 +151,9 @@ func (root *writeRoot) Symlink(target, relative string) error {
 	destination, err := root.target(relative)
 	if err != nil {
 		return err
+	}
+	if !root.symlinkVerified {
+		return fmt.Errorf("sftpfs: symlink %q: %w", relative, ErrSymlinkOrderUnverified)
 	}
 	return root.run(background, "symlink", relative, func(client *sftp.Client) error {
 		if err := root.checkParents(client, destination); err != nil {

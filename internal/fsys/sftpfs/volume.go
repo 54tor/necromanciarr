@@ -61,6 +61,8 @@ type session struct {
 	cancel    context.CancelFunc
 	closeOnce sync.Once
 	closed    atomic.Bool
+	// symlinkOrder : verdict de la sonde d'ordre des arguments de SSH_FXP_SYMLINK sur cette session (symlinkOrder*).
+	symlinkOrder atomic.Int32
 }
 
 func newSession(sshClient *ssh.Client, client *sftp.Client) *session {

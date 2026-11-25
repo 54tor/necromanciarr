@@ -583,21 +583,62 @@ func TestSFTPSymlink_storesTheRelativeTargetAsGiven(t *testing.T) {
 	}
 }
 
-func TestSFTPSymlink_reversedServerIsDetectedAfterTheCall(t *testing.T) {
+func servedEntries(t *testing.T, server *sftptest.Server, remoteDir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(localPathOf(server, remoteDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{}
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
+}
+
+func TestSFTPSymlink_reversedServerIsRefusedBeforeAnyRequest(t *testing.T) {
 	server, volume := writeVolume(t, sftptest.ReversedSymlinkArgs())
 	root := openLinksRoot(t, volume)
 	before := len(server.Requests())
 
 	err := root.Symlink("../x", "link")
 
-	// Le client suit l'ordre OpenSSH ; un serveur qui lit l'ordre RFC crée le lien ailleurs (la sonde de C12 le
-	// détecte avant tout lien) : la vérification après coup refuse au lieu de continuer en silence.
-	if !errors.Is(err, fsys.ErrUnconfined) {
-		t.Errorf("valeurObtenue %v, valeurAttendue ErrUnconfined once the link is not where it was asked", err)
+	if !errors.Is(err, sftpfs.ErrSymlinkOrderUnverified) {
+		t.Errorf("valeurObtenue %v, valeurAttendue ErrSymlinkOrderUnverified on a server reading the RFC order", err)
 	}
-	symlinks := methodsSince(server, before, "Symlink")
-	if len(symlinks) != 1 || symlinks[0].Path == linksDir+"/link" {
-		t.Errorf("valeurObtenue %+v, valeurAttendue the reversed server applying the link elsewhere", symlinks)
+	if requests := server.Requests()[before:]; len(requests) != 0 {
+		t.Errorf("valeurObtenue %+v, valeurAttendue no request", requests)
+	}
+	valeurAttendue := []string{"library", "links", "outside"}
+	if valeurObtenue := servedEntries(t, server, "/"); !slices.Equal(valeurObtenue, valeurAttendue) {
+		t.Errorf("server root: valeurObtenue %q, valeurAttendue %q", valeurObtenue, valeurAttendue)
+	}
+	for _, remoteDir := range []string{linksDir, outsideDir} {
+		if valeurObtenue := servedEntries(t, server, remoteDir); len(valeurObtenue) != 0 {
+			t.Errorf("%s: valeurObtenue %q, valeurAttendue the probe cleaned up", remoteDir, valeurObtenue)
+		}
+	}
+}
+
+func TestSFTPOpenWriteRoot_probesTheSymlinkOrderOncePerSessionAndLeavesNothing(t *testing.T) {
+	server, volume := writeVolume(t)
+	for range 2 {
+		_ = openLinksRoot(t, volume)
+	}
+	if valeurObtenue := len(methodsSince(server, 0, "Symlink")); valeurObtenue != 1 {
+		t.Errorf("valeurObtenue %d probes, valeurAttendue 1 for one session", valeurObtenue)
+	}
+	if valeurObtenue := servedEntries(t, server, linksDir); len(valeurObtenue) != 0 {
+		t.Errorf("valeurObtenue %q, valeurAttendue no probe entry left", valeurObtenue)
+	}
+
+	server.DropConnections()
+	waitForState(t, volume, sftpfs.StateBroken)
+	volume.ResetForStage()
+	_ = openLinksRoot(t, volume)
+
+	if valeurObtenue := len(methodsSince(server, 0, "Symlink")); valeurObtenue != 2 {
+		t.Errorf("valeurObtenue %d probes, valeurAttendue a new probe on the new session", valeurObtenue)
 	}
 }
 

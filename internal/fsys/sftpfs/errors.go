@@ -36,6 +36,10 @@ var (
 	// ErrHostileResponse : le serveur a rendu une valeur impossible (taille, statvfs, cible de lien, liste démesurée) ;
 	// elle est refusée, jamais tronquée.
 	ErrHostileResponse = errors.New("sftpfs: hostile response from the server")
+	// ErrSymlinkOrderUnverified refuse un lien symbolique tant que la sonde de la session n'a pas prouvé que le
+	// serveur lit les arguments dans l'ordre d'OpenSSH : un serveur à l'ordre inverse poserait le lien à la place de
+	// la cible, bibliothèque comprise.
+	ErrSymlinkOrderUnverified = errors.New("sftpfs: symlink argument order not verified on this session")
 	// ErrOperationTimeout : une opération a dépassé timeout ; la connexion a été fermée.
 	ErrOperationTimeout = errors.New("sftpfs: operation timed out")
 )
