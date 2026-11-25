@@ -11,9 +11,9 @@ import (
 // l'appelant choisit alors un lien symbolique ou renonce.
 var ErrNoLinkDirOnSameDevice = errors.New("linker: no link directory on the source filesystem")
 
-// errVolumeIdentityUnknown : le volume ne sait pas dire sur quel système de fichiers est un chemin ; rien ne prouve
+// ErrVolumeIdentityUnknown : le volume ne sait pas dire sur quel système de fichiers est un chemin ; rien ne prouve
 // alors qu'un lien dur y passerait.
-var errVolumeIdentityUnknown = errors.New("linker: filesystem identity unknown")
+var ErrVolumeIdentityUnknown = errors.New("linker: filesystem identity unknown")
 
 // volumeIdentity rend l'identité du système de fichiers d'une Location (VolumeID du volume).
 type volumeIdentity func(location fsys.Location) (id string, known bool, err error)
@@ -64,7 +64,7 @@ func knownIdentity(location fsys.Location, identityOf volumeIdentity) (string, e
 		return "", err
 	}
 	if !known {
-		return "", fmt.Errorf("%w: %s", errVolumeIdentityUnknown, location)
+		return "", fmt.Errorf("%w: %s", ErrVolumeIdentityUnknown, location)
 	}
 	return id, nil
 }
