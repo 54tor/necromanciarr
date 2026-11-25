@@ -272,6 +272,11 @@ func (svc *service) applyDedupe(ctx context.Context, details DedupeDetails, resu
 	}
 	options := svc.dedupeOptions(ctx)
 	options.DryRun = result.DryRun
+	if svc.canRecheck() && options.RecheckAfter {
+		if err := svc.clientView().requireClientPath(details.TorrentPath); err != nil {
+			return err
+		}
+	}
 	if svc.canRecheck() {
 		options.Rechecker = svc.clientView()
 	}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/dedupe"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
@@ -302,6 +303,11 @@ func resolvedPath(path string) string {
 func existingDirectories(directories []string) []string {
 	var existing []string
 	for _, directory := range directories {
+		// Un dossier distant est laissé au registre, qui le canonise (et refuse un volume injoignable).
+		if dedupe.IsRemote(directory) {
+			existing = append(existing, directory)
+			continue
+		}
 		if info, err := os.Stat(directory); err == nil && info.IsDir() {
 			existing = append(existing, directory)
 		}

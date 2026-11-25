@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"necromanciarr/internal/dedupe"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
@@ -123,6 +124,7 @@ func (svc *service) scanRepairs(ctx context.Context, directory string) ([]Repair
 	options := repair.Options{
 		LibraryRoots: settings.LibraryRoots, ScanDirectories: scanDirectories, Limiter: svc.deps.Stages.ReadLimiter,
 		FingerprintCache: svc.deps.Store, HashConfirmer: hashsource.NewConfirmer(svc.deps.HashSources), Store: svc.deps.Store,
+		Registry: svc.deps.Stages.Registry,
 	}
 	if svc.deps.Maintenance != nil {
 		options.TorrentSource = svc.clientView()
@@ -205,6 +207,11 @@ func (svc *service) applyRepair(ctx context.Context, details RepairDetails, resu
 	if err := checkOutsideLibrary([]string{details.LinkPath}, settings.LibraryRoots, ErrDirectoryInLibrary); err != nil {
 		return err
 	}
+	if svc.canRecheck() {
+		if err := svc.clientView().requireClientPath(details.LinkPath); err != nil {
+			return err
+		}
+	}
 	if needsClientRecheck(details.Method) {
 		if err := svc.requireCoveringListing(ctx, details.LinkPath); err != nil {
 			return err
@@ -268,13 +275,17 @@ func (svc *service) requireCoveringListing(ctx context.Context, linkPath string)
 	return nil
 }
 
-// clientView traduit les chemins de ce processus vers la vue du client (mapper nil ou sans règle : mêmes chemins).
+// clientView traduit les chemins de ce processus vers la vue du client (chemin local, mapper nil ou sans règle :
+// mêmes chemins ; chemin distant : une règle sftp:// est exigée, ErrClientPathUnmapped sinon).
 type clientView struct {
 	client MaintenanceClient
 	mapper pipeline.ClientPathMapper
 }
 
 func (view clientView) clientPath(path string) (string, error) {
+	if dedupe.IsRemote(path) {
+		return view.remoteClientPath(path)
+	}
 	if view.mapper == nil {
 		return path, nil
 	}
@@ -283,6 +294,29 @@ func (view clientView) clientPath(path string) (string, error) {
 		return path, nil
 	}
 	return clientPath, err
+}
+
+// remoteClientPath reprend la règle de Seed : jamais de repli sur le même chemin, et une traduction qui reste
+// distante ne vaut rien pour le client.
+func (view clientView) remoteClientPath(path string) (string, error) {
+	if view.mapper == nil {
+		return "", ErrClientPathUnmapped
+	}
+	clientPath, err := view.mapper.Translate(path)
+	isMapped := err == nil && clientPath != "" && !dedupe.IsRemote(clientPath)
+	if !isMapped {
+		return "", ErrClientPathUnmapped
+	}
+	return clientPath, nil
+}
+
+// requireClientPath refuse, avant toute écriture, un remplacement dont le recontrôle viserait un chemin distant
+// sans règle pathMappings (motif client_path_unmapped).
+func (view clientView) requireClientPath(path string) error {
+	if _, err := view.clientPath(path); err != nil {
+		return fmt.Errorf("%w: %w", ErrNotActionable, err)
+	}
+	return nil
 }
 
 func (view clientView) RecheckPath(ctx context.Context, path string) error {
@@ -312,3 +346,7 @@ func (view clientView) TorrentForPath(ctx context.Context, path string) (repair.
 // RepairReasonNeedsClientRecheck : une réparation trouvée par taille et date ou par empreinte n'est qu'une présomption ;
 // sans client torrent pour recontrôler le torrent après coup, elle est listée mais pas applicable.
 const RepairReasonNeedsClientRecheck = "needs_client_recheck"
+
+// ErrClientPathUnmapped refuse un chemin distant (sftp://) qu'aucune règle pathMappings ne traduit vers la vue du
+// client : « même chemin » n'a aucun sens entre deux machines. Son texte est le motif stable client_path_unmapped.
+var ErrClientPathUnmapped = errors.New("app: " + pipeline.ReasonClientPathUnmapped)
