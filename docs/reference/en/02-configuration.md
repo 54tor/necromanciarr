@@ -208,6 +208,14 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 - A link target longer than 4096 bytes, an impossible file size or an inconsistent `statvfs` answer is refused, never truncated.
 - Free space and volume identity: read through the OpenSSH `statvfs` extension. Without it, free space is unknown (no full copy is attempted) and so is the volume identity. The volume identity comes from the server's `statvfs`: a lying server only skews the choices of the scan and of links (same volume or not), never a write into the library.
 
+#### Remote writes
+
+- Links are placed in a link folder on the same server (for example `sftp://seedbox/srv/links`), outside every library root; every write goes through the confined write root of that folder.
+- OpenSSH extensions used: `hardlink` for a hard link, `posix-rename` for an atomic replace. Without `hardlink`, a hard link is refused as an unsupported kind. Without `posix-rename`, nothing is replaced (`no_atomic_replace`): never a plain rename, never a delete then create. A symbolic link needs neither: its target is sent as given and the server reads it from the link's folder.
+- Force (isolation by copy) is refused on an SFTP volume: the client offers no server-side copy (`copy-data`), and a stream copy would carry the whole media across the network.
+- Confinement: a written path is relative to the link folder, with no `..`, no empty segment and no NUL. Each parent folder is checked (a symbolic link is refused), and the server's resolution of it (`realpath`) must stay its own path, before and after the write; a file created under a diverted parent is removed. SFTP has no folder-relative open: between the last check and the write, an actor who can already write in the remote link folder can still divert a write. This risk is accepted; the recommended defence is an SFTP account that writes only in the link folder and only reads the library ([05-docker-and-volumes.md](05-docker-and-volumes.md)).
+- A lost session invalidates the write root: the operation returns `remote_unavailable`, and the next stage reopens and re-checks the root.
+
 #### Getting the `known_hosts` line
 
 The tool never trusts an unknown host key and never writes to `knownHosts`. To fill the file safely:

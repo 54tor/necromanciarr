@@ -208,6 +208,14 @@ Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer 
 - Une cible de lien de plus de 4096 octets, une taille de fichier impossible ou une réponse `statvfs` incohérente sont refusées, jamais tronquées.
 - Place libre et identité du volume : lues par l'extension OpenSSH `statvfs`. Sans elle, la place libre est inconnue (aucune copie complète n'est tentée) et l'identité du volume aussi. L'identité du volume vient du `statvfs` du serveur : un serveur qui ment ne fausse que les choix de l'examen et des liens (même volume ou non), jamais une écriture dans la bibliothèque.
 
+#### Écriture distante
+
+- Les liens se posent dans un dossier de liens du même serveur (par exemple `sftp://seedbox/srv/links`), hors de toute racine de bibliothèque ; chaque écriture passe par la racine d'écriture confinée de ce dossier.
+- Extensions OpenSSH utilisées : `hardlink` pour un lien dur, `posix-rename` pour un remplacement atomique. Sans `hardlink`, le lien dur est refusé comme une sorte non prise en charge. Sans `posix-rename`, aucun remplacement n'est fait (`no_atomic_replace`) : jamais un renommage simple ni une suppression puis création. Le lien symbolique n'en exige aucune : sa cible est envoyée telle quelle et le serveur la lit depuis le dossier du lien.
+- Force (copie isolée) est refusé sur un volume SFTP : le client n'offre pas de copie côté serveur (`copy-data`), et une copie par flux ferait transiter tout le média par le réseau.
+- Confinement : un chemin écrit est relatif au dossier de liens, sans `..`, sans segment vide ni NUL. Chaque dossier parent est vérifié (un lien symbolique est refusé), et sa résolution par le serveur (`realpath`) doit rester son propre chemin, avant et après l'écriture ; un fichier créé sous un parent détourné est retiré. SFTP n'a pas d'ouverture relative à un dossier : entre le dernier contrôle et l'écriture, un acteur qui écrit déjà dans le dossier de liens distant peut encore détourner une écriture. Ce risque est accepté ; la défense recommandée est un compte SFTP qui n'écrit que dans le dossier de liens et lit seulement la bibliothèque ([05-docker-and-volumes.md](05-docker-and-volumes.md)).
+- Une session perdue invalide la racine d'écriture : l'opération rend `remote_unavailable`, et l'étape suivante rouvre et revérifie la racine.
+
 #### Obtenir la ligne `known_hosts`
 
 L'outil ne fait jamais confiance à une clé d'hôte inconnue et n'écrit jamais dans `knownHosts`. Pour remplir le fichier sans risque :

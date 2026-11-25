@@ -134,6 +134,6 @@ Un fournisseur `fsProviders` de type `sftp` ([02-configuration.md](02-configurat
 - Monter `known_hosts` et la clé privée en lecture seule, par exemple `- /home/u/necromanciarr/ssh:/data/ssh:ro`, et déclarer `knownHosts: "/data/ssh/known_hosts"`, `identityFile: "/data/ssh/id_ed25519"` (chemins vus par le conteneur). La clé doit être lisible par l'utilisateur `1000:1000` et rester en `0600`.
 - La passphrase de la clé ou le mot de passe passent par le `.env` de `/data` (`SFTP_KEY_PASSPHRASE=…`, référencé par `"${SFTP_KEY_PASSPHRASE}"`), jamais en clair dans `config.json`.
 - L'agent SSH de l'hôte (`SSH_AUTH_SOCK`) n'est pas transmis au conteneur : `agent: true` exige de monter soi-même la socket et de définir `SSH_AUTH_SOCK`, ce que l'image ne fait pas. Préférer `identityFile`.
-- Recommandé : un compte SFTP sans droit d'écriture sur la bibliothèque (ACL, groupe ou montage en lecture seule côté serveur), en défense en profondeur. Ce n'est pas exigé ; un contrôle de `doctor` le signalera.
+- Recommandé : un compte SFTP sans droit d'écriture sur la bibliothèque (ACL, groupe ou montage en lecture seule côté serveur), qui n'écrit que dans le dossier de liens, en défense en profondeur : sans ouverture relative à un dossier en SFTP, le confinement des écritures repose sur des contrôles de chemin (« Écriture distante » dans [02-configuration.md](02-configuration.md)). Ce n'est pas exigé ; un contrôle de `doctor` le signalera.
 - La base (`dbPath`) reste dans `/data`, jamais sur le serveur SFTP.
 - Serveurs SFTP Windows : non pris en charge.
