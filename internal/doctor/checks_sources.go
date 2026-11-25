@@ -303,10 +303,11 @@ func checkSecretKey(ctx context.Context, key []byte, hasTorznab bool, probe Seal
 }
 
 // unsealEach descelle les blocs un à un dans le budget du diagnostic et nomme chaque candidat dont le bloc ne se
-// descelle pas ; le contenu descellé est aussitôt jeté.
+// descelle pas ; le contenu descellé (il porte la passkey) est aussitôt effacé, comme au seed.
 func unsealEach(ctx context.Context, sealer *sources.Sealer, probe SealedProbe) (readable int, unreadable []string, unvisited int, err error) {
 	unvisited, err = probe.EachSealedTorrent(ctx, maxSealedProbed, maxSealedProbedBytes, func(torrent SealedTorrent) error {
-		if _, unsealErr := sealer.Unseal(torrent.Blob, torrent.Binding); unsealErr == nil {
+		if plain, unsealErr := sealer.Unseal(torrent.Blob, torrent.Binding); unsealErr == nil {
+			clear(plain)
 			readable++
 		} else {
 			unreadable = append(unreadable, strconv.FormatInt(torrent.CandidateID, 10))
