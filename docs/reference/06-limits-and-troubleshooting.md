@@ -149,6 +149,8 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `link-feasibility` | `volumes_differ_symlink_only` | `warn` | deux volumes : seuls les symlinks traversent |
 | `link-feasibility` | `volumes_differ` | `fail` | bibliothèque et liens sous deux montages : un seul montage commun ([05-docker-and-volumes.md](05-docker-and-volumes.md)) |
 | `link-feasibility` | `volume_identity_unknown` | `warn` | volume distant sans `statvfs` : identité du système de fichiers inconnue, lien dur non prouvé ; activer l'extension ou choisir `symlink` |
+| `link-feasibility` | `volume_alias_risk` | `warn`, `ok` | `warn` : un fournisseur sftp vise cette machine (`localhost`, `127.0.0.0/8`, `::1`) alors que des racines de bibliothèque locales existent ; le chemin local et le volume peuvent désigner le même disque sans être rapprochés : nommer bibliothèque et liens par un seul des deux accès. `ok` : des fournisseurs de même adresse partagent leurs racines de bibliothèque |
+| `link-feasibility` | `mount_root_undetected` | `warn` | noyau sans `STATX_ATTR_MOUNT_ROOT` (Linux avant 5.8) et dossier de liens local : un montage lié du même système de fichiers posé dessous n'est pas détecté ; ne jamais monter la bibliothèque sous un dossier de liens |
 | `fs-providers` | `no_fs_provider` | `skipped` | aucun fournisseur configuré |
 | `fs-providers` | `fs_providers_build_failed` | `fail` | `fsProviders` de `config.json` |
 | `fs-providers` | `mount_ok` | `ok` | montage décrit |

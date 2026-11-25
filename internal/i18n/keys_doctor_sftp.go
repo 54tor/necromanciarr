@@ -33,6 +33,11 @@ const (
 	KeyDoctorSFTPExecHintRequired           Key = "doctor.sftp_exec.hint.required"
 	KeyDoctorVolumeIdentityUnknown          Key = "doctor.links.identity_unknown"
 	KeyDoctorVolumeIdentityUnknownHint      Key = "doctor.links.identity_unknown.hint"
+	KeyDoctorVolumeAliasLoopback            Key = "doctor.links.volume_alias_loopback"
+	KeyDoctorVolumeAliasLoopbackHint        Key = "doctor.links.volume_alias_loopback.hint"
+	KeyDoctorVolumeAliasShared              Key = "doctor.links.volume_alias_shared"
+	KeyDoctorMountRootUndetected            Key = "doctor.links.mount_root_undetected"
+	KeyDoctorMountRootUndetectedHint        Key = "doctor.links.mount_root_undetected.hint"
 	KeyDoctorPathRuleRemoteUnmapped         Key = "doctor.path_rule.remote_unmapped"
 	KeyDoctorPathRuleRemoteUnmappedHint     Key = "doctor.path_rule.remote_unmapped.hint"
 	KeyDoctorPathRuleRemoteRootUnmapped     Key = "doctor.path_rule.remote_root_unmapped"
@@ -82,7 +87,9 @@ var doctorSFTPKeys = []Key{
 	KeyDoctorSFTPLibraryHintNoMedia, KeyDoctorSFTPLibraryHintUnread, KeyDoctorSFTPLibraryHintReadOnly,
 	KeyDoctorSFTPExecOK, KeyDoctorSFTPExecOff, KeyDoctorSFTPExecLowPriority, KeyDoctorSFTPExecNoLowPriority,
 	KeyDoctorSFTPExecNoLinkDir, KeyDoctorSFTPExecHintUnavailable, KeyDoctorSFTPExecHintRequired,
-	KeyDoctorVolumeIdentityUnknown, KeyDoctorVolumeIdentityUnknownHint, KeyDoctorPathRuleRemoteUnmapped,
+	KeyDoctorVolumeIdentityUnknown, KeyDoctorVolumeIdentityUnknownHint, KeyDoctorVolumeAliasLoopback,
+	KeyDoctorVolumeAliasLoopbackHint, KeyDoctorVolumeAliasShared, KeyDoctorMountRootUndetected,
+	KeyDoctorMountRootUndetectedHint, KeyDoctorPathRuleRemoteUnmapped,
 	KeyDoctorPathRuleRemoteUnmappedHint, KeyDoctorPathRuleRemoteRootUnmapped, KeyDoctorPathRuleRemoteRootUnmappedHint,
 	KeyReasonHostKeyUnknown, KeyReasonHostKeyMismatch, KeyReasonAuthRefused, KeyReasonKnownHostsUnreadable,
 	KeyReasonIdentityKeyTooWeak, KeyReasonIdentityFileUnusable, KeyReasonIdentityFilePermissions,

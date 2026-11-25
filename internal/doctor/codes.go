@@ -126,6 +126,11 @@ const (
 	CodeRemoteExecRequiredFailed = "remote_exec_required_failed"
 	CodeCapabilityProbeFailed    = "capability_probe_failed"
 	CodeVolumeIdentityUnknown    = "volume_identity_unknown"
+	// CodeVolumeAliasRisk : un volume sftp en bouclage à côté de racines locales (avertissement), ou des fournisseurs
+	// de même adresse qui partagent leurs racines de bibliothèque (information).
+	CodeVolumeAliasRisk = "volume_alias_risk"
+	// CodeMountRootUndetected : noyau sans STATX_ATTR_MOUNT_ROOT, un montage lié sous un dossier de liens local échappe.
+	CodeMountRootUndetected = "mount_root_undetected"
 	// CodeClientPathUnmapped : un dossier de liens distant sans règle pathMappings vers la vue du client.
 	CodeClientPathUnmapped = "client_path_unmapped"
 )

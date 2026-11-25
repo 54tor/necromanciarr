@@ -36,7 +36,7 @@ func isMountRoot(dir *os.Root) (bool, error) {
 
 // reasonStatxMountRootUnsupported : noyau sans STATX_ATTR_MOUNT_ROOT (avant 5.8) ; un montage lié du même système
 // de fichiers sous la racine d'écriture n'est pas détecté (doctor avertit, C16).
-const reasonStatxMountRootUnsupported = "statx_mount_root_unsupported"
+const reasonStatxMountRootUnsupported = ReasonMountRootUnsupported
 
 // mountRootDetectable sonde une fois si le noyau donne STATX_ATTR_MOUNT_ROOT (sur "/", toujours une racine de
 // montage) ; variable pour que les tests simulent un noyau ancien.

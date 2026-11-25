@@ -208,6 +208,8 @@
       "remote_exec_required_failed": "Commandes distantes obligatoires en échec",
       "capability_probe_failed": "Sonde des capacités en échec",
       "volume_identity_unknown": "Identité du système de fichiers inconnue",
+      "volume_alias_risk": "Volume peut-être confondu avec un autre",
+      "mount_root_undetected": "Montages liés non détectés par ce noyau",
       "client_path_unmapped": "Dossier de liens distant sans règle de chemins"
     }
   },

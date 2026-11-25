@@ -80,6 +80,8 @@ func checkLinkFeasibility(settings config.Config, deps Deps) Result {
 			collected.add(status, code, detail, hint)
 		}
 	}
+	addVolumeAliasFindings(&collected, settings)
+	addMountRootFinding(context.Background(), &collected, registry, settings)
 	return collected.result()
 }
 

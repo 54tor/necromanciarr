@@ -149,6 +149,8 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `link-feasibility` | `volumes_differ_symlink_only` | `warn` | two volumes: only symlinks cross |
 | `link-feasibility` | `volumes_differ` | `fail` | library and links under two mounts: a single common mount ([05-docker-and-volumes.md](05-docker-and-volumes.md)) |
 | `link-feasibility` | `volume_identity_unknown` | `warn` | remote volume without `statvfs`: filesystem identity unknown, hardlink not proven; enable the extension or choose `symlink` |
+| `link-feasibility` | `volume_alias_risk` | `warn`, `ok` | `warn`: an sftp provider points at this machine (`localhost`, `127.0.0.0/8`, `::1`) while local library roots exist; the local path and the volume can name the same disk without being matched: name the library and the links through one access only. `ok`: providers of the same address share their library roots |
+| `link-feasibility` | `mount_root_undetected` | `warn` | kernel without `STATX_ATTR_MOUNT_ROOT` (Linux before 5.8) and a local link directory: a bind mount of the same filesystem placed under it is not detected; never mount the library under a link directory |
 | `fs-providers` | `no_fs_provider` | `skipped` | no provider configured |
 | `fs-providers` | `fs_providers_build_failed` | `fail` | `fsProviders` of `config.json` |
 | `fs-providers` | `mount_ok` | `ok` | mount described |

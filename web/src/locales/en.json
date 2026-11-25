@@ -208,6 +208,8 @@
       "remote_exec_required_failed": "Required remote commands failed",
       "capability_probe_failed": "Capability probe failed",
       "volume_identity_unknown": "Filesystem identity unknown",
+      "volume_alias_risk": "Volume possibly aliased with another",
+      "mount_root_undetected": "Bind mounts not detected by this kernel",
       "client_path_unmapped": "Remote link folder without a path mapping"
     }
   },

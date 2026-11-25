@@ -176,7 +176,7 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 |---|---|---|
 | `type` | required | `sftp` |
 | `name` | required | `[a-z0-9-]+`, unique; it is the `<name>` of the `sftp://<name>/…` locations |
-| `address` | required | `host` or `host:port` (host name or IP address), port `22` by default; IPv6 between brackets (`[::1]` or `[::1]:22`); no URL (`sftp://…`), control character, stray bracket or `known_hosts` pattern character (`,` `*` `?` `!`) |
+| `address` | required | `host` or `host:port` (host name or IP address), port `22` by default; IPv6 between brackets (`[::1]` or `[::1]:22`); no URL (`sftp://…`), control character, stray bracket or `known_hosts` pattern character (`,` `*` `?` `!`); two providers of the same address (host without case or trailing dot, explicit port) share their library roots; a DNS name and its IP address are not matched; a loopback volume and a local path can name the same disk: not detected, `doctor` warning (`volume_alias_risk`) |
 | `user` | required | SSH account; an account with no write access to the library is recommended |
 | `knownHosts` | required | absolute local path of an OpenSSH `known_hosts` file; the host key is always checked, no option skips it. Whether the file exists is a `doctor` matter |
 | `identityFile` | empty | absolute local path of a private key (ed25519, ecdsa or rsa ≥ 3072); a shorter RSA key is refused (`identity_key_too_weak`). Agent keys are not filtered |
