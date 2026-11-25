@@ -276,4 +276,11 @@ func TestStatus_countsBrokenVolumes(t *testing.T) {
 	if err != nil || status.VolumesBroken != 2 {
 		t.Fatalf("gotValue %d, %v, expectedValue 2 broken volumes", status.VolumesBroken, err)
 	}
+	encoded, err := json.Marshal(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encoded, []byte(`"volumes_broken":2`)) {
+		t.Fatalf("gotValue %s, expectedValue the JSON key volumes_broken", encoded)
+	}
 }
