@@ -920,3 +920,43 @@ func readAll(t *testing.T, file fsys.File) string {
 	}
 	return string(content)
 }
+
+func TestSFTPWriteRoot_namesContainingTransportTextNeverBreakTheVolume(t *testing.T) {
+	skipWithoutSymlinks(t)
+	server, volume := writeVolume(t)
+	root := openLinksRoot(t, volume)
+	fsystest.PlantLocalSymlink(t, localPathOf(server, linksDir+"/x connection lost"), libraryDir)
+
+	if _, err := root.Lstat("x connection lost/entry"); !errors.Is(err, fsys.ErrUnconfined) || errors.Is(err, fsys.ErrRemoteUnavailable) {
+		t.Errorf("Lstat: valeurObtenue %v, valeurAttendue ErrUnconfined only", err)
+	}
+	if err := root.Remove("failed to send packet.mkv"); !errors.Is(err, fs.ErrNotExist) || errors.Is(err, fsys.ErrRemoteUnavailable) {
+		t.Errorf("Remove: valeurObtenue %v, valeurAttendue fs.ErrNotExist only", err)
+	}
+
+	if valeurObtenue := volume.State(); valeurObtenue != sftpfs.StateOK {
+		t.Errorf("valeurObtenue %q, valeurAttendue the volume kept ok", valeurObtenue)
+	}
+}
+
+func TestSFTPMkdirAll_serverMessageNamingAConnectionLossKeepsTheVolume(t *testing.T) {
+	var server *sftptest.Server
+	var once sync.Once
+	// Juste avant le Mkdir, un fichier prend le nom : le serveur répond SSH_FX_FAILURE avec un texte qui le cite.
+	hook := func(request sftptest.Request) {
+		once.Do(func() {
+			sftptest.WriteFile(t, localPathOf(server, request.Path), []byte("x"), 0o644)
+		})
+	}
+	server, volume := writeVolume(t, sftptest.OnRequest("Mkdir", hook))
+	root := openLinksRoot(t, volume)
+
+	err := root.MkdirAll("connection lost", 0o755)
+
+	if err == nil || errors.Is(err, fsys.ErrRemoteUnavailable) {
+		t.Errorf("valeurObtenue %v, valeurAttendue a refusal that is not a lost connection", err)
+	}
+	if valeurObtenue := volume.State(); valeurObtenue != sftpfs.StateOK {
+		t.Errorf("valeurObtenue %q, valeurAttendue the volume kept ok", valeurObtenue)
+	}
+}

@@ -666,6 +666,19 @@ func TestSFTP_transportFailuresAreConnectionLosses(t *testing.T) {
 		"exit missing":     {&ssh.ExitMissingError{}, true},
 		"end of file":      {io.EOF, false},
 		"missing entry":    {os.ErrNotExist, false},
+		"text only":        {errors.New("failed to send packet: EOF"), false},
+		"path naming a send failure": {
+			&fs.PathError{Op: "remove", Path: "/links/failed to send packet: EOF", Err: fs.ErrNotExist}, false,
+		},
+		"path naming a loss": {&fs.PathError{Op: "lstat", Path: "/links/connection lost", Err: fs.ErrNotExist}, false},
+		"path wrapping a send failure": {
+			&fs.PathError{Op: "remove", Path: "/links/x", Err: fmt.Errorf("failed to send packet: %w", io.EOF)}, false,
+		},
+		"unconfined name": {
+			fmt.Errorf("%w: sftpfs: %q is a symlink: failed to send packet: %w", fsys.ErrUnconfined, "connection lost", fs.ErrInvalid), false,
+		},
+		"wrapped send failure": {fmt.Errorf("sftpfs: stat: %w", fmt.Errorf("failed to send packet: %w", io.EOF)), true},
+		"joined send failure":  {errors.Join(fs.ErrNotExist, fmt.Errorf("failed to send packet payload: %w", io.ErrClosedPipe)), true},
 	} {
 		if valeurObtenue := sftpfs.IsTransportFailure(testCase.err); valeurObtenue != testCase.valeurAttendue {
 			t.Errorf("%s: valeurObtenue %v, valeurAttendue %v", label, valeurObtenue, testCase.valeurAttendue)
