@@ -22,6 +22,7 @@ const (
 	KeyWarningDedupeFullNetworkRead        Key = "warning.dedupe.full_network_read"
 	KeyWarningDedupeSampledVerify          Key = "warning.dedupe.sampled_verify"
 	KeyWarningDedupeRenameNotAtomic        Key = "warning.dedupe.rename_not_atomic"
+	KeyWarningDedupeFullRemoteRead         Key = "warning.dedupe.full_remote_read"
 	KeyWarningCrossSeedDelegateNoDaemon    Key = "warning.crossseed.delegate_no_daemon"
 	KeyWarningCrossSeedDelegateUnreachable Key = "warning.crossseed.delegate_unreachable"
 	KeyWarningCrossSeedFallbackNative      Key = "warning.crossseed.fallback_native"
@@ -51,7 +52,7 @@ var warningKeys = []Key{
 	KeyWarningApplicationFailedKindRefused, KeyWarningApplicationFailedDetail, KeyWarningPausedIncompleteAfterRecheck,
 	KeyWarningRecheckFailed, KeyWarningNoClientRecheck, KeyWarningLinkNotRecorded,
 	KeyWarningDedupeUnreliableInode, KeyWarningDedupeFullNetworkRead, KeyWarningDedupeSampledVerify,
-	KeyWarningDedupeRenameNotAtomic, KeyWarningCrossSeedDelegateNoDaemon, KeyWarningCrossSeedDelegateUnreachable,
+	KeyWarningDedupeRenameNotAtomic, KeyWarningDedupeFullRemoteRead, KeyWarningCrossSeedDelegateNoDaemon, KeyWarningCrossSeedDelegateUnreachable,
 	KeyWarningCrossSeedFallbackNative, KeyWarningMultipleClients, KeyWarningNoAnnounce, KeyWarningNoAnnounceUnknownTracker,
 	KeyAdviceMountStartRC, KeyAdviceMountNoHash, KeyAdviceMountNoModTime, KeyAdviceMountModTimeUnknown,
 	KeyAdviceMountVFSLinks, KeyAdviceMountRcloneError, KeyAdviceMountNoSample, KeyAdviceMountInvalid,

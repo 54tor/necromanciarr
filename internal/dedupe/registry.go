@@ -21,17 +21,10 @@ func registryProbe(registry *fsys.Registry) func(directory string) (linker.Capab
 		if err != nil {
 			return linker.Capabilities{}, err
 		}
-		return linker.ProbeDirectory(probeRegistry, fsys.Location{Path: directory})
-	}
-}
-
-// registryLink crée le lien temporaire dans la racine torrent ouverte par le registre.
-func registryLink(registry *fsys.Registry) func(kind linker.Kind, source, destination, root string) error {
-	return func(kind linker.Kind, source, destination, root string) error {
-		linkRegistry, err := writeRegistry(registry)
+		location, err := fsys.StoredLocation(directory)
 		if err != nil {
-			return err
+			return linker.Capabilities{}, err
 		}
-		return linker.CreateLinkUnder(linkRegistry, kind, source, fsys.Location{Path: destination}, fsys.Location{Path: root})
+		return linker.ProbeDirectory(probeRegistry, location)
 	}
 }

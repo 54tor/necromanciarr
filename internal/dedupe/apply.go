@@ -6,12 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"time"
 
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
 )
@@ -66,11 +65,12 @@ type Result struct {
 }
 
 // Apply remplace chaque fichier torrent par un lien vers le fichier de la bibliothèque. Avant toute création : sorte
-// autorisée par Kinds, racine sans recouvrement de la bibliothèque, taille et date inchangées, empreintes début et fin
-// identiques à celles de Plan, puis preuve d'identité selon Verify (octet par octet, débit plafonné, annulable).
-// Le lien est créé sous un nom temporaire, contrôlé, puis renommé par-dessus le fichier torrent ; en cas d'échec seul
-// ce nom temporaire est retiré. DryRun fait toutes ces vérifications sans rien créer. L'erreur renvoyée réunit les
-// échecs des Outcomes.
+// autorisée par Kinds, racine sans recouvrement de la bibliothèque, remplacement atomique annoncé par le volume
+// (fsys.ErrNoAtomicReplace sinon, rien n'est écrit), taille et date inchangées, empreintes début et fin identiques à
+// celles de Plan, puis preuve d'identité selon Verify (octet par octet, débit plafonné, annulable). Le lien est créé
+// sous un nom temporaire dans la racine d'écriture du dossier torrent, contrôlé, puis remplace le fichier torrent par
+// WriteRoot.Replace ; en cas d'échec seul ce nom temporaire est retiré. DryRun fait toutes ces vérifications sans
+// rien créer. L'erreur renvoyée réunit les échecs des Outcomes.
 func Apply(ctx context.Context, replacements []Replacement, options Options) (Result, error) {
 	if options.Recorder == nil && !options.DryRun {
 		return Result{}, ErrNoRecorder
@@ -80,7 +80,8 @@ func Apply(ctx context.Context, replacements []Replacement, options Options) (Re
 		return Result{}, err
 	}
 	options.Verify = verification
-	roots, err := resolveRoots(options.TorrentRoots)
+	files := NewFiles(options.Registry)
+	roots, err := resolveRoots(files, options.TorrentRoots)
 	if err != nil {
 		return Result{}, err
 	}
@@ -90,7 +91,7 @@ func Apply(ctx context.Context, replacements []Replacement, options Options) (Re
 		if err := ctx.Err(); err != nil {
 			return result, errors.Join(append(failures, err)...)
 		}
-		outcome := applyOne(ctx, replacement, options, roots)
+		outcome := applyOne(ctx, files, replacement, options, roots)
 		if outcome.Err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", replacement.TorrentPath, outcome.Err))
 		}
@@ -99,25 +100,25 @@ func Apply(ctx context.Context, replacements []Replacement, options Options) (Re
 	return result, errors.Join(failures...)
 }
 
-func applyOne(ctx context.Context, replacement Replacement, options Options, roots []string) Outcome {
+func applyOne(ctx context.Context, files Files, replacement Replacement, options Options, roots []string) Outcome {
 	outcome := Outcome{Replacement: replacement, DryRun: options.DryRun}
-	root, libraryInfo, err := checkApplicable(replacement, options.Kinds, roots)
+	root, libraryInfo, err := checkApplicable(ctx, files, replacement, options.Kinds, roots)
 	var proven proof
 	if err == nil {
-		proven, err = proveIdentity(ctx, replacement, options)
+		proven, err = proveIdentity(ctx, files, replacement, options)
 		outcome.BytesRead, outcome.Replacement.Method = proven.bytesRead, proven.method
 	}
 	if err != nil {
 		outcome.Err = err
 		return outcome
 	}
-	target, relative, err := linkTarget(replacement, options.RelativeSymlinks)
+	target, relative, err := linkTarget(files, replacement, options.RelativeSymlinks)
 	outcome.LinkTarget = target
 	if err != nil || options.DryRun {
 		outcome.Err = err
 		return outcome
 	}
-	if err := replaceWithLink(replacement, options, root, target, libraryInfo); err != nil {
+	if err := replaceWithLink(ctx, files, replacement, options, root, target, libraryInfo); err != nil {
 		outcome.Err = err
 		return outcome
 	}
@@ -134,7 +135,7 @@ func applyOne(ctx context.Context, replacement Replacement, options Options, roo
 	return outcome
 }
 
-func checkApplicable(replacement Replacement, allowedKinds []linker.Kind, roots []string) (string, fs.FileInfo, error) {
+func checkApplicable(ctx context.Context, files Files, replacement Replacement, allowedKinds []linker.Kind, roots []string) (string, fs.FileInfo, error) {
 	if len(replacement.Ambiguous) > 0 {
 		return "", nil, fmt.Errorf("%w: %v", ErrAmbiguous, replacement.Ambiguous)
 	}
@@ -148,21 +149,19 @@ func checkApplicable(replacement Replacement, allowedKinds []linker.Kind, roots 
 	if err != nil {
 		return "", nil, err
 	}
-	if err := checkNoOverlap([]string{root}, []string{replacement.LibraryPath}); err != nil {
+	if err := checkNoOverlap(files, []string{root}, []string{replacement.LibraryPath}); err != nil {
 		return "", nil, err
 	}
-	libraryInfo, err := checkUnchanged(replacement)
+	if err := atomicReplaceRefusal(ctx, files, root); err != nil {
+		return "", nil, err
+	}
+	libraryInfo, err := checkUnchanged(files, replacement)
 	return root, libraryInfo, err
 }
 
 func rootContaining(roots []string, torrentPath string) (string, error) {
-	absolutePath, err := filepath.Abs(torrentPath)
-	if err != nil {
-		return "", err
-	}
 	for _, root := range roots {
-		relative, err := filepath.Rel(root, absolutePath)
-		if err == nil && relative != "." && filepath.IsLocal(relative) {
+		if _, err := Below(root, torrentPath); err == nil {
 			return root, nil
 		}
 	}
@@ -171,21 +170,21 @@ func rootContaining(roots []string, torrentPath string) (string, error) {
 
 // checkUnchanged relit les deux fichiers sans les suivre : même taille, même date, toujours deux fichiers distincts ;
 // l'inode de la bibliothèque n'est comparé que s'il est fiable (volume local).
-func checkUnchanged(replacement Replacement) (fs.FileInfo, error) {
-	torrentInfo, err := statUnchanged(replacement.TorrentPath, replacement.Size, replacement.TorrentModTime)
+func checkUnchanged(files Files, replacement Replacement) (fs.FileInfo, error) {
+	torrentInfo, err := statUnchanged(files, replacement.TorrentPath, replacement.Size, replacement.TorrentModTime)
 	if err != nil {
 		return nil, err
 	}
-	libraryInfo, err := statUnchanged(replacement.LibraryPath, replacement.Size, replacement.LibraryModTime)
+	libraryInfo, err := statUnchanged(files, replacement.LibraryPath, replacement.Size, replacement.LibraryModTime)
 	if err != nil {
 		return nil, err
 	}
-	if os.SameFile(torrentInfo, libraryInfo) {
+	if files.SameFile(replacement.TorrentPath, torrentInfo, replacement.LibraryPath, libraryInfo) {
 		return nil, fmt.Errorf("%w: %s is already linked", ErrChangedSincePlan, replacement.TorrentPath)
 	}
 	if replacement.InodeReliable {
-		device, inode, _ := fileIdentity(libraryInfo)
-		if device != replacement.LibraryDevice || inode != replacement.LibraryInode {
+		identity, _ := ReliableID(replacement.LibraryPath, libraryInfo)
+		if identity.Device != replacement.LibraryDevice || identity.Inode != replacement.LibraryInode {
 			return nil, fmt.Errorf("%w: %s has another inode", ErrChangedSincePlan, replacement.LibraryPath)
 		}
 	}
@@ -195,7 +194,7 @@ func checkUnchanged(replacement Replacement) (fs.FileInfo, error) {
 // proveIdentity relit les empreintes de Plan (un contenu réécrit à taille et date égales est refusé), puis prouve
 // l'identité selon la méthode : empreinte du stockage (jamais sans ce contrôle préalable), ou comparaison des deux
 // fichiers ; rien n'est créé avant qu'elle réussisse. proof.method est renseigné même en cas d'échec.
-func proveIdentity(ctx context.Context, replacement Replacement, options Options) (proof, error) {
+func proveIdentity(ctx context.Context, files Files, replacement Replacement, options Options) (proof, error) {
 	method := methodFor(replacement, options)
 	readMeter := &meter{ctx: ctx, limiter: options.Limiter}
 	proven := proof{method: method}
@@ -206,7 +205,7 @@ func proveIdentity(ctx context.Context, replacement Replacement, options Options
 	if options.Verify == VerifyHash && method != MethodHash {
 		return finish(ErrHashUnavailable)
 	}
-	if err := checkFingerprints(readMeter, replacement); err != nil {
+	if err := checkFingerprints(readMeter, files, replacement); err != nil {
 		return finish(err)
 	}
 	if method == MethodHash {
@@ -214,7 +213,7 @@ func proveIdentity(ctx context.Context, replacement Replacement, options Options
 		proven.algorithm, proven.hash = hashProof.algorithm, hashProof.hash
 		return finish(err)
 	}
-	equal, err := sameBytes(readMeter, replacement.TorrentPath, replacement.LibraryPath, comparisonRanges(replacement.Size, options.Verify))
+	equal, err := sameBytes(readMeter, files, replacement.TorrentPath, replacement.LibraryPath, comparisonRanges(replacement.Size, options.Verify))
 	if err == nil && !equal {
 		err = fmt.Errorf("%w: %s differs from %s", ErrNotIdentical, replacement.TorrentPath, replacement.LibraryPath)
 	}
@@ -223,12 +222,12 @@ func proveIdentity(ctx context.Context, replacement Replacement, options Options
 
 // checkFingerprints : l'égalité des empreintes début et fin de Plan ne remplace jamais ce contrôle, même si le
 // stockage donne une empreinte de contenu.
-func checkFingerprints(readMeter *meter, replacement Replacement) error {
-	torrentFingerprint, err := fingerprintFile(readMeter, replacement.TorrentPath, replacement.Size)
+func checkFingerprints(readMeter *meter, files Files, replacement Replacement) error {
+	torrentFingerprint, err := fingerprintFile(readMeter, files, replacement.TorrentPath, replacement.Size)
 	if err != nil {
 		return err
 	}
-	libraryFingerprint, err := fingerprintFile(readMeter, replacement.LibraryPath, replacement.Size)
+	libraryFingerprint, err := fingerprintFile(readMeter, files, replacement.LibraryPath, replacement.Size)
 	if err != nil {
 		return err
 	}
@@ -238,8 +237,8 @@ func checkFingerprints(readMeter *meter, replacement Replacement) error {
 	return nil
 }
 
-func statUnchanged(path string, size int64, modTime time.Time) (fs.FileInfo, error) {
-	info, err := os.Lstat(path)
+func statUnchanged(files Files, path string, size int64, modTime time.Time) (fs.FileInfo, error) {
+	info, err := files.Lstat(path)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrChangedSincePlan, err)
 	}
@@ -250,39 +249,52 @@ func statUnchanged(path string, size int64, modTime time.Time) (fs.FileInfo, err
 	return info, nil
 }
 
-// linkTarget renvoie la source à passer au linker et si elle est relative ; un lien relatif impossible est une
-// erreur, jamais un repli silencieux sur un chemin absolu.
-func linkTarget(replacement Replacement, relativeSymlinks bool) (string, bool, error) {
+// linkTarget renvoie la source à passer au linker (chemin du volume) et si elle est relative ; un lien relatif
+// impossible est une erreur, jamais un repli silencieux sur un chemin absolu.
+func linkTarget(files Files, replacement Replacement, relativeSymlinks bool) (string, bool, error) {
 	if replacement.Kind != linker.Symlink {
-		return replacement.LibraryPath, false, nil
+		return VolumePath(replacement.LibraryPath), false, nil
 	}
-	if relativeSymlinks {
-		target, err := linker.RelativeSymlinkTarget(replacement.TorrentPath, replacement.LibraryPath)
-		return target, true, err
-	}
-	target, err := filepath.Abs(replacement.LibraryPath)
-	return target, false, err
+	target, err := files.SymlinkText(replacement.TorrentPath, replacement.LibraryPath, relativeSymlinks)
+	return target, relativeSymlinks, err
 }
 
-func replaceWithLink(replacement Replacement, options Options, root, target string, libraryInfo fs.FileInfo) error {
+// replaceWithLink écrit seulement dans la racine d'écriture du dossier torrent, ouverte par le registre (qui refuse
+// tout recouvrement de la bibliothèque) : lien temporaire, contrôle, puis WriteRoot.Replace atomique.
+func replaceWithLink(ctx context.Context, files Files, replacement Replacement, options Options, root, target string, libraryInfo fs.FileInfo) error {
+	writeRoot, err := files.WriteRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = writeRoot.Close() }()
 	temporaryPath := temporaryPathFor(replacement.TorrentPath, replacement.Size)
+	temporaryRelative, err := Below(root, temporaryPath)
+	if err != nil {
+		return err
+	}
+	torrentRelative, err := Below(root, replacement.TorrentPath)
+	if err != nil {
+		return err
+	}
 	createLink := options.createLink
 	if createLink == nil {
-		createLink = registryLink(options.Registry)
+		createLink = func(kind linker.Kind, source, _, _ string) error {
+			return linker.CreateLinkInRoot(writeRoot, kind, source, temporaryRelative)
+		}
 	}
 	if err := createLink(replacement.Kind, target, temporaryPath, root); err != nil {
 		return err
 	}
-	err := checkTemporaryLink(replacement, temporaryPath, libraryInfo)
+	err = checkTemporaryLink(&meter{ctx: ctx, limiter: options.Limiter}, files, replacement, temporaryPath, libraryInfo)
 	if err == nil {
-		// Relu juste avant le renommage : une écriture pendant la création du lien serait perdue.
-		_, err = statUnchanged(replacement.TorrentPath, replacement.Size, replacement.TorrentModTime)
+		// Relu juste avant le remplacement : une écriture pendant la création du lien serait perdue.
+		_, err = statUnchanged(files, replacement.TorrentPath, replacement.Size, replacement.TorrentModTime)
 	}
 	if err == nil {
-		err = os.Rename(temporaryPath, replacement.TorrentPath)
+		err = writeRoot.Replace(temporaryRelative, torrentRelative)
 	}
 	if err != nil {
-		return errors.Join(err, removeTemporary(temporaryPath))
+		return errors.Join(err, removeTemporary(writeRoot, temporaryRelative))
 	}
 	return nil
 }
@@ -291,25 +303,38 @@ func temporaryPathFor(torrentPath string, size int64) string {
 	return torrentPath + temporaryMarker + strconv.FormatInt(size, 10) + temporarySeparator + rand.Text()
 }
 
-// checkTemporaryLink : un symlink ou un hardlink doit mener au fichier même de la bibliothèque, un reflink à un
-// fichier de même taille.
-func checkTemporaryLink(replacement Replacement, temporaryPath string, libraryInfo fs.FileInfo) error {
-	linkInfo, err := os.Stat(temporaryPath)
+// checkTemporaryLink : un reflink doit être un fichier de même taille ; un symlink ou un hardlink doit mener au
+// fichier même de la bibliothèque, prouvé par l'identité stricte (ReliableID) des deux côtés, ou, faute d'identité
+// connue, par l'empreinte début et fin du fichier de la bibliothèque relue à travers le lien.
+func checkTemporaryLink(readMeter *meter, files Files, replacement Replacement, temporaryPath string, libraryInfo fs.FileInfo) error {
+	linkInfo, err := files.Stat(temporaryPath)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrNotIdentical, err)
 	}
 	if !linkInfo.Mode().IsRegular() || linkInfo.Size() != replacement.Size {
 		return fmt.Errorf("%w: %s", ErrNotIdentical, temporaryPath)
 	}
-	if replacement.Kind != linker.Reflink && !os.SameFile(linkInfo, libraryInfo) {
-		return fmt.Errorf("%w: %s", ErrNotIdentical, temporaryPath)
+	if replacement.Kind == linker.Reflink {
+		return nil
+	}
+	linkIdentity, linkKnown := ReliableID(temporaryPath, linkInfo)
+	libraryIdentity, libraryKnown := ReliableID(replacement.LibraryPath, libraryInfo)
+	if linkKnown && libraryKnown {
+		if linkIdentity != libraryIdentity {
+			return fmt.Errorf("%w: %s", ErrNotIdentical, temporaryPath)
+		}
+		return nil
+	}
+	fingerprint, err := fingerprintFile(readMeter, files, temporaryPath, replacement.Size)
+	if err != nil || fingerprint != replacement.LibraryFingerprint {
+		return errors.Join(fmt.Errorf("%w: %s", ErrNotIdentical, temporaryPath), err)
 	}
 	return nil
 }
 
-// removeTemporary ne retire qu'un nom créé par cet appel : os.Remove ôte le lien, jamais le fichier visé.
-func removeTemporary(temporaryPath string) error {
-	err := os.Remove(temporaryPath)
+// removeTemporary ne retire qu'un nom créé par cet appel : Remove ôte le lien, jamais le fichier visé.
+func removeTemporary(writeRoot fsys.WriteRoot, temporaryRelative string) error {
+	err := writeRoot.Remove(temporaryRelative)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("dedupe: remove temporary link: %w", err)
 	}
@@ -320,6 +345,7 @@ func linkRecord(replacement Replacement, relative bool, proven proof) store.Link
 	now := time.Now().UTC()
 	link := store.Link{
 		Kind:          replacement.Kind.String(),
+		Volume:        volumeOf(replacement.TorrentPath),
 		LinkPath:      replacement.TorrentPath,
 		TargetPath:    replacement.LibraryPath,
 		Relative:      relative,

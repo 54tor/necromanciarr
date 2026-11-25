@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
-	"os"
 )
 
 const (
@@ -99,9 +98,10 @@ func comparisonRanges(size int64, verification Verification) []byteRange {
 	return ranges
 }
 
-// fingerprintFile renvoie le SHA-256 hexadécimal du début et de la fin du fichier (voir headTailRanges).
-func fingerprintFile(readMeter *meter, path string, size int64) (string, error) {
-	file, err := os.Open(path) // #nosec G304 -- fichier de la bibliothèque ou des racines torrent, lu seulement
+// fingerprintFile renvoie le SHA-256 hexadécimal du début et de la fin du fichier (voir headTailRanges), lu par le
+// registre sous le limiteur de readMeter.
+func fingerprintFile(readMeter *meter, files Files, path string, size int64) (string, error) {
+	file, err := files.Open(path)
 	if err != nil {
 		return "", err
 	}
@@ -129,13 +129,13 @@ func fingerprintReader(readMeter *meter, file io.ReaderAt, size int64) (string, 
 }
 
 // sameBytes compare octet par octet les plages données des deux fichiers, sans jamais charger un fichier entier.
-func sameBytes(readMeter *meter, firstPath, secondPath string, ranges []byteRange) (bool, error) {
-	firstFile, err := os.Open(firstPath) // #nosec G304 -- fichier des racines torrent, lu seulement
+func sameBytes(readMeter *meter, files Files, firstPath, secondPath string, ranges []byteRange) (bool, error) {
+	firstFile, err := files.Open(firstPath)
 	if err != nil {
 		return false, err
 	}
 	defer func() { _ = firstFile.Close() }()
-	secondFile, err := os.Open(secondPath) // #nosec G304 -- fichier de la bibliothèque, lu seulement
+	secondFile, err := files.Open(secondPath)
 	if err != nil {
 		return false, err
 	}

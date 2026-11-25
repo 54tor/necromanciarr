@@ -631,7 +631,7 @@ func TestApply_recordsLinkWithInodeSizeAndFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedDevice, expectedInode, identityKnown := fileIdentity(libraryInfo)
+	expectedDevice, expectedInode, identityKnown := FileIdentity(libraryInfo)
 	headTailSum := sha256.Sum256(layout.content)
 
 	if _, err := Apply(context.Background(), []Replacement{replacement}, options); err != nil {
@@ -794,7 +794,7 @@ func newInterruptedLayout(t *testing.T, torrentPresent bool) (operatorLayout, st
 
 func recoverOne(t *testing.T, torrentRoot string) RecoverAction {
 	t.Helper()
-	result, err := Recover(context.Background(), []string{torrentRoot})
+	result, err := Recover(context.Background(), []string{torrentRoot}, fsystest.LocalRegistry(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -864,7 +864,7 @@ func TestRecover_doesNotFollowSymlinkedDirectories(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := Recover(context.Background(), []string{layout.torrentRoot})
+	result, err := Recover(context.Background(), []string{layout.torrentRoot}, fsystest.LocalRegistry(t, t.TempDir()))
 	if err != nil {
 		t.Fatal(err)
 	}

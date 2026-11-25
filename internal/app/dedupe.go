@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/dedupe"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
@@ -59,12 +60,17 @@ const (
 	DedupeReasonKindUnsupported = "link_kind_unsupported"
 	// DedupeReasonProbeFailed : la sonde du dossier torrent a échoué, ou son échec n'a pas de motif plus précis.
 	DedupeReasonProbeFailed = "link_probe_failed"
+	// DedupeReasonNoAtomicReplace : le volume du dossier torrent ne remplace pas un fichier de façon atomique (SFTP
+	// sans posix-rename) ; aucun repli sur un renommage ou une suppression puis création.
+	DedupeReasonNoAtomicReplace = "no_atomic_replace"
 )
 
 // dedupeReasonCode ramène la cause d'un plan sans remplacement à un motif stable : l'ordre est celui de la précision
-// (empreinte, configuration, volume, prise en charge), tout le reste est un échec de sonde.
+// (remplacement atomique, empreinte, configuration, volume, prise en charge), tout le reste est un échec de sonde.
 func dedupeReasonCode(cause error) string {
 	switch {
+	case errors.Is(cause, fsys.ErrNoAtomicReplace):
+		return DedupeReasonNoAtomicReplace
 	case errors.Is(cause, dedupe.ErrHashUnavailable):
 		return DedupeReasonHashUnavailable
 	case errors.Is(cause, linker.ErrNoKind):
@@ -214,7 +220,7 @@ func (svc *service) planDedupe(ctx context.Context) ([]dedupe.Replacement, error
 	if err := checkOutsideLibrary(torrentRoots, settings.LibraryRoots, dedupe.ErrTorrentRootOverlapsLibrary); err != nil {
 		return nil, err
 	}
-	if _, err := dedupe.Recover(ctx, torrentRoots); err != nil {
+	if _, err := dedupe.Recover(ctx, torrentRoots, svc.deps.Stages.Registry); err != nil {
 		return nil, err
 	}
 	library, err := svc.deps.Store.ListMediaFiles(ctx)

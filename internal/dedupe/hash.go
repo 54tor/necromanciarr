@@ -53,8 +53,9 @@ func (options Options) hashAlgorithms() []hashsource.Algorithm {
 
 // decideHash interroge le stockage pour les deux fichiers. Préfère un algorithme fourni des deux côtés ; sinon, un
 // algorithme fourni d'un seul côté (l'autre sera lu une fois en local) ; found est faux si aucun côté n'en fournit.
+// Un chemin distant n'a encore aucune empreinte du stockage (pas de source sftp-exec) : la preuve est une lecture.
 func decideHash(ctx context.Context, backend hashsource.HashSource, algorithms []hashsource.Algorithm, torrentPath, libraryPath string) (decision hashDecision, found bool, err error) {
-	if backend == nil {
+	if backend == nil || IsRemote(torrentPath) || IsRemote(libraryPath) {
 		return hashDecision{}, false, nil
 	}
 	var oneSided hashDecision

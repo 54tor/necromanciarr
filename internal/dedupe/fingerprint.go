@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"time"
 
+	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/store"
 )
 
@@ -16,13 +17,15 @@ const TemporaryMarker = temporaryMarker
 // ErrNoCachedFingerprint est renvoyée par HeadTailFingerprint quand le cache n'a rien et que la lecture est refusée.
 var ErrNoCachedFingerprint = errors.New("dedupe: no cached fingerprint and reading not allowed")
 
-// FileIdentity renvoie périphérique et inode d'un fichier ; known est faux si le système ne les fournit pas.
+// FileIdentity renvoie périphérique et inode d'un fichier du disque local ; known est faux si le système ne les
+// fournit pas.
 func FileIdentity(info fs.FileInfo) (device, inode uint64, known bool) {
-	return fileIdentity(info)
+	identity, known := local.New().FileID(info)
+	return identity.Device, identity.Inode, known
 }
 
-// HeadTailFingerprint renvoie l'empreinte début et fin du fichier : depuis cache s'il la connaît pour cette taille et
-// cette date, sinon en la lisant (débit plafonné par limiter) puis en l'y enregistrant. Si allowRead est faux et que le
+// HeadTailFingerprint renvoie l'empreinte début et fin du fichier local path : depuis cache s'il la connaît pour cette
+// taille et cette date, sinon en la lisant (débit plafonné par limiter) puis en l'y enregistrant. Si allowRead est faux et que le
 // cache n'a rien, rien n'est lu et l'erreur est ErrNoCachedFingerprint. cache et limiter peuvent être nil ; fromCache
 // dit qu'aucun octet n'a été lu.
 func HeadTailFingerprint(ctx context.Context, cache FingerprintCache, limiter Limiter, path string, size int64, modTime time.Time, allowRead bool) (fingerprint string, fromCache bool, err error) {
@@ -35,7 +38,7 @@ func HeadTailFingerprint(ctx context.Context, cache FingerprintCache, limiter Li
 	if !allowRead {
 		return "", false, ErrNoCachedFingerprint
 	}
-	fingerprint, err = fingerprintFile(&meter{ctx: ctx, limiter: limiter}, path, size)
+	fingerprint, err = fingerprintFile(&meter{ctx: ctx, limiter: limiter}, NewFiles(nil), path, size)
 	return recordedFingerprint(ctx, cache, path, size, modTime, fingerprint, err)
 }
 
