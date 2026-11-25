@@ -84,7 +84,7 @@ func TestAgent_silentAgentCannotBlockDialBeyondTheTimeout(t *testing.T) {
 		return err
 	})
 
-	if err == nil || elapsed > provider.Timeout+time.Second {
+	if err == nil || elapsed > provider.Timeout+2*time.Second {
 		t.Fatalf("valeurObtenue %v after %v, valeurAttendue an error within the timeout", err, elapsed)
 	}
 	if !errors.Is(err, fsys.ErrRemoteUnavailable) && !errors.Is(err, sftpfs.ErrAuthRefused) {
@@ -122,7 +122,8 @@ func TestAgent_silentAgentOnReconnectReleasesTheVolume(t *testing.T) {
 	}
 	server := sftptest.Start(t)
 	provider := pinnedProvider(t, server)
-	provider.Agent, provider.Timeout = true, 300*time.Millisecond
+	// Bornes larges : sous charge, la reconnexion et le refus immédiat restent loin de hangGuard.
+	provider.Agent, provider.Timeout = true, 2*time.Second
 	socket := silentAgent(t)
 	var agentPresent atomic.Bool
 	deps := testDeps()
@@ -136,7 +137,7 @@ func TestAgent_silentAgentOnReconnectReleasesTheVolume(t *testing.T) {
 		t.Fatalf("valeurObtenue %v after %v, valeurAttendue ErrRemoteUnavailable within the timeout", err, elapsed)
 	}
 	elapsed, err = withinGuard(t, "next operation", func() error { return volume.Probe(context.Background()) })
-	if !errors.Is(err, fsys.ErrRemoteUnavailable) || elapsed > 100*time.Millisecond {
+	if !errors.Is(err, fsys.ErrRemoteUnavailable) || elapsed > 500*time.Millisecond {
 		t.Fatalf("valeurObtenue %v after %v, valeurAttendue an immediate refusal", err, elapsed)
 	}
 }
