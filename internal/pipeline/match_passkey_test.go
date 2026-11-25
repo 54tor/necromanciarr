@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"necromanciarr/internal/store"
@@ -72,5 +73,25 @@ func TestMatch_indexerTorrentNamedAfterThePasskeyIsRefused(t *testing.T) {
 
 	if result.Reasons[ReasonInvalidTorrent] == 0 || len(testCase.candidates()) != 0 {
 		t.Fatalf("valeurObtenue %+v candidates %d, valeurAttendue invalid_torrent and nothing stored", result, len(testCase.candidates()))
+	}
+}
+
+func TestMatch_indexerTitleCutInsideThePasskeyLeavesNoPrefixInTheDatabase(t *testing.T) {
+	testCase := newIndexerMatchCase(t)
+	directory := storeInDir(t, testCase)
+	size := 4 * gibibyte
+	testCase.addMovie("/srv/media/missing.mkv", size, 604, "Missing")
+	indexer := testCase.addIndexer(indexerSameTracker, sealedTracker)
+	indexer.offer("win", size, indexerTorrent(t, "Movie.Root", size))
+	indexer.results.Items[0].Title = strings.Repeat("x", 244) + " " + fallbackPasskey
+
+	testCase.run()
+
+	candidates := testCase.candidates()
+	if len(candidates) != 1 || candidates[0].Name != "Movie.Root" {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue one candidate named after the torrent", candidates)
+	}
+	if containing := filesContaining(t, directory, []byte(fallbackPasskey[:8])); len(containing) != 0 {
+		t.Fatalf("valeurObtenue passkey prefix in %v, valeurAttendue no database file carrying it", containing)
 	}
 }

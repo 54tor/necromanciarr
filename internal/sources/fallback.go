@@ -226,17 +226,21 @@ func stopsTheIndexer(err error) bool {
 
 // fallbackQueryText retire les caractères de contrôle du nom de la release et le borne à maxFallbackQueryRunes.
 func fallbackQueryText(name string) string {
-	cleaned := strings.Map(func(character rune) rune {
-		if unicode.IsControl(character) {
-			return -1
-		}
-		return character
-	}, name)
-	runes := []rune(strings.TrimSpace(cleaned))
+	runes := []rune(withoutControlCharacters(name))
 	if len(runes) > maxFallbackQueryRunes {
 		runes = runes[:maxFallbackQueryRunes]
 	}
 	return strings.TrimSpace(string(runes))
+}
+
+// withoutControlCharacters rend le nom sans caractères de contrôle ni espaces de bord, sans le borner.
+func withoutControlCharacters(name string) string {
+	return strings.TrimSpace(strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) {
+			return -1
+		}
+		return character
+	}, name))
 }
 
 // fallbackEligible dit si le candidat peut être cherché chez les indexeurs : infohash et tracker acceptables pour

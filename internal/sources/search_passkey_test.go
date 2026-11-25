@@ -110,3 +110,46 @@ func TestSearch_shortAnnounceValueIsNeitherMaskedNorRefused(t *testing.T) {
 		t.Fatalf("valeurObtenue names %q err %v, valeurAttendue the item kept under its title %q", valeurObtenue, err, title)
 	}
 }
+
+// titleCutAt fait tenir la coupe de maxFallbackQueryRunes juste après le texte voulu : padding de « x », espace, puis
+// head (gardé en entier) suivi de tail (coupé).
+func titleCutAt(head, tail string) string {
+	return strings.Repeat("x", maxFallbackQueryRunes-1-len(head)) + " " + head + tail
+}
+
+func TestSearch_titleCarryingThePasskeyAcrossTheCutIsReplacedByTheTorrentName(t *testing.T) {
+	cases := []struct{ name, title string }{
+		{"eleven bytes kept", titleCutAt(fakePasskey[:11], fakePasskey[11:])},
+		{"six bytes kept", titleCutAt(fakePasskey[:6], fakePasskey[6:])},
+		{"passkey fully before the cut", titleCutAt(fakePasskey, strings.Repeat("y", 40))},
+		{"prefix kept, passkey never whole", titleCutAt(fakePasskey[:11], "yyyyyyyy")},
+		{"percent-encoded prefix kept", titleCutAt(percentEncodeAll(fakePasskey[:8]), percentEncodeAll(fakePasskey[8:]))},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			found, err := searchOneItem(t, testCase.title, announcedTorrent(t, passkeyAnnounce(fakePasskey), "Movie.Title.mkv", "", 5))
+
+			valeurAttendue := "Movie.Title.mkv"
+			if valeurObtenue := foundNames(found); err != nil || len(valeurObtenue) != 1 || valeurObtenue[0] != valeurAttendue {
+				t.Fatalf("valeurObtenue names %q err %v, valeurAttendue one candidate named %q", valeurObtenue, err, valeurAttendue)
+			}
+		})
+	}
+}
+
+func TestSearch_longTitleWithoutPasskeyIsTruncatedAndKept(t *testing.T) {
+	cases := []struct{ name, announced, title string }{
+		{"no announce value in the title", fakePasskey, strings.Repeat("r", 300)},
+		{"short announce value across the cut", shortPasskey, titleCutAt(shortPasskey[:5], shortPasskey[5:])},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			found, err := searchOneItem(t, testCase.title, announcedTorrent(t, passkeyAnnounce(testCase.announced), "Movie.Title.mkv", "", 5))
+
+			valeurAttendue := string([]rune(testCase.title)[:maxFallbackQueryRunes])
+			if valeurObtenue := foundNames(found); err != nil || len(valeurObtenue) != 1 || valeurObtenue[0] != valeurAttendue {
+				t.Fatalf("valeurObtenue names %q err %v, valeurAttendue the title cut at %d runes", valeurObtenue, err, maxFallbackQueryRunes)
+			}
+		})
+	}
+}
