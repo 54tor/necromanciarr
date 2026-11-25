@@ -273,8 +273,14 @@ func TestRecorder_isSafeForConcurrentCalls(t *testing.T) {
 	}
 }
 
-// fsystestImportPath est le chemin d'import de ce paquet, réservé aux tests.
-const fsystestImportPath = "necromanciarr/internal/fsys/fsystest"
+// fsystestImportPath et sftptestImportPath sont les paquets d'outillage réservés aux tests.
+const (
+	fsystestImportPath = "necromanciarr/internal/fsys/fsystest"
+	sftptestImportPath = "necromanciarr/internal/fsys/sftpfs/sftptest"
+)
+
+// testOnlyPackages nomme les dossiers de ces paquets, seuls autorisés à s'importer entre eux hors des tests.
+var testOnlyPackages = []string{"fsystest", "sftptest"}
 
 func TestFsystest_isImportedOnlyByTests(t *testing.T) {
 	repositoryRoot := filepath.Join("..", "..", "..")
@@ -284,11 +290,11 @@ func TestFsystest_isImportedOnlyByTests(t *testing.T) {
 	}
 
 	if len(offenders) != 0 {
-		t.Fatalf("expectedValue fsystest imported by test files only, gotValue %v", offenders)
+		t.Fatalf("expectedValue fsystest and sftptest imported by test files only, gotValue %v", offenders)
 	}
 }
 
-// productionImporters liste les fichiers non test qui importent fsystest, hors de fsystest lui-même.
+// productionImporters liste les fichiers non test qui importent fsystest ou sftptest, hors de ces paquets.
 func productionImporters(t *testing.T, directory string) []string {
 	t.Helper()
 	var offenders []string
@@ -297,7 +303,7 @@ func productionImporters(t *testing.T, directory string) []string {
 			return err
 		}
 		isProductionGo := !entry.IsDir() && strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go")
-		if !isProductionGo || filepath.Base(filepath.Dir(path)) == "fsystest" {
+		if !isProductionGo || slices.Contains(testOnlyPackages, filepath.Base(filepath.Dir(path))) {
 			return nil
 		}
 		if importsFsystest(t, path) {
@@ -319,7 +325,7 @@ func importsFsystest(t *testing.T, path string) bool {
 	}
 	return slices.ContainsFunc(parsed.Imports, func(spec *ast.ImportSpec) bool {
 		importPath, _ := strconv.Unquote(spec.Path.Value)
-		return importPath == fsystestImportPath
+		return importPath == fsystestImportPath || importPath == sftptestImportPath
 	})
 }
 
@@ -332,5 +338,17 @@ func TestImportsFsystest_flagsAProductionImport(t *testing.T) {
 
 	if !importsFsystest(t, path) {
 		t.Fatal("expectedValue a production import of fsystest flagged, gotValue none")
+	}
+}
+
+func TestImportsFsystest_flagsAProductionImportOfSftptest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "leak.go")
+	source := "package leak\n\nimport _ \"" + sftptestImportPath + "\"\n"
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if !importsFsystest(t, path) {
+		t.Fatal("expectedValue a production import of sftptest flagged, gotValue none")
 	}
 }

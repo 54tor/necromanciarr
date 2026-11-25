@@ -49,9 +49,9 @@ linters:
           msg: remote commands run only from internal/fsys/sftpfs/exec.go
   exclusions:
     rules:
-      # Le volume local et l'outillage de test des volumes implémentent les écritures ; la base SQLite écrit son
-      # propre fichier.
-      - path: '^internal/(fsys/(local|fsystest)|store)/'
+      # Le volume local et l'outillage de test des volumes (fsystest, serveur SFTP de test) implémentent les écritures ;
+      # la base SQLite écrit son propre fichier.
+      - path: '^internal/(fsys/(local|fsystest|sftpfs/sftptest)|store)/'
         linters: [forbidigo]
         text: write to disk only through
       # Tests qui posent leurs fixtures sur le disque, paquet par paquet (liste explicite, jamais internal/**).
