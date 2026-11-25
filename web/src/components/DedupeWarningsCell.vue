@@ -10,7 +10,7 @@ const EMPTY_CELL = '—'
     <summary
       class="cursor-pointer rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
     >
-      {{ t('dedupe.warningsCount', { count: texts.length }) }}
+      {{ t('dedupe.warningsCount', { count: texts.length }, texts.length) }}
     </summary>
     <ul class="list-disc pl-4 [overflow-wrap:anywhere]">
       <li v-for="(text, position) in texts" :key="position">{{ text }}</li>

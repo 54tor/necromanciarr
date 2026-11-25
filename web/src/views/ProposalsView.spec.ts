@@ -188,7 +188,7 @@ describe('ProposalsView', () => {
         '/api/proposals/1/reject',
         '/api/proposals/2/reject',
       ])
-      expect(toastSuccess).toHaveBeenCalledWith('2 proposition(s) rejetée(s).')
+      expect(toastSuccess).toHaveBeenCalledWith('2 propositions rejetées.')
     })
 
     it('sends nothing when the reject dialog is cancelled', async () => {
@@ -236,7 +236,7 @@ describe('ProposalsView', () => {
         '/api/proposals/2/reject',
       ])
       expect(toastError).toHaveBeenCalledTimes(1)
-      expect(toastSuccess).toHaveBeenCalledWith('1 proposition(s) rejetée(s).')
+      expect(toastSuccess).toHaveBeenCalledWith('1 proposition rejetée.')
     })
 
     it('clears the selection once the rejections are sent', async () => {
@@ -323,7 +323,7 @@ describe('ProposalsView', () => {
         expect(posts(calls).map((call) => [call.path, call.body])).toEqual([
           ['/api/groups/5/accept', {}],
         ])
-        expect(toastSuccess).toHaveBeenCalledWith('2 proposition(s) acceptée(s).')
+        expect(toastSuccess).toHaveBeenCalledWith('2 propositions acceptées.')
       })
 
       it('does not enable accept-group on a failed primary', async () => {

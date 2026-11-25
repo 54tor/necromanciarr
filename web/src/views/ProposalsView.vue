@@ -288,7 +288,7 @@ async function rejectTargetsOneByOne(): Promise<void> {
     if ((await call(() => api.reject(target.id))) !== undefined) rejectedCount += 1
   }
   if (rejectedCount > 0)
-    toast.success(t('proposals.toasts.rejectedCount', { count: rejectedCount }))
+    toast.success(t('proposals.toasts.rejectedCount', { count: rejectedCount }, rejectedCount))
   selectedKeys.value = []
   tableVersion.value += 1
   await load()
@@ -345,7 +345,9 @@ async function acceptGroup(): Promise<void> {
   if (!target) return
   const result = await call(() => api.acceptGroup(target.group_id))
   if (result !== undefined)
-    toast.success(t('proposals.toasts.groupCount', { count: result.accepted.length }))
+    toast.success(
+      t('proposals.toasts.groupCount', { count: result.accepted.length }, result.accepted.length),
+    )
   await load()
 }
 

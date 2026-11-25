@@ -436,11 +436,11 @@
     "toasts": {
       "accepted": "Proposition acceptée.",
       "rejected": "Proposition rejetée.",
-      "rejectedCount": "{count} proposition(s) rejetée(s).",
+      "rejectedCount": "{count} proposition rejetée. | {count} propositions rejetées.",
       "chosen": "Candidat choisi.",
       "forced": "Démarrage forcé.",
       "partial": "Pack partiel accepté.",
-      "groupCount": "{count} proposition(s) acceptée(s)."
+      "groupCount": "{count} proposition acceptée. | {count} propositions acceptées."
     },
     "rejectItem": "{name} ({kind})"
   },
@@ -465,10 +465,10 @@
     "applicable": {
       "yes": "Applicable",
       "no": "Non applicable",
-      "ambiguous": "Ambigu : {count} fichier(s)",
+      "ambiguous": "Ambigu : {count} fichier | Ambigu : {count} fichiers",
       "ambiguousFiles": "Fichiers ambigus"
     },
-    "warningsCount": "{count} avertissement(s)",
+    "warningsCount": "{count} avertissement | {count} avertissements",
     "actions": {
       "simulate": "Simuler",
       "apply": "Appliquer",
@@ -486,7 +486,7 @@
       "item": "{file} → {target}",
       "noTarget": "aucune cible",
       "phrase": "APPLIQUER",
-      "bulkTitle": "Appliquer {count} remplacement(s) accepté(s) ?",
+      "bulkTitle": "Appliquer {count} remplacement accepté ? | Appliquer {count} remplacements acceptés ?",
       "rowTitle": "Appliquer ce remplacement ?",
       "descriptionDry": "Simulation : tous les contrôles tournent, aucun fichier n'est modifié.",
       "descriptionReal": "Chaque fichier côté torrent listé est remplacé par un lien vers le fichier identique de la bibliothèque ; la bibliothèque n'est jamais écrite.",
@@ -554,7 +554,7 @@
       "applicable": {
         "yes": "Applicable",
         "no": "Non applicable",
-        "ambiguous": "Ambigu : {count} candidat(s)",
+        "ambiguous": "Ambigu : {count} candidat | Ambigu : {count} candidats",
         "candidates": "Cibles possibles",
         "needsClientRecheck": "Non applicable sans client torrent : la méthode attend son recontrôle"
       },

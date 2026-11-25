@@ -32,7 +32,9 @@ const explanation = computed(() => {
       <summary
         class="cursor-pointer rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
-        {{ t('links.repairs.applicable.ambiguous', { count: candidates.length }) }}
+        {{
+          t('links.repairs.applicable.ambiguous', { count: candidates.length }, candidates.length)
+        }}
       </summary>
       <ul
         :aria-label="t('links.repairs.applicable.candidates')"

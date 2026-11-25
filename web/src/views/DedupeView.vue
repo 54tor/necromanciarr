@@ -161,7 +161,11 @@ const confirmSummaryKey = computed(() => {
 })
 const confirmTitle = computed(() =>
   request.value?.chain
-    ? t('dedupe.confirm.bulkTitle', { count: request.value.items.length })
+    ? t(
+        'dedupe.confirm.bulkTitle',
+        { count: request.value.items.length },
+        request.value.items.length,
+      )
     : t('dedupe.confirm.rowTitle'),
 )
 const confirmItems = computed(() =>

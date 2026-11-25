@@ -183,7 +183,7 @@ describe('DedupeView', () => {
       expect(rowApply(wrapper, 21).attributes('disabled')).toBeUndefined()
       expect(ambiguousText).toContain('Non applicable')
       expect(ambiguousText).toContain('Plusieurs fichiers possibles')
-      expect(ambiguousText).toContain('2 fichier(s)')
+      expect(ambiguousText).toContain('2 fichiers')
       expect(isolatedText).toContain('Copie isolée : jamais reliée à la bibliothèque')
     })
 
@@ -241,7 +241,7 @@ describe('DedupeView', () => {
       expect(gotText).toContain('inode non fiable')
       expect(gotText).toContain('aucun recontrôle du client')
       expect(gotText).not.toContain('warning.dedupe')
-      expect(gotText).toContain('2 avertissement(s)')
+      expect(gotText).toContain('2 avertissements')
     })
 
     it('follows the interface language for a known key', async () => {
@@ -488,7 +488,7 @@ describe('DedupeView', () => {
       await confirmDialog()
 
       expect(posts(calls)).toHaveLength(0)
-      expect(dialogText()).toContain('2 remplacement(s)')
+      expect(dialogText()).toContain('2 remplacements')
       expect(dialogButton('confirm-dialog-confirm')?.disabled).toBe(true)
     })
 

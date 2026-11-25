@@ -436,11 +436,11 @@
     "toasts": {
       "accepted": "Proposal accepted.",
       "rejected": "Proposal rejected.",
-      "rejectedCount": "{count} proposal(s) rejected.",
+      "rejectedCount": "{count} proposal rejected. | {count} proposals rejected.",
       "chosen": "Candidate chosen.",
       "forced": "Start forced.",
       "partial": "Partial pack accepted.",
-      "groupCount": "{count} proposal(s) accepted."
+      "groupCount": "{count} proposal accepted. | {count} proposals accepted."
     },
     "rejectItem": "{name} ({kind})"
   },
@@ -465,10 +465,10 @@
     "applicable": {
       "yes": "Applicable",
       "no": "Not applicable",
-      "ambiguous": "Ambiguous: {count} file(s)",
+      "ambiguous": "Ambiguous: {count} file | Ambiguous: {count} files",
       "ambiguousFiles": "Ambiguous files"
     },
-    "warningsCount": "{count} warning(s)",
+    "warningsCount": "{count} warning | {count} warnings",
     "actions": {
       "simulate": "Simulate",
       "apply": "Apply",
@@ -486,7 +486,7 @@
       "item": "{file} → {target}",
       "noTarget": "no target",
       "phrase": "APPLY",
-      "bulkTitle": "Apply {count} accepted replacement(s)?",
+      "bulkTitle": "Apply {count} accepted replacement? | Apply {count} accepted replacements?",
       "rowTitle": "Apply this replacement?",
       "descriptionDry": "Dry run: every check runs, no file is modified.",
       "descriptionReal": "Each listed torrent-side file is replaced by a link to the identical library file; the library is never written.",
@@ -554,7 +554,7 @@
       "applicable": {
         "yes": "Applicable",
         "no": "Not applicable",
-        "ambiguous": "Ambiguous: {count} candidate(s)",
+        "ambiguous": "Ambiguous: {count} candidate | Ambiguous: {count} candidates",
         "candidates": "Possible targets",
         "needsClientRecheck": "Not applicable without a torrent client: the method waits for its recheck"
       },

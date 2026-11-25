@@ -23,7 +23,9 @@ const reasonLabel = computed(() => props.details.label ?? props.details.reason)
       <summary
         class="cursor-pointer rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
-        {{ t('dedupe.applicable.ambiguous', { count: ambiguousFiles.length }) }}
+        {{
+          t('dedupe.applicable.ambiguous', { count: ambiguousFiles.length }, ambiguousFiles.length)
+        }}
       </summary>
       <ul
         :aria-label="t('dedupe.applicable.ambiguousFiles')"
