@@ -108,3 +108,45 @@ func TestConfig_pathsOverlapComparesPerVolume(t *testing.T) {
 		}
 	}
 }
+
+func TestConfig_pathMappingFromOnUnknownSFTPProviderIsUsageError(t *testing.T) {
+	err := loadWithRoots(t, `{"pathMappings": [{"from": "sftp://seedbox/srv/links", "to": "/downloads/links"}]}`)
+
+	if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), `"seedbox"`) || !strings.Contains(err.Error(), "pathMappings[0].from") {
+		t.Fatalf("valeurObtenue %v, valeurAttendue a usage error naming pathMappings[0].from and the provider", err)
+	}
+}
+
+func TestConfig_pathMappingAcceptsAnSFTPFromOnADeclaredProvider(t *testing.T) {
+	settings := Config{
+		PathRules:   []PathRule{{From: "sftp://seedbox/srv/links", To: "/downloads/links"}, {From: "/srv/media", To: "/media"}},
+		FSProviders: []FSProvider{{Type: "sftp", Name: "seedbox"}},
+	}
+
+	if err := validateLocations(settings, []string{"sftp"}); err != nil {
+		t.Fatalf("valeurObtenue %v, valeurAttendue no error", err)
+	}
+}
+
+func TestConfig_pathMappingRefusesMalformedSFTPFromAndSFTPTo(t *testing.T) {
+	providers := []FSProvider{{Type: "sftp", Name: "seedbox"}}
+	cases := map[string]struct {
+		rule        PathRule
+		expectedKey string
+	}{
+		"traversal in from":    {PathRule{From: "sftp://seedbox/srv/../links", To: "/downloads"}, "pathMappings[0].from"},
+		"single slash in from": {PathRule{From: "sftp:/seedbox/srv/links", To: "/downloads"}, "pathMappings[0].from"},
+		"sftp in to":           {PathRule{From: "/srv/links", To: "sftp://seedbox/srv/links"}, "pathMappings[0].to"},
+	}
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			settings := Config{PathRules: []PathRule{testCase.rule}, FSProviders: providers}
+
+			err := validateLocations(settings, []string{"sftp"})
+
+			if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), testCase.expectedKey) {
+				t.Fatalf("valeurObtenue %v, valeurAttendue a usage error naming %s", err, testCase.expectedKey)
+			}
+		})
+	}
+}
