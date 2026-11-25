@@ -55,7 +55,8 @@ func (server *Server) serveSession(channel ssh.Channel, requests <-chan *ssh.Req
 func (server *Server) serveSFTP(channel ssh.Channel, ended <-chan struct{}) {
 	handler := &fileHandler{server: server, ended: ended}
 	handlers := sftp.Handlers{FileGet: handler, FilePut: handler, FileCmd: handler, FileList: handler}
-	requestServer := sftp.NewRequestServer(&extensionFilter{Channel: channel, hidden: server.settings.hiddenExtensions}, handlers)
+	filter := &extensionFilter{Channel: channel, hidden: server.settings.hiddenExtensions, server: server}
+	requestServer := sftp.NewRequestServer(filter, handlers)
 	_ = requestServer.Serve()
 	_ = requestServer.Close()
 }
@@ -81,11 +82,61 @@ func exitStatus(exit int) uint32 {
 }
 
 // extensionFilter retire les extensions masquées du paquet VERSION, le premier écrit par le serveur : pkg/sftp
-// n'offre qu'un réglage global (SetSFTPExtensions), qui changerait tous les serveurs d'un même test.
+// n'offre qu'un réglage global (SetSFTPExtensions), qui changerait tous les serveurs d'un même test. Il lit aussi
+// chaque paquet reçu pour journaliser les requêtes étendues que pkg/sftp refuserait sans appeler le gestionnaire.
 type extensionFilter struct {
 	ssh.Channel
 	hidden      map[string]bool
 	versionSent bool
+	server      *Server
+	// inbound garde le début d'un paquet reçu pas encore complet ; inspectionStopped : un paquet démesuré a fait perdre
+	// le fil des paquets, plus rien n'est inspecté sur ce canal.
+	inbound           []byte
+	inspectionStopped bool
+}
+
+// ExtendedMethodPrefix préfixe Request.Method d'une requête étendue (SSH_FXP_EXTENDED) que pkg/sftp ne sert pas
+// (« Extended:fsync@openssh.com ») ; ces méthodes ne sont pas dans Methods, un classement doit les refuser.
+const ExtendedMethodPrefix = "Extended:"
+
+const (
+	// sftpExtendedPacket est le type SSH_FXP_EXTENDED ; sa charge commence par l'identifiant (4 octets) et le nom.
+	sftpExtendedPacket = 200
+	// maxInspectedPacket borne un paquet attendu en entier ; au-delà, l'inspection s'arrête (pkg/sftp le refuse).
+	maxInspectedPacket = 1 << 20
+)
+
+// servedExtendedRequests sont servies par pkg/sftp et enregistrées sous leur méthode (PosixRename, StatVFS, Link).
+var servedExtendedRequests = map[string]bool{extensionPosixRename: true, extensionStatVFS: true, extensionHardlink: true}
+
+func (filter *extensionFilter) Read(buffer []byte) (int, error) {
+	readCount, err := filter.Channel.Read(buffer)
+	if !filter.inspectionStopped && readCount > 0 {
+		filter.inbound = append(filter.inbound, buffer[:readCount]...)
+		filter.recordUnknownExtended()
+	}
+	return readCount, err
+}
+
+// recordUnknownExtended journalise chaque requête étendue complète dont pkg/sftp n'a pas de méthode.
+func (filter *extensionFilter) recordUnknownExtended() {
+	for len(filter.inbound) >= 4 {
+		packetLength := int64(binary.BigEndian.Uint32(filter.inbound))
+		if packetLength > maxInspectedPacket {
+			filter.inbound, filter.inspectionStopped = nil, true
+			return
+		}
+		if int64(len(filter.inbound)-4) < packetLength {
+			return
+		}
+		packet := filter.inbound[4 : 4+packetLength]
+		if len(packet) > 5 && packet[0] == sftpExtendedPacket {
+			if _, name, _, ok := cutSSHString(packet[5:]); ok && !servedExtendedRequests[string(name)] {
+				filter.server.record(Request{Method: ExtendedMethodPrefix + string(name)})
+			}
+		}
+		filter.inbound = append([]byte(nil), filter.inbound[4+packetLength:]...)
+	}
 }
 
 func (filter *extensionFilter) Write(packet []byte) (int, error) {

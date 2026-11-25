@@ -2,7 +2,9 @@ package sftptest_test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -582,5 +584,57 @@ func TestServer_symlinksNeverLeaveRoot(t *testing.T) {
 		if content, err := readRemote(client, linkPath); err != nil || content != "inside" {
 			t.Fatalf("%s: valeurObtenue %q (err %v), valeurAttendue the same path under the virtual root", linkPath, content, err)
 		}
+	}
+}
+
+// sftpPacket encode un paquet SFTP : longueur, type, puis la charge.
+func sftpPacket(packetType byte, payload []byte) []byte {
+	packet := binary.BigEndian.AppendUint32(nil, uint32(len(payload)+1))
+	return append(append(packet, packetType), payload...)
+}
+
+func sshString(value string) []byte {
+	return append(binary.BigEndian.AppendUint32(nil, uint32(len(value))), value...)
+}
+
+// pkg/sftp refuse lui-même une requête étendue qu'il ne connaît pas, sans passer par le gestionnaire : le serveur doit
+// tout de même la journaliser, sous Extended:<nom>.
+func TestServer_recordsAnUnknownExtendedRequest(t *testing.T) {
+	server := sftptest.Start(t)
+	session, err := connectSSH(t, server).NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Close() })
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.RequestSubsystem("sftp"); err != nil {
+		t.Fatal(err)
+	}
+	extended := slices.Concat(binary.BigEndian.AppendUint32(nil, 1), sshString("fsync@openssh.com"), sshString("handle"))
+	for _, packet := range [][]byte{sftpPacket(1, binary.BigEndian.AppendUint32(nil, 3)), sftpPacket(200, extended)} {
+		if _, err := stdin.Write(packet); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reply := make([]byte, 4)
+	for _, expected := range []string{"version", "status"} {
+		if _, err := io.ReadFull(stdout, reply); err != nil {
+			t.Fatalf("%s: %v", expected, err)
+		}
+		if _, err := io.CopyN(io.Discard, stdout, int64(binary.BigEndian.Uint32(reply))); err != nil {
+			t.Fatalf("%s: %v", expected, err)
+		}
+	}
+
+	valeurAttendue := sftptest.Request{Method: sftptest.ExtendedMethodPrefix + "fsync@openssh.com"}
+	if valeurObtenue := server.Requests(); !slices.Contains(valeurObtenue, valeurAttendue) {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue %+v recorded", valeurObtenue, valeurAttendue)
 	}
 }
