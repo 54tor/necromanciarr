@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"necromanciarr/internal/fsys/sftpfs"
+	"necromanciarr/internal/fsys/sftpfs/sftptest"
 	"necromanciarr/internal/fsys/sftpfs/shellquote"
 )
 
@@ -77,8 +78,14 @@ func TestGuardScript_allowsExactlyTheTableLines(t *testing.T) {
 // runGuard lance le script sous /bin/sh avec la ligne demandée ; rend sortie standard et code de sortie.
 func runGuard(t *testing.T, scriptPath, requested string) ([]byte, int) {
 	t.Helper()
+	return runGuardWithPath(t, scriptPath, requested, "/usr/bin:/bin")
+}
+
+// runGuardWithPath est runGuard avec un PATH donné (programmes factices en tête).
+func runGuardWithPath(t *testing.T, scriptPath, requested, searchPath string) ([]byte, int) {
+	t.Helper()
 	command := exec.Command("/bin/sh", scriptPath) // #nosec G204 -- script du dépôt, ligne constante du test
-	command.Env = []string{"SSH_ORIGINAL_COMMAND=" + requested, "PATH=/usr/bin:/bin"}
+	command.Env = []string{"SSH_ORIGINAL_COMMAND=" + requested, "PATH=" + searchPath}
 	var stdout bytes.Buffer
 	command.Stdout, command.Stdin = &stdout, strings.NewReader("")
 	err := command.Run()
@@ -111,6 +118,51 @@ func TestGuardScript_runsTheShellProbeAndRefusesAnyOtherLine(t *testing.T) {
 		output, exitCode := runGuard(t, scriptPath, scratch)
 		if exitCode != guardRefusedExit || len(output) != 0 {
 			t.Errorf("%q : valeurObtenue %q (code %d), valeurAttendue refus %d sans sortie", scratch, output, exitCode, guardRefusedExit)
+		}
+	}
+}
+
+// guardStubPrograms : programmes des lignes de la table, remplacés par des scripts qui écrivent leur nom ; aucun vrai
+// programme distant n'est lancé, et chaque ligne autorisée doit atteindre le sien.
+var guardStubPrograms = []string{"stat", "xargs", "sha1sum", "md5sum", "nice", "ionice"}
+
+func stubProgramsDir(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	for _, program := range guardStubPrograms {
+		sftptest.WriteFile(t, filepath.Join(directory, program), []byte("#!/bin/sh\nprintf 'ran:%s' \"$(basename \"$0\")\"\n"), 0o755)
+	}
+	return directory
+}
+
+func TestGuardScript_dispatchesEveryTableLineAndRefusesItsMutations(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("script POSIX : pas de /bin/sh sous Windows")
+	}
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("/bin/sh absent")
+	}
+	scriptPath, _ := readGuardScript(t)
+	searchPath := stubProgramsDir(t) + ":/usr/bin:/bin"
+
+	for _, line := range sftpfs.GuardLines() {
+		output, exitCode := runGuardWithPath(t, scriptPath, line, searchPath)
+		expectedOutput := shellquote.ShellSemanticsExpected
+		if line != shellquote.ShellSemanticsProbe {
+			firstProgram := strings.Trim(strings.Fields(line)[0], "'")
+			expectedOutput = "ran:" + firstProgram
+		}
+		if exitCode != 0 || string(output) != expectedOutput {
+			t.Errorf("%q : valeurObtenue %q (code %d), valeurAttendue %q (code 0)", line, output, exitCode, expectedOutput)
+		}
+		for _, mutated := range []string{line + " ", strings.Replace(line, "'", "\"", 1), strings.ReplaceAll(line, "\t", " ")} {
+			if mutated == line {
+				continue
+			}
+			mutatedOutput, mutatedExit := runGuardWithPath(t, scriptPath, mutated, searchPath)
+			if mutatedExit != guardRefusedExit || len(mutatedOutput) != 0 {
+				t.Errorf("%q : valeurObtenue %q (code %d), valeurAttendue refus %d", mutated, mutatedOutput, mutatedExit, guardRefusedExit)
+			}
 		}
 	}
 }
