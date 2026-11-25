@@ -78,6 +78,8 @@ func (current *session) close() {
 type Volume struct {
 	provider config.FSProvider
 	deps     Deps
+	// providerLimiter plafonne les lectures de ce fournisseur (readBytesPerSecond) ; nil : seul deps.Limiter.
+	providerLimiter fsys.Limiter
 
 	// redial sérialise les reconnexions ; mutex protège les champs qui suivent.
 	redial        sync.Mutex
@@ -97,7 +99,10 @@ func Dial(ctx context.Context, provider config.FSProvider, deps Deps) (*Volume, 
 	if err != nil {
 		return nil, err
 	}
-	volume := &Volume{provider: provider, deps: deps, current: current, state: StateOK, warnings: warnings}
+	volume := &Volume{
+		provider: provider, deps: deps, providerLimiter: newProviderLimiter(provider),
+		current: current, state: StateOK, warnings: warnings,
+	}
 	volume.watch(current)
 	return volume, nil
 }
@@ -150,6 +155,11 @@ func (volume *Volume) Probe(ctx context.Context) error {
 // contexte ; au délai ou à l'annulation, la connexion entière est fermée, ce qui débloque fn, et le volume passe
 // broken. Un volume broken sans reconnexion autorisée rend fsys.ErrRemoteUnavailable sans appel réseau.
 func (volume *Volume) call(ctx context.Context, operation string, fn func(client *sftp.Client) error) error {
+	return volume.callSession(ctx, operation, func(current *session) error { return fn(current.client) })
+}
+
+// callSession est call pour une opération qui garde la session (un fichier ouvert y est lié).
+func (volume *Volume) callSession(ctx context.Context, operation string, fn func(current *session) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -157,8 +167,24 @@ func (volume *Volume) call(ctx context.Context, operation string, fn func(client
 	if err != nil {
 		return err
 	}
+	return volume.run(ctx, current, operation, fn)
+}
+
+// callOn exécute fn sur une session donnée, sans jamais rouvrir : un fichier d'une session perdue ne casse pas la
+// session suivante.
+func (volume *Volume) callOn(ctx context.Context, current *session, operation string, fn func(current *session) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if current.closed.Load() {
+		return fmt.Errorf("%w: sftpfs: %s on %s: session closed", fsys.ErrRemoteUnavailable, operation, volume.provider.Address)
+	}
+	return volume.run(ctx, current, operation, fn)
+}
+
+func (volume *Volume) run(ctx context.Context, current *session, operation string, fn func(current *session) error) error {
 	outcome := make(chan error, 1)
-	go func() { outcome <- fn(current.client) }()
+	go func() { outcome <- fn(current) }()
 	timer := time.NewTimer(volume.provider.Timeout)
 	defer timer.Stop()
 	select {

@@ -33,6 +33,9 @@ var (
 	ErrIdentityKeyTooWeak = errors.New("sftpfs: identityFile is an rsa key under 3072 bits")
 	// ErrKnownHostsUnreadable : knownHosts est absent, illisible ou sans aucune entrée valide.
 	ErrKnownHostsUnreadable = errors.New("sftpfs: knownHosts is missing, unreadable or has no valid entry")
+	// ErrHostileResponse : le serveur a rendu une valeur impossible (taille, statvfs, cible de lien, liste démesurée) ;
+	// elle est refusée, jamais tronquée.
+	ErrHostileResponse = errors.New("sftpfs: hostile response from the server")
 	// ErrOperationTimeout : une opération a dépassé timeout ; la connexion a été fermée.
 	ErrOperationTimeout = errors.New("sftpfs: operation timed out")
 )

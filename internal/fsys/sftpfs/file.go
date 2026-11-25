@@ -1,0 +1,111 @@
+package sftpfs
+
+import (
+	"context"
+	"io/fs"
+
+	"github.com/pkg/sftp"
+	"golang.org/x/time/rate"
+
+	"necromanciarr/internal/config"
+	"necromanciarr/internal/fsys"
+)
+
+const (
+	// providerBurstBytes : rafale du limiteur du fournisseur, celle du limiteur global (1 Mio, au moins 64 Kio).
+	providerBurstBytes = 1 << 20
+	// limiterChunkBytes découpe une attente : rate.Limiter.WaitN échoue au-delà de sa rafale, et une rafale
+	// valide (au moins 64 Kio) contient 32 Kio, la taille d'un paquet de lecture SFTP.
+	limiterChunkBytes = 32 << 10
+)
+
+func newProviderLimiter(provider config.FSProvider) fsys.Limiter {
+	if provider.ReadBytesPerSecond <= 0 {
+		return nil
+	}
+	return rate.NewLimiter(rate.Limit(provider.ReadBytesPerSecond), providerBurstBytes)
+}
+
+// throttle attend, avant toute lecture, le débit de byteCount octets sur le limiteur du fournisseur puis sur le
+// limiteur global : le plus strict des deux gouverne. Les octets sont comptés à la demande, jamais après coup.
+func (volume *Volume) throttle(ctx context.Context, byteCount int) error {
+	for remaining := byteCount; remaining > 0; remaining -= limiterChunkBytes {
+		chunk := min(remaining, limiterChunkBytes)
+		for _, limiter := range []fsys.Limiter{volume.providerLimiter, volume.deps.Limiter} {
+			if limiter == nil {
+				continue
+			}
+			if err := limiter.WaitN(ctx, chunk); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// readOnlyFile cache *sftp.File : seules ReadAt, Read, Seek, Close et Stat restent atteignables, et chaque
+// opération reste liée à la session qui a ouvert le fichier.
+type readOnlyFile struct {
+	volume  *Volume
+	current *session
+	file    *sftp.File
+	name    string
+}
+
+// ReadAt attend les limiteurs pour len(buffer) octets, puis lit. pkg/sftp peut découper la lecture en
+// maxConcurrentRequests requêtes en vol : elles ne transportent jamais plus que les octets déjà payés.
+func (readOnly readOnlyFile) ReadAt(buffer []byte, offset int64) (int, error) {
+	return readOnly.read(len(buffer), func(file *sftp.File) (int, error) { return file.ReadAt(buffer, offset) })
+}
+
+// Read lit à la position courante, sous les mêmes limiteurs que ReadAt.
+func (readOnly readOnlyFile) Read(buffer []byte) (int, error) {
+	return readOnly.read(len(buffer), func(file *sftp.File) (int, error) { return file.Read(buffer) })
+}
+
+func (readOnly readOnlyFile) read(byteCount int, readFn func(file *sftp.File) (int, error)) (int, error) {
+	ctx := context.Background()
+	if err := readOnly.volume.throttle(ctx, byteCount); err != nil {
+		return 0, err
+	}
+	readCount := 0
+	err := readOnly.volume.callOn(ctx, readOnly.current, "read", func(*session) error {
+		var readErr error
+		readCount, readErr = readFn(readOnly.file)
+		return readErr
+	})
+	return readCount, mapError("read", readOnly.name, err)
+}
+
+// Seek déplace la position de Read.
+func (readOnly readOnlyFile) Seek(offset int64, whence int) (int64, error) {
+	position := int64(0)
+	err := readOnly.volume.callOn(context.Background(), readOnly.current, "seek", func(*session) error {
+		var seekErr error
+		position, seekErr = readOnly.file.Seek(offset, whence)
+		return seekErr
+	})
+	return position, mapError("seek", readOnly.name, err)
+}
+
+// Close libère le handle distant.
+func (readOnly readOnlyFile) Close() error {
+	err := readOnly.volume.callOn(context.Background(), readOnly.current, "close", func(*session) error {
+		return readOnly.file.Close()
+	})
+	return mapError("close", readOnly.name, err)
+}
+
+// Stat rend l'information du fichier ouvert (fstat) ; une taille impossible est refusée.
+func (readOnly readOnlyFile) Stat() (fs.FileInfo, error) {
+	var info fs.FileInfo
+	err := readOnly.volume.callOn(context.Background(), readOnly.current, "fstat", func(*session) error {
+		var statErr error
+		info, statErr = readOnly.file.Stat()
+		return statErr
+	})
+	if err != nil {
+		return nil, mapError("fstat", readOnly.name, err)
+	}
+	return checkInfo("fstat", readOnly.name, info)
+}
