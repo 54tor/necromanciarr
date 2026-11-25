@@ -48,8 +48,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - `links list` returns a stable `reason` code with a translated `label` instead of an English sentence; dedupe reasons are stable codes too, and `warnings` of `status`, stage results and `dedupe apply`/`repair apply` are `{code, text}` objects; mount advice and cross-seed mode warnings are translated.
 - The page shown when the binary is built without the web interface follows `language` (title, `make ui` hint, `<html lang>`).
 - `doctor` results carry a stable `code` and are rendered in the configured language.
-- Proposal warnings are stored as translatable messages and returned as `{code, text}`; reasons come with translated labels (`reason_labels`, `label`). Warnings stored by earlier versions are still shown as they were saved.
-- Proposal warnings are now stored as structured messages; a database written by this version cannot be read by an older binary.
+- Proposal warnings are stored as translatable messages and returned as `{code, text}`; reasons come with translated labels (`reason_labels`, `label`). Warnings stored by earlier versions are still shown as they were saved, but a database written by this version cannot be read by an older binary.
 - A link kind failure (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) now tells the cause and the setting to change.
 
 ### Security
