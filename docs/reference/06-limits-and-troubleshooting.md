@@ -219,8 +219,10 @@ Codes stables d'une connexion à un fournisseur `sftp`, identiques dans les deux
 | `host_key_unknown` | refus | l'hôte n'a aucune entrée dans `knownHosts` : ajoutez la clé avec `ssh-keyscan -H seedbox.example.com >> known_hosts` (votre hôte), après avoir vérifié l'empreinte par un autre canal (voir « Obtenir la ligne `known_hosts` » dans la configuration) |
 | `host_key_mismatch` | refus | la clé présentée diffère de celle épinglée, ou elle est révoquée : connexion peut-être interceptée. Ne rien remplacer avant d'avoir vérifié la nouvelle empreinte sur le serveur par un autre canal ; ensuite seulement, remplacer la ligne |
 | `auth_refused` | refus | le serveur a refusé toutes les méthodes configurées (`agent`, `identityFile`, `password`), ou aucune n'était utilisable : vérifier `user`, la clé autorisée côté serveur (`authorized_keys`), la variable du mot de passe |
+| `known_hosts_unreadable` | refus | `knownHosts` absent, illisible ou sans aucune entrée valide : vérifier le chemin (vu par le processus ou le conteneur), les droits de lecture et le format OpenSSH |
+| `identity_key_too_weak` | refus | `identityFile` est une clé RSA de moins de 3072 bits : générer une clé ed25519 (`ssh-keygen -t ed25519`) et l'autoriser sur le serveur |
 | `identity_file_permissions` | avertissement | `identityFile` est lisible ou modifiable par le groupe ou les autres : `chmod 600` ; la connexion continue |
-| `agent_unavailable` | avertissement | `agent` est demandé mais `SSH_AUTH_SOCK` est absent ou injoignable (jamais transmis dans Docker) : la méthode est sautée, les autres sont essayées |
+| `agent_unavailable` | avertissement | `agent` est demandé mais `SSH_AUTH_SOCK` est absent ou injoignable, ou l'agent ne répond pas dans `timeout` (jamais transmis dans Docker) : la méthode est sautée, les autres sont essayées |
 
 ### Par code d'erreur
 

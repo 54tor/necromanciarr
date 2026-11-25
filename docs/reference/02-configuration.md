@@ -179,10 +179,10 @@ Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer 
 | `address` | obligatoire | `host` ou `host:port` (nom d'hôte ou adresse IP), port `22` par défaut ; IPv6 entre crochets (`[::1]` ou `[::1]:22`) ; ni URL (`sftp://…`), ni caractère de contrôle, ni crochet isolé |
 | `user` | obligatoire | compte SSH ; un compte sans droit d'écriture sur la bibliothèque est recommandé |
 | `knownHosts` | obligatoire | chemin local absolu d'un fichier `known_hosts` OpenSSH ; la clé d'hôte est toujours vérifiée, aucune option ne l'ignore. L'existence du fichier relève de `doctor` |
-| `identityFile` | vide | chemin local absolu d'une clé privée (ed25519, ecdsa ou rsa ≥ 3072) |
+| `identityFile` | vide | chemin local absolu d'une clé privée (ed25519, ecdsa ou rsa ≥ 3072) ; une clé RSA plus courte est refusée (`identity_key_too_weak`). Les clés de l'agent ne sont pas filtrées |
 | `identityPassphrase` | vide | passphrase de `identityFile`, seulement par une référence `${VAR}` ; exige `identityFile` |
 | `agent` | `false` | agent SSH (`SSH_AUTH_SOCK`), lu à la connexion seulement |
-| `password` | vide | seulement par une référence `${VAR}` ; méthode la moins recommandée |
+| `password` | vide | seulement par une référence `${VAR}` ; méthode SSH `password` seulement (pas `keyboard-interactive`) ; méthode la moins recommandée |
 | `readBytesPerSecond` | débit global | octets par seconde ; `0` ou absent garde `readBytesPerSecond` global, les deux limites s'appliquent |
 | `maxConcurrentRequests` | `16` | requêtes SFTP en vol par fichier, entier de 1 à 256 |
 | `timeout` | `30s` | délai d'une opération SFTP, durée Go strictement positive |
@@ -196,7 +196,9 @@ Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer 
 - La base SQLite (`dbPath`) reste sur un disque local.
 - Serveurs SFTP Windows (chemins `/C:/…`) : non pris en charge.
 - Connexion : `timeout` borne aussi l'ouverture (TCP, SSH, SFTP). Une opération qui dépasse `timeout`, ou trois keepalive sans réponse, ferme toute la connexion : le volume passe `broken` et l'étape s'arrête (`remote_unavailable`). La reconnexion se fait à l'opération suivante, une seule fois par étape.
-- `agent` sans `SSH_AUTH_SOCK` (ou socket injoignable) : la méthode est sautée avec l'avertissement `agent_unavailable` ; `identityFile` lisible par le groupe ou les autres : avertissement `identity_file_permissions`, pas un refus.
+- Chaque clé de l'agent compte dans le `MaxAuthTries` du serveur : un agent qui porte beaucoup de clés peut épuiser les essais avant la clé de `identityFile` et le mot de passe. Passer `agent: false` ou charger moins de clés. Une clé de l'agent identique à celle de `identityFile` n'est offerte qu'une fois.
+- `knownHosts` absent, illisible ou sans entrée valide : refus `known_hosts_unreadable`.
+- `agent` sans `SSH_AUTH_SOCK` (ou socket injoignable, ou agent qui ne répond pas dans `timeout`) : la méthode est sautée avec l'avertissement `agent_unavailable`, qui nomme la variable, jamais le chemin de la socket ; `identityFile` lisible par le groupe ou les autres : avertissement `identity_file_permissions`, pas un refus.
 
 #### Obtenir la ligne `known_hosts`
 

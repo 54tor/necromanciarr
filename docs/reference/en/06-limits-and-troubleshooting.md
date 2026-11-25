@@ -219,8 +219,10 @@ Stable codes of a connection to an `sftp` provider, identical in both languages.
 | `host_key_unknown` | refusal | the host has no entry in `knownHosts`: add the key with `ssh-keyscan -H seedbox.example.com >> known_hosts` (your host), after checking the fingerprint through another channel (see "Getting the `known_hosts` line" in the configuration) |
 | `host_key_mismatch` | refusal | the presented key differs from the pinned one, or it is revoked: the connection may be intercepted. Replace nothing before checking the new fingerprint on the server through another channel; only then replace the line |
 | `auth_refused` | refusal | the server refused every configured method (`agent`, `identityFile`, `password`), or none was usable: check `user`, the key authorized on the server (`authorized_keys`), the password variable |
+| `known_hosts_unreadable` | refusal | `knownHosts` missing, unreadable or without any valid entry: check the path (as seen by the process or the container), read permissions and the OpenSSH format |
+| `identity_key_too_weak` | refusal | `identityFile` is an RSA key under 3072 bits: generate an ed25519 key (`ssh-keygen -t ed25519`) and authorize it on the server |
 | `identity_file_permissions` | warning | `identityFile` is readable or writable by group or others: `chmod 600`; the connection goes on |
-| `agent_unavailable` | warning | `agent` is requested but `SSH_AUTH_SOCK` is missing or unreachable (never forwarded in Docker): the method is skipped, the others are tried |
+| `agent_unavailable` | warning | `agent` is requested but `SSH_AUTH_SOCK` is missing or unreachable, or the agent does not answer within `timeout` (never forwarded in Docker): the method is skipped, the others are tried |
 
 ### By error code
 

@@ -179,10 +179,10 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 | `address` | required | `host` or `host:port` (host name or IP address), port `22` by default; IPv6 between brackets (`[::1]` or `[::1]:22`); no URL (`sftp://…`), control character or stray bracket |
 | `user` | required | SSH account; an account with no write access to the library is recommended |
 | `knownHosts` | required | absolute local path of an OpenSSH `known_hosts` file; the host key is always checked, no option skips it. Whether the file exists is a `doctor` matter |
-| `identityFile` | empty | absolute local path of a private key (ed25519, ecdsa or rsa ≥ 3072) |
+| `identityFile` | empty | absolute local path of a private key (ed25519, ecdsa or rsa ≥ 3072); a shorter RSA key is refused (`identity_key_too_weak`). Agent keys are not filtered |
 | `identityPassphrase` | empty | passphrase of `identityFile`, only as a `${VAR}` reference; needs `identityFile` |
 | `agent` | `false` | SSH agent (`SSH_AUTH_SOCK`), read at connection time only |
-| `password` | empty | only as a `${VAR}` reference; the least recommended method |
+| `password` | empty | only as a `${VAR}` reference; the SSH `password` method only (not `keyboard-interactive`); the least recommended method |
 | `readBytesPerSecond` | global rate | bytes per second; `0` or absent keeps the global `readBytesPerSecond`, both limits apply |
 | `maxConcurrentRequests` | `16` | SFTP requests in flight per file, integer from 1 to 256 |
 | `timeout` | `30s` | timeout of one SFTP operation, strictly positive Go duration |
@@ -196,7 +196,9 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 - The SQLite database (`dbPath`) stays on a local disk.
 - Windows SFTP servers (`/C:/…` paths): not supported.
 - Connection: `timeout` also bounds the opening (TCP, SSH, SFTP). An operation that exceeds `timeout`, or three unanswered keepalives, closes the whole connection: the volume becomes `broken` and the stage stops (`remote_unavailable`). It reconnects on the next operation, once per stage.
-- `agent` without `SSH_AUTH_SOCK` (or an unreachable socket): the method is skipped with the `agent_unavailable` warning; an `identityFile` readable by group or others: `identity_file_permissions` warning, not a refusal.
+- Each agent key counts toward the server's `MaxAuthTries`: an agent holding many keys can exhaust the attempts before the `identityFile` key and the password. Set `agent: false` or load fewer keys. An agent key identical to the `identityFile` one is offered only once.
+- `knownHosts` missing, unreadable or without a valid entry: `known_hosts_unreadable` refusal.
+- `agent` without `SSH_AUTH_SOCK` (or an unreachable socket, or an agent that does not answer within `timeout`): the method is skipped with the `agent_unavailable` warning, which names the variable, never the socket path; an `identityFile` readable by group or others: `identity_file_permissions` warning, not a refusal.
 
 #### Getting the `known_hosts` line
 
