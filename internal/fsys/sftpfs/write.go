@@ -44,7 +44,7 @@ type writeRoot struct {
 // Confinement : SFTP n'a ni openat ni descripteur de dossier, il est donc fondé sur les chemins. Chaque opération
 // refuse un chemin mal formé sans requête, vérifie par Lstat chaque parent depuis la racine (un lien ou une entrée
 // spéciale : fsys.ErrUnconfined), exige que le RealPath du parent soit exactement son chemin, puis écrit, puis revoit
-// ce RealPath (une entrée créée sous un parent devenu lien est retirée au mieux et refusée). Fenêtre TOCTOU
+// ce RealPath (une entrée créée sous un parent devenu lien est refusée, jamais retirée par chemin). Fenêtre TOCTOU
 // acceptée : entre le dernier contrôle et l'écriture, un acteur qui écrit déjà dans le dossier de liens peut
 // remplacer un parent par un lien ; l'écriture atterrit alors ailleurs avant d'être vue. Défense recommandée : un
 // compte SFTP sans droit d'écriture sur la bibliothèque.
@@ -221,7 +221,7 @@ func (root *writeRoot) CreateExclusive(relative string, perm fs.FileMode) (io.Wr
 			return errors.Join(err, file.Close())
 		}
 		if err := file.Chmod(perm & fs.ModePerm); err != nil {
-			return errors.Join(err, file.Close(), client.Remove(destination.fullPath))
+			return errors.Join(err, file.Close())
 		}
 		created = exclusiveWriter{root: root, file: file, name: relative}
 		return nil

@@ -284,28 +284,65 @@ func TestSFTPWriteRoot_realPathEscapeRefused(t *testing.T) {
 	}
 }
 
-func TestSFTPCreateExclusive_swapDuringTheCreateIsDetectedAndUndone(t *testing.T) {
+// swapOnNthRealPath rend un crochet qui remplace swappedRemote par un lien vers outsideDir à la nth requête RealPath
+// de watchedPath : le contrôle d'après écriture voit alors le parent détourné.
+func swapOnNthRealPath(t *testing.T, server **sftptest.Server, watchedPath string, nth int, swappedRemote string) func(sftptest.Request) {
+	var mutex sync.Mutex
+	seen := 0
+	return func(request sftptest.Request) {
+		if request.Path != watchedPath {
+			return
+		}
+		mutex.Lock()
+		defer mutex.Unlock()
+		if seen++; seen == nth {
+			sftptest.ReplaceWithSymlink(t, localPathOf(*server, swappedRemote), outsideDir)
+		}
+	}
+}
+
+// escapeAfterWrite : l'écriture faite, le parent "a" devient un lien vers l'extérieur, où une entrée du même nom
+// existait déjà ; l'opération doit être refusée et cette entrée survivre (aucun retrait par chemin).
+func escapeAfterWrite(t *testing.T, write func(root fsys.WriteRoot) error) {
+	t.Helper()
 	skipWithoutSymlinks(t)
 	var server *sftptest.Server
-	// Le remplacement tombe entre le dernier contrôle et l'ouverture : la fenêtre acceptée, revue après coup.
-	hook := swapOnce(t, &server, linksDir+"/a/file", linksDir+"/a")
-	server, volume := writeVolume(t, sftptest.OnRequest("Put", hook))
+	hook := swapOnNthRealPath(t, &server, linksDir+"/a", 2, linksDir+"/a")
+	server, volume := writeVolume(t, sftptest.OnRequest("RealPath", hook))
 	root := openLinksRoot(t, volume)
-	if err := root.MkdirAll("a", 0o755); err != nil {
-		t.Fatal(err)
-	}
+	sftptest.Mkdir(t, localPathOf(server, linksDir+"/a"))
+	sftptest.WriteFile(t, localPathOf(server, outsideDir+"/entry"), []byte("pre-existing"), 0o644)
 
-	writer, err := root.CreateExclusive("a/file", 0o644)
-	if writer != nil {
-		_ = writer.Close()
-	}
+	err := write(root)
 
 	if !errors.Is(err, fsys.ErrUnconfined) {
-		t.Errorf("CreateExclusive: valeurObtenue %v, valeurAttendue ErrUnconfined", err)
+		t.Errorf("valeurObtenue %v, valeurAttendue ErrUnconfined once the parent resolves outside", err)
 	}
-	if entries := outsideEntries(t, server); len(entries) != 0 {
-		t.Errorf("valeurObtenue %q left outside the root, valeurAttendue the escaped file removed", entries)
+	if valeurObtenue := servedContent(t, server, outsideDir+"/entry"); valeurObtenue != "pre-existing" {
+		t.Errorf("valeurObtenue %q, valeurAttendue the outside entry untouched", valeurObtenue)
 	}
+}
+
+func TestSFTPCreateExclusive_escapeAfterTheWriteIsReportedAndNeverRemovedByPath(t *testing.T) {
+	escapeAfterWrite(t, func(root fsys.WriteRoot) error {
+		writer, err := root.CreateExclusive("a/entry", 0o644)
+		if writer != nil {
+			_ = writer.Close()
+		}
+		return err
+	})
+}
+
+func TestSFTPSymlink_escapeAfterTheWriteIsReportedAndNeverRemovedByPath(t *testing.T) {
+	escapeAfterWrite(t, func(root fsys.WriteRoot) error {
+		return root.Symlink(libraryDir+"/"+fsystest.FixtureMovieName, "a/entry")
+	})
+}
+
+func TestSFTPHardlink_escapeAfterTheWriteIsReportedAndNeverRemovedByPath(t *testing.T) {
+	escapeAfterWrite(t, func(root fsys.WriteRoot) error {
+		return root.Hardlink(fsys.Location{Volume: "seedbox", Path: libraryDir + "/" + fsystest.FixtureMovieName}, "a/entry")
+	})
 }
 
 func TestSFTPReplace_withoutPosixRenameRefuses(t *testing.T) {

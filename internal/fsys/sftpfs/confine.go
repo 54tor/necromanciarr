@@ -106,14 +106,11 @@ func (root *writeRoot) checkParents(client *sftp.Client, target confinedTarget) 
 	return checkResolvesTo(client, target.parentPath)
 }
 
-// checkAfterWrite revoit, après l'écriture, que le parent se résout toujours en lui-même ; sinon l'entrée créée
-// (atteinte par le même chemin) est retirée au mieux et l'opération refusée.
+// checkAfterWrite revoit, après l'écriture, que le parent se résout toujours en lui-même ; sinon l'opération est
+// refusée (fsys.ErrUnconfined) et l'entrée laissée en place : la retirer par chemin suivrait le même parent détourné
+// et pourrait supprimer une entrée hors de la racine.
 func checkAfterWrite(client *sftp.Client, target confinedTarget) error {
-	err := checkResolvesTo(client, target.parentPath)
-	if err == nil {
-		return nil
-	}
-	return errors.Join(err, client.Remove(target.fullPath))
+	return checkResolvesTo(client, target.parentPath)
 }
 
 // checkSource exige un chemin source complet de ce volume, sans NUL : la bibliothèque n'est lue que par le serveur.
