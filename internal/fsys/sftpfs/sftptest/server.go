@@ -18,6 +18,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -29,8 +30,10 @@ const loopbackAddress = "127.0.0.1:0"
 // Lstat, List, Readlink, Setstat, Mkdir, Rmdir, Remove, Rename, PosixRename, Link, Symlink, StatVFS), plus RealPath
 // et Exec (Path est alors la commande). Path est le chemin visé, Target le second chemin : nouveau nom de Rename,
 // PosixRename et Link, texte de la cible pour Symlink (Path est alors le lien créé), tels que le serveur les applique.
+// Flags porte les drapeaux SSH_FXF_* bruts d'une ouverture (Get, Put, Open), zéro sinon.
 type Request struct {
 	Method, Path, Target string
+	Flags                uint32
 }
 
 // ExecHandler sert une requête exec : commande reçue et entrée standard complète, sorties et code de sortie rendus.
@@ -48,6 +51,9 @@ type settings struct {
 	password            string
 	ignoreKeepalive     bool
 	ecdsaHostKey        bool
+	listings            map[string][]Entry
+	readlinkTargets     map[string]string
+	statVFSMutator      func(*sftp.StatVFS)
 }
 
 // AuthAttempt est un essai d'authentification reçu, dans l'ordre d'arrivée : Method vaut « publickey » (avec
@@ -134,7 +140,10 @@ func Start(t *testing.T, options ...Option) *Server {
 	t.Helper()
 	server := &Server{
 		Root: t.TempDir(), stopped: make(chan struct{}), connections: map[net.Conn]bool{},
-		settings: settings{hiddenExtensions: map[string]bool{}, stalledMethods: map[string]bool{}},
+		settings: settings{
+			hiddenExtensions: map[string]bool{}, stalledMethods: map[string]bool{},
+			listings: map[string][]Entry{}, readlinkTargets: map[string]string{},
+		},
 	}
 	for _, option := range options {
 		option(&server.settings)

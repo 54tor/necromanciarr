@@ -155,9 +155,9 @@ func TestServer_recordsEveryRequest(t *testing.T) {
 	gotValue := server.Requests()
 	valeursAttendues := []sftptest.Request{
 		{Method: "Mkdir", Path: "/dir"},
-		{Method: "Put", Path: "/dir/file"},
-		{Method: "Get", Path: "/dir/file"},
-		{Method: "Open", Path: "/dir/file"},
+		{Method: "Put", Path: "/dir/file", Flags: sftptest.FlagWrite | sftptest.FlagCreate | sftptest.FlagTruncate},
+		{Method: "Get", Path: "/dir/file", Flags: sftptest.FlagRead},
+		{Method: "Open", Path: "/dir/file", Flags: sftptest.FlagRead | sftptest.FlagWrite},
 		{Method: "Stat", Path: "/dir/file"},
 		{Method: "Lstat", Path: "/dir/file"},
 		{Method: "List", Path: "/dir"},

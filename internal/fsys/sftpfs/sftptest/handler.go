@@ -68,7 +68,7 @@ func (handler *fileHandler) unfollowed(clientPath string) (string, error) {
 
 // Fileread ouvre un fichier en lecture (méthode Get).
 func (handler *fileHandler) Fileread(request *sftp.Request) (io.ReaderAt, error) {
-	if err := handler.admit(Request{Method: request.Method, Path: request.Filepath}, request.Context()); err != nil {
+	if err := handler.admit(Request{Method: request.Method, Path: request.Filepath, Flags: request.Flags}, request.Context()); err != nil {
 		return nil, err
 	}
 	relativePath, err := handler.followed(request.Filepath)
@@ -101,7 +101,7 @@ func (handler *fileHandler) OpenFile(request *sftp.Request) (sftp.WriterAtReader
 }
 
 func (handler *fileHandler) openForWrite(request *sftp.Request, accessFlag int) (*os.File, error) {
-	if err := handler.admit(Request{Method: request.Method, Path: request.Filepath}, request.Context()); err != nil {
+	if err := handler.admit(Request{Method: request.Method, Path: request.Filepath, Flags: request.Flags}, request.Context()); err != nil {
 		return nil, err
 	}
 	openFlags := request.Pflags()
@@ -232,16 +232,26 @@ func (handler *fileHandler) StatVFS(request *sftp.Request) (*sftp.StatVFS, error
 		return nil, err
 	}
 	freeBlocks := uint64(statVFSBlocks / 2)
-	return &sftp.StatVFS{
+	response := &sftp.StatVFS{
 		Bsize: statVFSBlockSize, Frsize: statVFSBlockSize, Blocks: statVFSBlocks, Bfree: freeBlocks, Bavail: freeBlocks,
 		Files: statVFSBlocks, Ffree: freeBlocks, Favail: freeBlocks, Fsid: statVFSFsid, Namemax: statVFSNameMax,
-	}, nil
+	}
+	if mutate := handler.server.settings.statVFSMutator; mutate != nil {
+		mutate(response)
+	}
+	return response, nil
 }
 
 // Filelist sert List (contenu d'un dossier) et Stat.
 func (handler *fileHandler) Filelist(request *sftp.Request) (sftp.ListerAt, error) {
 	if err := handler.admit(Request{Method: request.Method, Path: request.Filepath}, request.Context()); err != nil {
 		return nil, err
+	}
+	if fakes, found := handler.fakeListing(request.Filepath); found && request.Method == "List" {
+		return fakes, nil
+	}
+	if fake, found := handler.fakeEntry(request.Filepath); found && request.Method != "List" {
+		return fileInfos{fake}, nil
 	}
 	relativePath, err := handler.followed(request.Filepath)
 	if err != nil {
@@ -267,6 +277,9 @@ func (handler *fileHandler) Lstat(request *sftp.Request) (sftp.ListerAt, error) 
 	if err := handler.admit(Request{Method: "Lstat", Path: request.Filepath}, request.Context()); err != nil {
 		return nil, err
 	}
+	if fake, found := handler.fakeEntry(request.Filepath); found {
+		return fileInfos{fake}, nil
+	}
 	relativePath, err := handler.unfollowed(request.Filepath)
 	if err != nil {
 		return nil, err
@@ -285,6 +298,9 @@ func listOne(info os.FileInfo, err error) (sftp.ListerAt, error) {
 func (handler *fileHandler) Readlink(clientPath string) (string, error) {
 	if err := handler.admit(Request{Method: "Readlink", Path: clientPath}, context.Background()); err != nil {
 		return "", err
+	}
+	if target, found := handler.server.settings.readlinkTargets[path.Clean(clientPath)]; found {
+		return target, nil
 	}
 	relativePath, err := handler.unfollowed(clientPath)
 	if err != nil {
