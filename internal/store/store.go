@@ -65,7 +65,23 @@ CREATE TABLE IF NOT EXISTS indexer_usage (
 	at INTEGER NOT NULL,
 	kind TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS indexer_usage_window ON indexer_usage(indexer, kind, at);` + pipelineSchema
+CREATE INDEX IF NOT EXISTS indexer_usage_window ON indexer_usage(indexer, kind, at);
+CREATE TABLE IF NOT EXISTS indexer_cache (
+	indexer TEXT NOT NULL,
+	query_key TEXT NOT NULL,
+	mode TEXT NOT NULL,
+	items_json TEXT NOT NULL,
+	empty INTEGER NOT NULL,
+	expires_at INTEGER NOT NULL,
+	PRIMARY KEY (indexer, query_key)
+);
+CREATE INDEX IF NOT EXISTS indexer_cache_expiry ON indexer_cache(indexer, expires_at);
+CREATE TABLE IF NOT EXISTS indexer_searched (
+	media_group_key TEXT NOT NULL,
+	indexer TEXT NOT NULL,
+	searched_at INTEGER NOT NULL,
+	PRIMARY KEY (media_group_key, indexer)
+);` + pipelineSchema
 
 // MediaFile est un fichier média de la bibliothèque, identifié par son chemin ; TMDBID et TVDBID valent 0 si inconnus.
 type MediaFile struct {

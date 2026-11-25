@@ -174,6 +174,11 @@ func markStale(ctx context.Context, transaction *sql.Tx, selection string, now t
 		return 0, err
 	}
 	affected, err := result.RowsAffected()
+	if err != nil || affected == 0 {
+		return 0, err
+	}
+	// Un candidat périmé se reprend par une nouvelle recherche : les marques « groupe cherché » n'ont plus cours.
+	_, err = transaction.ExecContext(ctx, `DELETE FROM indexer_searched`)
 	return int(affected), err
 }
 
