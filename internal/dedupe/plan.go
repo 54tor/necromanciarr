@@ -424,16 +424,37 @@ func (run *planRun) replaceRefusal(torrentDir string) error {
 	return refusal
 }
 
-// atomicReplaceRefusal lit la capacité de remplacement atomique du volume de directory.
+// atomicReplaceRefusal lit la capacité de remplacement atomique du volume de directory. Un volume pas encore sondé
+// (session SFTP neuve) l'est d'abord par l'ouverture de directory en racine d'écriture (Registry.WriteRoot sonde dans
+// ce dossier, rien d'autre n'y est écrit) ; un échec de cette sonde est rendu tel quel, jamais ErrNoAtomicReplace.
 func atomicReplaceRefusal(ctx context.Context, files Files, directory string) error {
 	capabilities, err := files.Capabilities(ctx, directory)
 	if err != nil {
 		return err
 	}
+	if !capabilities.Probed() {
+		capabilities, err = probedCapabilities(ctx, files, directory)
+		if err != nil {
+			return err
+		}
+	}
 	if !capabilities.AtomicReplace {
 		return fsys.ErrNoAtomicReplace
 	}
 	return nil
+}
+
+// probedCapabilities ouvre puis ferme directory en racine d'écriture pour faire sonder son volume, puis relit ses
+// capacités.
+func probedCapabilities(ctx context.Context, files Files, directory string) (fsys.Capabilities, error) {
+	root, err := files.WriteRoot(directory)
+	if err != nil {
+		return fsys.Capabilities{}, fmt.Errorf("dedupe: probe %s: %w", directory, err)
+	}
+	if err := root.Close(); err != nil {
+		return fsys.Capabilities{}, err
+	}
+	return files.Capabilities(ctx, directory)
 }
 
 // renameIsUncertain : un VFS FUSE ou réseau peut renommer par copie puis suppression, ou suppression puis renommage ;

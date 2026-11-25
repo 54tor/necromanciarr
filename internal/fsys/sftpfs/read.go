@@ -31,7 +31,7 @@ const (
 	// reasonServerCopyByClient : pkg/sftp n'envoie pas copy-data, quelle que soit l'annonce du serveur.
 	reasonServerCopyByClient = "server_copy_unsupported_by_client"
 	// reasonNotProbed : aucune sonde n'a encore abouti sur cette session.
-	reasonNotProbed = "not_probed"
+	reasonNotProbed = fsys.ReasonNotProbed
 )
 
 // errStatVFSMissing : le serveur n'annonce pas statvfs@openssh.com.

@@ -57,6 +57,20 @@ type Capabilities struct {
 	Reasons    map[string]string // fonction -> raison d'absence (code)
 }
 
+// ReasonNotProbed : raison d'une fonction qu'aucune sonde n'a encore essayée sur la session courante du volume.
+const ReasonNotProbed = "not_probed"
+
+// Probed dit qu'aucune fonction n'attend sa sonde : sinon ses booléens ne disent pas encore ce que le volume sait faire,
+// et l'appelant ouvre d'abord une racine d'écriture (Registry.WriteRoot, qui sonde) avant de conclure.
+func (capabilities Capabilities) Probed() bool {
+	for _, reason := range capabilities.Reasons {
+		if reason == ReasonNotProbed {
+			return false
+		}
+	}
+	return true
+}
+
 // ReadFS est la seule vue d'une racine de bibliothèque : aucune méthode n'écrit. Les noms sont des chemins absolus
 // dans la syntaxe du volume (Paths).
 type ReadFS interface {

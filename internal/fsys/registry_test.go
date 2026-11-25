@@ -578,3 +578,12 @@ func TestRegistry_resetForStageReachesEveryVolume(t *testing.T) {
 		t.Fatalf("valeurObtenue %d and %d resets, valeurAttendue one per volume", seedbox.stageResets.Load(), other.stageResets.Load())
 	}
 }
+
+func TestCapabilities_probedOnlyWhenNoFunctionAwaitsItsProbe(t *testing.T) {
+	pending := fsys.Capabilities{Reasons: map[string]string{"symlink": fsys.ReasonNotProbed, "hardlink": "extension_missing"}}
+	settled := fsys.Capabilities{Reasons: map[string]string{"hardlink": "extension_missing"}}
+
+	if pending.Probed() || !settled.Probed() || !(fsys.Capabilities{}).Probed() {
+		t.Fatalf("valeurObtenue %v %v, valeurAttendue false then true", pending.Probed(), settled.Probed())
+	}
+}
