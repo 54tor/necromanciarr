@@ -72,6 +72,8 @@ type LinkItem struct {
 	Reason     string    `json:"reason,omitempty"`
 	Label      string    `json:"label,omitempty"`
 	Compared   bool      `json:"compared"`
+	// Volume est le fournisseur sftp du lien ; vide pour le disque local.
+	Volume string `json:"volume"`
 }
 
 // labelled ajoute le libellé traduit du motif.
@@ -186,6 +188,7 @@ func linkItem(link store.Link, inspection repair.Inspection) LinkItem {
 	return LinkItem{
 		ID: link.ID, LinkPath: link.LinkPath, TargetPath: link.TargetPath, Kind: link.Kind, State: state,
 		RecordedAt: link.CreatedAt, Size: link.Size, Reason: reason, Compared: inspection.Condition != repair.ConditionUnverified,
+		Volume: link.Volume,
 	}
 }
 

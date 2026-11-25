@@ -816,6 +816,63 @@ func TestWeb_sourcesListIsAReadAndTestIsAGuardedPost(t *testing.T) {
 	}
 }
 
+func TestWeb_volumesListAndCommandsAreReadsAndProbeIsAGuardedPost(t *testing.T) {
+	rows := []app.VolumeRow{{Type: app.VolumeTypeLocal, State: "ok"}, {Volume: "seedbox", Type: app.VolumeTypeSFTP, Address: "seedbox.example.com:22", State: "unknown"}}
+	fake := &fakeService{volumeRows: rows}
+	handler := newTestHandler(t, fake, loopbackSettings())
+
+	listed := serve(handler, apiRequest(http.MethodGet, "/api/volumes", ""))
+	commands := serve(handler, apiRequest(http.MethodGet, "/api/volumes/seedbox/commands", ""))
+	probed := serve(handler, apiRequest(http.MethodPost, "/api/volumes/seedbox/probe", `{}`))
+	crossSite := apiRequest(http.MethodPost, "/api/volumes/seedbox/probe", `{}`)
+	crossSite.Header.Del("X-Requested-With")
+	refused := serve(handler, crossSite)
+	byGet := serve(handler, apiRequest(http.MethodGet, "/api/volumes/seedbox/probe", ""))
+
+	var gotRows []app.VolumeRow
+	var gotCommands app.VolumeCommands
+	var gotProbe app.VolumeProbeResult
+	listErr := json.Unmarshal([]byte(readBody(t, listed)), &gotRows)
+	commandsErr := json.Unmarshal([]byte(readBody(t, commands)), &gotCommands)
+	probeErr := json.Unmarshal([]byte(readBody(t, probed)), &gotProbe)
+	isExpected := listed.Code == http.StatusOK && listErr == nil && reflect.DeepEqual(gotRows, rows) &&
+		commands.Code == http.StatusOK && commandsErr == nil && gotCommands.Lines[0] == "stat\t--version" &&
+		probed.Code == http.StatusOK && probeErr == nil && gotProbe.Error == "host_key_unknown" &&
+		refused.Code == http.StatusForbidden && byGet.Code == http.StatusMethodNotAllowed
+	if !isExpected {
+		t.Fatalf("gotValue %d %v / %d %+v / %d %+v / cross-site %d / GET %d, calls %v", listed.Code, gotRows, commands.Code, gotCommands,
+			probed.Code, gotProbe, refused.Code, byGet.Code, fake.calls)
+	}
+	if gotValue := strings.Count(strings.Join(fake.calls, "|"), "ProbeVolume"); gotValue != 1 {
+		t.Fatalf("gotValue calls %v, expectedValue one ProbeVolume (the cross-site post refused)", fake.calls)
+	}
+	empty := serve(newTestHandler(t, &fakeService{}, loopbackSettings()), apiRequest(http.MethodGet, "/api/volumes", ""))
+	if body := strings.TrimSpace(readBody(t, empty)); body != "[]" {
+		t.Fatalf("gotValue %q, expectedValue an empty JSON array", body)
+	}
+}
+
+// cliOnlyCommands : entrées de la CLI sans action du registre ni route : sftp trust écrit dans le
+// known_hosts de l'opérateur, ce qu'aucune page web ne doit pouvoir déclencher (empreinte vue à distance, piège à
+// hameçonnage, spec 4.C.5 et Q13). La CLI en garde la même liste (cmd/necromanciarr).
+var cliOnlyCommands = []string{"sftp trust"}
+
+func TestWeb_cliOnlyCommandsHaveNoRouteAndNoAction(t *testing.T) {
+	for _, command := range cliOnlyCommands {
+		for _, action := range app.Actions(i18n.New(i18n.English, nil)) {
+			if action.Name == command {
+				t.Fatalf("gotValue action %q in the registry, expectedValue a CLI-only command", command)
+			}
+		}
+		words := strings.Fields(command)
+		for _, apiRoute := range apiRoutes {
+			if apiRoute.action == command || strings.Contains(apiRoute.path, words[len(words)-1]) {
+				t.Fatalf("gotValue route %s for %q, expectedValue no web route", apiRoute.pattern(), command)
+			}
+		}
+	}
+}
+
 func TestWeb_proposalsSourceQueryReachesTheFilter(t *testing.T) {
 	fake := &fakeService{}
 	handler := newTestHandler(t, fake, loopbackSettings())

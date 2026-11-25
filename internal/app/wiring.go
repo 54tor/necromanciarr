@@ -96,6 +96,7 @@ func wireRegistry(ctx context.Context, settings config.Config, openedStore *stor
 	})}
 	deps.RemoteHashes = hashsource.NewSFTPExec(volumes.(*sftpVolumes).volumes)
 	deps.DoctorDeps.RemoteVolumes = volumes.(*sftpVolumes).doctorVolumes()
+	deps.Volumes = volumes.(*sftpVolumes).handles()
 	return deps, volumes, nil
 }
 

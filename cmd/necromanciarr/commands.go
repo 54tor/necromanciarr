@@ -52,6 +52,9 @@ const (
 	actionLinksList       = "links list"
 	actionSourcesList     = "sources list"
 	actionSourcesTest     = "sources test"
+	actionVolumesList     = "volumes list"
+	actionVolumesProbe    = "volumes probe"
+	actionVolumesCommands = "volumes commands"
 	exampleProposalID     = "1"
 )
 
@@ -139,6 +142,18 @@ func buildCommands() []command {
 		{
 			path: []string{"sources", "test"}, summaryKey: i18n.KeyCLISummarySourcesTest, actions: []string{actionSourcesTest},
 			arguments: []string{app.ArgumentSourceName}, execute: runSourcesTest,
+		},
+		{
+			path: []string{"volumes", "list"}, summaryKey: i18n.KeyCLISummaryVolumesList, actions: []string{actionVolumesList},
+			execute: runVolumesList,
+		},
+		{
+			path: []string{"volumes", "probe"}, summaryKey: i18n.KeyCLISummaryVolumesProbe, actions: []string{actionVolumesProbe},
+			arguments: []string{app.ArgumentVolumeName}, execute: runVolumesProbe,
+		},
+		{
+			path: []string{"volumes", "commands"}, summaryKey: i18n.KeyCLISummaryVolumesCommands, actions: []string{actionVolumesCommands},
+			arguments: []string{app.ArgumentVolumeName}, execute: runVolumesCommands,
 		},
 		{
 			path: []string{"doctor"}, summaryKey: i18n.KeyCLISummaryDoctor, actions: []string{actionDoctor},
@@ -478,6 +493,45 @@ func runSourcesTest(ctx context.Context, call *invocation) (output, error) {
 	return output{jsonValue: result, exitCode: exitCode, text: func(writer io.Writer) { writeSourceTest(writer, call.translator, result) }}, nil
 }
 
+func runVolumesList(ctx context.Context, call *invocation) (output, error) {
+	rows, err := call.service.ListVolumes(ctx)
+	if err != nil {
+		return output{}, err
+	}
+	rows = nonNil(rows)
+	return output{jsonValue: rows, text: func(writer io.Writer) { writeVolumes(writer, call.translator, rows) }}, nil
+}
+
+// runVolumesProbe : une sonde en échec n'est pas une erreur de la commande, mais sort avec le code 1.
+func runVolumesProbe(ctx context.Context, call *invocation) (output, error) {
+	result, err := call.service.ProbeVolume(ctx, call.arguments[app.ArgumentVolumeName])
+	if err != nil {
+		return output{}, err
+	}
+	exitCode := successExitCode
+	if result.Result != app.VolumeProbeOK {
+		exitCode = failureExitCode
+	}
+	return output{jsonValue: result, exitCode: exitCode, text: func(writer io.Writer) { writeVolumeProbe(writer, call.translator, result) }}, nil
+}
+
+// runVolumesCommands écrit les lignes seules sur stdout, telles quelles (tabulations comprises) pour un copier-coller
+// dans une garde ; l'indication du script part sur stderr.
+func runVolumesCommands(ctx context.Context, call *invocation) (output, error) {
+	commands, err := call.service.VolumeCommands(ctx, call.arguments[app.ArgumentVolumeName])
+	if err != nil {
+		return output{}, err
+	}
+	if !call.has(flagJSON) {
+		_, _ = fmt.Fprintln(call.stderr, call.translator.Text(i18n.KeyCLIVolumeCommandsHint, textParams("script", commands.GuardScript)))
+	}
+	return output{jsonValue: commands, text: func(writer io.Writer) {
+		for _, line := range commands.Lines {
+			_, _ = fmt.Fprintln(writer, line)
+		}
+	}}, nil
+}
+
 // optionalCount lit un entier positif ou nul ; absent vaut 0 (le Service applique alors sa valeur par défaut).
 func optionalCount(call *invocation, flag string) (int, error) {
 	if !call.has(flag) {
@@ -549,6 +603,7 @@ func usageText(translator i18n.Translator) string {
 		{"healthcheck", i18n.KeyCLIUsageHealthcheck},
 		{"api-key [--secret]", i18n.KeyCLIUsageAPIKey},
 		{"config check", i18n.KeyCLIUsageConfigCheck},
+		{"sftp trust <name> [--yes]", i18n.KeyCLIUsageSFTPTrust},
 	} {
 		_, _ = fmt.Fprintf(&usage, "  %-23s %s\n", line.name, translator.Text(line.key, nil))
 	}

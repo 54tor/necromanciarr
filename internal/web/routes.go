@@ -44,6 +44,9 @@ var apiRoutes = []route{
 	{http.MethodPost, "/api/doctor/checks/{checkId}", "doctor", "", runDoctorCheck},
 	{http.MethodGet, "/api/sources", "sources list", "", listSources},
 	{http.MethodPost, "/api/sources/{name}/test", "sources test", "", testSource},
+	{http.MethodGet, "/api/volumes", "volumes list", "", listVolumes},
+	{http.MethodPost, "/api/volumes/{name}/probe", "volumes probe", "", probeVolume},
+	{http.MethodGet, "/api/volumes/{name}/commands", "volumes commands", "", volumeCommands},
 	{http.MethodGet, "/api/jobs", "", "follow the long actions started by the action routes", listJobs},
 	{http.MethodGet, "/api/jobs/{id}", "", "follow one long action started by an action route", getJob},
 }
@@ -402,6 +405,35 @@ func testSource(handler *Handler, request *http.Request) (any, int, error) {
 	}
 	result, err := handler.service.TestSource(request.Context(), request.PathValue("name"))
 	return result, http.StatusOK, err
+}
+
+func listVolumes(handler *Handler, request *http.Request) (any, int, error) {
+	if err := requireKnownQuery(request.URL.Query()); err != nil {
+		return nil, 0, err
+	}
+	rows, err := handler.service.ListVolumes(request.Context())
+	if rows == nil {
+		rows = []app.VolumeRow{}
+	}
+	return rows, http.StatusOK, err
+}
+
+// probeVolume est synchrone comme le diagnostic : une connexion et une sonde bornées par le délai du volume. C'est
+// un POST : la sonde écrit des fichiers dans un dossier de liens.
+func probeVolume(handler *Handler, request *http.Request) (any, int, error) {
+	if err := decodeBody(request, &struct{}{}); err != nil {
+		return nil, 0, err
+	}
+	result, err := handler.service.ProbeVolume(request.Context(), request.PathValue("name"))
+	return result, http.StatusOK, err
+}
+
+func volumeCommands(handler *Handler, request *http.Request) (any, int, error) {
+	if err := requireKnownQuery(request.URL.Query()); err != nil {
+		return nil, 0, err
+	}
+	commands, err := handler.service.VolumeCommands(request.Context(), request.PathValue("name"))
+	return commands, http.StatusOK, err
 }
 
 // renderedDoctor rend le rapport dans la langue du service ; les codes et les états ne sont jamais traduits.

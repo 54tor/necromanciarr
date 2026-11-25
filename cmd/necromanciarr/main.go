@@ -58,6 +58,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runServe(ctx, args[1:], stdout, stderr)
 	case len(args) >= 1 && args[0] == "healthcheck":
 		return runHealthcheck(ctx, args[1:], stdout, stderr)
+	case len(args) >= 2 && args[0] == "sftp" && args[1] == "trust":
+		return runSFTPTrust(ctx, args[2:], stdout, stderr)
 	}
 	spec, rest, found := findCommand(args)
 	if !found {

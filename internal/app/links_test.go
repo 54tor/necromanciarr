@@ -373,3 +373,28 @@ func TestListLinks_keepsTheGuardAfterACancelledCallUntilTheInspectionReturns(t *
 	listing.inspect = func(store.Link) repair.Inspection { return repair.Inspection{Condition: repair.ConditionOK} }
 	eventuallyAvailable(t, listing)
 }
+
+func TestListLinks_givesTheVolumeOfEachLink(t *testing.T) {
+	fixture := newLinksFixture(t)
+	remote := store.Link{Kind: "hardlink", LinkPath: "sftp://seedbox/links/a.mkv", TargetPath: "sftp://seedbox/library/a.mkv", Volume: "seedbox", State: store.LinkOK, CreatedAt: fixedNow}
+	if err := fixture.store.RecordLink(context.Background(), remote); err != nil {
+		t.Fatal(err)
+	}
+	fixture.record("symlink", filepath.Join(fixture.links, "b.mkv"), filepath.Join(fixture.library, "b.mkv"))
+	listing := fixture.service()
+	listing.inspect = func(store.Link) repair.Inspection { return repair.Inspection{Condition: repair.ConditionOK} }
+
+	page, err := listing.ListLinks(context.Background(), LinkFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotValue := map[string]string{}
+	for _, item := range page.Items {
+		gotValue[item.LinkPath] = item.Volume
+	}
+	expectedValue := map[string]string{remote.LinkPath: "seedbox", filepath.Join(fixture.links, "b.mkv"): ""}
+	if fmt.Sprint(gotValue) != fmt.Sprint(expectedValue) {
+		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
+	}
+}

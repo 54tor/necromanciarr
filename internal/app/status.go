@@ -25,6 +25,8 @@ type Status struct {
 	// NoAnnounce compte les propositions de torrent ouvertes et courantes sans annonce (no_announce), recalculé à chaque
 	// lecture depuis la section trackers.
 	NoAnnounce int `json:"no_announce"`
+	// VolumesBroken compte les volumes sftp sans session (état broken) dans ce processus.
+	VolumesBroken int `json:"volumes_broken"`
 }
 
 // HeldCandidate est un torrent vérifié non proposé : nature qu'il aurait eue, raison et pièces manquantes.
@@ -56,6 +58,7 @@ func (svc *service) Status(ctx context.Context) (Status, error) {
 	status := Status{
 		Candidates: map[store.CandidateState]int{}, Proposals: map[store.ProposalDecision]int{}, Steps: map[store.ProposalStep]int{},
 		CrossSeedMode: behaviorNames[resolution.Behavior], Language: string(svc.deps.Translator.Language()),
+		VolumesBroken: svc.brokenVolumes(),
 	}
 	if len(resolution.Warnings) > 0 {
 		status.Warnings = warningViews(svc.deps.Translator, resolution.Warnings)

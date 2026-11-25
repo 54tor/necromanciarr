@@ -27,6 +27,7 @@ const (
 	ArgumentProposalID       = "proposal-id"
 	ArgumentGroupID          = "group-id"
 	ArgumentSourceName       = "name"
+	ArgumentVolumeName       = "name"
 	OptionAllowPartialPack   = "allow-partial-pack"
 	OptionDecision           = "decision"
 	OptionKind               = "kind"
@@ -103,6 +104,16 @@ var registry = []Action{
 	{
 		Name: "sources test", Method: "TestSource", DescriptionKey: i18n.KeyActionSourcesTest,
 		Mutating: true, Arguments: []string{ArgumentSourceName},
+	},
+	{Name: "volumes list", Method: "ListVolumes", DescriptionKey: i18n.KeyActionVolumesList},
+	// volumes probe écrit des fichiers de sonde dans un dossier de liens distant : mutante, comme doctor.
+	{
+		Name: "volumes probe", Method: "ProbeVolume", DescriptionKey: i18n.KeyActionVolumesProbe,
+		Mutating: true, Arguments: []string{ArgumentVolumeName},
+	},
+	{
+		Name: "volumes commands", Method: "VolumeCommands", DescriptionKey: i18n.KeyActionVolumesCommands,
+		Arguments: []string{ArgumentVolumeName},
 	},
 }
 

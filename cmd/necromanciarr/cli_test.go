@@ -16,6 +16,7 @@ import (
 	"necromanciarr/internal/app"
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/doctor"
+	"necromanciarr/internal/fsys/sftpfs"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
@@ -38,6 +39,8 @@ type fakeService struct {
 	lastFilter          app.ProposalFilter
 	sourceRows          []app.SourceRow
 	sourceTest          *app.SourceTestResult
+	volumeRows          []app.VolumeRow
+	volumeProbe         *app.VolumeProbeResult
 }
 
 func (fake *fakeService) record(method string, arguments ...any) {
@@ -165,6 +168,24 @@ type nopCloser struct{}
 func (nopCloser) Close() error { return nil }
 
 // useFakeService remplace l'ouverture du Service (production et diagnostic) par fake, le temps du test.
+func (fake *fakeService) ListVolumes(context.Context) ([]app.VolumeRow, error) {
+	fake.record("ListVolumes")
+	return fake.volumeRows, fake.err
+}
+
+func (fake *fakeService) ProbeVolume(_ context.Context, name string) (app.VolumeProbeResult, error) {
+	fake.record("ProbeVolume", name)
+	if fake.volumeProbe != nil {
+		return *fake.volumeProbe, fake.err
+	}
+	return app.VolumeProbeResult{Volume: name, Result: app.VolumeProbeOK}, fake.err
+}
+
+func (fake *fakeService) VolumeCommands(_ context.Context, name string) (app.VolumeCommands, error) {
+	fake.record("VolumeCommands", name)
+	return app.VolumeCommands{Volume: name, Lines: sftpfs.GuardLines(), GuardScript: app.GuardScriptPath}, fake.err
+}
+
 func useFakeService(t *testing.T, fake *fakeService) {
 	t.Helper()
 	previousService, previousDoctor := openService, openDoctorService

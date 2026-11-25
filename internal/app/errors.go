@@ -31,6 +31,7 @@ var refusals = []error{
 	ErrNotAccepted, ErrNotActionable, ErrWrongProposalKind, ErrDirectoryInLibrary, ErrRecheckUnavailable,
 	store.ErrInvalidTransition, pipeline.ErrGroupInconsistent, pipeline.ErrClientReadOnly, pipeline.ErrPlacementChanged,
 	dedupe.ErrTorrentRootOverlapsLibrary, repair.ErrOutsideRoots, ErrSourceNotTestable, ErrSourceTestRunning,
+	ErrVolumeProbeRunning,
 }
 
 // classes associe chaque code aux erreurs typées qu'il couvre, dans l'ordre de priorité du classement.
@@ -41,7 +42,7 @@ var classes = []struct {
 	{ErrorCodeUsage, []error{config.ErrUsage, ErrUnknownCheck}},
 	{ErrorCodeStale, []error{ErrStaleProposal}},
 	{ErrorCodeRefused, refusals},
-	{ErrorCodeNotFound, []error{store.ErrProposalNotFound, ErrGroupNotFound, ErrSourceNotFound}},
+	{ErrorCodeNotFound, []error{store.ErrProposalNotFound, ErrGroupNotFound, ErrSourceNotFound, ErrVolumeNotFound}},
 	{ErrorCodeNotConfigured, []error{ErrNotConfigured}},
 	{ErrorCodeStageRunning, []error{pipeline.ErrStageRunning}},
 	{ErrorCodeInspectionBusy, []error{ErrInspectionBusy}},
@@ -79,7 +80,8 @@ var messageKeys = map[error]i18n.Key{
 	ErrGroupNotFound: i18n.KeyErrorGroupNotFound, ErrNotConfigured: i18n.KeyErrorNotConfigured,
 	pipeline.ErrStageRunning: i18n.KeyErrorStageRunning, ErrInspectionBusy: i18n.KeyErrorInspectionBusy,
 	ErrSourceNotFound: i18n.KeyErrorSourceNotFound, ErrSourceNotTestable: i18n.KeyErrorSourceNotTestable,
-	ErrSourceTestRunning: i18n.KeyErrorSourceTestRunning,
+	ErrSourceTestRunning: i18n.KeyErrorSourceTestRunning, ErrVolumeNotFound: i18n.KeyErrorVolumeNotFound,
+	ErrVolumeProbeRunning: i18n.KeyErrorVolumeProbeRunning,
 }
 
 // MessageOf donne le message à rendre pour err : la clé de l'erreur typée reconnue (avec le volume d'un refus de

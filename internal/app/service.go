@@ -14,6 +14,7 @@ import (
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/doctor"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
@@ -97,6 +98,13 @@ type Service interface {
 	ListSources(ctx context.Context) ([]SourceRow, error)
 	// TestSource envoie t=caps et une recherche vide à un indexeur, au quota du jour ; l'échec est un code stable.
 	TestSource(ctx context.Context, name string) (SourceTestResult, error)
+	// ListVolumes décrit le disque local et chaque volume sftp : adresse hôte:port seule, état de la session,
+	// dernière sonde enregistrée et sa date, sans connexion.
+	ListVolumes(ctx context.Context) ([]VolumeRow, error)
+	// ProbeVolume sonde à nouveau un volume sftp dans son premier dossier de liens, sous le verrou des étapes.
+	ProbeVolume(ctx context.Context, name string) (VolumeProbeResult, error)
+	// VolumeCommands rend les lignes ssh exec exactes qu'une garde distante doit admettre pour ce volume.
+	VolumeCommands(ctx context.Context, name string) (VolumeCommands, error)
 	// Actions renvoie le registre des actions (parité CLI et web), descriptions dans la langue du Service.
 	Actions() []Action
 	// Translator donne le traducteur de la langue configurée, que la CLI et le web utilisent pour tout texte rendu.
@@ -148,6 +156,8 @@ type Store interface {
 	LoadMountCapabilities(ctx context.Context, mountPath string) (store.MountCapabilities, bool, error)
 	SaveMountCapabilities(ctx context.Context, capabilities store.MountCapabilities) error
 	CountIndexerUsage(ctx context.Context, indexer, kind string, since time.Time) (int, error)
+	VolumeCapabilities(ctx context.Context, volume string) (fsys.Capabilities, time.Time, bool, error)
+	SaveVolumeCapabilities(ctx context.Context, volume string, capabilities fsys.Capabilities, at time.Time) error
 	SealedClearer
 }
 
@@ -181,6 +191,8 @@ type Deps struct {
 	// ResolveCrossSeed, s'il est posé, redonne le mode cross-seed au début de chaque étape, acceptation et Status
 	// (production : sonde TCP mise en cache) ; nil garde CrossSeed, CrossSeedWarnings et Stages.Notifier fixes.
 	ResolveCrossSeed func(ctx context.Context) CrossSeedResolution
+	// Volumes donne les volumes sftp du registre par nom de fournisseur (état, sonde) ; nil : aucun.
+	Volumes map[string]VolumeHandle
 	// Logger reçoit les lignes codées de la couche applicative (nil : slog.Default).
 	Logger *slog.Logger
 }
@@ -194,6 +206,8 @@ type service struct {
 	inspecting       atomic.Bool
 	// sourceTests garde les indexeurs dont un sources test est en cours : un second test simultané est refusé.
 	sourceTests sync.Map
+	// volumeProbes garde les volumes dont un volumes probe est en cours : une seconde sonde simultanée est refusée.
+	volumeProbes sync.Map
 }
 
 // New construit le Service sur ses dépendances.

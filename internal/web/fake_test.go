@@ -50,6 +50,7 @@ type fakeService struct {
 	lastLinks   app.LinkFilter
 	linkPage    app.LinkPage
 	sourceRows  []app.SourceRow
+	volumeRows  []app.VolumeRow
 	// language est la langue du Translator (anglais si vide), pour comparer fr et en.
 	language i18n.Language
 	// panicValue fait paniquer RunStage avec cette valeur (job qui plante).
@@ -162,6 +163,20 @@ func (fake *fakeService) ListSources(context.Context) ([]app.SourceRow, error) {
 func (fake *fakeService) TestSource(_ context.Context, name string) (app.SourceTestResult, error) {
 	err := fake.record("TestSource", name)
 	return app.SourceTestResult{Source: "torznab:" + name, Result: app.SourceTestFailed, Error: "indexer_access_denied"}, err
+}
+
+func (fake *fakeService) ListVolumes(context.Context) ([]app.VolumeRow, error) {
+	return fake.volumeRows, fake.record("ListVolumes")
+}
+
+func (fake *fakeService) ProbeVolume(_ context.Context, name string) (app.VolumeProbeResult, error) {
+	err := fake.record("ProbeVolume", name)
+	return app.VolumeProbeResult{Volume: name, Result: app.VolumeProbeFailed, Error: "host_key_unknown"}, err
+}
+
+func (fake *fakeService) VolumeCommands(_ context.Context, name string) (app.VolumeCommands, error) {
+	err := fake.record("VolumeCommands", name)
+	return app.VolumeCommands{Volume: name, Lines: []string{"stat\t--version"}, GuardScript: app.GuardScriptPath}, err
 }
 
 func (fake *fakeService) Actions() []app.Action { return app.Actions(fake.Translator()) }

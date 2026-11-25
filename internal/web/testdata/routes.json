@@ -103,6 +103,24 @@
   },
   {
     "method": "GET",
+    "path": "/api/volumes",
+    "action": "volumes list",
+    "mutating": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/volumes/{name}/probe",
+    "action": "volumes probe",
+    "mutating": true
+  },
+  {
+    "method": "GET",
+    "path": "/api/volumes/{name}/commands",
+    "action": "volumes commands",
+    "mutating": false
+  },
+  {
+    "method": "GET",
     "path": "/api/jobs",
     "action": "",
     "mutating": false

@@ -312,6 +312,71 @@ func usageCell(translator i18n.Translator, usage *app.SourceUsage) string {
 	return strconv.Itoa(usage.Used) + "/" + strconv.Itoa(usage.Cap)
 }
 
+// volumeColumns : VOLUME, TYPE, ADRESSE, ÉTAT, puis SONDÉ LE ; les capacités suivent en retrait, jamais tronquées.
+var volumeColumns = []int{12, 6, 30, 8}
+
+// probeDateLayout : date de sonde à la minute, dans le fuseau local de l'opérateur.
+const probeDateLayout = "2006-01-02 15:04"
+
+// writeVolumes écrit une ligne par volume (le disque local s'appelle « local »), puis ses capacités en retrait.
+func writeVolumes(writer io.Writer, translator i18n.Translator, rows []app.VolumeRow) {
+	writeRow(writer, volumeColumns, headerCells(translator, i18n.KeyCLIHeaderVolume, i18n.KeyCLIHeaderType, i18n.KeyCLIHeaderAddress,
+		i18n.KeyCLIHeaderState, i18n.KeyCLIHeaderProbedAt)...)
+	for _, row := range rows {
+		name, address, probedAt := row.Volume, row.Address, "-"
+		if name == "" {
+			name = translator.Text(i18n.KeyCLIVolumeLocal, nil)
+		}
+		if address == "" {
+			address = "-"
+		}
+		if row.ProbedAt != nil {
+			probedAt = row.ProbedAt.Local().Format(probeDateLayout)
+		}
+		writeRow(writer, volumeColumns, name, row.Type, address, row.State, probedAt)
+		if row.Type == app.VolumeTypeSFTP {
+			_, _ = fmt.Fprintln(writer, "      "+translator.Text(i18n.KeyCLIVolumeCapabilities, textParams("capabilities", capabilitiesCell(translator, row))))
+		}
+	}
+}
+
+// capabilitiesCell liste les fonctions prouvées par la dernière sonde (noms stables) ; « - » sans aucune.
+func capabilitiesCell(translator i18n.Translator, row app.VolumeRow) string {
+	if row.Capabilities == nil {
+		return translator.Text(i18n.KeyCLIVolumeNotProbed, nil)
+	}
+	capabilities := row.Capabilities
+	named := []struct {
+		name    string
+		present bool
+	}{
+		{"symlink", capabilities.Symlink},
+		{"hardlink", capabilities.Hardlink},
+		{"atomic_replace", capabilities.AtomicReplace},
+		{"server_copy", capabilities.ServerCopy},
+		{"identity", capabilities.Identity},
+	}
+	var present []string
+	for _, capability := range named {
+		if capability.present {
+			present = append(present, capability.name)
+		}
+	}
+	if len(present) == 0 {
+		return "-"
+	}
+	return strings.Join(present, ",")
+}
+
+func writeVolumeProbe(writer io.Writer, translator i18n.Translator, result app.VolumeProbeResult) {
+	if result.Result == app.VolumeProbeOK {
+		_, _ = fmt.Fprintln(writer, translator.Text(i18n.KeyCLIVolumeProbeOK, textParams("volume", result.Volume)))
+		return
+	}
+	_, _ = fmt.Fprintln(writer, translator.Text(i18n.KeyCLIVolumeProbeFailed, textParams(
+		"volume", result.Volume, "code", result.Error, "label", translator.ReasonLabel(result.Error))))
+}
+
 func writeSourceTest(writer io.Writer, translator i18n.Translator, result app.SourceTestResult) {
 	if result.Result == app.SourceTestOK {
 		_, _ = fmt.Fprintln(writer, translator.Text(i18n.KeyCLISourceTestOK, textParams("source", result.Source)))

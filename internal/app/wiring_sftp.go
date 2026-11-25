@@ -109,6 +109,15 @@ func (remote *sftpVolumes) doctorVolumes() map[string]doctor.RemoteVolume {
 	return volumes
 }
 
+// handles donne à volumes list et volumes probe les volumes sftp du registre, par nom de fournisseur.
+func (remote *sftpVolumes) handles() map[string]VolumeHandle {
+	handles := make(map[string]VolumeHandle, len(remote.volumes))
+	for name, volume := range remote.volumes {
+		handles[name] = volume
+	}
+	return handles
+}
+
 // Close ferme chaque volume ; il ne se reconnecte plus.
 func (remote *sftpVolumes) Close() error {
 	var closeErrors []error
