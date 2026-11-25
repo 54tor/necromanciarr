@@ -54,17 +54,21 @@ func checkLinkFeasibility(settings config.Config, deps Deps) Result {
 		return Result{Status: Skipped, Code: CodeNoLinkDirectory, Detail: message(i18n.KeyDoctorLinksNone)}
 	}
 	kinds := allowedKinds(settings)
+	registry := deps.registryFor(settings)
 	if deps.Probe == nil {
-		deps.Probe = registryProbe(settings.LibraryRoots)
+		deps.Probe = registryProbe(registry)
+	}
+	if deps.SameVolume == nil {
+		deps.SameVolume = sameVolumeIn(registry)
 	}
 	var collected findings
 	for _, directory := range directories {
-		if _, resolveErr := filepath.EvalSymlinks(directory); resolveErr != nil {
+		if _, resolveErr := canonicalThrough(registry, directory); resolveErr != nil {
 			collected.add(Fail, CodeLinkDirUnresolved, message(i18n.KeyDoctorLinkDirUnresolved, "dir", directory),
 				message(i18n.KeyDoctorLinkDirUnresolvedHint))
 			continue
 		}
-		if root, inside := insideLibraryRoot(directory, settings.LibraryRoots); inside {
+		if root, inside := insideLibraryRoot(registry, directory, settings.LibraryRoots); inside {
 			collected.add(Fail, CodeLinkDirInLibrary, message(i18n.KeyDoctorLinkDirInLibrary, "dir", directory, "root", root),
 				message(i18n.KeyDoctorLinkDirInLibraryHint))
 			continue

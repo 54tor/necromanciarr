@@ -18,20 +18,33 @@ linters:
         # Invariant I1 : seul fsys.Registry.WriteRoot ouvre une racine d'écriture, après le contrôle des bibliothèques.
         - pattern: '^fsys\.Volume\.OpenWriteRoot$'
           msg: only fsys.Registry.WriteRoot opens a write root
-        # Le linker, le pipeline, dedupe et repair n'écrivent qu'à travers une fsys.WriteRoot (doublé par des tests
-        # qui interdisent l'import de os).
+        # Invariant I1 : hors de internal/fsys et internal/store, toute écriture disque passe par une fsys.WriteRoot
+        # (doublé, dans linker, pipeline, dedupe et repair, par des tests qui interdisent l'import de os).
         - pattern: '^os\.(Link|Symlink|WriteFile|Rename|Remove|RemoveAll|Mkdir|MkdirAll|MkdirTemp|Create|CreateTemp|OpenFile|OpenRoot|Chmod|Chown|Lchown|Truncate|Chtimes)$'
           pkg: '^os$'
-          msg: the linker, the pipeline, dedupe and repair write only through fsys.WriteRoot
+          msg: write to disk only through fsys.WriteRoot (fsys.Registry.WriteRoot)
+        - pattern: '^ioutil\.(WriteFile|TempFile|TempDir)$'
+          pkg: '^io/ioutil$'
+          msg: write to disk only through fsys.WriteRoot (fsys.Registry.WriteRoot)
+        # La clé d'hôte SSH est toujours vérifiée (knownHosts) : aucune exception, tests compris.
+        - pattern: '^ssh\.InsecureIgnoreHostKey$'
+          pkg: '^golang\.org/x/crypto/ssh$'
+          msg: host keys are always checked against knownHosts
+        # Les commandes distantes (liste fermée, en lecture seule) ne partent que de internal/fsys/sftpfs/exec.go ;
+        # la règle prend effet dès que ce fichier et le paquet x/crypto/ssh sont utilisés (tâches SFTP).
+        - pattern: '^ssh\.Session\.(Run|Start|Output|CombinedOutput)$'
+          pkg: '^golang\.org/x/crypto/ssh$'
+          msg: remote commands run only from internal/fsys/sftpfs/exec.go
   exclusions:
     rules:
-      # Les autres paquets écrivent encore par os jusqu'à leur migration ; les tests posent leurs fixtures.
-      - path-except: '^internal/(linker|pipeline|dedupe|repair)/'
+      # Les volumes implémentent les écritures ; la base SQLite écrit son propre fichier.
+      - path: '^internal/(fsys|store)/'
         linters: [forbidigo]
-        text: dedupe and repair write only through
-      - path: '^internal/(linker|pipeline|dedupe|repair)/.*_test\.go$'
+        text: write to disk only through
+      # Tests qui posent leurs fixtures sur le disque, paquet par paquet (liste explicite, jamais internal/**).
+      - path: '^(cmd/necromanciarr|internal/(app|config|crossseed|dedupe|doctor|hashsource|library|linker|pipeline|repair|web))/[^/]+_test\.go$'
         linters: [forbidigo]
-        text: dedupe and repair write only through
+        text: write to disk only through
       # Les volumes et leur suite de conformité implémentent ou éprouvent OpenWriteRoot.
       - path: '^internal/fsys/'
         linters: [forbidigo]
@@ -40,4 +53,8 @@ linters:
       - path: '^internal/pipeline/registry_test\.go$'
         linters: [forbidigo]
         text: only fsys.Registry.WriteRoot
+      # Seul point d'envoi des commandes distantes.
+      - path: '^internal/fsys/sftpfs/exec\.go$'
+        linters: [forbidigo]
+        text: remote commands run only from
 # gofumpt et goimports tournent via make fmt / make imports (même version épinglée dans go.mod).

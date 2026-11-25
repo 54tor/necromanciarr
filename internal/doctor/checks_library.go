@@ -3,14 +3,13 @@ package doctor
 import (
 	"context"
 	"errors"
-	"io"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/torrentcheck"
@@ -21,40 +20,45 @@ const (
 	probeSizeFilter = int64(1)
 )
 
-// checkLibraryRoots ne fait que lire : aucune écriture dans une racine de bibliothèque.
-func checkLibraryRoots(ctx context.Context, settings config.Config) Result {
+// checkLibraryRoots ne fait que lire, à travers le registre : aucune écriture dans une racine de bibliothèque.
+func checkLibraryRoots(ctx context.Context, settings config.Config, deps Deps) Result {
 	if len(settings.LibraryRoots) == 0 {
 		return Result{
 			Status: Warn, Code: CodeNoLibraryRoot,
 			Detail: message(i18n.KeyDoctorRootsNone), Hint: message(i18n.KeyDoctorRootsNoneHint),
 		}
 	}
+	registry := deps.registryFor(settings)
 	var collected findings
 	for _, root := range settings.LibraryRoots {
-		status, code, detail, hint := inspectLibraryRoot(ctx, root)
+		status, code, detail, hint := inspectLibraryRoot(ctx, registry, root)
 		collected.add(status, code, detail, hint)
 	}
 	return collected.result()
 }
 
-func inspectLibraryRoot(ctx context.Context, root string) (Status, string, i18n.Message, i18n.Message) {
+func inspectLibraryRoot(ctx context.Context, registry *fsys.Registry, root string) (Status, string, i18n.Message, i18n.Message) {
 	notFound := func() (Status, string, i18n.Message, i18n.Message) {
 		return Fail, CodeRootNotFound, message(i18n.KeyDoctorRootNotFound, "root", root), message(i18n.KeyDoctorRootNotFoundHint)
 	}
-	resolvedRoot, err := filepath.EvalSymlinks(root)
+	reader, name, err := readerOf(registry, root)
 	if err != nil {
 		return notFound()
 	}
-	info, err := os.Stat(resolvedRoot)
+	resolvedRoot, err := reader.Canonical(name)
+	if err != nil {
+		return notFound()
+	}
+	info, err := reader.Stat(resolvedRoot)
 	switch {
 	case err != nil:
 		return notFound()
 	case !info.IsDir():
 		return Fail, CodeRootNotDir, message(i18n.KeyDoctorRootNotDirectory, "root", root), i18n.Message{}
-	case !isReadable(resolvedRoot):
+	case !isReadable(reader, resolvedRoot):
 		return Fail, CodeRootUnreadable, message(i18n.KeyDoctorRootNotReadable, "root", root), message(i18n.KeyDoctorRootNotReadableHint)
 	}
-	walk := findMediaFile(ctx, resolvedRoot)
+	walk := findMediaFile(ctx, reader, resolvedRoot)
 	skipped := walk.unreadable > 0
 	count := strconv.Itoa(walk.unreadable)
 	if walk.found {
@@ -72,47 +76,68 @@ func inspectLibraryRoot(ctx context.Context, root string) (Status, string, i18n.
 		message(i18n.KeyDoctorRootNoMediaHint)
 }
 
-func isReadable(directory string) bool {
-	opened, err := os.Open(directory) // #nosec G304 -- racine configurée par l'opérateur, ouverte en lecture seule
-	if err != nil {
-		return false
-	}
-	defer func() { _ = opened.Close() }()
-	_, err = opened.Readdirnames(1)
-	return err == nil || errors.Is(err, io.EOF)
+func isReadable(reader fsys.ReadFS, directory string) bool {
+	_, err := reader.ReadDir(directory)
+	return err == nil
 }
 
 type mediaWalk struct {
 	found      bool
 	entries    int
 	unreadable int
+	stopped    bool
 }
 
-// findMediaFile parcourt au plus maxWalkEntries entrées sans ouvrir aucun fichier ; un lien symbolique dont
-// l'extension est média compte, un sous-dossier illisible est sauté et dénombré.
-func findMediaFile(ctx context.Context, root string) mediaWalk {
+// findMediaFile parcourt au plus maxWalkEntries entrées sans ouvrir aucun fichier ni suivre un lien symbolique de
+// dossier ; un lien symbolique dont l'extension est média compte, un sous-dossier illisible est sauté et dénombré
+// (compté deux fois, comme filepath.WalkDir le présente : à l'entrée puis à l'échec de sa lecture).
+func findMediaFile(ctx context.Context, reader fsys.ReadFS, root string) mediaWalk {
 	var walk mediaWalk
-	_ = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		walk.entries++
-		if ctx.Err() != nil || walk.entries > maxWalkEntries {
-			return fs.SkipAll
-		}
-		if err != nil {
-			walk.unreadable++
-			if entry != nil && entry.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		isFileLike := entry.Type().IsRegular() || entry.Type()&fs.ModeSymlink != 0
-		// Même définition du média que Scan et Verify : doctor ne doit pas annoncer un média que Scan ignorerait.
-		if isFileLike && torrentcheck.IsMediaPath(path) {
-			walk.found = true
-			return fs.SkipAll
-		}
-		return nil
-	})
+	walk.visitDirectory(ctx, reader, root)
 	return walk
+}
+
+// visit compte une entrée et dit si le parcours doit s'arrêter (annulation, budget épuisé).
+func (walk *mediaWalk) visit(ctx context.Context) bool {
+	walk.entries++
+	walk.stopped = walk.stopped || ctx.Err() != nil || walk.entries > maxWalkEntries
+	return walk.stopped
+}
+
+func (walk *mediaWalk) visitDirectory(ctx context.Context, reader fsys.ReadFS, directory string) {
+	if walk.visit(ctx) {
+		return
+	}
+	entries, err := reader.ReadDir(directory)
+	if err != nil {
+		if !walk.visit(ctx) {
+			walk.unreadable++
+		}
+		return
+	}
+	slices.SortFunc(entries, func(first, second fs.DirEntry) int { return strings.Compare(first.Name(), second.Name()) })
+	for _, entry := range entries {
+		entryPath := reader.Paths().Join(directory, entry.Name())
+		if entry.IsDir() {
+			walk.visitDirectory(ctx, reader, entryPath)
+		} else {
+			walk.visitFile(ctx, entry, entryPath)
+		}
+		if walk.stopped || walk.found {
+			return
+		}
+	}
+}
+
+func (walk *mediaWalk) visitFile(ctx context.Context, entry fs.DirEntry, entryPath string) {
+	if walk.visit(ctx) {
+		return
+	}
+	isFileLike := entry.Type().IsRegular() || entry.Type()&fs.ModeSymlink != 0
+	// Même définition du média que Scan et Verify : doctor ne doit pas annoncer un média que Scan ignorerait.
+	if isFileLike && torrentcheck.IsMediaPath(entryPath) {
+		walk.found = true
+	}
 }
 
 func checkLibraryAPI(ctx context.Context, settings config.Config, deps Deps) Result {

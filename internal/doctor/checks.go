@@ -8,6 +8,7 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/libraryprovider"
@@ -68,6 +69,9 @@ type Deps struct {
 	CapsCache *CapsCache
 	// SealedProbe lit les .torrent scellés en base pour tenter de les desceller (nil : contrôle de la clé seul).
 	SealedProbe SealedProbe
+	// Registry lit la bibliothèque et les dossiers de liens et ouvre la racine d'écriture de la sonde des liens (nil :
+	// disque local et racines de bibliothèque de la configuration).
+	Registry *fsys.Registry
 }
 
 func (deps Deps) withDefaults() Deps {
@@ -88,9 +92,6 @@ func (deps Deps) withDefaults() Deps {
 	}
 	if deps.FilesystemKind == nil {
 		deps.FilesystemKind = linker.FilesystemKindOf
-	}
-	if deps.SameVolume == nil {
-		deps.SameVolume = sameVolume
 	}
 	if deps.NewCapsReader == nil {
 		deps.NewCapsReader = newTorznabCapsReader
@@ -125,7 +126,7 @@ func Build(settings config.Config, deps Deps) []Check {
 		newCheck(IDConfig, i18n.KeyDoctorTitleConfig, func(context.Context) Result { return checkConfig(settings) }),
 		newCheck(IDConfigDir, i18n.KeyDoctorTitleConfigDir, func(context.Context) Result { return checkConfigDir(settings, deps) }),
 		newCheck(IDAuth, i18n.KeyDoctorTitleAuth, func(context.Context) Result { return checkAuth(settings) }),
-		newCheck(IDLibraryRoots, i18n.KeyDoctorTitleLibraryRoots, func(ctx context.Context) Result { return checkLibraryRoots(ctx, settings) }),
+		newCheck(IDLibraryRoots, i18n.KeyDoctorTitleLibraryRoots, func(ctx context.Context) Result { return checkLibraryRoots(ctx, settings, deps) }),
 		newCheck(IDLibraryAPI, i18n.KeyDoctorTitleLibraryAPI, func(ctx context.Context) Result { return checkLibraryAPI(ctx, settings, deps) }),
 	}
 	checks = append(checks, arrChecks(settings, deps)...)
@@ -136,8 +137,8 @@ func Build(settings config.Config, deps Deps) []Check {
 		newCheck(IDLinks, i18n.KeyDoctorTitleLinks, func(context.Context) Result { return checkLinkFeasibility(settings, deps) }),
 		newCheck(IDFSProviders, i18n.KeyDoctorTitleFSProviders, func(ctx context.Context) Result { return checkFSProviders(ctx, settings, deps) }),
 		newCheck(IDCrossSeed, i18n.KeyDoctorTitleCrossSeed, func(ctx context.Context) Result { return checkCrossSeed(ctx, settings, deps) }),
-		newCheck(IDPathMappings, i18n.KeyDoctorTitlePathMappings, func(context.Context) Result { return checkPathMappings(settings) }),
-		newCheck(IDDedupe, i18n.KeyDoctorTitleDedupe, func(context.Context) Result { return checkDedupe(settings) }),
+		newCheck(IDPathMappings, i18n.KeyDoctorTitlePathMappings, func(context.Context) Result { return checkPathMappings(settings, deps) }),
+		newCheck(IDDedupe, i18n.KeyDoctorTitleDedupe, func(context.Context) Result { return checkDedupe(settings, deps) }),
 	)
 	secrets := settings.KnownSecrets()
 	for index := range checks {
@@ -227,14 +228,15 @@ func configLoadResult(settings config.Config) Result {
 }
 
 func checkConfigDir(settings config.Config, deps Deps) Result {
-	if !isDirectory(settings.ConfigDir) {
+	registry := deps.registryFor(settings)
+	if !isDirectory(registry, settings.ConfigDir) {
 		return Result{
 			Status: Fail, Code: CodeConfigDirMissing,
 			Detail: message(i18n.KeyDoctorConfigDirMissing, "path", settings.ConfigDir), Hint: message(i18n.KeyDoctorConfigDirMissingHint),
 		}
 	}
 	databasePath := config.ResolveDBPath(settings)
-	if refusal, refused := refuseDatabasePath(databasePath, settings.LibraryRoots); refused {
+	if refusal, refused := refuseDatabasePath(registry, databasePath, settings.LibraryRoots); refused {
 		return refusal
 	}
 	database, err := deps.OpenStore(databasePath)
@@ -251,8 +253,8 @@ func checkConfigDir(settings config.Config, deps Deps) Result {
 
 // refuseDatabasePath refuse d'ouvrir la base si son dossier ne se résout pas ou si, liens symboliques suivis (dossier
 // et fichier lui-même), elle tombe dans une racine de bibliothèque.
-func refuseDatabasePath(databasePath string, libraryRoots []string) (Result, bool) {
-	resolvedDirectory, err := filepath.EvalSymlinks(filepath.Dir(databasePath))
+func refuseDatabasePath(registry *fsys.Registry, databasePath string, libraryRoots []string) (Result, bool) {
+	resolvedDirectory, err := canonicalThrough(registry, filepath.Dir(databasePath))
 	if err != nil {
 		return Result{
 			Status: Fail, Code: CodeDatabaseDirUnresolved,
@@ -261,11 +263,11 @@ func refuseDatabasePath(databasePath string, libraryRoots []string) (Result, boo
 		}, true
 	}
 	directories := []string{resolvedDirectory}
-	if resolvedFile, fileErr := filepath.EvalSymlinks(databasePath); fileErr == nil {
+	if resolvedFile, fileErr := canonicalThrough(registry, databasePath); fileErr == nil {
 		directories = append(directories, filepath.Dir(resolvedFile))
 	}
 	for _, directory := range directories {
-		if root, inside := insideLibraryRoot(directory, libraryRoots); inside {
+		if root, inside := insideLibraryRoot(registry, directory, libraryRoots); inside {
 			return Result{
 				Status: Fail, Code: CodeDatabaseInLibrary,
 				Detail: message(i18n.KeyDoctorDatabaseInLibrary, "root", root), Hint: message(i18n.KeyDoctorDatabaseInLibraryHint),
@@ -288,14 +290,15 @@ func checkAuth(settings config.Config) Result {
 	return Result{Status: OK, Code: CodeAuthTokenOK, Detail: message(i18n.KeyDoctorAuthToken, "address", settings.ListenAddr)}
 }
 
-func checkPathMappings(settings config.Config) Result {
+func checkPathMappings(settings config.Config, deps Deps) Result {
 	if len(settings.PathRules) == 0 {
 		return Result{Status: Skipped, Code: CodeNoPathMapping, Detail: message(i18n.KeyDoctorPathMappingsNone)}
 	}
+	registry := deps.registryFor(settings)
 	var collected findings
 	for ruleIndex, rule := range settings.PathRules {
 		index := strconv.Itoa(ruleIndex)
-		if !pathExists(rule.From) && !pathExists(rule.To) {
+		if !pathExists(registry, rule.From) && !pathExists(registry, rule.To) {
 			collected.add(Warn, CodeRuleUnreachable, message(i18n.KeyDoctorPathRuleUnreachable, "index", index),
 				message(i18n.KeyDoctorPathRuleUnreachableHint))
 			continue
@@ -319,19 +322,20 @@ func coversAnyRoot(rule config.PathRule, roots []string) bool {
 	return false
 }
 
-func checkDedupe(settings config.Config) Result {
+func checkDedupe(settings config.Config, deps Deps) Result {
 	if len(settings.Dedupe.TorrentRoots) == 0 {
 		return Result{Status: Skipped, Code: CodeDedupeInactive, Detail: message(i18n.KeyDoctorDedupeNone)}
 	}
+	registry := deps.registryFor(settings)
 	var collected findings
 	for rootIndex, torrentRoot := range settings.Dedupe.TorrentRoots {
 		index := strconv.Itoa(rootIndex)
-		if overlapped, found := overlappingTorrentRoot(torrentRoot, settings.LibraryRoots); found {
+		if overlapped, found := overlappingTorrentRoot(registry, torrentRoot, settings.LibraryRoots); found {
 			collected.add(Fail, CodeTorrentRootOverlap, message(i18n.KeyDoctorDedupeOverlap, "index", index, "root", overlapped),
 				message(i18n.KeyDoctorDedupeOverlapHint))
 			continue
 		}
-		if !isDirectory(torrentRoot) {
+		if !isDirectory(registry, torrentRoot) {
 			collected.add(Warn, CodeTorrentRootMissing, message(i18n.KeyDoctorDedupeMissing, "index", index), i18n.Message{})
 			continue
 		}
@@ -351,9 +355,9 @@ func overlappingRoot(candidate string, roots []string) (string, bool) {
 
 // overlappingTorrentRoot cumule la comparaison lexicale et celle des chemins résolus : un lien symbolique ne doit pas
 // ranger une racine torrent dans la bibliothèque sans que le contrôle le voie.
-func overlappingTorrentRoot(torrentRoot string, libraryRoots []string) (string, bool) {
+func overlappingTorrentRoot(registry *fsys.Registry, torrentRoot string, libraryRoots []string) (string, bool) {
 	if root, found := overlappingRoot(torrentRoot, libraryRoots); found {
 		return root, true
 	}
-	return insideLibraryRoot(torrentRoot, libraryRoots)
+	return insideLibraryRoot(registry, torrentRoot, libraryRoots)
 }

@@ -284,11 +284,11 @@ func TestChecks_libraryRootsFollowSymlinksAndSkipUnreadableSubdirectories(t *tes
 	t.Cleanup(func() { _ = os.Chmod(lockedDirectory, 0o750) })
 
 	for name, root := range map[string]string{"symlinked root": symlinkedRoot, "symlinked media file": linkedMediaRoot} {
-		if got := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{root}}); got.Status != OK {
+		if got := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{root}}, Deps{}); got.Status != OK {
 			t.Fatalf("%s: gotValue %+v", name, got)
 		}
 	}
-	got := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{unreadableRoot}})
+	got := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{unreadableRoot}}, Deps{})
 	isRoot := os.Geteuid() == 0
 	if got.Status != OK || (!isRoot && !strings.Contains(detailOf(got), "unreadable subdirectories skipped: 1")) {
 		t.Fatalf("unreadable subdirectory: gotValue %+v", got)
@@ -428,7 +428,7 @@ func TestChecks_libraryRootsAreNeverWritten(t *testing.T) {
 func TestChecks_libraryRootsWarnsWhenEmptyAndFailsWhenMissing(t *testing.T) {
 	emptyRoot := t.TempDir()
 
-	got := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{emptyRoot, filepath.Join(emptyRoot, "absent")}})
+	got := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{emptyRoot, filepath.Join(emptyRoot, "absent")}}, Deps{})
 
 	if got.Status != Fail || !strings.Contains(detailOf(got), "no media file") || !strings.Contains(detailOf(got), "not found") {
 		t.Fatalf("gotValue %+v", got)
@@ -492,13 +492,13 @@ func TestChecks_dedupeAndPathMappings(t *testing.T) {
 		PathRules:    []config.PathRule{{From: "/home/u/absent-a", To: "/home/u/absent-b"}},
 	}
 
-	if got := checkDedupe(settings); got.Status != Fail {
+	if got := checkDedupe(settings, Deps{}); got.Status != Fail {
 		t.Fatalf("dedupe: gotValue %+v", got)
 	}
-	if got := checkPathMappings(settings); got.Status != Warn {
+	if got := checkPathMappings(settings, Deps{}); got.Status != Warn {
 		t.Fatalf("path mappings: gotValue %+v", got)
 	}
-	if got := checkDedupe(config.Config{}); got.Status != Skipped {
+	if got := checkDedupe(config.Config{}, Deps{}); got.Status != Skipped {
 		t.Fatalf("dedupe empty: gotValue %+v", got)
 	}
 }
@@ -662,7 +662,7 @@ func TestChecks_dedupeCatchesTorrentRootSymlinkedIntoLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := checkDedupe(config.Config{LibraryRoots: []string{libraryRoot}, Dedupe: config.Dedupe{TorrentRoots: []string{symlinkedRoot}}})
+	got := checkDedupe(config.Config{LibraryRoots: []string{libraryRoot}, Dedupe: config.Dedupe{TorrentRoots: []string{symlinkedRoot}}}, Deps{})
 
 	if got.Status != Fail {
 		t.Fatalf("gotValue %+v", got)
@@ -689,7 +689,7 @@ func TestChecks_libraryRootsAgreeWithScanOnMediaExtensions(t *testing.T) {
 			t.Fatal(err)
 		}
 		expectedValue := len(scannedFiles) == 1
-		gotValue := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{root}}).Status == OK
+		gotValue := checkLibraryRoots(context.Background(), config.Config{LibraryRoots: []string{root}}, Deps{}).Status == OK
 		if gotValue != expectedValue {
 			t.Fatalf("%s: expectedValue media=%v (scan), gotValue media=%v (doctor)", extension, expectedValue, gotValue)
 		}
