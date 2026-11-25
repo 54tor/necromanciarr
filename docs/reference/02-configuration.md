@@ -176,7 +176,7 @@ Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer 
 |---|---|---|
 | `type` | obligatoire | `sftp` |
 | `name` | obligatoire | `[a-z0-9-]+`, unique ; c'est le `<name>` des adresses `sftp://<name>/…` |
-| `address` | obligatoire | `host` ou `host:port` (nom d'hôte ou adresse IP), port `22` par défaut ; IPv6 entre crochets (`[::1]` ou `[::1]:22`) ; ni URL (`sftp://…`), ni caractère de contrôle, ni crochet isolé |
+| `address` | obligatoire | `host` ou `host:port` (nom d'hôte ou adresse IP), port `22` par défaut ; IPv6 entre crochets (`[::1]` ou `[::1]:22`) ; ni URL (`sftp://…`), ni caractère de contrôle, ni crochet isolé, ni caractère de motif `known_hosts` (`,` `*` `?` `!`) |
 | `user` | obligatoire | compte SSH ; un compte sans droit d'écriture sur la bibliothèque est recommandé |
 | `knownHosts` | obligatoire | chemin local absolu d'un fichier `known_hosts` OpenSSH ; la clé d'hôte est toujours vérifiée, aucune option ne l'ignore. L'existence du fichier relève de `doctor` |
 | `identityFile` | vide | chemin local absolu d'une clé privée (ed25519, ecdsa ou rsa ≥ 3072) ; une clé RSA plus courte est refusée (`identity_key_too_weak`). Les clés de l'agent ne sont pas filtrées |

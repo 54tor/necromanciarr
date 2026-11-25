@@ -293,3 +293,13 @@ func TestConfig_sftpCapsConcurrentRequests(t *testing.T) {
 		t.Fatalf("257: valeurObtenue %v, valeurAttendue a usage error naming the key and the limit", err)
 	}
 }
+
+func TestConfig_sftpAddressRefusesKnownHostsPatternCharacters(t *testing.T) {
+	for _, rawAddress := range []string{"a.example.com,*.example.com", "*.example.com", "seedbox?.example.com:22", "!seedbox.example.com"} {
+		_, err := loadFromJSON(t, configWith(t, sftpProvider(map[string]any{"address": rawAddress}), nil), nil)
+
+		if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "address") {
+			t.Fatalf("%q: gotValue %v, expectedValue a usage error naming the address", rawAddress, err)
+		}
+	}
+}

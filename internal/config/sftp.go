@@ -144,7 +144,8 @@ func normalizeSFTPAddress(rawAddress string) (string, error) {
 	}
 	portNumber, portErr := strconv.Atoi(port)
 	isValidPort := portErr == nil && portNumber > 0 && portNumber <= 65535
-	if host == "" || strings.ContainsAny(host, "/@[] \t") || !isValidPort {
+	// , * ? ! sont des motifs de known_hosts : sftp trust écrirait sinon une épingle générique.
+	if host == "" || strings.ContainsAny(host, "/@[] \t,*?!") || !isValidPort {
 		return "", fmt.Errorf("address %q is required as host or host:port (port 1-65535)", rawAddress)
 	}
 	return net.JoinHostPort(host, port), nil
