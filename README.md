@@ -19,6 +19,8 @@ make ui && make build          # interface web embarquée, puis binaire ./necrom
 
 La configuration tient dans un dossier (`--config-dir`, `CONFIG_DIR`, ou `~/.config/necromanciarr`) qui contient `config.json` (modèle : [`config.example.json`](config.example.json)) et `.env` (modèle : [`.env.example`](.env.example)). Pour seeder les torrents du fournisseur, qui n'ont pas d'annonce, la section `trackers` de `config.json` est indispensable (passkey dans `.env`, voir [`docs/reference/02-configuration.md`](docs/reference/02-configuration.md)). Le pipeline se lance étape par étape : `scan`, `match`, `verify`, puis `proposals list` et `proposals accept <id>`, puis `link` et `seed`.
 
+`language` (`fr` ou `en`) fixe la langue de la CLI, de l'API et de l'interface web. Les indexeurs Torznab et Prowlarr (`torznab`, `prowlarr`, `sourceOrder`) complètent le fournisseur pour les fichiers qu'il ne couvre pas. Une bibliothèque ou un dossier de liens peut vivre sur un hôte distant (volume `sftp://`, voir [`docs/reference/05-docker-and-volumes.md`](docs/reference/05-docker-and-volumes.md)).
+
 ## Docker
 
 ```sh
@@ -44,4 +46,4 @@ L'image écoute sur `0.0.0.0:8787` : `serve` refuse de démarrer sans jeton d'au
 |---|---|
 | Linux `amd64` | binaire et image construits, tests exécutés en CI |
 | Linux `arm64`, `riscv64` | binaires et images construits en CI, **jamais exécutés** (pas d'émulation) |
-| Windows `amd64`, `arm64` | binaires construits ; tests des paquets `linker`, `config` et `pipeline` exécutés en CI sur `amd64` |
+| Windows `amd64`, `arm64` | binaires construits ; tests des paquets `linker`, `config`, `pipeline` et `fsys` exécutés en CI sur `amd64` |
