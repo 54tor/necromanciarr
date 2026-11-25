@@ -2,7 +2,6 @@ package repair
 
 import (
 	"errors"
-	"os"
 	"sort"
 
 	"necromanciarr/internal/dedupe"
@@ -27,7 +26,8 @@ func paths(files []store.MediaFile) []string {
 	return listed
 }
 
-// locate essaie les méthodes dans l'ordre : inode (si fiable), taille et date, puis empreinte.
+// locate essaie les méthodes dans l'ordre : inode (enregistré fiable, et volume qui annonce l'identité), taille et
+// date, puis empreinte.
 func (run *scanRun) locate(link store.Link) (located, error) {
 	budget := &readBudget{remaining: run.options.MaxCandidatesToRead}
 	sized := run.bySize[link.Size]
@@ -64,17 +64,34 @@ func without(files []store.MediaFile, excludedPath string) []store.MediaFile {
 
 func (run *scanRun) sameInode(link store.Link, sized []store.MediaFile) []store.MediaFile {
 	var matching []store.MediaFile
+	files := run.options.files
 	for _, candidate := range sized {
-		info, err := os.Stat(candidate.Path)
+		if !run.announcesFileIdentity(candidate.Path) {
+			continue
+		}
+		info, err := files.Stat(candidate.Path)
 		if err != nil {
 			continue
 		}
-		device, inode, known := dedupe.FileIdentity(info)
-		if known && device == link.TargetDevice && inode == link.TargetInode {
+		identity, known := files.FileID(candidate.Path, info)
+		if known && identity.Device == link.TargetDevice && identity.Inode == link.TargetInode {
 			matching = append(matching, candidate)
 		}
 	}
 	return matching
+}
+
+// announcesFileIdentity : la méthode inode n'a de sens que si le volume du candidat annonce FileIdentity ou
+// RemoteStat ; lu une fois par volume, une erreur vaut « non annoncé ».
+func (run *scanRun) announcesFileIdentity(candidatePath string) bool {
+	volume := dedupe.VolumeOf(candidatePath)
+	if capable, found := run.identityCapable[volume]; found {
+		return capable
+	}
+	capabilities, err := run.options.files.Capabilities(run.ctx, candidatePath)
+	capable := err == nil && (capabilities.FileIdentity || capabilities.RemoteStat)
+	run.identityCapable[volume] = capable
+	return capable
 }
 
 func (run *scanRun) sameModTime(link store.Link, sized []store.MediaFile) []store.MediaFile {
@@ -152,16 +169,25 @@ func (run *scanRun) confirm(link store.Link, candidate store.MediaFile, budget *
 	if link.Fingerprint == "" {
 		return false, false, nil
 	}
-	fingerprint, fromCache, err := dedupe.HeadTailFingerprint(run.ctx, run.options.FingerprintCache, run.options.Limiter,
-		candidate.Path, candidate.Size, candidate.ModTime, budget.remaining > 0)
+	fingerprint, err := run.candidateFingerprint(candidate, budget)
 	if errors.Is(err, dedupe.ErrNoCachedFingerprint) {
 		return false, true, nil
 	}
 	if err != nil {
 		return false, false, err
 	}
-	if !fromCache {
-		budget.remaining--
-	}
 	return fingerprint == link.Fingerprint, false, nil
+}
+
+// candidateFingerprint lit le cache sans rien lire, puis, si le budget le permet, l'empreinte par le registre sous le
+// limiteur ; une lecture consomme le budget.
+func (run *scanRun) candidateFingerprint(candidate store.MediaFile, budget *readBudget) (string, error) {
+	cache := run.options.FingerprintCache
+	fingerprint, _, err := dedupe.HeadTailFingerprint(run.ctx, cache, nil, candidate.Path, candidate.Size, candidate.ModTime, false)
+	if !errors.Is(err, dedupe.ErrNoCachedFingerprint) || budget.remaining <= 0 {
+		return fingerprint, err
+	}
+	budget.remaining--
+	open := func() (dedupe.ReadAtCloser, error) { return run.options.files.Open(candidate.Path) }
+	return dedupe.HeadTailFingerprintOf(run.ctx, cache, run.options.Limiter, open, candidate.Path, candidate.Size, candidate.ModTime)
 }

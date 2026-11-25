@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"time"
 
 	"necromanciarr/internal/dedupe"
@@ -44,7 +42,8 @@ type ApplyOptions struct {
 	DryRun    bool
 	Store     LinkUpdater
 	Rechecker dedupe.Rechecker
-	// Registry ouvre les racines d'écriture des liens ; nil : toute écriture est refusée (fsys.ErrNoLibraryRoots).
+	// Registry lit les liens et ouvre leurs racines d'écriture ; nil : lecture du seul disque local, toute écriture
+	// refusée (fsys.ErrNoLibraryRoots).
 	Registry *fsys.Registry
 
 	renameFile func(temporaryPath, linkPath string) error
@@ -68,14 +67,14 @@ type Result struct {
 }
 
 // Apply remplace chaque lien cassé par un lien vers sa nouvelle cible : racine autorisée, lien toujours symbolique et
-// toujours dirigé vers OldTarget, nouveau fichier ordinaire de la taille attendue. Le lien est créé sous un nom
-// temporaire voisin puis renommé par-dessus l'ancien (atomique) ; en cas d'échec seul ce nom temporaire est retiré. Le
-// fichier de la bibliothèque n'est jamais ouvert en écriture. L'erreur renvoyée réunit les échecs des Outcomes.
+// toujours dirigé vers OldTarget, nouveau fichier ordinaire de la taille attendue. Toute écriture passe par la racine
+// d'écriture de la racine du lien, ouverte par le registre : le lien est créé sous un nom temporaire voisin puis
+// remplace l'ancien par WriteRoot.Replace ; sans remplacement atomique annoncé par le volume, rien n'est écrit
+// (fsys.ErrNoAtomicReplace). En cas d'échec seul ce nom temporaire est retiré. Le fichier de la bibliothèque n'est
+// jamais ouvert en écriture. L'erreur renvoyée réunit les échecs des Outcomes.
 func Apply(ctx context.Context, repairs []Repair, options ApplyOptions) (Result, error) {
-	if options.renameFile == nil {
-		options.renameFile = os.Rename
-	}
-	roots, err := resolveRoots(options.Roots)
+	files := dedupe.NewFiles(options.Registry)
+	roots, err := resolveRoots(files, options.Roots)
 	if err != nil {
 		return Result{}, err
 	}
@@ -85,7 +84,7 @@ func Apply(ctx context.Context, repairs []Repair, options ApplyOptions) (Result,
 		if err := ctx.Err(); err != nil {
 			return result, errors.Join(append(failures, err)...)
 		}
-		outcome := applyOne(ctx, repair, options, roots)
+		outcome := applyOne(ctx, files, repair, options, roots)
 		if outcome.Err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", repair.LinkPath, outcome.Err))
 		}
@@ -94,14 +93,10 @@ func Apply(ctx context.Context, repairs []Repair, options ApplyOptions) (Result,
 	return result, errors.Join(failures...)
 }
 
-func resolveRoots(roots []string) ([]string, error) {
+func resolveRoots(files dedupe.Files, roots []string) ([]string, error) {
 	resolved := make([]string, 0, len(roots))
 	for _, root := range roots {
-		absoluteRoot, err := filepath.Abs(root)
-		if err != nil {
-			return nil, err
-		}
-		realRoot, err := filepath.EvalSymlinks(absoluteRoot)
+		realRoot, err := files.Canonical(root)
 		if err != nil {
 			return nil, err
 		}
@@ -110,23 +105,23 @@ func resolveRoots(roots []string) ([]string, error) {
 	return resolved, nil
 }
 
-func applyOne(ctx context.Context, repair Repair, options ApplyOptions, roots []string) Outcome {
+func applyOne(ctx context.Context, files dedupe.Files, repair Repair, options ApplyOptions, roots []string) Outcome {
 	outcome := Outcome{Repair: repair, DryRun: options.DryRun}
-	root, err := rootOfLink(roots, repair.LinkPath)
+	root, err := rootOfLink(files, roots, repair.LinkPath)
 	if err == nil {
-		err = checkLinkUnchanged(repair)
+		err = checkLinkUnchanged(files, repair)
 	}
 	if err == nil {
-		err = checkNewTarget(repair)
+		err = checkNewTarget(files, repair)
 	}
 	if err == nil {
-		outcome.LinkTarget, err = linkText(repair)
+		outcome.LinkTarget, err = files.SymlinkText(repair.LinkPath, repair.NewTarget, repair.Relative)
 	}
 	if err != nil || options.DryRun {
 		outcome.Err = err
 		return outcome
 	}
-	if err := replaceLink(repair, options, root, outcome.LinkTarget); err != nil {
+	if err := replaceLink(ctx, files, repair, options, root, outcome.LinkTarget); err != nil {
 		outcome.Err = err
 		return outcome
 	}
@@ -142,93 +137,111 @@ func applyOne(ctx context.Context, repair Repair, options ApplyOptions, roots []
 }
 
 // rootOfLink résout le dossier du lien (pas le lien lui-même) avant de le comparer aux racines.
-func rootOfLink(roots []string, linkPath string) (string, error) {
-	absolutePath, err := filepath.Abs(linkPath)
-	if err != nil {
-		return "", err
-	}
-	realDirectory, err := filepath.EvalSymlinks(filepath.Dir(absolutePath))
+func rootOfLink(files dedupe.Files, roots []string, linkPath string) (string, error) {
+	realDirectory, err := files.Canonical(dedupe.Dir(linkPath))
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrChangedSinceScan, err)
 	}
-	realPath := filepath.Join(realDirectory, filepath.Base(absolutePath))
+	realPath := dedupe.Join(realDirectory, dedupe.Base(linkPath))
 	for _, root := range roots {
-		relative, err := filepath.Rel(root, realPath)
-		if err == nil && filepath.IsLocal(relative) {
+		if _, err := dedupe.Below(root, realPath); err == nil {
 			return root, nil
 		}
 	}
 	return "", fmt.Errorf("%w: %s", ErrOutsideRoots, linkPath)
 }
 
-func checkLinkUnchanged(repair Repair) error {
-	info, err := os.Lstat(repair.LinkPath)
+func checkLinkUnchanged(files dedupe.Files, repair Repair) error {
+	info, err := files.Lstat(repair.LinkPath)
 	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
 		return fmt.Errorf("%w: %s is no longer a symbolic link", ErrChangedSinceScan, repair.LinkPath)
 	}
-	currentTarget, err := os.Readlink(repair.LinkPath)
+	currentTarget, err := files.Readlink(repair.LinkPath)
 	if err != nil || currentTarget != repair.OldTarget {
 		return fmt.Errorf("%w: %s now points elsewhere", ErrChangedSinceScan, repair.LinkPath)
 	}
 	// Un ancien chemin revenu (ou un état inconnu) ne justifie plus de remplacer le lien.
-	if _, err := os.Stat(repair.LinkPath); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := files.Stat(repair.LinkPath); !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("%w: %s is no longer broken", ErrChangedSinceScan, repair.LinkPath)
 	}
 	return nil
 }
 
-func checkNewTarget(repair Repair) error {
-	info, err := os.Stat(repair.NewTarget)
+func checkNewTarget(files dedupe.Files, repair Repair) error {
+	info, err := files.Stat(repair.NewTarget)
 	if err != nil || !info.Mode().IsRegular() || info.Size() != repair.Size {
 		return fmt.Errorf("%w: %s", ErrTargetInvalid, repair.NewTarget)
 	}
 	return nil
 }
 
-// linkText garde la forme du lien d'origine : relatif reste relatif, absolu reste absolu.
-func linkText(repair Repair) (string, error) {
-	if repair.Relative {
-		return linker.RelativeSymlinkTarget(repair.LinkPath, repair.NewTarget)
-	}
-	return filepath.Abs(repair.NewTarget)
-}
-
-func replaceLink(repair Repair, options ApplyOptions, root, text string) error {
-	temporaryPath := repair.LinkPath + dedupe.TemporaryMarker + rand.Text()
-	if options.Registry == nil {
-		return fsys.ErrNoLibraryRoots
-	}
-	if err := linker.CreateLinkUnder(options.Registry, linker.Symlink, text, fsys.Location{Path: temporaryPath}, fsys.Location{Path: root}); err != nil {
+// replaceLink n'écrit que dans la racine d'écriture de root, ouverte par le registre : lien temporaire voisin,
+// contrôles, puis WriteRoot.Replace ; sans remplacement atomique annoncé, rien n'est créé.
+func replaceLink(ctx context.Context, files dedupe.Files, repair Repair, options ApplyOptions, root, text string) error {
+	writeRoot, err := files.WriteRoot(root)
+	if err != nil {
 		return err
 	}
-	err := checkNewTarget(repair)
+	defer func() { _ = writeRoot.Close() }()
+	if err := requireAtomicReplace(ctx, files, root); err != nil {
+		return err
+	}
+	temporaryPath := repair.LinkPath + dedupe.TemporaryMarker + rand.Text()
+	temporaryRelative, err := dedupe.Below(root, temporaryPath)
+	if err != nil {
+		return err
+	}
+	linkRelative, err := dedupe.Below(root, repair.LinkPath)
+	if err != nil {
+		return err
+	}
+	if err := linker.CreateLinkInRoot(writeRoot, linker.Symlink, text, temporaryRelative); err != nil {
+		return err
+	}
+	rename := options.renameFile
+	if rename == nil {
+		rename = func(string, string) error { return writeRoot.Replace(temporaryRelative, linkRelative) }
+	}
+	err = checkNewTarget(files, repair)
 	if err == nil {
 		// Relu juste avant le renommage : un lien remplacé entre-temps par quelqu'un d'autre ne doit pas être écrasé.
-		err = checkLinkUnchanged(repair)
+		err = checkLinkUnchanged(files, repair)
 	}
 	if err == nil {
-		err = checkTemporaryResolves(temporaryPath, repair.Size)
+		err = checkTemporaryResolves(files, temporaryPath, repair.Size)
 	}
 	if err == nil {
-		err = options.renameFile(temporaryPath, repair.LinkPath)
+		err = rename(temporaryPath, repair.LinkPath)
 	}
 	if err != nil {
-		return errors.Join(err, removeTemporary(temporaryPath))
+		return errors.Join(err, removeTemporary(writeRoot, temporaryRelative))
 	}
 	return nil
 }
 
-func checkTemporaryResolves(temporaryPath string, size int64) error {
-	info, err := os.Stat(temporaryPath)
+// requireAtomicReplace : jamais de repli sur un renommage non atomique ou une suppression puis création.
+func requireAtomicReplace(ctx context.Context, files dedupe.Files, root string) error {
+	capabilities, err := files.Capabilities(ctx, root)
+	if err != nil {
+		return err
+	}
+	if !capabilities.AtomicReplace {
+		return fsys.ErrNoAtomicReplace
+	}
+	return nil
+}
+
+func checkTemporaryResolves(files dedupe.Files, temporaryPath string, size int64) error {
+	info, err := files.Stat(temporaryPath)
 	if err != nil || !info.Mode().IsRegular() || info.Size() != size {
 		return fmt.Errorf("%w: %s", ErrTargetInvalid, temporaryPath)
 	}
 	return nil
 }
 
-// removeTemporary ne retire qu'un nom créé par cet appel : os.Remove ôte le lien, jamais le fichier visé.
-func removeTemporary(temporaryPath string) error {
-	err := os.Remove(temporaryPath)
+// removeTemporary ne retire qu'un nom créé par cet appel : Remove ôte le lien, jamais le fichier visé.
+func removeTemporary(writeRoot fsys.WriteRoot, temporaryRelative string) error {
+	err := writeRoot.Remove(temporaryRelative)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("repair: remove temporary link: %w", err)
 	}

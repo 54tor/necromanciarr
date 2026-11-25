@@ -7,13 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
 	"time"
 
 	"necromanciarr/internal/dedupe"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
 )
@@ -76,7 +77,9 @@ type TorrentSource interface {
 // distante, la méthode par pièces, la mise à jour des états, le plafond de débit et le cache. La date de l'ancienne
 // cible vient de store.Link.ModTime ; RecordedModTimes (clé : TargetPath) la remplace quand elle y figure. Sans date,
 // la méthode taille et date est sautée. Si LibraryRoots n'est pas vide, seuls les fichiers de
-// l'inventaire situés dessous sont retenus. MaxCandidatesToRead plafonne les lectures par lien (défaut 5).
+// l'inventaire situés dessous sont retenus. MaxCandidatesToRead plafonne les lectures par lien (défaut 5). Registry
+// lit liens et fichiers, locaux ou distants (nil : disque local) ; la méthode inode n'est essayée que sur un volume
+// qui annonce l'identité des fichiers (FileIdentity ou RemoteStat).
 type Options struct {
 	LibraryRoots        []string
 	ScanDirectories     []string
@@ -88,7 +91,9 @@ type Options struct {
 	AutoApply           bool
 	Store               LinkStore
 	RecordedModTimes    map[string]time.Time
+	Registry            *fsys.Registry
 
+	files dedupe.Files
 	lstat func(path string) (fs.FileInfo, error)
 	stat  func(path string) (fs.FileInfo, error)
 }
@@ -167,6 +172,8 @@ type scanRun struct {
 	bySize  map[int64][]store.MediaFile
 	repairs []Repair
 	report  Report
+	// identityCapable garde, par volume, si l'identité de fichier est annoncée (la méthode inode en dépend).
+	identityCapable map[string]bool
 }
 
 func newScanRun(ctx context.Context, options Options, library []store.MediaFile) (*scanRun, error) {
@@ -177,13 +184,16 @@ func newScanRun(ctx context.Context, options Options, library []store.MediaFile)
 	if err != nil {
 		return nil, err
 	}
+	options.files = dedupe.NewFiles(options.Registry)
 	if options.lstat == nil {
-		options.lstat = os.Lstat
+		options.lstat = options.files.Lstat
 	}
 	if options.stat == nil {
-		options.stat = os.Stat
+		options.stat = options.files.Stat
 	}
-	run := &scanRun{ctx: ctx, options: options, bySize: map[int64][]store.MediaFile{}}
+	run := &scanRun{
+		ctx: ctx, options: options, bySize: map[int64][]store.MediaFile{}, identityCapable: map[string]bool{},
+	}
 	for _, file := range library {
 		if len(roots) == 0 || isUnderAny(roots, file.Path) {
 			run.bySize[file.Size] = append(run.bySize[file.Size], file)
@@ -198,6 +208,10 @@ func newScanRun(ctx context.Context, options Options, library []store.MediaFile)
 func absolutePaths(paths []string) ([]string, error) {
 	absolute := make([]string, 0, len(paths))
 	for _, path := range paths {
+		if dedupe.IsRemote(path) {
+			absolute = append(absolute, path)
+			continue
+		}
 		absolutePath, err := filepath.Abs(path)
 		if err != nil {
 			return nil, err
@@ -209,8 +223,7 @@ func absolutePaths(paths []string) ([]string, error) {
 
 func isUnderAny(roots []string, path string) bool {
 	for _, root := range roots {
-		relative, err := filepath.Rel(root, path)
-		if err == nil && filepath.IsLocal(relative) {
+		if _, err := dedupe.Below(root, path); err == nil {
 			return true
 		}
 	}
@@ -263,13 +276,14 @@ type Inspection struct {
 	Err       error
 }
 
-// Inspect classe un lien enregistré avec les seuls Lstat, Stat et Readlink, les mêmes contrôles que Scan ; il ne lit
-// aucun contenu et n'écrit rien, ni sur le disque ni en base.
+// Inspect classe un lien enregistré avec les seuls Lstat, Stat et Readlink du disque local, les mêmes contrôles que
+// Scan ; il ne lit aucun contenu et n'écrit rien, ni sur le disque ni en base.
 func Inspect(link store.Link) Inspection {
-	return inspect(os.Lstat, os.Stat, link)
+	files := dedupe.NewFiles(nil)
+	return inspect(files, files.Lstat, files.Stat, link)
 }
 
-func inspect(lstat, stat func(path string) (fs.FileInfo, error), link store.Link) Inspection {
+func inspect(files dedupe.Files, lstat, stat func(path string) (fs.FileInfo, error), link store.Link) Inspection {
 	linkInfo, err := lstat(link.LinkPath)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Inspection{Condition: ConditionLost}
@@ -278,7 +292,7 @@ func inspect(lstat, stat func(path string) (fs.FileInfo, error), link store.Link
 		return Inspection{Condition: ConditionUnreadable, Err: err}
 	}
 	if linkInfo.Mode()&fs.ModeSymlink == 0 {
-		return inspectNonSymlink(stat, link, linkInfo)
+		return inspectNonSymlink(files, stat, link, linkInfo)
 	}
 	_, err = stat(link.LinkPath)
 	if err == nil {
@@ -287,19 +301,19 @@ func inspect(lstat, stat func(path string) (fs.FileInfo, error), link store.Link
 	if !errors.Is(err, fs.ErrNotExist) {
 		return Inspection{Condition: ConditionUnreadable, Err: err}
 	}
-	oldTarget, err := os.Readlink(link.LinkPath)
+	oldTarget, err := files.Readlink(link.LinkPath)
 	return Inspection{Condition: ConditionBroken, OldTarget: oldTarget, Err: err}
 }
 
 // inspectNonSymlink : un symlink enregistré devenu fichier est remplacé ; un hardlink diverge quand il ne partage plus
 // l'inode de sa cible (une cible simplement renommée ne le fait pas diverger) ; un reflink ou une copie diverge quand
 // sa taille n'est plus celle enregistrée, sans lecture de contenu (taille inconnue : rien n'est comparé).
-func inspectNonSymlink(stat func(path string) (fs.FileInfo, error), link store.Link, linkInfo fs.FileInfo) Inspection {
+func inspectNonSymlink(files dedupe.Files, stat func(path string) (fs.FileInfo, error), link store.Link, linkInfo fs.FileInfo) Inspection {
 	switch {
 	case link.Kind == symlinkKind:
 		return Inspection{Condition: ConditionReplaced}
 	case link.Kind == hardlinkKind:
-		return inspectHardlink(stat, link, linkInfo)
+		return inspectHardlink(files, stat, link, linkInfo)
 	case link.Size <= 0:
 		return Inspection{Condition: ConditionUnverified}
 	case linkInfo.Size() != link.Size:
@@ -308,14 +322,21 @@ func inspectNonSymlink(stat func(path string) (fs.FileInfo, error), link store.L
 	return Inspection{Condition: ConditionSizeMatches}
 }
 
-func inspectHardlink(stat func(path string) (fs.FileInfo, error), link store.Link, linkInfo fs.FileInfo) Inspection {
+// inspectHardlink : sans identité connue des deux côtés (Windows, distant sans exec), rien n'est comparé.
+func inspectHardlink(files dedupe.Files, stat func(path string) (fs.FileInfo, error), link store.Link, linkInfo fs.FileInfo) Inspection {
 	targetInfo, err := stat(link.TargetPath)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return Inspection{Condition: ConditionRenamedTarget}
 	case err != nil:
 		return Inspection{Condition: ConditionUnreadable, Err: err}
-	case os.SameFile(linkInfo, targetInfo):
+	}
+	_, linkKnown := files.FileID(link.LinkPath, linkInfo)
+	_, targetKnown := files.FileID(link.TargetPath, targetInfo)
+	switch {
+	case !linkKnown || !targetKnown:
+		return Inspection{Condition: ConditionUnverified}
+	case files.SameFile(link.LinkPath, linkInfo, link.TargetPath, targetInfo):
 		return Inspection{Condition: ConditionOK}
 	}
 	return Inspection{Condition: ConditionDiverged}
@@ -327,7 +348,7 @@ func (run *scanRun) examine(link store.Link) error {
 	if err := run.ctx.Err(); err != nil {
 		return err
 	}
-	inspection := inspect(run.options.lstat, run.options.stat, link)
+	inspection := inspect(run.options.files, run.options.lstat, run.options.stat, link)
 	switch inspection.Condition {
 	case ConditionLost:
 		run.report.Lost = append(run.report.Lost, link.LinkPath)
@@ -366,8 +387,16 @@ func (run *scanRun) repairBroken(link store.Link, oldTarget string) error {
 	if err := run.setState(link, store.LinkBroken); err != nil {
 		return err
 	}
-	run.conclude(link.LinkPath, oldTarget, link.Size, !filepath.IsAbs(oldTarget), located)
+	run.conclude(link.LinkPath, oldTarget, link.Size, isRelativeText(link.LinkPath, oldTarget), located)
 	return nil
+}
+
+// isRelativeText lit le texte d'un lien dans la syntaxe de son volume : POSIX à distance, la plateforme en local.
+func isRelativeText(linkPath, linkText string) bool {
+	if dedupe.IsRemote(linkPath) {
+		return !path.IsAbs(linkText)
+	}
+	return !filepath.IsAbs(linkText)
 }
 
 // conclude range un résultat de recherche : un candidat unique devient une réparation, plusieurs sont signalés, aucun

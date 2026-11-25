@@ -18,20 +18,20 @@ linters:
         # Invariant I1 : seul fsys.Registry.WriteRoot ouvre une racine d'écriture, après le contrôle des bibliothèques.
         - pattern: '^fsys\.Volume\.OpenWriteRoot$'
           msg: only fsys.Registry.WriteRoot opens a write root
-        # Le linker et le pipeline n'écrivent qu'à travers une fsys.WriteRoot (doublé par des tests qui interdisent
-        # l'import de os).
+        # Le linker, le pipeline, dedupe et repair n'écrivent qu'à travers une fsys.WriteRoot (doublé par des tests
+        # qui interdisent l'import de os).
         - pattern: '^os\.(Link|Symlink|WriteFile|Rename|Remove|RemoveAll|Mkdir|MkdirAll|MkdirTemp|Create|CreateTemp|OpenFile|OpenRoot|Chmod|Chown|Lchown|Truncate|Chtimes)$'
           pkg: '^os$'
-          msg: the linker and the pipeline write only through fsys.WriteRoot
+          msg: the linker, the pipeline, dedupe and repair write only through fsys.WriteRoot
   exclusions:
     rules:
-      # Les autres paquets écrivent encore par os jusqu'à leur migration (C6) ; les tests posent leurs fixtures.
-      - path-except: '^internal/(linker|pipeline)/'
+      # Les autres paquets écrivent encore par os jusqu'à leur migration ; les tests posent leurs fixtures.
+      - path-except: '^internal/(linker|pipeline|dedupe|repair)/'
         linters: [forbidigo]
-        text: the linker and the pipeline write only through
-      - path: '^internal/(linker|pipeline)/.*_test\.go$'
+        text: dedupe and repair write only through
+      - path: '^internal/(linker|pipeline|dedupe|repair)/.*_test\.go$'
         linters: [forbidigo]
-        text: the linker and the pipeline write only through
+        text: dedupe and repair write only through
       # Les volumes et leur suite de conformité implémentent ou éprouvent OpenWriteRoot.
       - path: '^internal/fsys/'
         linters: [forbidigo]

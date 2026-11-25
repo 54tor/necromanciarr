@@ -4,8 +4,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"sort"
 
 	"necromanciarr/internal/store"
@@ -21,13 +19,7 @@ func (run *scanRun) scanDirectories(recorded map[string]struct{}) error {
 	directories := append([]string(nil), run.options.ScanDirectories...)
 	sort.Strings(directories)
 	for _, directory := range directories {
-		err := filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if err := run.ctx.Err(); err != nil {
-				return err
-			}
+		err := run.options.files.Walk(run.ctx, directory, func(path string, entry fs.DirEntry) error {
 			if _, known := recorded[path]; known || entry.Type()&fs.ModeSymlink == 0 {
 				return nil
 			}
@@ -48,7 +40,7 @@ func (run *scanRun) scanDirectories(recorded map[string]struct{}) error {
 }
 
 func (run *scanRun) repairThroughTorrent(linkPath string) error {
-	oldTarget, err := os.Readlink(linkPath)
+	oldTarget, err := run.options.files.Readlink(linkPath)
 	if err != nil {
 		return err
 	}
@@ -66,7 +58,7 @@ func (run *scanRun) repairThroughTorrent(linkPath string) error {
 		return err
 	}
 	located := located{method: ByTorrentPieces, matches: paths(verified), unique: len(verified) == 1 && !truncated}
-	run.conclude(linkPath, oldTarget, file.Size, !filepath.IsAbs(oldTarget), located)
+	run.conclude(linkPath, oldTarget, file.Size, isRelativeText(linkPath, oldTarget), located)
 	return nil
 }
 
@@ -93,7 +85,7 @@ func (run *scanRun) piecesMatch(reference TorrentRef, candidatePath string) (boo
 	if len(pieceIndexes) == 0 {
 		return false, nil
 	}
-	file, err := os.Open(candidatePath) // #nosec G304 -- fichier de la bibliothèque, lu seulement
+	file, err := run.options.files.Open(candidatePath)
 	if err != nil {
 		return false, err
 	}
