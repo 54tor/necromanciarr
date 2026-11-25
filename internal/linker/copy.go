@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"necromanciarr/internal/fsys/local"
 )
 
 // Erreurs typées de PrepareCopy.
@@ -38,7 +40,7 @@ type copier struct {
 }
 
 func systemCopier() copier {
-	return copier{reflink: reflink, freeBytes: freeBytes}
+	return copier{reflink: local.Reflink, freeBytes: local.FreeBytes}
 }
 
 // PrepareCopy écrit, sous root et dans le dossier de destination, une copie de source qui ne partage aucun bloc

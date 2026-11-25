@@ -1,6 +1,6 @@
 //go:build windows
 
-package linker
+package local
 
 import (
 	"path/filepath"

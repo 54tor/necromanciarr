@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"necromanciarr/internal/fsys/local"
 )
 
 // Kind est une sorte de lien ; la valeur zéro n'en désigne aucune.
@@ -41,10 +43,10 @@ func (kind Kind) String() string {
 // Erreurs typées d'Apply. ErrCrossDevice, ErrLinkRefused et ErrUnsupported déclenchent l'essai de la sorte suivante
 // demandée ; les autres arrêtent l'appel.
 var (
-	ErrCrossDevice       = errors.New("linker: link across filesystems")
-	ErrLinkRefused       = errors.New("linker: link refused by the system")
-	ErrUnsupported       = errors.New("linker: link kind unsupported")
-	ErrDestinationExists = errors.New("linker: destination already exists")
+	ErrCrossDevice       = local.ErrCrossDevice
+	ErrLinkRefused       = local.ErrLinkRefused
+	ErrUnsupported       = local.ErrUnsupported
+	ErrDestinationExists = local.ErrDestinationExists
 	ErrSizeMismatch      = errors.New("linker: source size differs from torrent file size")
 	ErrInvalidSource     = errors.New("linker: source is not an existing regular file")
 	ErrNoKind            = errors.New("linker: no link kind requested")
@@ -106,11 +108,11 @@ func (linkApplier applier) createInRoot(kind Kind, source, destination, root str
 }
 
 func hardlink(source, destination string) error {
-	return classifyLinkError(os.Link(source, destination))
+	return local.ClassifyLinkError(os.Link(source, destination))
 }
 
 func symlink(source, destination string) error {
-	return classifyLinkError(os.Symlink(source, destination))
+	return local.ClassifyLinkError(os.Symlink(source, destination))
 }
 
 func (linkApplier applier) apply(ops []Op, preferred []Kind) (Result, error) {

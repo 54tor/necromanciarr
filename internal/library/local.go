@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
 )
@@ -24,7 +25,7 @@ func Scan(ctx context.Context, root string, mediaStore *store.Store) error {
 	if err != nil {
 		return fmt.Errorf("scan %s: %w", root, err)
 	}
-	rootDevice, rootDeviceKnown := deviceOf(rootInfo)
+	rootDevice, rootDeviceKnown := local.DeviceOf(rootInfo)
 
 	return filepath.WalkDir(resolvedRoot, func(entryPath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -56,7 +57,7 @@ func skipForeignDevice(entry fs.DirEntry, rootDevice uint64, rootDeviceKnown boo
 	if err != nil {
 		return err
 	}
-	entryDevice, known := deviceOf(info)
+	entryDevice, known := local.DeviceOf(info)
 	if known && entryDevice != rootDevice {
 		return filepath.SkipDir
 	}

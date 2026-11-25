@@ -1,14 +1,14 @@
 //go:build linux
 
-package library
+package local
 
 import (
 	"io/fs"
 	"syscall"
 )
 
-// deviceOf renvoie l'identifiant du périphérique du fichier ; false si le système ne le fournit pas.
-func deviceOf(info fs.FileInfo) (uint64, bool) {
+// DeviceOf renvoie l'identifiant du périphérique du fichier ; false si le système ne le fournit pas.
+func DeviceOf(info fs.FileInfo) (uint64, bool) {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return 0, false

@@ -1,11 +1,11 @@
 //go:build windows
 
-package linker
+package local
 
 import "golang.org/x/sys/windows"
 
-// freeBytes lit la place disponible pour le compte courant sur le volume de directory.
-func freeBytes(directory string) (uint64, error) {
+// FreeBytes lit la place disponible pour le compte courant sur le volume de directory.
+func FreeBytes(directory string) (uint64, error) {
 	pathPointer, err := windows.UTF16PtrFromString(directory)
 	if err != nil {
 		return 0, err

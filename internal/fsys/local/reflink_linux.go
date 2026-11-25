@@ -1,6 +1,6 @@
 //go:build linux
 
-package linker
+package local
 
 import (
 	"errors"
@@ -13,9 +13,9 @@ import (
 // reflinkFileMode : la copie partagée doit rester lisible par le client torrent.
 const reflinkFileMode os.FileMode = 0o644
 
-// reflink partage les blocs de la source (ioctl FICLONE) ; la destination, créée en exclusif, est retirée si le
+// Reflink partage les blocs de la source (ioctl FICLONE) ; la destination, créée en exclusif, est retirée si le
 // clonage échoue.
-func reflink(source, destination string) error {
+func Reflink(source, destination string) error {
 	sourceFile, err := os.Open(source) // #nosec G304 -- source validée par checkSource
 	if err != nil {
 		return err
@@ -23,7 +23,7 @@ func reflink(source, destination string) error {
 	defer func() { _ = sourceFile.Close() }()
 	destinationFile, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, reflinkFileMode) // #nosec G302 G304 -- destination sous la racine des liens, lisible par le client
 	if err != nil {
-		return classifyLinkError(err)
+		return ClassifyLinkError(err)
 	}
 	cloneErr := unix.IoctlFileClone(int(destinationFile.Fd()), int(sourceFile.Fd())) // #nosec G115 -- un descripteur tient dans un int
 	closeErr := destinationFile.Close()

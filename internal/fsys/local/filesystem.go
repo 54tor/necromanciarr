@@ -1,4 +1,4 @@
-package linker
+package local
 
 // FilesystemKind classe le volume qui porte un chemin : seuls les volumes locaux ont des inodes stables.
 type FilesystemKind int

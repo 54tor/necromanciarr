@@ -3,6 +3,8 @@ package linker
 import (
 	"errors"
 	"fmt"
+
+	"necromanciarr/internal/fsys/local"
 )
 
 // ErrNoLinkDirOnSameDevice signale qu'aucun répertoire de liens n'est sur le système de fichiers de la source ;
@@ -12,7 +14,7 @@ var ErrNoLinkDirOnSameDevice = errors.New("linker: no link directory on the sour
 // ChooseLinkDir renvoie le premier répertoire de linkDirs, dans l'ordre donné, situé sur le même système de fichiers
 // que sourcePath (périphérique sous Unix, volume sous Windows). Un répertoire illisible est ignoré.
 func ChooseLinkDir(sourcePath string, linkDirs []string) (string, error) {
-	return chooseLinkDir(sourcePath, linkDirs, deviceKey)
+	return chooseLinkDir(sourcePath, linkDirs, local.DeviceKey)
 }
 
 func chooseLinkDir(sourcePath string, linkDirs []string, deviceOf func(string) (string, error)) (string, error) {

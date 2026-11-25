@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"necromanciarr/internal/fsys/local"
 )
 
 // Capabilities dit quelles sortes de liens le volume accepte réellement ; Reasons donne l'erreur typée de chaque refus.
@@ -46,7 +48,7 @@ func ProbeBetween(sourceDir, destDir string) (Capabilities, error) {
 }
 
 func systemApplier() applier {
-	return applier{linkers: map[Kind]linkFunc{Hardlink: hardlink, Reflink: reflink, Symlink: symlink}}
+	return applier{linkers: map[Kind]linkFunc{Hardlink: hardlink, Reflink: local.Reflink, Symlink: symlink}}
 }
 
 func (linkApplier applier) probeBetween(sourceDir, destDir string) (capabilities Capabilities, err error) {

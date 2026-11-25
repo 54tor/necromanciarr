@@ -1,6 +1,6 @@
 //go:build windows
 
-package linker
+package local
 
 import (
 	"errors"
@@ -13,9 +13,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// classifyLinkError traduit les refus de Windows : un lien symbolique sans le privilège ou le mode développeur donne
+// ClassifyLinkError traduit les refus de Windows : un lien symbolique sans le privilège ou le mode développeur donne
 // ERROR_PRIVILEGE_NOT_HELD, un volume FAT sans liens durs ERROR_INVALID_FUNCTION.
-func classifyLinkError(err error) error {
+func ClassifyLinkError(err error) error {
 	switch {
 	case err == nil:
 		return nil
@@ -30,8 +30,8 @@ func classifyLinkError(err error) error {
 	}
 }
 
-// deviceKey compare les volumes : un point de montage dans un dossier n'est pas vu, Windows le refusera au lien.
-func deviceKey(path string) (string, error) {
+// DeviceKey compare les volumes : un point de montage dans un dossier n'est pas vu, Windows le refusera au lien.
+func DeviceKey(path string) (string, error) {
 	if _, err := os.Stat(path); err != nil {
 		return "", err
 	}

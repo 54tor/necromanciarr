@@ -1,6 +1,6 @@
 //go:build unix
 
-package linker
+package local
 
 import (
 	"errors"
@@ -11,9 +11,9 @@ import (
 	"syscall"
 )
 
-// classifyLinkError traduit les refus du noyau : EPERM vient d'un système sans liens durs ou de protected_hardlinks,
+// ClassifyLinkError traduit les refus du noyau : EPERM vient d'un système sans liens durs ou de protected_hardlinks,
 // EMLINK d'un fichier qui a atteint son nombre maximal de liens.
-func classifyLinkError(err error) error {
+func ClassifyLinkError(err error) error {
 	switch {
 	case err == nil:
 		return nil
@@ -28,7 +28,8 @@ func classifyLinkError(err error) error {
 	}
 }
 
-func deviceKey(path string) (string, error) {
+// DeviceKey rend le numéro du périphérique qui porte path, pour comparer les systèmes de fichiers.
+func DeviceKey(path string) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", err

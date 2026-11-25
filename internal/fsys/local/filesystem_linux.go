@@ -1,6 +1,6 @@
 //go:build linux
 
-package linker
+package local
 
 import "golang.org/x/sys/unix"
 
