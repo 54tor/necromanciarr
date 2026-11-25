@@ -62,6 +62,10 @@ linters:
       - path: '^internal/(fsys/(local|fsystest|sftpfs/sftptest)|store)/'
         linters: [forbidigo]
         text: write to disk only through
+      # sftp trust : seul ajout d'une clé d'hôte au known_hosts de l'opérateur (CLI, sur --yes), un seul fichier.
+      - path: '^internal/fsys/sftpfs/trust\.go$'
+        linters: [forbidigo]
+        text: write to disk only through
       # Tests qui posent leurs fixtures sur le disque, paquet par paquet (liste explicite, jamais internal/**).
       - path: '^(cmd/necromanciarr|internal/(app|config|crossseed|dedupe|doctor|hashsource|library|linker|pipeline|repair|web))/[^/]+_test\.go$'
         linters: [forbidigo]

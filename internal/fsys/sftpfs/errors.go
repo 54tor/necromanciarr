@@ -72,6 +72,7 @@ var errorCodes = []struct {
 	{ErrAuthRefused, CodeAuthRefused},
 	{ErrIdentityKeyTooWeak, CodeIdentityKeyTooWeak},
 	{ErrKnownHostsUnreadable, CodeKnownHostsUnreadable},
+	{ErrKnownHostsNotWritable, CodeKnownHostsNotWritable},
 }
 
 // Code rend le code stable d'une erreur de connexion (host_key_unknown, host_key_mismatch, auth_refused,
