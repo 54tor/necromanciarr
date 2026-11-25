@@ -104,6 +104,16 @@ func splitParams(raw string) []string {
 	return params
 }
 
+// HasCachedCaps dit, sans attendre, si des capacités valables sont en cache ; une requête t=caps en cours tient le
+// verrou et donne faux : sources list ne doit jamais attendre le délai d'un indexeur.
+func (client *Client) HasCachedCaps() bool {
+	if !client.capsMutex.TryLock() {
+		return false
+	}
+	defer client.capsMutex.Unlock()
+	return client.cachedCaps != nil && client.now().Sub(client.capsFetchedAt) < capsTTL
+}
+
 // CachedCaps rend les capacités du cache si elles sont encore valables, sans aucune requête ; cached est faux sinon. Il
 // permet de ne décompter du quota que les vraies requêtes t=caps.
 func (client *Client) CachedCaps() (caps Caps, cached bool) {

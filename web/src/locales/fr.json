@@ -569,6 +569,7 @@
       "state": "État",
       "queries": "Requêtes 24 h / plafond",
       "downloads": "Téléchargements 24 h / plafond",
+      "capsCache": "Cache des capacités",
       "lastError": "Dernière erreur"
     },
     "types": {
@@ -580,6 +581,10 @@
       "blocked": "Écartée (Retry-After)",
       "exhausted": "Quota du jour atteint",
       "disabled": "Hors chaîne"
+    },
+    "capsCached": {
+      "yes": "Oui",
+      "no": "Non"
     }
   },
   "jobs": {

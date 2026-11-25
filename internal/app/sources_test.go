@@ -251,3 +251,64 @@ func TestSourceErrorCode_mapsEachIndexerErrorToAStableReason(t *testing.T) {
 		t.Fatalf("valeurObtenue %q, valeurAttendue empty for no error", gotValue)
 	}
 }
+
+func TestSources_secondConcurrentTestOfTheSameIndexerIsRefused(t *testing.T) {
+	release := make(chan struct{})
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests.Add(1)
+		<-release
+		writer.Header().Set("Content-Type", "application/xml")
+		if request.URL.Query().Get("t") == "caps" {
+			_, _ = writer.Write([]byte(`<caps><searching><search available="yes" supportedParams="q"/></searching></caps>`))
+			return
+		}
+		_, _ = writer.Write([]byte(`<?xml version="1.0"?><rss><channel></channel></rss>`))
+	}))
+	t.Cleanup(server.Close)
+	settings := sourcesSettings(t)
+	settings.Torznab = []config.TorznabIndexer{fakeIndexerEntry("a", server.URL)}
+	service, openedStore := sourcesService(t, settings)
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := service.TestSource(context.Background(), "torznab:a")
+		firstDone <- err
+	}()
+	for requests.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+
+	_, secondErr := service.TestSource(t.Context(), "a")
+	close(release)
+	firstErr := <-firstDone
+	_, thirdErr := service.TestSource(t.Context(), "torznab:a")
+
+	used, countErr := openedStore.CountIndexerUsage(t.Context(), "torznab:a", sources.KindQuery, time.Now().Add(-store.IndexerUsageWindow))
+	secondCode, _ := Classify(secondErr)
+	isExpected := errors.Is(secondErr, ErrSourceTestRunning) && secondCode == ErrorCodeRefused && firstErr == nil && thirdErr == nil &&
+		countErr == nil && used == 3 && MessageOf(secondErr).Key == i18n.KeyErrorSourceTestRunning
+	if !isExpected {
+		t.Fatalf("valeurObtenue second %v (%s), first %v, third %v, %d rows (%v), valeurAttendue the second refused, 3 rows (caps, search, search)",
+			secondErr, secondCode, firstErr, thirdErr, used, countErr)
+	}
+}
+
+func TestSources_listReportsTheCapsCache(t *testing.T) {
+	indexer := newFakeIndexerServer(t)
+	settings := sourcesSettings(t)
+	settings.Torznab = []config.TorznabIndexer{fakeIndexerEntry("a", indexer.server.URL)}
+	service, _ := sourcesService(t, settings)
+
+	before, beforeErr := service.ListSources(t.Context())
+	_, testErr := service.TestSource(t.Context(), "a")
+	after, afterErr := service.ListSources(t.Context())
+
+	isExpected := beforeErr == nil && testErr == nil && afterErr == nil && !before[0].CapsCached && !before[1].CapsCached && after[1].CapsCached
+	if !isExpected {
+		t.Fatalf("valeurObtenue %+v then %+v, valeurAttendue caps_cached true after a test only", before, after)
+	}
+	encoded, _ := json.Marshal(after[1])
+	if !strings.Contains(string(encoded), `"caps_cached":true`) {
+		t.Fatalf("valeurObtenue %s, valeurAttendue the caps_cached key", encoded)
+	}
+}

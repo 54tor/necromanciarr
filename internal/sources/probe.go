@@ -12,17 +12,27 @@ import (
 const testSearchMode = "search"
 
 // Health est l'état d'un indexeur vu par ce processus : BlockedFor reste d'un Retry-After reçu (0 : aucun),
-// LastError l'erreur de sa dernière requête (nil : réussie ou aucune). Rien n'est persisté : un nouveau processus
-// repart d'un état vierge.
+// LastError l'erreur de sa dernière requête (nil : réussie ou aucune), CapsCached dit si des capacités valables sont
+// dans le cache du client. Rien n'est persisté : un nouveau processus repart d'un état vierge.
 type Health struct {
 	BlockedFor time.Duration
 	LastError  error
+	CapsCached bool
+}
+
+// capsCacheProbe est la part optionnelle d'un client qui dit, sans attendre, si ses capacités sont en cache.
+type capsCacheProbe interface {
+	HasCachedCaps() bool
 }
 
 // Health rend l'état de l'indexeur dans ce processus.
 func (chain *Chain) Health(indexer ID) Health {
 	now := chain.now()
-	return Health{BlockedFor: max(chain.board.remaining(indexer, now), 0), LastError: chain.board.lastErrorOf(indexer)}
+	health := Health{BlockedFor: max(chain.board.remaining(indexer, now), 0), LastError: chain.board.lastErrorOf(indexer)}
+	if probe, hasProbe := chain.indexers[indexer].(capsCacheProbe); hasProbe {
+		health.CapsCached = probe.HasCachedCaps()
+	}
+	return health
 }
 
 // TestIndexer envoie à l'indexeur t=caps puis une recherche vide, chacune par Call avec un budget neuf : elles comptent

@@ -266,12 +266,13 @@ func writeLinks(writer io.Writer, translator i18n.Translator, page app.LinkPage,
 	}
 }
 
-var sourceColumns = []int{5, 16, 8, 9, 11, 9}
+var sourceColumns = []int{5, 16, 8, 9, 11, 9, 5}
 
 // writeSources écrit une ligne par source dans l'ordre de la chaîne, puis la dernière erreur traduite en retrait.
 func writeSources(writer io.Writer, translator i18n.Translator, rows []app.SourceRow) {
 	writeRow(writer, sourceColumns, headerCells(translator, i18n.KeyCLIHeaderOrder, i18n.KeyCLIHeaderSource, i18n.KeyCLIHeaderType,
-		i18n.KeyCLIHeaderState, i18n.KeyCLIHeaderQueries, i18n.KeyCLIHeaderDownloads, i18n.KeyCLIHeaderTracker)...)
+		i18n.KeyCLIHeaderState, i18n.KeyCLIHeaderQueries, i18n.KeyCLIHeaderDownloads, i18n.KeyCLIHeaderCapsCache,
+		i18n.KeyCLIHeaderTracker)...)
 	for _, row := range rows {
 		order := "-"
 		if row.Order > 0 {
@@ -282,12 +283,24 @@ func writeSources(writer io.Writer, translator i18n.Translator, rows []app.Sourc
 			tracker = "-"
 		}
 		writeRow(writer, sourceColumns, order, row.Source, row.Type, row.State, usageCell(translator, row.Queries),
-			usageCell(translator, row.Downloads), tracker)
+			usageCell(translator, row.Downloads), capsCacheCell(translator, row), tracker)
 		if row.LastError != "" {
 			lastError := translator.Text(i18n.KeyCLISourcesLastError, textParams("code", row.LastError, "label", translator.ReasonLabel(row.LastError)))
 			// Le libellé traduit n'est pas tronqué : c'est la seule explication de l'erreur.
 			_, _ = fmt.Fprintln(writer, "      "+lastError)
 		}
+	}
+}
+
+// capsCacheCell dit si les capacités de l'indexeur sont en cache ; le fournisseur n'en a pas.
+func capsCacheCell(translator i18n.Translator, row app.SourceRow) string {
+	switch {
+	case row.Type == app.SourceTypeProvider:
+		return translator.Text(i18n.KeyCLISourcesNotApplicable, nil)
+	case row.CapsCached:
+		return translator.Text(i18n.KeyCLIYes, nil)
+	default:
+		return translator.Text(i18n.KeyCLINo, nil)
 	}
 }
 

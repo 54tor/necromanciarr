@@ -24,6 +24,7 @@ function sourceRows(lastError = ''): SourceRow[] {
       queries: null,
       downloads: null,
       last_error: '',
+      caps_cached: false,
     },
     {
       order: 2,
@@ -34,6 +35,7 @@ function sourceRows(lastError = ''): SourceRow[] {
       queries: { used: 200, cap: 200 },
       downloads: { used: 0, cap: 50 },
       last_error: '',
+      caps_cached: false,
     },
     {
       order: 3,
@@ -44,6 +46,7 @@ function sourceRows(lastError = ''): SourceRow[] {
       queries: { used: 3, cap: 200 },
       downloads: { used: 1, cap: 50 },
       last_error: lastError,
+      caps_cached: true,
     },
   ]
 }
@@ -77,6 +80,8 @@ describe('SourcesView', () => {
     ])
     expect(cellTexts(wrapper, 5)).toEqual(['s.o.', '200 / 200', '3 / 200'])
     expect(cellTexts(wrapper, 6)).toEqual(['s.o.', '0 / 50', '1 / 50'])
+    expect(cellTexts(wrapper, 7)).toEqual(['s.o.', 'Non', 'Oui'])
+    expect(wrapper.findAll('th').map((header) => header.text())).toContain('Cache des capacités')
     expect(wrapper.findAll('th button').length).toBe(0)
     expect(wrapper.find('[data-testid="test-provider"]').exists()).toBe(false)
     wrapper.unmount()
@@ -121,7 +126,7 @@ describe('SourcesView', () => {
     expect(wrapper.get('[data-testid="test-result"]').text()).toBe(
       "Test en échec : torznab:a, L'indexeur refuse l'accès (clé d'API)",
     )
-    expect(cellTexts(wrapper, 7)[2]).toBe("L'indexeur refuse l'accès (clé d'API)")
+    expect(cellTexts(wrapper, 8)[2]).toBe("L'indexeur refuse l'accès (clé d'API)")
     expect(wrapper.text()).not.toContain('indexer_access_denied')
     expect(wrapper.html()).not.toContain(FAKE_KEY)
     expect(wrapper.get('[data-testid="test-torznab:a"]').attributes('disabled')).toBeUndefined()
@@ -146,6 +151,27 @@ describe('SourcesView', () => {
     ])
     expect(toastError).toHaveBeenCalledTimes(1)
     expect(String(toastError.mock.calls[0]?.[0])).not.toContain(FAKE_KEY)
+    wrapper.unmount()
+  })
+
+  it('clears the previous result before a new test', async () => {
+    let answer: unknown = { source: 'torznab:a', result: 'ok' }
+    installFakeApi({
+      'GET /api/sources': sourceRows(),
+      'POST /api/sources/{name}/test': () => answer,
+    })
+    const wrapper = mount(SourcesView, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('[data-testid="test-torznab:a"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="test-result"]').text()).toBe('Test réussi : torznab:a')
+
+    answer = failure(409, 'refused')
+    await wrapper.get('[data-testid="test-torznab:a"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="test-result"]').text()).toBe('')
+    expect(toastError).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 

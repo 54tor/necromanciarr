@@ -45,6 +45,7 @@ async function actionsRenderedBy(view: Component): Promise<Set<string>> {
         queries: { used: 0, cap: 200 },
         downloads: { used: 0, cap: 50 },
         last_error: '',
+        caps_cached: false,
       },
     ],
     'GET /api/proposals': (call) => {

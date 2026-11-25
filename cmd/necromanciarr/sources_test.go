@@ -16,6 +16,7 @@ func sampleSourceRows() []app.SourceRow {
 		{
 			Order: 2, Source: "torznab:a", Type: app.SourceTypeTorznab, Tracker: "tracker-a", State: app.SourceStateBlocked,
 			Queries: &app.SourceUsage{Used: 3, Cap: 200}, Downloads: &app.SourceUsage{Used: 1, Cap: 50}, LastError: "indexer_access_denied",
+			CapsCached: true,
 		},
 	}
 }
@@ -53,19 +54,19 @@ func TestCLI_sourcesListPrintsTranslatedCodesAndStableJSON(t *testing.T) {
 	french := runCli(t, configDir, "sources", "list", "--language", "fr")
 	encoded := runCli(t, configDir, "sources", "list", "--json")
 
-	for _, expected := range []string{"provider", "torznab:a", "tracker-a", "3/200", "1/50", "n/a", "blocked", "the indexer denies access"} {
+	for _, expected := range []string{"provider", "torznab:a", "tracker-a", "3/200", "1/50", "n/a", "blocked", "the indexer denies access", "CAPS", "yes"} {
 		if !strings.Contains(english.stdout, expected) {
 			t.Fatalf("valeurObtenue %q, valeurAttendue %q", english.stdout, expected)
 		}
 	}
-	if !strings.Contains(french.stdout, "l'indexeur refuse l'accès") || english.exitCode != successExitCode {
+	if !strings.Contains(french.stdout, "l'indexeur refuse l'accès") || !strings.Contains(french.stdout, "oui") || english.exitCode != successExitCode {
 		t.Fatalf("valeurObtenue %q (exit %d), valeurAttendue the French label", french.stdout, english.exitCode)
 	}
 	var rows []map[string]any
 	if err := json.Unmarshal([]byte(encoded.stdout), &rows); err != nil || len(rows) != 2 {
 		t.Fatalf("valeurObtenue %q (%v)", encoded.stdout, err)
 	}
-	for _, key := range []string{"order", "source", "type", "tracker", "state", "queries", "downloads", "last_error"} {
+	for _, key := range []string{"order", "source", "type", "tracker", "state", "queries", "downloads", "last_error", "caps_cached"} {
 		if _, found := rows[0][key]; !found {
 			t.Fatalf("valeurObtenue %v, valeurAttendue the key %q", rows[0], key)
 		}

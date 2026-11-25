@@ -38,6 +38,8 @@ const (
 var (
 	// ErrSourceNotFound : aucune source configurée ne porte ce nom.
 	ErrSourceNotFound = errors.New("app: source not found")
+	// ErrSourceTestRunning : un test du même indexeur est déjà en cours dans ce processus.
+	ErrSourceTestRunning = errors.New("app: a test of this source is already running")
 	// ErrSourceNotTestable : le fournisseur n'a pas de test de source ; doctor contrôle libraryApi.
 	ErrSourceNotTestable = errors.New("app: the library provider is checked by doctor, not by sources test")
 )
@@ -49,16 +51,18 @@ type SourceUsage struct {
 }
 
 // SourceRow est une ligne de sources list : Order est le rang dans la chaîne (0 : hors chaîne), Queries et Downloads
-// sont nil pour le fournisseur (sans quota), LastError le code stable de la dernière erreur vue par ce processus.
+// sont nil pour le fournisseur (sans quota), LastError le code stable de la dernière erreur vue par ce processus,
+// CapsCached dit si le client de ce processus garde en cache des capacités valables.
 type SourceRow struct {
-	Order     int          `json:"order"`
-	Source    string       `json:"source"`
-	Type      string       `json:"type"`
-	Tracker   string       `json:"tracker"`
-	State     string       `json:"state"`
-	Queries   *SourceUsage `json:"queries"`
-	Downloads *SourceUsage `json:"downloads"`
-	LastError string       `json:"last_error"`
+	Order      int          `json:"order"`
+	Source     string       `json:"source"`
+	Type       string       `json:"type"`
+	Tracker    string       `json:"tracker"`
+	State      string       `json:"state"`
+	Queries    *SourceUsage `json:"queries"`
+	Downloads  *SourceUsage `json:"downloads"`
+	LastError  string       `json:"last_error"`
+	CapsCached bool         `json:"caps_cached"`
 }
 
 // SourceTestResult rend un sources test : Result ok ou failed, Error le code stable de l'échec.
@@ -144,7 +148,7 @@ func (svc *service) indexerRow(ctx context.Context, indexer config.TorznabIndexe
 	if health == nil {
 		return row, nil
 	}
-	row.LastError = sourceErrorCode(health.LastError)
+	row.LastError, row.CapsCached = sourceErrorCode(health.LastError), health.CapsCached
 	isExhausted := queries.Used >= queries.Cap || downloads.Used >= downloads.Cap
 	switch {
 	case health.BlockedFor > 0:
@@ -195,6 +199,10 @@ func (svc *service) TestSource(ctx context.Context, name string) (SourceTestResu
 	if !hasChain {
 		return SourceTestResult{}, fmt.Errorf("%w: source chain (libraryApi)", ErrNotConfigured)
 	}
+	if _, alreadyRunning := svc.sourceTests.LoadOrStore(identifier, struct{}{}); alreadyRunning {
+		return SourceTestResult{}, ErrSourceTestRunning
+	}
+	defer svc.sourceTests.Delete(identifier)
 	err := probe.TestIndexer(ctx, identifier)
 	if errors.Is(err, sources.ErrUnknownIndexer) {
 		return SourceTestResult{}, fmt.Errorf("%w: %s is not in sourceOrder", ErrNotConfigured, identifier)

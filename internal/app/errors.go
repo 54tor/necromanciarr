@@ -29,7 +29,7 @@ var refusals = []error{
 	ErrOneTorrentPerFile, ErrNotFull, ErrNotForceable, ErrNoPrimary, ErrForceNotAllowed, ErrForceIsolationImpossible, ErrCrossSeedNotNative,
 	ErrNotAccepted, ErrNotActionable, ErrWrongProposalKind, ErrDirectoryInLibrary, ErrRecheckUnavailable,
 	store.ErrInvalidTransition, pipeline.ErrGroupInconsistent, pipeline.ErrClientReadOnly, pipeline.ErrPlacementChanged,
-	dedupe.ErrTorrentRootOverlapsLibrary, repair.ErrOutsideRoots, ErrSourceNotTestable,
+	dedupe.ErrTorrentRootOverlapsLibrary, repair.ErrOutsideRoots, ErrSourceNotTestable, ErrSourceTestRunning,
 }
 
 // classes associe chaque code aux erreurs typées qu'il couvre, dans l'ordre de priorité du classement.
@@ -77,6 +77,7 @@ var messageKeys = map[error]i18n.Key{
 	ErrGroupNotFound: i18n.KeyErrorGroupNotFound, ErrNotConfigured: i18n.KeyErrorNotConfigured,
 	pipeline.ErrStageRunning: i18n.KeyErrorStageRunning, ErrInspectionBusy: i18n.KeyErrorInspectionBusy,
 	ErrSourceNotFound: i18n.KeyErrorSourceNotFound, ErrSourceNotTestable: i18n.KeyErrorSourceNotTestable,
+	ErrSourceTestRunning: i18n.KeyErrorSourceTestRunning,
 }
 
 // MessageOf donne le message à rendre pour err : la clé de l'erreur typée reconnue, sinon error.internal. Le texte brut

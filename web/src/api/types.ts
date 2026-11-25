@@ -283,6 +283,8 @@ export interface SourceRow {
   queries: SourceUsage | null
   downloads: SourceUsage | null
   last_error: string
+  /** Capacités de l'indexeur en cache dans le processus du serveur (24 h). */
+  caps_cached: boolean
 }
 
 /** Résultat de `POST /api/sources/{name}/test` : `error` est un code de raison stable. */

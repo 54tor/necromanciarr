@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -183,6 +184,8 @@ type service struct {
 	inspect          func(store.Link) repair.Inspection
 	inspectionBudget time.Duration
 	inspecting       atomic.Bool
+	// sourceTests garde les indexeurs dont un sources test est en cours : un second test simultané est refusé.
+	sourceTests sync.Map
 }
 
 // New construit le Service sur ses dépendances.

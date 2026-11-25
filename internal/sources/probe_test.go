@@ -69,3 +69,25 @@ func TestHealth_ignoresACancelledRequest(t *testing.T) {
 		t.Fatalf("valeurObtenue %+v, valeurAttendue no last error for a cancelled call", health)
 	}
 }
+
+// cachingIndexer ajoute à searchIndexer un cache de capacités dont l'état est fixé par le test.
+type cachingIndexer struct {
+	*searchIndexer
+	cached bool
+}
+
+func (indexer *cachingIndexer) HasCachedCaps() bool { return indexer.cached }
+
+func TestHealth_reportsTheCapsCacheOfTheClient(t *testing.T) {
+	setup := newSearchSetup(t)
+	setup.add("torznab:a", movieCaps())
+	setup.add("torznab:b", movieCaps())
+	chain := setup.chain(t)
+	chain.indexers["torznab:a"] = &cachingIndexer{searchIndexer: setup.indexers["torznab:a"], cached: true}
+
+	cachedHealth, plainHealth := chain.Health("torznab:a"), chain.Health("torznab:b")
+
+	if !cachedHealth.CapsCached || plainHealth.CapsCached {
+		t.Fatalf("valeurObtenue %+v / %+v, valeurAttendue cached for a only", cachedHealth, plainHealth)
+	}
+}

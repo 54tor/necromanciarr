@@ -59,6 +59,9 @@ const (
 	KeyCLIHeaderQueries          Key = "cli.header.queries"
 	KeyCLIHeaderDownloads        Key = "cli.header.downloads"
 	KeyCLIHeaderTracker          Key = "cli.header.tracker"
+	KeyCLIHeaderCapsCache        Key = "cli.header.caps_cache"
+	KeyCLIYes                    Key = "cli.yes"
+	KeyCLINo                     Key = "cli.no"
 	KeyCLISourcesNotApplicable   Key = "cli.sources.not_applicable"
 	KeyCLISourcesLastError       Key = "cli.sources.last_error"
 	KeyCLISourceTestOK           Key = "cli.sources.test_ok"
@@ -122,7 +125,7 @@ var cliKeys = []Key{
 	KeyCLIHeaderID, KeyCLIHeaderKind, KeyCLIHeaderDecision, KeyCLIHeaderStep, KeyCLIHeaderGroup, KeyCLIHeaderName,
 	KeyCLIHeaderLink, KeyCLIHeaderSaves, KeyCLIHeaderReads, KeyCLIHeaderMethod, KeyCLIHeaderTorrentFile,
 	KeyCLIHeaderStatus, KeyCLIHeaderState, KeyCLIHeaderOrder, KeyCLIHeaderSource, KeyCLIHeaderType, KeyCLIHeaderQueries,
-	KeyCLIHeaderDownloads, KeyCLIHeaderTracker,
+	KeyCLIHeaderDownloads, KeyCLIHeaderTracker, KeyCLIHeaderCapsCache, KeyCLIYes, KeyCLINo,
 	KeyCLISourcesNotApplicable, KeyCLISourcesLastError, KeyCLISourceTestOK, KeyCLISourceTestFailed,
 	KeyCLIProposalsNone, KeyCLIStalePrefix, KeyCLIDedupeNone, KeyCLIDedupeTotalRead, KeyCLIRepairNone, KeyCLIRepairNotActionable,
 	KeyCLILinksNone, KeyCLILinksShowing, KeyCLILinksNextPage, KeyCLILinksTruncated,

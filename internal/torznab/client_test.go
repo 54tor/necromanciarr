@@ -337,3 +337,30 @@ func TestCaps_cachedCapsAnswersOnlyFromAFreshCacheWithoutRequest(t *testing.T) {
 		t.Fatal("expectedValue an expired cache reported as absent")
 	}
 }
+
+func TestCaps_hasCachedCapsNeverWaitsForARequestInFlight(t *testing.T) {
+	release := make(chan struct{})
+	caps := fixture(t, "caps.xml")
+	indexer := newFakeIndexer(t, func(writer http.ResponseWriter, request *http.Request) {
+		<-release
+		xmlResponse(caps)(writer, request)
+	})
+	client, _, _ := newTestClient(t, indexer.server.URL)
+	fetched := make(chan error, 1)
+	go func() {
+		_, err := client.Caps(context.Background())
+		fetched <- err
+	}()
+	for indexer.requestCount() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+
+	duringRequest := client.HasCachedCaps()
+	close(release)
+	fetchErr := <-fetched
+	afterRequest := client.HasCachedCaps()
+
+	if duringRequest || fetchErr != nil || !afterRequest {
+		t.Fatalf("valeurObtenue %v during, %v after (%v), valeurAttendue false without waiting, then true", duringRequest, afterRequest, fetchErr)
+	}
+}

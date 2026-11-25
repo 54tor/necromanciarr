@@ -569,6 +569,7 @@
       "state": "State",
       "queries": "Queries 24 h / cap",
       "downloads": "Downloads 24 h / cap",
+      "capsCache": "Caps cache",
       "lastError": "Last error"
     },
     "types": {
@@ -580,6 +581,10 @@
       "blocked": "Set aside (Retry-After)",
       "exhausted": "Daily quota reached",
       "disabled": "Outside the chain"
+    },
+    "capsCached": {
+      "yes": "Yes",
+      "no": "No"
     }
   },
   "jobs": {

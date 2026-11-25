@@ -43,6 +43,11 @@ function usageText(usage: SourceUsage | null): string {
     : t('sources.notApplicable')
 }
 
+function capsCacheText(row: SourceRow): string {
+  if (row.type === 'provider') return t('sources.notApplicable')
+  return row.caps_cached ? t('sources.capsCached.yes') : t('sources.capsCached.no')
+}
+
 function resultText(result: SourceTestResult): string {
   if (result.result === 'ok') return t('sources.passed', { source: result.source })
   return t('sources.failed', {
@@ -102,6 +107,12 @@ const columns = computed<DataColumn<SourceRow>[]>(() => [
     enableSorting: false,
   },
   {
+    id: 'caps_cached',
+    header: t('sources.columns.capsCache'),
+    accessorFn: capsCacheText,
+    enableSorting: false,
+  },
+  {
     id: 'last_error',
     header: t('sources.columns.lastError'),
     accessorFn: (row) => (row.last_error ? codeLabel('reason', row.last_error) : EMPTY_CELL),
@@ -124,6 +135,7 @@ async function load(): Promise<void> {
 async function testSource(source: string): Promise<void> {
   if (source === '' || isTesting.value) return
   testingSource.value = source
+  lastResult.value = undefined
   const result = await call(() => api.testSource(source))
   testingSource.value = ''
   if (result) lastResult.value = result
@@ -205,6 +217,8 @@ onMounted(load)
           <dd>{{ usageText(row.queries) }}</dd>
           <dt class="text-muted-foreground">{{ t('sources.columns.downloads') }}</dt>
           <dd>{{ usageText(row.downloads) }}</dd>
+          <dt class="text-muted-foreground">{{ t('sources.columns.capsCache') }}</dt>
+          <dd>{{ capsCacheText(row) }}</dd>
           <dt class="text-muted-foreground">{{ t('sources.columns.lastError') }}</dt>
           <dd>{{ row.last_error ? codeLabel('reason', row.last_error) : EMPTY_CELL }}</dd>
         </dl>
