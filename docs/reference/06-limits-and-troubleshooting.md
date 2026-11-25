@@ -198,6 +198,9 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `incomplete_after_recheck`, `paused_incomplete` | Seed | torrent laissé en pause (voir [03-seed-safety.md](03-seed-safety.md)) |
 | `link_changed`, `annex_changed` | Seed | dossier du torrent modifié depuis Link : réaccepter et relancer `link` |
 | `client_path_invalid` | Seed | chemin client avec caractère interdit sous Windows |
+| `client_path_unmapped` | Seed | dossier de liens distant sans règle `pathMappings` dont `from` est une adresse `sftp://` du même fournisseur : ajouter la règle vers la vue du client, réaccepter puis relancer |
+| `identity_unproven` | Seed | lien distant : identité jamais prouvée, `skip_checking` refusé, le client recontrôle et le torrent reste en pause jusqu'à 100 % (aucune action) |
+| `remote_unavailable` | Link, Seed | le volume distant ne répond pas : proposition gardée telle quelle, relancer l'étape une fois le volume revenu |
 | `crossseed_notify_failed` | Seed | démon refuse ou injoignable : avertissement seulement |
 | `no_announce` | Verify, Link, Seed | ni entrée `trackers` ni `.torrent` scellé d'indexeur : ajouter l'entrée `trackers`, puis réaccepter (aucune revérification) |
 | `sealed_torrent_unreadable`, `secret_key_missing` | Seed | `.torrent` scellé illisible (clé changée) ou clé absente : remettre `NECROMANCIARR_SECRET_KEY`, ou relancer Verify sur le candidat |

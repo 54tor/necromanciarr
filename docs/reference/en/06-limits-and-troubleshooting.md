@@ -198,6 +198,9 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `incomplete_after_recheck`, `paused_incomplete` | Seed | torrent left paused (see [03-seed-safety.md](03-seed-safety.md)) |
 | `link_changed`, `annex_changed` | Seed | torrent folder modified since Link: re-accept and rerun `link` |
 | `client_path_invalid` | Seed | client path with a forbidden character on Windows |
+| `client_path_unmapped` | Seed | remote link folder with no `pathMappings` rule whose `from` is an `sftp://` location of the same provider: add the rule to the client's view, re-accept then rerun |
+| `identity_unproven` | Seed | remote link: identity never proven, `skip_checking` refused, the client rechecks and the torrent stays paused until 100% (no action) |
+| `remote_unavailable` | Link, Seed | the remote volume does not answer: proposal kept as is, rerun the stage once the volume is back |
 | `crossseed_notify_failed` | Seed | daemon refuses or unreachable: warning only |
 | `no_announce` | Verify, Link, Seed | neither a `trackers` entry nor a sealed indexer `.torrent`: add the `trackers` entry, then accept again (no re-verification) |
 | `sealed_torrent_unreadable`, `secret_key_missing` | Seed | sealed `.torrent` unreadable (key changed) or key missing: restore `NECROMANCIARR_SECRET_KEY`, or run Verify again on the candidate |

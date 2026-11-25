@@ -39,6 +39,8 @@ A hardlink or reflink between two distinct mounts fails with `EXDEV`, even when 
 
 The torrent client must read the torrent folder. It sees it under its own path: declare the `pathMappings` rule `{"from": "/media/links", "to": "<chemin vu par le client>"}`. With `linkType: symlink`, the link's target is an absolute path **of this container** (`/media/library/…`): the client must then see the library at the same path, otherwise the link is broken on its side. With a hardlink, the question does not arise.
 
+Remote link folder (`sftp://<provider>/<absolute path>`, with the filesystem providers to come): the links are created on the remote host, and the torrent client reads that folder either on that host (seedbox) or through a mount of the same storage. The rule translates the remote location to the client's view: `{"from": "sftp://seedbox/srv/links", "to": "/downloads/links"}`. The `from` side is compared as POSIX and case-sensitively, and only covers locations of the same provider; the `to` side stays the path seen by the client, never an `sftp://` location (refused at load time). With no applicable rule, Seed refuses (`client_path_unmapped`) instead of assuming the same path.
+
 ### cross-seed's `config.js`
 
 Mount the **folder** that contains `config.js`, read-only, never the file alone: a single-file mount breaks when an editor replaces the file (new inode, the container keeps the old one). Then `CROSS_SEED_CONFIG=/cross-seed/config.js` (or `crossSeedConfig`).

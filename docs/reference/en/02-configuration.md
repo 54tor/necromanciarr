@@ -45,7 +45,7 @@ The configuration folder must exist when it is given. With no option or variable
 | `tieBreakReadBytes` | integer (bytes) | `53687091200` (50 GiB) | strictly positive. Maximum bytes read, per candidate, to tell same-size local files apart; coverage is not affected |
 | `libraryApi` | URL | empty | `http(s)`, no fragment. Empty: Match and Verify refuse (`not_configured`) |
 | `libraryRoots` | list of paths | empty | as seen by this process; absolute paths without a `..` segment (refused at load time). The `sftp://<provider>/<absolute path>` prefix is reserved for filesystem providers, not available yet |
-| `pathMappings` | list of `{from, to}` | empty | `from`: this process's view; `to`: the view of Radarr, Sonarr and the torrent client |
+| `pathMappings` | list of `{from, to}` | empty | `from`: this process's view (a local path, or an `sftp://<provider>/<absolute path>` location of a declared provider); `to`: the view of Radarr, Sonarr and the torrent client, never an `sftp://` location |
 | `radarr`, `sonarr` | list of URLs | empty | `http(s)://host:port[/path]?apikey=KEY`, optional `user:password@` (basic-authentication proxy); only `apikey` is allowed |
 | `torrentClients` | list of strings | empty | `qbittorrent[:readonly]:http(s)://[user:password@]host:port[/path]`, no query parameter. Only the first client receives torrents (warning if there are several) |
 | `linkDirs` | list of paths | empty | absolute paths without `..`; never overlaps a `libraryRoots` root of the same volume |
@@ -67,7 +67,7 @@ The configuration folder must exist when it is given. With no option or variable
 
 ### Paths and mappings
 
-The paths of the library, link directories and torrent roots are those seen by **this process**. `pathMappings` translates to the other views: the torrent client receives the torrent folder translated from `from` to `to`; the paths returned by Radarr and Sonarr are translated from `to` to `from`. The longest prefix wins, matching happens on a segment boundary (`/data/tv` does not cover `/data/tvshows`), on a tie the first rule wins. A side that starts with a drive letter or `\\` is a Windows path: `\` or `/` separators accepted, case ignored. With no applicable rule, the service is assumed to see the same path.
+The paths of the library, link directories and torrent roots are those seen by **this process**. `pathMappings` translates to the other views: the torrent client receives the torrent folder translated from `from` to `to`; the paths returned by Radarr and Sonarr are translated from `to` to `from`. The longest prefix wins, matching happens on a segment boundary (`/data/tv` does not cover `/data/tvshows`), on a tie the first rule wins. A side that starts with a drive letter or `\\` is a Windows path: `\` or `/` separators accepted, case ignored. With no applicable rule, the service is assumed to see the same path, except for a remote link folder: Seed then refuses (`client_path_unmapped`, see [05-docker-and-volumes.md](05-docker-and-volumes.md)).
 
 ### Link directories
 

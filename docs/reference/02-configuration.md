@@ -45,7 +45,7 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 | `tieBreakReadBytes` | entier (octets) | `53687091200` (50 Gio) | strictement positif. Octets lus au plus, par candidat, pour départager des fichiers locaux de même taille ; la couverture n'est pas concernée |
 | `libraryApi` | URL | vide | `http(s)`, sans fragment. Vide : Match et Verify refusent (`not_configured`) |
 | `libraryRoots` | liste de chemins | vide | vus par ce processus ; chemins absolus, sans segment `..` (refus au chargement). Le préfixe `sftp://<provider>/<absolute path>` est réservé aux fournisseurs de système de fichiers, pas encore disponibles |
-| `pathMappings` | liste `{from, to}` | vide | `from` : vue de ce processus ; `to` : vue de Radarr, Sonarr et du client torrent |
+| `pathMappings` | liste `{from, to}` | vide | `from` : vue de ce processus (chemin local, ou adresse `sftp://<provider>/<absolute path>` d'un fournisseur déclaré) ; `to` : vue de Radarr, Sonarr et du client torrent, jamais une adresse `sftp://` |
 | `radarr`, `sonarr` | liste d'URL | vide | `http(s)://host:port[/path]?apikey=KEY`, `user:password@` facultatif (proxy en authentification basique) ; seul `apikey` est admis |
 | `torrentClients` | liste de chaînes | vide | `qbittorrent[:readonly]:http(s)://[user:password@]host:port[/path]`, sans paramètre de requête. Seul le premier client reçoit les torrents (avertissement s'il y en a plusieurs) |
 | `linkDirs` | liste de chemins | vide | chemins absolus sans `..` ; ne chevauche jamais une racine de `libraryRoots` du même volume |
@@ -67,7 +67,7 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 
 ### Chemins et mappings
 
-Les chemins de la bibliothèque, des dossiers de liens et des racines torrent sont ceux que voit **ce processus**. `pathMappings` traduit vers les autres vues : le client torrent reçoit le dossier du torrent traduit de `from` vers `to` ; les chemins rendus par Radarr et Sonarr sont traduits de `to` vers `from`. Le préfixe le plus long l'emporte, la correspondance se fait sur une frontière de segment (`/data/tv` ne couvre pas `/data/tvshows`), à égalité la première règle gagne. Un côté qui commence par une lettre de lecteur ou `\\` est un chemin Windows : séparateurs `\` ou `/` acceptés, casse ignorée. Sans règle applicable, le service est supposé voir le même chemin.
+Les chemins de la bibliothèque, des dossiers de liens et des racines torrent sont ceux que voit **ce processus**. `pathMappings` traduit vers les autres vues : le client torrent reçoit le dossier du torrent traduit de `from` vers `to` ; les chemins rendus par Radarr et Sonarr sont traduits de `to` vers `from`. Le préfixe le plus long l'emporte, la correspondance se fait sur une frontière de segment (`/data/tv` ne couvre pas `/data/tvshows`), à égalité la première règle gagne. Un côté qui commence par une lettre de lecteur ou `\\` est un chemin Windows : séparateurs `\` ou `/` acceptés, casse ignorée. Sans règle applicable, le service est supposé voir le même chemin, sauf pour un dossier de liens distant : Seed refuse alors (`client_path_unmapped`, voir [05-docker-and-volumes.md](05-docker-and-volumes.md)).
 
 ### Dossiers de liens
 

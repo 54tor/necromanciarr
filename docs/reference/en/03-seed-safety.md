@@ -8,7 +8,7 @@ Seeding false content penalizes the ratio with the trackers, and a client that w
 |---|---|---|
 | 1 | A torrent is **always added paused** (`Start: false`). | Seed |
 | 2 | A torrent is **resumed only at 100%**, and only if Necromanciarr's verification covered all the pieces (kind `full` or `cross_seed`). | Seed, `RecheckAndGuard` |
-| 3 | `skip_checking` is only requested if verification is complete, `skipRecheck` is `true` and **every link is proven by file identity**; a proof by fingerprint alone (reflink, copy) forces a client recheck. | Seed |
+| 3 | `skip_checking` is only requested if verification is complete, `skipRecheck` is `true` and **every link is proven by file identity**; a proof by fingerprint alone (reflink, copy) forces a client recheck. A remote link (`sftp://`) is **never** proven, even when the volume returns a file identity (`identity_unproven`). | Seed |
 | 4 | Sources, links and annexes are **verified again just before the add**. | Seed |
 | 5 | A `partial_annex` stays **paused** until an explicit Force. A `partial_pack` is **never forceable**. | Seed, Force |
 | 6 | A torrent **already present in the client** is only taken back if it points to our folder; otherwise it is refused and left intact. | Seed |
@@ -28,13 +28,16 @@ After a successful resume, the step is `seeded`. In `delegate` mode, cross-seed 
 
 `skipRecheck` (default `true`, importable from cross-seed) never overrides the principle of clean verification: it only applies to a torrent whose pieces are all verified by us. Why verify again before the add: with `skip_checking`, libtorrent checks lazily; a source modified in the meantime would make the client download into the linked inode.
 
+A remote link folder (`linkDirs` as `sftp://<provider>/<absolute path>`, with the filesystem providers to come) never gets `skip_checking`: SFTP returns no inode, and even an identity returned by the server does not prove that the client reads that file. The link is recorded with its volume (`volume` column of `links`), so it stays unproven from one run to the next; with `skipRecheck` and a complete verification, Seed counts `identity_unproven`, adds the torrent paused without `skip_checking`, and `RecheckAndGuard` resumes it only at 100%. Force keeps the same rules (`partial_annex` paused, `partial_pack` never); on a remote volume it has neither reflink nor known free space, so it refuses the isolation.
+
 ### 4: verification before the add
 
 Just before the add, Seed:
 
 1. reloads the proven association and compares size and date (to the nanosecond) of each source file; a changed source makes the candidate `stale`, nothing is added, warning `not seeded: a library file changed since it was linked, verify again`;
 2. checks each link of the torrent folder (same file as its source, or same size and same start-end fingerprint for a reflink) and each annex (size and SHA-256); damage deletes the step and makes the proposal fail (`link_changed`, `annex_changed`): re-accepting then rerunning Link rebuilds the folder;
-3. refuses an invalid client path (`client_path_invalid`, for example a character forbidden by Windows in a drive path).
+3. refuses an invalid client path (`client_path_invalid`, for example a character forbidden by Windows in a drive path); for a remote link folder, requires a `pathMappings` rule whose `from` is an `sftp://` location of the same provider, otherwise refuses (`client_path_unmapped`): "same path" makes no sense between two machines;
+4. a remote volume that does not answer (`remote_unavailable`) leaves the proposal linked, with no failure and no step cleared: the rerun picks it up. Link does the same: the proposal stays accepted.
 
 ### 5: partial_annex and Force
 
