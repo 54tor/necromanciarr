@@ -88,17 +88,64 @@ func writeFixtureFile(t *testing.T, name, content string) {
 	}
 }
 
-// Run exécute tous les cas de conformité ; chaque cas appelle newVolume pour partir d'un état neuf.
+// ReadSubject est ce que le constructeur d'une vue en lecture rend à chaque cas de RunRead.
+type ReadSubject struct {
+	Volume fsys.ReadFS
+	// LibraryRoot contient la bibliothèque de WriteLibraryFixture, chemin du volume.
+	LibraryRoot       string
+	LibraryHasSymlink bool
+}
+
+// NewReadVolume construit une vue en lecture neuve pour un cas.
+type NewReadVolume func(t *testing.T) ReadSubject
+
+func (subject Subject) readSubject() ReadSubject {
+	return ReadSubject{Volume: subject.Volume, LibraryRoot: subject.LibraryRoot, LibraryHasSymlink: subject.LibraryHasSymlink}
+}
+
+type readCase struct {
+	name string
+	run  func(t *testing.T, subject ReadSubject)
+}
+
+var readCases = []readCase{
+	{"OpenIsReadOnly", caseOpenIsReadOnly},
+	{"LstatDoesNotFollowSymlink", caseLstatDoesNotFollowSymlink},
+	{"ReadDirIsSortedByName", caseReadDirIsSortedByName},
+	{"ReadlinkReturnsTarget", caseReadlinkReturnsTarget},
+	{"MissingEntryIsNotExist", caseMissingEntryIsNotExist},
+}
+
+// RunRead exécute les seuls cas de lecture (ReadFS), pour un volume dont l'écriture n'existe pas encore ou est
+// testée ailleurs ; chaque cas appelle newVolume pour partir d'un état neuf.
+func RunRead(t *testing.T, newVolume NewReadVolume) {
+	for _, testCase := range readCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			subject := newVolume(t)
+			if subject.Volume == nil {
+				t.Fatalf("NewReadVolume must return a Volume")
+			}
+			testCase.run(t, subject)
+		})
+	}
+}
+
+// Run exécute tous les cas de conformité, lecture (RunRead) puis écriture ; chaque cas appelle newVolume pour
+// partir d'un état neuf.
 func Run(t *testing.T, newVolume NewVolume) {
-	cases := []struct {
+	newCheckedVolume := func(t *testing.T) Subject {
+		subject := newVolume(t)
+		if subject.Volume == nil || subject.PlantSymlink == nil {
+			t.Fatalf("NewVolume must return a Volume and a PlantSymlink hook")
+		}
+		return subject
+	}
+	RunRead(t, func(t *testing.T) ReadSubject { return newCheckedVolume(t).readSubject() })
+	writeCases := []struct {
 		name string
 		run  func(t *testing.T, subject Subject)
 	}{
-		{"OpenIsReadOnly", caseOpenIsReadOnly},
-		{"LstatDoesNotFollowSymlink", caseLstatDoesNotFollowSymlink},
-		{"ReadDirIsSortedByName", caseReadDirIsSortedByName},
-		{"ReadlinkReturnsTarget", caseReadlinkReturnsTarget},
-		{"MissingEntryIsNotExist", caseMissingEntryIsNotExist},
+		{"WriteRootMissingEntryIsNotExist", caseWriteRootMissingEntryIsNotExist},
 		{"WriteRootRootIsCanonical", caseWriteRootRootIsCanonical},
 		{"WriteRootRefusesEscapes", caseWriteRootRefusesEscapes},
 		{"WriteRootRefusesSymlinkedParent", caseWriteRootRefusesSymlinkedParent},
@@ -109,13 +156,9 @@ func Run(t *testing.T, newVolume NewVolume) {
 		{"SymlinkAndHardlinkFromLibrary", caseSymlinkAndHardlinkFromLibrary},
 		{"CopyFromLibrary", caseCopyFromLibrary},
 	}
-	for _, testCase := range cases {
+	for _, testCase := range writeCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			subject := newVolume(t)
-			if subject.Volume == nil || subject.PlantSymlink == nil {
-				t.Fatalf("NewVolume must return a Volume and a PlantSymlink hook")
-			}
-			testCase.run(t, subject)
+			testCase.run(t, newCheckedVolume(t))
 		})
 	}
 }

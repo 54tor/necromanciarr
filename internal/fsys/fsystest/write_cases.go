@@ -44,7 +44,7 @@ func caseWriteRootRefusesEscapes(t *testing.T, subject Subject) {
 		assertEveryMethodUnconfined(t, subject, root, relative)
 	}
 	assertContent(t, subject.Volume, subject.Volume.Paths().Join(subject.LinkDir, "kept"), "kept")
-	assertLibraryIntact(t, subject)
+	assertLibraryIntact(t, subject.readSubject())
 }
 
 // caseWriteRootRefusesSymlinkedParent prouve qu'un dossier symbolique posé hors du volume dans la racine, et
@@ -57,7 +57,7 @@ func caseWriteRootRefusesSymlinkedParent(t *testing.T, subject Subject) {
 	for _, relative := range []string{"escape/" + FixtureNoteName, "escape/" + FixtureSubdirName + "/new"} {
 		assertEveryMethodUnconfined(t, subject, root, relative)
 	}
-	assertLibraryIntact(t, subject)
+	assertLibraryIntact(t, subject.readSubject())
 }
 
 // caseWriteRootRefusesSourceOfAnotherVolume prouve que Hardlink et CopyFrom refusent une source d'un autre volume
@@ -159,7 +159,7 @@ func caseSymlinkAndHardlinkFromLibrary(t *testing.T, subject Subject) {
 	} else {
 		t.Log("Hardlink not offered by the volume: skipped")
 	}
-	assertLibraryIntact(t, subject)
+	assertLibraryIntact(t, subject.readSubject())
 }
 
 // caseCopyFromLibrary prouve que CopyFrom rend une copie complète et compte ses octets.
@@ -175,7 +175,7 @@ func caseCopyFromLibrary(t *testing.T, subject Subject) {
 		t.Errorf("CopyFrom = %d bytes, want %d", copied, len(FixtureMovieContent))
 	}
 	assertContent(t, volume, volume.Paths().Join(subject.LinkDir, "copy.mkv"), FixtureMovieContent)
-	assertLibraryIntact(t, subject)
+	assertLibraryIntact(t, subject.readSubject())
 }
 
 // assertEveryMethodUnconfined appelle chaque méthode de WriteRoot avec relative en destination (et en second
@@ -201,4 +201,16 @@ func assertEveryMethodUnconfined(t *testing.T, subject Subject, root fsys.WriteR
 	assertUnconfined(t, "Remove", relative, root.Remove(relative))
 	_, err = root.Lstat(relative)
 	assertUnconfined(t, "Lstat", relative, err)
+}
+
+// caseWriteRootMissingEntryIsNotExist prouve que les erreurs d'absence d'une racine d'écriture sont typées
+// fs.ErrNotExist.
+func caseWriteRootMissingEntryIsNotExist(t *testing.T, subject Subject) {
+	root := openWriteRoot(t, subject)
+	if err := root.Remove("missing"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Remove error = %v, want fs.ErrNotExist", err)
+	}
+	if _, err := root.Lstat("missing"); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Lstat error = %v, want fs.ErrNotExist", err)
+	}
 }

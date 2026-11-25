@@ -10,7 +10,7 @@ import (
 
 // caseOpenIsReadOnly prouve qu'Open lit le contenu et que le fichier rendu n'offre aucune écriture : ni Write qui
 // réussit, ni Chmod/Truncate atteignables par assertion de type (*os.File interdit).
-func caseOpenIsReadOnly(t *testing.T, subject Subject) {
+func caseOpenIsReadOnly(t *testing.T, subject ReadSubject) {
 	volume := subject.Volume
 	file, err := volume.Open(volume.Paths().Join(subject.LibraryRoot, FixtureMovieName))
 	if err != nil {
@@ -35,7 +35,7 @@ func caseOpenIsReadOnly(t *testing.T, subject Subject) {
 }
 
 // caseLstatDoesNotFollowSymlink prouve que Lstat voit le lien et Stat sa cible.
-func caseLstatDoesNotFollowSymlink(t *testing.T, subject Subject) {
+func caseLstatDoesNotFollowSymlink(t *testing.T, subject ReadSubject) {
 	skipWithoutFixtureLink(t, subject)
 	volume := subject.Volume
 	linkPath := volume.Paths().Join(subject.LibraryRoot, FixtureLinkName)
@@ -56,7 +56,7 @@ func caseLstatDoesNotFollowSymlink(t *testing.T, subject Subject) {
 }
 
 // caseReadDirIsSortedByName prouve que ReadDir rend toutes les entrées, triées par nom.
-func caseReadDirIsSortedByName(t *testing.T, subject Subject) {
+func caseReadDirIsSortedByName(t *testing.T, subject ReadSubject) {
 	expectedValue := fixtureEntries(subject)
 	gotValue := entryNames(t, subject.Volume, subject.LibraryRoot)
 	if !slices.Equal(gotValue, expectedValue) {
@@ -65,7 +65,7 @@ func caseReadDirIsSortedByName(t *testing.T, subject Subject) {
 }
 
 // caseReadlinkReturnsTarget prouve que Readlink rend la cible brute, sans la résoudre.
-func caseReadlinkReturnsTarget(t *testing.T, subject Subject) {
+func caseReadlinkReturnsTarget(t *testing.T, subject ReadSubject) {
 	skipWithoutFixtureLink(t, subject)
 	volume := subject.Volume
 	gotValue, err := volume.Readlink(volume.Paths().Join(subject.LibraryRoot, FixtureLinkName))
@@ -75,7 +75,7 @@ func caseReadlinkReturnsTarget(t *testing.T, subject Subject) {
 }
 
 // caseMissingEntryIsNotExist prouve que les erreurs d'absence sont typées fs.ErrNotExist.
-func caseMissingEntryIsNotExist(t *testing.T, subject Subject) {
+func caseMissingEntryIsNotExist(t *testing.T, subject ReadSubject) {
 	volume := subject.Volume
 	missingPath := volume.Paths().Join(subject.LibraryRoot, "missing")
 	if _, err := volume.Stat(missingPath); !errors.Is(err, fs.ErrNotExist) {
@@ -84,16 +84,12 @@ func caseMissingEntryIsNotExist(t *testing.T, subject Subject) {
 	if _, err := volume.Open(missingPath); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("Open error = %v, want fs.ErrNotExist", err)
 	}
-	root := openWriteRoot(t, subject)
-	if err := root.Remove("missing"); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("Remove error = %v, want fs.ErrNotExist", err)
-	}
-	if _, err := root.Lstat("missing"); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := volume.Lstat(missingPath); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("Lstat error = %v, want fs.ErrNotExist", err)
 	}
 }
 
-func skipWithoutFixtureLink(t *testing.T, subject Subject) {
+func skipWithoutFixtureLink(t *testing.T, subject ReadSubject) {
 	t.Helper()
 	if !subject.LibraryHasSymlink {
 		t.Skip("fixture symlink unavailable on this platform")

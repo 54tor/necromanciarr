@@ -11,7 +11,7 @@ import (
 )
 
 // fixtureEntries : ReadDir doit les rendre dans cet ordre (tri par nom, '-' avant '.').
-func fixtureEntries(subject Subject) []string {
+func fixtureEntries(subject ReadSubject) []string {
 	if subject.LibraryHasSymlink {
 		return []string{FixtureNoteName, FixtureLinkName, FixtureMovieName, FixtureSubdirName}
 	}
@@ -63,7 +63,7 @@ func assertUnconfined(t *testing.T, method, relative string, err error) {
 	}
 }
 
-func assertContent(t *testing.T, volume fsys.Volume, name, expectedValue string) {
+func assertContent(t *testing.T, volume fsys.ReadFS, name, expectedValue string) {
 	t.Helper()
 	file, err := volume.Open(name)
 	if err != nil {
@@ -80,7 +80,7 @@ func assertContent(t *testing.T, volume fsys.Volume, name, expectedValue string)
 }
 
 // assertLibraryIntact vérifie que la bibliothèque a gardé exactement ses entrées et ses contenus.
-func assertLibraryIntact(t *testing.T, subject Subject) {
+func assertLibraryIntact(t *testing.T, subject ReadSubject) {
 	t.Helper()
 	volume := subject.Volume
 	expectedEntries := fixtureEntries(subject)
@@ -95,7 +95,7 @@ func assertLibraryIntact(t *testing.T, subject Subject) {
 	assertContent(t, volume, volume.Paths().Join(subject.LibraryRoot, FixtureNoteName), FixtureNoteContent)
 }
 
-func entryNames(t *testing.T, volume fsys.Volume, dir string) []string {
+func entryNames(t *testing.T, volume fsys.ReadFS, dir string) []string {
 	t.Helper()
 	entries, err := volume.ReadDir(dir)
 	if err != nil {
