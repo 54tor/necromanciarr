@@ -5,8 +5,11 @@ package sftptest
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/pem"
 	"errors"
 	"net"
@@ -42,6 +45,30 @@ type settings struct {
 	reversedSymlinkArgs bool
 	windowsRoot         bool
 	execHandler         ExecHandler
+	password            string
+	ignoreKeepalive     bool
+	ecdsaHostKey        bool
+}
+
+// AuthAttempt est un essai d'authentification reçu, dans l'ordre d'arrivée : Method vaut « publickey » (avec
+// l'empreinte SHA-256 de la clé offerte) ou « password ».
+type AuthAttempt struct {
+	Method, KeyFingerprint string
+}
+
+// WithPassword accepte aussi ce mot de passe, en plus de la clé de ClientKeyFile.
+func WithPassword(password string) Option {
+	return func(current *settings) { current.password = password }
+}
+
+// IgnoreKeepalive ne répond jamais aux requêtes globales (keepalive compris) : une session muette.
+func IgnoreKeepalive() Option {
+	return func(current *settings) { current.ignoreKeepalive = true }
+}
+
+// WithECDSAHostKey présente aussi une clé d'hôte ECDSA P-256, décrite par ECDSAHostKeyLine.
+func WithECDSAHostKey() Option {
+	return func(current *settings) { current.ecdsaHostKey = true }
 }
 
 // WithoutExtension retire une extension SFTP (posix-rename@openssh.com, hardlink@openssh.com, statvfs@openssh.com)
@@ -81,20 +108,24 @@ func DenyExec() Option {
 }
 
 // Server est un serveur en cours. Address est « 127.0.0.1:port » ; HostKeyLine une ligne known_hosts de sa clé
-// d'hôte ; Root le dossier servi ; ClientKeyFile la clé privée (0600) que le serveur autorise.
+// d'hôte ed25519 (ECDSAHostKeyLine celle de la clé ECDSA, avec WithECDSAHostKey) ; Root le dossier servi ;
+// ClientKeyFile la clé privée (0600) que le serveur autorise.
 type Server struct {
-	Address, HostKeyLine, Root, ClientKeyFile string
+	Address, HostKeyLine, ECDSAHostKeyLine, Root, ClientKeyFile string
 
-	settings settings
-	root     *os.Root
-	listener net.Listener
-	config   *ssh.ServerConfig
-	stopped  chan struct{}
-	routines sync.WaitGroup
+	settings     settings
+	ecdsaHostKey ssh.PublicKey
+	root         *os.Root
+	listener     net.Listener
+	config       *ssh.ServerConfig
+	stopped      chan struct{}
+	routines     sync.WaitGroup
 
 	mutex       sync.Mutex
 	closed      bool
 	requests    []Request
+	attempts    []AuthAttempt
+	accepted    int
 	connections map[net.Conn]bool
 }
 
@@ -148,8 +179,14 @@ func (server *Server) listen(clientKey ssh.PublicKey) error {
 	if err != nil {
 		return err
 	}
-	server.config = &ssh.ServerConfig{PublicKeyCallback: authorizeOnly(clientKey)}
+	server.config = &ssh.ServerConfig{PublicKeyCallback: server.authorizeOnly(clientKey)}
+	if server.settings.password != "" {
+		server.config.PasswordCallback = server.checkPassword
+	}
 	server.config.AddHostKey(hostSigner)
+	if err := server.addECDSAHostKey(); err != nil {
+		return err
+	}
 	if server.root, err = os.OpenRoot(server.Root); err != nil {
 		return err
 	}
@@ -157,19 +194,93 @@ func (server *Server) listen(clientKey ssh.PublicKey) error {
 		return errors.Join(err, server.root.Close())
 	}
 	server.Address = server.listener.Addr().String()
-	server.HostKeyLine = knownhosts.Line([]string{knownhosts.Normalize(server.Address)}, hostSigner.PublicKey())
+	server.HostKeyLine = server.knownHostsLine(hostSigner.PublicKey())
+	if server.ecdsaHostKey != nil {
+		server.ECDSAHostKeyLine = server.knownHostsLine(server.ecdsaHostKey)
+	}
 	return nil
 }
 
-var errUnauthorizedKey = errors.New("sftptest: unknown client key")
+func (server *Server) knownHostsLine(hostKey ssh.PublicKey) string {
+	return knownhosts.Line([]string{knownhosts.Normalize(server.Address)}, hostKey)
+}
 
-func authorizeOnly(clientKey ssh.PublicKey) func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) {
+// addECDSAHostKey ajoute la clé d'hôte ECDSA de WithECDSAHostKey ; sa ligne est écrite une fois l'adresse connue.
+func (server *Server) addECDSAHostKey() error {
+	if !server.settings.ecdsaHostKey {
+		return nil
+	}
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return err
+	}
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		return err
+	}
+	server.config.AddHostKey(signer)
+	server.ecdsaHostKey = signer.PublicKey()
+	return nil
+}
+
+var (
+	errUnauthorizedKey = errors.New("sftptest: unknown client key")
+	errWrongPassword   = errors.New("sftptest: wrong password")
+)
+
+func (server *Server) authorizeOnly(clientKey ssh.PublicKey) func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) {
 	return func(_ ssh.ConnMetadata, offeredKey ssh.PublicKey) (*ssh.Permissions, error) {
+		server.recordAttempt(AuthAttempt{Method: "publickey", KeyFingerprint: ssh.FingerprintSHA256(offeredKey)})
 		if !bytes.Equal(offeredKey.Marshal(), clientKey.Marshal()) {
 			return nil, errUnauthorizedKey
 		}
 		return &ssh.Permissions{}, nil
 	}
+}
+
+func (server *Server) checkPassword(_ ssh.ConnMetadata, offeredPassword []byte) (*ssh.Permissions, error) {
+	server.recordAttempt(AuthAttempt{Method: "password"})
+	if subtle.ConstantTimeCompare(offeredPassword, []byte(server.settings.password)) != 1 {
+		return nil, errWrongPassword
+	}
+	return &ssh.Permissions{}, nil
+}
+
+func (server *Server) recordAttempt(attempt AuthAttempt) {
+	server.mutex.Lock()
+	defer server.mutex.Unlock()
+	server.attempts = append(server.attempts, attempt)
+}
+
+// AuthAttempts rend une copie du journal des essais d'authentification, toutes connexions confondues.
+func (server *Server) AuthAttempts() []AuthAttempt {
+	server.mutex.Lock()
+	defer server.mutex.Unlock()
+	return append([]AuthAttempt(nil), server.attempts...)
+}
+
+// Connections rend le nombre de connexions TCP acceptées depuis Start : une par tentative de connexion.
+func (server *Server) Connections() int {
+	server.mutex.Lock()
+	defer server.mutex.Unlock()
+	return server.accepted
+}
+
+// DropConnections coupe côté serveur toutes les connexions ouvertes ; le serveur continue d'écouter.
+func (server *Server) DropConnections() {
+	for _, connection := range server.openConnections() {
+		_ = connection.Close()
+	}
+}
+
+func (server *Server) openConnections() []net.Conn {
+	server.mutex.Lock()
+	defer server.mutex.Unlock()
+	openConnections := make([]net.Conn, 0, len(server.connections))
+	for connection := range server.connections {
+		openConnections = append(openConnections, connection)
+	}
+	return openConnections
 }
 
 // Requests rend une copie du journal des requêtes.
@@ -189,11 +300,8 @@ func (server *Server) record(request Request) {
 func (server *Server) close() {
 	server.mutex.Lock()
 	server.closed = true
-	openConnections := make([]net.Conn, 0, len(server.connections))
-	for connection := range server.connections {
-		openConnections = append(openConnections, connection)
-	}
 	server.mutex.Unlock()
+	openConnections := server.openConnections()
 	close(server.stopped)
 	_ = server.listener.Close()
 	for _, connection := range openConnections {
@@ -227,6 +335,7 @@ func (server *Server) track(connection net.Conn) bool {
 		return false
 	}
 	server.connections[connection] = true
+	server.accepted++
 	return true
 }
 
@@ -245,8 +354,11 @@ func (server *Server) serveConnection(connection net.Conn) {
 		return
 	}
 	defer func() { _ = sshConnection.Close() }()
-	// keepalive@openssh.com et toute requête globale reçoivent un refus : une réponse, donc une session vivante.
-	server.goTracked(func() { ssh.DiscardRequests(globalRequests) })
+	// ended libère les requêtes figées de cette connexion dès qu'elle tombe : pkg/sftp n'annule le contexte d'une
+	// requête qu'à la fin de Serve, qui attend justement ces requêtes.
+	ended := make(chan struct{})
+	defer close(ended)
+	server.goTracked(func() { server.answerGlobalRequests(globalRequests) })
 	for newChannel := range channels {
 		if newChannel.ChannelType() != "session" {
 			_ = newChannel.Reject(ssh.UnknownChannelType, "only session channels")
@@ -256,7 +368,18 @@ func (server *Server) serveConnection(connection net.Conn) {
 		if err != nil {
 			continue
 		}
-		server.goTracked(func() { server.serveSession(channel, channelRequests) })
+		server.goTracked(func() { server.serveSession(channel, channelRequests, ended) })
+	}
+}
+
+// answerGlobalRequests refuse keepalive@openssh.com et toute requête globale : une réponse, donc une session vivante.
+// Avec IgnoreKeepalive, elles sont lues sans jamais de réponse.
+func (server *Server) answerGlobalRequests(globalRequests <-chan *ssh.Request) {
+	if !server.settings.ignoreKeepalive {
+		ssh.DiscardRequests(globalRequests)
+		return
+	}
+	for range globalRequests {
 	}
 }
 

@@ -25,7 +25,7 @@ const (
 type stringPayload struct{ Value string }
 
 // serveSession attend la première requête subsystem « sftp » ou exec ; les autres sont refusées.
-func (server *Server) serveSession(channel ssh.Channel, requests <-chan *ssh.Request) {
+func (server *Server) serveSession(channel ssh.Channel, requests <-chan *ssh.Request, ended <-chan struct{}) {
 	defer func() { _ = channel.Close() }()
 	for request := range requests {
 		var payload stringPayload
@@ -34,7 +34,7 @@ func (server *Server) serveSession(channel ssh.Channel, requests <-chan *ssh.Req
 		case request.Type == "subsystem" && payload.Value == "sftp":
 			_ = request.Reply(true, nil)
 			server.goTracked(func() { ssh.DiscardRequests(requests) })
-			server.serveSFTP(channel)
+			server.serveSFTP(channel, ended)
 			return
 		case request.Type == "exec":
 			server.record(Request{Method: "Exec", Path: payload.Value})
@@ -52,8 +52,8 @@ func (server *Server) serveSession(channel ssh.Channel, requests <-chan *ssh.Req
 	}
 }
 
-func (server *Server) serveSFTP(channel ssh.Channel) {
-	handler := &fileHandler{server: server}
+func (server *Server) serveSFTP(channel ssh.Channel, ended <-chan struct{}) {
+	handler := &fileHandler{server: server, ended: ended}
 	handlers := sftp.Handlers{FileGet: handler, FilePut: handler, FileCmd: handler, FileList: handler}
 	requestServer := sftp.NewRequestServer(&extensionFilter{Channel: channel, hidden: server.settings.hiddenExtensions}, handlers)
 	_ = requestServer.Serve()

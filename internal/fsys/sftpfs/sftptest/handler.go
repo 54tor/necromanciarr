@@ -31,8 +31,12 @@ var extensionOfMethod = map[string]string{
 
 var errSizeUnsupported = errors.New("sftptest: setstat of the size is not supported")
 
-// fileHandler sert les requêtes SFTP dans server.root (os.Root : aucun chemin ne sort du dossier servi).
-type fileHandler struct{ server *Server }
+// fileHandler sert les requêtes SFTP dans server.root (os.Root : aucun chemin ne sort du dossier servi) ; ended se
+// ferme quand la connexion du client tombe.
+type fileHandler struct {
+	server *Server
+	ended  <-chan struct{}
+}
 
 // admit enregistre la requête, la fige si sa méthode l'est, puis la refuse si son extension est masquée.
 func (handler *fileHandler) admit(request Request, requestContext context.Context) error {
@@ -41,6 +45,7 @@ func (handler *fileHandler) admit(request Request, requestContext context.Contex
 	if server.settings.stalledMethods[request.Method] {
 		select {
 		case <-requestContext.Done():
+		case <-handler.ended:
 		case <-server.stopped:
 		}
 		return sftp.ErrSSHFxConnectionLost
