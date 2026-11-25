@@ -7,16 +7,18 @@ import (
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/fsys/fsystest"
+	"necromanciarr/internal/fsys/sftpfs"
 	"necromanciarr/internal/pipeline"
 )
 
-func TestNewFilesystemRegistry_readsLocalLibraryRoots(t *testing.T) {
+func TestBuildRegistry_readsLocalLibraryRoots(t *testing.T) {
 	libraryRoot := t.TempDir()
 
-	registry, err := newFilesystemRegistry(config.Config{LibraryRoots: []string{libraryRoot}})
+	registry, closer, err := buildRegistry(t.Context(), config.Config{LibraryRoots: []string{libraryRoot}}, sftpfs.Deps{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = closer.Close() })
 
 	readFS, path, err := registry.Read(fsys.Location{Path: libraryRoot})
 	if err != nil || path != libraryRoot {
@@ -27,8 +29,8 @@ func TestNewFilesystemRegistry_readsLocalLibraryRoots(t *testing.T) {
 	}
 }
 
-func TestNewFilesystemRegistry_refusesARootThatIsNotALocation(t *testing.T) {
-	_, err := newFilesystemRegistry(config.Config{LibraryRoots: []string{"relative/media"}})
+func TestBuildRegistry_refusesARootThatIsNotALocation(t *testing.T) {
+	_, _, err := buildRegistry(t.Context(), config.Config{LibraryRoots: []string{"relative/media"}}, sftpfs.Deps{})
 
 	if err == nil || !strings.Contains(err.Error(), "libraryRoots[0]") {
 		t.Fatalf("valeurObtenue %v, valeurAttendue an error naming libraryRoots[0]", err)

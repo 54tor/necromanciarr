@@ -66,7 +66,7 @@ func fakeIndexerEntry(name, baseURL string) config.TorznabIndexer {
 func sourcesService(t *testing.T, settings config.Config) (Service, *store.Store) {
 	t.Helper()
 	openedStore := openTestStore(t)
-	deps, err := buildDeps(context.Background(), settings, openedStore)
+	deps, _, err := buildDeps(context.Background(), settings, openedStore)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -28,7 +28,7 @@ func torznabEntry(name string) config.TorznabIndexer {
 }
 
 func TestBuildDeps_withoutIndexerTheChainHoldsTheProviderAlone(t *testing.T) {
-	deps, err := buildDeps(context.Background(), sourcesSettings(t), openTestStore(t))
+	deps, _, err := buildDeps(context.Background(), sourcesSettings(t), openTestStore(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestBuildDeps_buildsTheChainFromSourceOrderWithProviderFirst(t *testing.T) 
 	settings.Torznab = []config.TorznabIndexer{torznabEntry("a"), torznabEntry("b")}
 	settings.SourceOrder = []string{"provider", "torznab:b", "torznab:a"}
 
-	deps, err := buildDeps(context.Background(), settings, openTestStore(t))
+	deps, _, err := buildDeps(context.Background(), settings, openTestStore(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestBuildDeps_withoutSourceOrderTheIndexersFollowTheConfigurationOrder(t *t
 	settings := sourcesSettings(t)
 	settings.Torznab = []config.TorznabIndexer{torznabEntry("a"), torznabEntry("b")}
 
-	deps, err := buildDeps(context.Background(), settings, openTestStore(t))
+	deps, _, err := buildDeps(context.Background(), settings, openTestStore(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestBuildDeps_indexersWithoutLibraryApiKeepMatchAndVerifyNotConfigured(t *t
 	settings := sourcesSettings(t)
 	settings.LibraryAPI, settings.LibraryProviderToken = "", ""
 	settings.Torznab = []config.TorznabIndexer{torznabEntry("a")}
-	deps, err := buildDeps(context.Background(), settings, openTestStore(t))
+	deps, _, err := buildDeps(context.Background(), settings, openTestStore(t))
 	if err != nil {
 		t.Fatal(err)
 	}

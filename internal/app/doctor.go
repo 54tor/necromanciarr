@@ -22,6 +22,9 @@ type DoctorOptions struct {
 }
 
 func (svc *service) Doctor(ctx context.Context, options DoctorOptions) (doctor.Report, error) {
+	if registry := svc.deps.DoctorDeps.Registry; registry != nil {
+		registry.ResetForStage() // un volume coupé par une étape précédente retente une fois pour le diagnostic
+	}
 	checks := doctor.Build(svc.deps.Config, svc.deps.DoctorDeps)
 	selected, err := selectChecks(checks, options.CheckIDs)
 	if err != nil {

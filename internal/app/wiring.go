@@ -15,6 +15,7 @@ import (
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/fsys/local"
+	"necromanciarr/internal/fsys/sftpfs"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/httpsafe"
 	"necromanciarr/internal/i18n"
@@ -39,32 +40,48 @@ var warningMultipleClients = i18n.Message{Key: i18n.KeyWarningMultipleClients}
 
 // NewFromConfig construit le Service de production : store (config.ResolveDBPath), fournisseur de bibliothèque,
 // instances Radarr et Sonarr, premier client torrent, registre d'empreintes, mode et notificateur cross-seed, mapper
-// de chemins et limiteur de lecture. Le Closer ferme le store. Une erreur nomme le composant, jamais un secret.
+// de chemins, limiteur de lecture et registre de fichiers. Le Closer ferme les volumes sftp puis le store et garde
+// sa sonde de santé (Ping). Une erreur nomme le composant, jamais un secret.
 func NewFromConfig(ctx context.Context, settings config.Config) (Service, io.Closer, error) {
 	openedStore, err := store.Open(config.ResolveDBPath(settings))
 	if err != nil {
 		return nil, nil, fmt.Errorf("app: store: %w", err)
 	}
-	deps, err := buildDeps(ctx, settings, openedStore)
+	deps, volumes, err := buildDeps(ctx, settings, openedStore)
 	if err != nil {
 		return nil, nil, errors.Join(err, openedStore.Close())
 	}
+	closer := serviceCloser{store: openedStore, volumes: volumes}
 	if err := clearSealedAtStart(ctx, openedStore, settings); err != nil {
-		return nil, nil, errors.Join(err, openedStore.Close())
+		return nil, nil, errors.Join(err, closer.Close())
 	}
-	return New(deps), openedStore, nil
+	return New(deps), closer, nil
 }
 
-func buildDeps(ctx context.Context, settings config.Config, openedStore *store.Store) (Deps, error) {
-	mapper := linker.NewMapper(settings.PathRules)
+// buildDeps rend aussi le Closer des volumes sftp du registre, à fermer avec le service.
+func buildDeps(ctx context.Context, settings config.Config, openedStore *store.Store) (Deps, io.Closer, error) {
+	deps, volumes, err := wireRegistry(ctx, settings, openedStore)
+	if err != nil {
+		return Deps{}, nil, err
+	}
+	if err := wireRest(ctx, settings, openedStore, &deps); err != nil {
+		return Deps{}, nil, errors.Join(err, volumes.Close())
+	}
+	return deps, volumes, nil
+}
+
+// wireRegistry bâtit le registre de fichiers et les dépendances des étapes qui en dépendent.
+func wireRegistry(ctx context.Context, settings config.Config, openedStore *store.Store) (Deps, io.Closer, error) {
 	linkKinds, err := linkKindsOf(settings.LinkType)
 	if err != nil {
-		return Deps{}, err
+		return Deps{}, nil, err
 	}
-	registry, err := newFilesystemRegistry(settings)
+	registry, volumes, err := buildRegistry(ctx, settings, sftpfs.Deps{})
 	if err != nil {
-		return Deps{}, err
+		return Deps{}, nil, err
 	}
+	volumes.(*sftpVolumes).saveProbesTo(openedStore)
+	mapper := linker.NewMapper(settings.PathRules)
 	stages := pipeline.Deps{
 		Store: openedStore, ScanRoot: pipeline.LibraryScanner(openedStore, registry), LibraryRoots: settings.LibraryRoots,
 		Registry:   registry,
@@ -74,28 +91,33 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 		LinkDirs: settings.LinkDirs, LinkKinds: linkKinds, Category: settings.LinkCategory,
 		Tags: settings.SeedTags, SkipRecheck: settings.SkipRecheck,
 	}
-	if err := wireSealer(settings, &stages); err != nil {
-		return Deps{}, err
-	}
-	if err := wireSources(settings, &stages, openedStore); err != nil {
-		return Deps{}, err
-	}
-	deps := Deps{Store: openedStore, Config: settings, Translator: i18n.New(settings.Language, func(text string) string {
+	deps := Deps{Store: openedStore, Config: settings, Stages: stages, Translator: i18n.New(settings.Language, func(text string) string {
 		return config.RedactText(text, settings.KnownSecrets()...)
 	})}
-	if err := wireTorrentClient(settings, &stages, &deps); err != nil {
-		return Deps{}, err
+	return deps, volumes, nil
+}
+
+// wireRest pose le scellement, les sources, le client torrent, le cross-seed et les sources d'empreintes.
+func wireRest(ctx context.Context, settings config.Config, openedStore *store.Store, deps *Deps) error {
+	if err := wireSealer(settings, &deps.Stages); err != nil {
+		return err
 	}
-	if err := wireCrossSeed(ctx, settings, &stages, &deps); err != nil {
-		return Deps{}, err
+	if err := wireSources(settings, &deps.Stages, openedStore); err != nil {
+		return err
+	}
+	if err := wireTorrentClient(settings, &deps.Stages, deps); err != nil {
+		return err
+	}
+	if err := wireCrossSeed(ctx, settings, &deps.Stages, deps); err != nil {
+		return err
 	}
 	hashSources, err := hashsource.NewFromConfig(settings.FSProviders, hashsource.Deps{HTTPClient: httpsafe.NewClient(hashSourceTimeout)})
 	if err != nil {
-		return Deps{}, fmt.Errorf("app: fs providers: %w", err)
+		return fmt.Errorf("app: fs providers: %w", err)
 	}
-	deps.Stages, deps.HashSources = stages, hashSources
+	deps.HashSources = hashSources
 	deps.DoctorDeps.SealedProbe = openStoreProbe{store: openedStore}
-	return deps, nil
+	return nil
 }
 
 // wireSealer pose le déscellement des .torrent d'indexeur quand NECROMANCIARR_SECRET_KEY est définie ; sans elle, Seed
@@ -271,21 +293,34 @@ func wireCrossSeed(ctx context.Context, settings config.Config, stages *pipeline
 	return nil
 }
 
-// newFilesystemRegistry déclare le volume du disque local et les racines de bibliothèque de la configuration ; les
-// volumes distants s'y ajoutent avec leurs fournisseurs. Aucun accès disque : les racines sont canonicalisées au
-// premier usage de leur volume.
-func newFilesystemRegistry(settings config.Config) (*fsys.Registry, error) {
+// buildRegistry déclare le volume du disque local, un volume par fournisseur sftp (joint au premier usage : un serveur
+// injoignable au lancement n'empêche ni les opérations locales, ni l'interface, ni doctor) et les racines de
+// bibliothèque de la configuration. Chaque racine d'écriture d'un volume sftp est sondée avant d'être rendue
+// (sftpVolumes.ensureProbed). deps.Limiter n'est jamais transmis aux volumes ; LibraryRoots y est remplacé par les
+// racines de bibliothèque de chaque fournisseur. Le Closer ferme les volumes sftp. Aucun accès disque ni réseau.
+func buildRegistry(ctx context.Context, settings config.Config, deps sftpfs.Deps) (*fsys.Registry, io.Closer, error) {
 	libraryRoots := make([]fsys.Location, 0, len(settings.LibraryRoots))
 	for rootIndex, root := range settings.LibraryRoots {
 		location, err := fsys.ParseLocation(root)
 		if err != nil {
-			return nil, fmt.Errorf("app: libraryRoots[%d]: %w", rootIndex, err)
+			return nil, nil, fmt.Errorf("app: libraryRoots[%d]: %w", rootIndex, err)
 		}
 		libraryRoots = append(libraryRoots, location)
 	}
-	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"": local.New()}, libraryRoots)
-	if err != nil {
-		return nil, fmt.Errorf("app: filesystem registry: %w", err)
+	remote := &sftpVolumes{volumes: map[string]*sftpfs.Volume{}, saved: map[string]fsys.Capabilities{}}
+	volumes := map[string]fsys.Volume{"": local.New()}
+	var options []fsys.RegistryOption
+	for _, provider := range settings.FSProviders {
+		if provider.Type != config.FSProviderTypeSFTP {
+			continue
+		}
+		volume := newSFTPVolume(provider, libraryRoots, deps)
+		remote.volumes[provider.Name], volumes[provider.Name] = volume, volume
+		options = append(options, fsys.WithWriteRootCheck(provider.Name, remote.ensureProbed(ctx, provider.Name)))
 	}
-	return registry, nil
+	registry, err := fsys.NewRegistry(volumes, libraryRoots, options...)
+	if err != nil {
+		return nil, nil, errors.Join(fmt.Errorf("app: filesystem registry: %w", err), remote.Close())
+	}
+	return registry, remote, nil
 }

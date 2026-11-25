@@ -374,7 +374,7 @@ func TestBuildDeps_wiresTheTieBreakReadBudgetFromConfig(t *testing.T) {
 		CrossSeedMode: "off",
 	}
 
-	deps, err := buildDeps(context.Background(), settings, openedStore)
+	deps, _, err := buildDeps(context.Background(), settings, openedStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestBuildDeps_wiresTheSeedTagsFromConfig(t *testing.T) {
 		CrossSeedMode: "off", SeedTags: expectedValue,
 	}
 
-	deps, err := buildDeps(context.Background(), settings, openedStore)
+	deps, _, err := buildDeps(context.Background(), settings, openedStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +414,7 @@ func TestBuildDeps_wiresThePartialMissingPiecesCapFromConfig(t *testing.T) {
 		CrossSeedMode: "off", PartialMaxMissingPercent: expectedValue,
 	}
 
-	deps, err := buildDeps(context.Background(), settings, openedStore)
+	deps, _, err := buildDeps(context.Background(), settings, openedStore)
 	if err != nil {
 		t.Fatal(err)
 	}

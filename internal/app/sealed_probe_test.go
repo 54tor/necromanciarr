@@ -93,7 +93,7 @@ func TestBuildDeps_wiresTheSealedProbeOnTheOpenStore(t *testing.T) {
 	openedStore := openTestStore(t)
 	settings := config.Config{ConfigDir: t.TempDir(), ReadBytesPerSecond: 1 << 20, TieBreakReadBytes: 1, LinkType: "hardlink", CrossSeedMode: "off"}
 
-	deps, err := buildDeps(context.Background(), settings, openedStore)
+	deps, _, err := buildDeps(context.Background(), settings, openedStore)
 	if err != nil {
 		t.Fatal(err)
 	}
