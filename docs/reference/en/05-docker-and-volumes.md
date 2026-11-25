@@ -137,3 +137,14 @@ An `fsProviders` entry of type `sftp` ([02-configuration.md](02-configuration.md
 - Recommended: an SFTP account with no write access to the library (ACL, group, or a read-only mount on the server side), writing only in the link folder, as defence in depth: SFTP has no folder-relative open, so write confinement relies on path checks ("Remote writes" in [02-configuration.md](02-configuration.md)). It is not required; a `doctor` check will report it.
 - The database (`dbPath`) stays in `/data`, never on the SFTP server.
 - Windows SFTP servers: not supported.
+
+### Restricted account and remote commands
+
+`exec` (`auto` by default, `off`, `required`) controls the read-only remote commands (`stat`, `sha1sum`, `md5sum`) the tool sends through `ssh exec` on the same connection; nothing is ever written or linked through exec.
+
+- `auto`: at the first write root of a session (the link folder), the probe checks the login shell and the programs, then compares `stat` with SFTP on its own probe files (size, date within one second, non-zero inode, a hard link seen as one file with at least two links, the folder with another inode) and `sha1sum`, `md5sum` on the byte it has just written. When everything agrees: remote file identity (`RemoteStat`) and hashes computed by the host (`RemoteHash`). Otherwise (refusal, missing program, non-GNU coreutils, inconsistent answer): SFTP only and a single `remote_exec_unavailable` warning per volume and per session.
+- `off`: no command, no warning. `required`: a failed probe refuses the volume's write roots (`remote_exec_required`); Link keeps the proposal for the next run, dedupe makes it not applicable.
+- What is lost without exec: no remote inode (repair `inode` unavailable, a file is never "already linked"), no remote hash (dedupe reads both files in full over SFTP, at the account's bandwidth, `warning.dedupe.full_remote_read`).
+- With exec: the hash is computed on the host (the server reads each file once, under `nice` and `ionice` when present; `remote_hash_bytes` announces the volume). A remote inode is only compared with another inode of the same volume, never with a local file or another provider; it never proves a link (`identity_unproven`, no `skip_checking`) and a repair found by remote inode is proposed, never applied automatically.
+- A command that fails after a successful probe (vanished file, timeout) gives `remote_exec_failed` for that item, read again over SFTP; dedupe `verify: auto` then moves to a full read, never to samples.
+- Recommended account: read-only on the library, writing only in the link folder, and a dedicated key bound by a forced guard command in `authorized_keys`: [remote-command-guard.sh](../remote-command-guard.sh) (installation at the top of the script, checked by `shellcheck`). It lets through only the SFTP server and the exact lines of the table, which `necromanciarr volumes commands <nom>` also prints.
