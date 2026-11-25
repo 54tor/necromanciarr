@@ -80,7 +80,8 @@ func (chain *Chain) NewBudget() *Budget {
 }
 
 // Call est le seul chemin vers un indexeur : il dépense le quota (TakeQuery ou TakeDownload selon kind), exécute la
-// requête, puis rend l'erreur à Observe (Retry-After, refus d'accès). La requête ne s'exécute pas si le budget refuse ;
+// requête, puis rend l'erreur à Observe (Retry-After, refus d'accès) ; une recherche à la réponse hostile ou illisible
+// écarte aussi l'indexeur pour l'exécution. La requête ne s'exécute pas si le budget refuse ;
 // l'erreur du budget ou de la requête est rendue telle quelle. budget doit venir de NewBudget.
 func (chain *Chain) Call(ctx context.Context, budget *Budget, indexer ID, kind string, request func(ctx context.Context) error) error {
 	if budget == nil {
@@ -100,6 +101,9 @@ func (chain *Chain) Call(ctx context.Context, budget *Budget, indexer ID, kind s
 	}
 	err := request(ctx)
 	budget.Observe(indexer, err)
+	if kind == KindQuery {
+		budget.blockAfterUnusableAnswer(ctx, indexer, err)
+	}
 	return err
 }
 
@@ -115,8 +119,9 @@ func (chain *Chain) Nfos(ctx context.Context, infohash, tracker string) ([]libra
 
 // FetchTorrent obtient le .torrent chez le fournisseur ; sur son seul « introuvable », il le cherche chez les
 // indexeurs du même tracker (SetFallbackTrackers) avec le budget de l'exécution. Sans indexeur du tracker, sans nom
-// de release, ou budget nil, l'erreur du fournisseur revient telle quelle ; sans clé de scellement,
-// ErrSecretKeyMissing sans aucune requête ; sinon un échec du secours est une *FallbackError.
+// de release, ou budget nil, l'erreur du fournisseur revient telle quelle ; sans clé de scellement, alors qu'aucune
+// entrée trackers ne couvre le tracker, ErrSecretKeyMissing sans aucune requête ; sinon un échec du secours est une
+// *FallbackError.
 func (chain *Chain) FetchTorrent(ctx context.Context, release Release, budget *Budget) (Fetched, error) {
 	fetched, err := fetchFromProvider(ctx, chain.provider, release)
 	if !errors.Is(err, libraryprovider.ErrNotFound) {
@@ -126,7 +131,7 @@ func (chain *Chain) FetchTorrent(ctx context.Context, release Release, budget *B
 	if len(indexers) == 0 || budget == nil || !fallbackEligible(release, query) {
 		return Fetched{}, err
 	}
-	if chain.sealer == nil {
+	if chain.sealer == nil && !release.AnnounceConfigured {
 		return Fetched{}, ErrSecretKeyMissing
 	}
 	return chain.fetchFromIndexers(ctx, release, budget, indexers, query)

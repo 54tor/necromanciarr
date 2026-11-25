@@ -6,6 +6,9 @@ const ProviderID ID = "provider"
 // Release désigne un .torrent à obtenir : l'infohash est la clé, le tracker précise la variante.
 type Release struct {
 	Infohash, Tracker, Name string
+	// AnnounceConfigured : une entrée trackers couvre le tracker (la configuration gagne au seed) ; un .torrent
+	// d'indexeur n'a alors pas besoin d'être scellé.
+	AnnounceConfigured bool
 }
 
 // Fetched est un .torrent obtenu : copie assainie (sans annonce) et copie scellée complète.

@@ -198,6 +198,31 @@ func (budget *Budget) Observe(indexer ID, err error) {
 	run.blockedErr = fmt.Errorf("%w: indexer unavailable earlier in this run", torznab.ErrUnavailable)
 }
 
+// blockAfterUnusableAnswer écarte l'indexeur pour le reste de l'exécution (jamais au-delà) après une recherche à la
+// réponse hostile ou illisible, ou injoignable : la reposer pour chaque candidat brûlerait le quota. Réservé aux recherches : un
+// téléchargement refusé (v2 seul, .torrent invalide, aussi englobés dans ErrBadResponse) ne vise qu'un élément.
+func (budget *Budget) blockAfterUnusableAnswer(ctx context.Context, indexer ID, err error) {
+	var blocked error
+	var withStatus *torznab.UnavailableError
+	switch {
+	case errors.Is(err, torznab.ErrUnavailable) && !errors.As(err, &withStatus) && ctx.Err() == nil:
+		// Panne de transport ou délai par requête dépassé (pas une annulation de l'appelant) : Observe ne la retient
+		// pas, et chaque candidat attendrait le délai de nouveau.
+		blocked = fmt.Errorf("%w: indexer unreachable earlier in this run", torznab.ErrUnavailable)
+	case errors.Is(err, torznab.ErrHostileResponse):
+		blocked = fmt.Errorf("%w: indexer sent a hostile response earlier in this run", torznab.ErrHostileResponse)
+	case errors.Is(err, torznab.ErrBadResponse):
+		blocked = fmt.Errorf("%w: indexer sent an unreadable response earlier in this run", torznab.ErrBadResponse)
+	default:
+		return
+	}
+	budget.stateMutex.Lock()
+	defer budget.stateMutex.Unlock()
+	if run := budget.runOf(indexer); run.blockedErr == nil {
+		run.blockedErr = blocked
+	}
+}
+
 // CountMagnetOnly ajoute des résultats sans lien .torrent (magnet seul) au résumé de l'indexeur.
 func (budget *Budget) CountMagnetOnly(indexer ID, count int) {
 	budget.stateMutex.Lock()

@@ -441,3 +441,145 @@ func TestChain_fallbackQueryTextIsBoundedAndClean(t *testing.T) {
 		t.Fatalf("valeurObtenue %q, valeurAttendue the name without control characters and bounded", text)
 	}
 }
+
+// Une réponse hostile ou illisible à une recherche écarte l'indexeur pour le reste de l'exécution, pas au-delà.
+func TestChain_fallbackBlocksAnIndexerForTheRunAfterAnUnusableAnswer(t *testing.T) {
+	for name, failure := range map[string]error{
+		"hostile response": torznab.ErrHostileResponse,
+		"bad response":     fmt.Errorf("%w: unexpected content type", torznab.ErrBadResponse),
+	} {
+		t.Run(name, func(t *testing.T) {
+			setup := newFallbackSetup(t)
+			indexer := setup.addIndexer(indexerA, fallbackTracker)
+			indexer.searchErr = failure
+			chain := setup.chain(t)
+			budget := chain.NewBudget()
+			release := releaseOf(t, trackerTorrent("a.mkv"))
+			_, _ = chain.FetchTorrent(context.Background(), release, budget)
+
+			_, err := chain.FetchTorrent(context.Background(), release, budget)
+
+			var fallback *FallbackError
+			sentinel := torznab.ErrBadResponse
+			if errors.Is(failure, torznab.ErrHostileResponse) {
+				sentinel = torznab.ErrHostileResponse
+			}
+			if !errors.As(err, &fallback) || !fallback.Incomplete() || !errors.Is(fallback.Interrupted[0], sentinel) {
+				t.Fatalf("valeurObtenue %v, valeurAttendue the indexer blocked with the same kind of error", err)
+			}
+			if valeurObtenue := setup.indexerCalls(); len(valeurObtenue) != 1 {
+				t.Fatalf("valeurObtenue %v, valeurAttendue one request in this run", valeurObtenue)
+			}
+			_, _ = chain.FetchTorrent(context.Background(), release, chain.NewBudget())
+			if valeurObtenue := setup.indexerCalls(); len(valeurObtenue) != 2 {
+				t.Fatalf("valeurObtenue %v, valeurAttendue the indexer queried again by the next run", valeurObtenue)
+			}
+		})
+	}
+}
+
+// Un élément refusé au téléchargement (v2 seul, .torrent invalide, englobés dans ErrBadResponse) n'écarte pas l'indexeur.
+func TestChain_fallbackItemRefusalDoesNotBlockTheIndexer(t *testing.T) {
+	setup := newFallbackSetup(t)
+	indexer := setup.addIndexer(indexerA, fallbackTracker)
+	indexer.results = torznab.Results{Items: []torznab.Item{{GUID: "v2"}}}
+	indexer.downloadErrs["v2"] = fmt.Errorf("%w: %w", torznab.ErrBadResponse, torrentcheck.ErrV2Only)
+	chain := setup.chain(t)
+	budget := chain.NewBudget()
+	release := releaseOf(t, trackerTorrent("a.mkv"))
+	_, _ = chain.FetchTorrent(context.Background(), release, budget)
+
+	_, _ = chain.FetchTorrent(context.Background(), release, budget)
+
+	valeurAttendue := []string{"torznab:a.search", "torznab:a.download.v2", "torznab:a.search", "torznab:a.download.v2"}
+	if valeurObtenue := setup.indexerCalls(); !slices.Equal(valeurObtenue, valeurAttendue) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue %v", valeurObtenue, valeurAttendue)
+	}
+}
+
+func decoyItems(indexer *recordingIndexer, count int) {
+	other := trackerTorrent("other.mkv")
+	for itemNumber := range count {
+		guid := fmt.Sprintf("decoy-%d", itemNumber)
+		indexer.results.Items = append(indexer.results.Items, torznab.Item{GUID: guid})
+		indexer.torrents[guid] = other
+	}
+}
+
+func TestChain_fallbackStopsAtTheDownloadCapBeforeTheNextIndexer(t *testing.T) {
+	setup := newFallbackSetup(t)
+	raw := trackerTorrent("a.mkv")
+	decoyItems(setup.addIndexer(indexerA, fallbackTracker), maxFallbackDownloads)
+	second := setup.addIndexer(indexerB, fallbackTracker)
+	second.results = torznab.Results{Items: []torznab.Item{{GUID: "win"}}}
+	second.torrents["win"] = raw
+	chain := setup.chain(t)
+
+	_, err := chain.FetchTorrent(context.Background(), releaseOf(t, raw), chain.NewBudget())
+
+	var fallback *FallbackError
+	if !errors.As(err, &fallback) || !slices.Equal(fallback.Searched, []ID{ProviderID, indexerA}) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue not found with the first indexer only searched", err)
+	}
+	if slices.ContainsFunc(setup.indexerCalls(), func(call string) bool { return strings.HasPrefix(call, "torznab:b") }) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue no call to the second indexer once the cap is spent", setup.indexerCalls())
+	}
+}
+
+func TestChain_fallbackTriesTheAnnouncedInfohashFirst(t *testing.T) {
+	setup := newFallbackSetup(t)
+	raw := trackerTorrent("a.mkv")
+	release := releaseOf(t, raw)
+	indexer := setup.addIndexer(indexerA, fallbackTracker)
+	decoyItems(indexer, 3)
+	indexer.results.Items = append(indexer.results.Items, torznab.Item{GUID: "win", InfoHash: release.Infohash})
+	indexer.torrents["win"] = raw
+	chain := setup.chain(t)
+
+	fetched, err := chain.FetchTorrent(context.Background(), release, chain.NewBudget())
+
+	if err != nil || fetched.Source != indexerA {
+		t.Fatalf("valeurObtenue %v, valeurAttendue the item announcing the candidate's infohash", err)
+	}
+	if valeurObtenue := setup.indexerCalls(); !slices.Equal(valeurObtenue, []string{"torznab:a.search", "torznab:a.download.win"}) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue the announced item downloaded first and alone", valeurObtenue)
+	}
+}
+
+// Sans attribut infohash, l'ordre du flux est gardé : trois leurres épuisent le plafond avant le bon élément (limite
+// assumée de maxFallbackDownloads).
+func TestChain_fallbackWithoutAttributeKeepsTheFeedOrderUpToTheCap(t *testing.T) {
+	setup := newFallbackSetup(t)
+	raw := trackerTorrent("a.mkv")
+	indexer := setup.addIndexer(indexerA, fallbackTracker)
+	decoyItems(indexer, 3)
+	indexer.results.Items = append(indexer.results.Items, torznab.Item{GUID: "win"})
+	indexer.torrents["win"] = raw
+	chain := setup.chain(t)
+
+	_, err := chain.FetchTorrent(context.Background(), releaseOf(t, raw), chain.NewBudget())
+
+	if !errors.Is(err, libraryprovider.ErrNotFound) || slices.Contains(setup.indexerCalls(), "torznab:a.download.win") {
+		t.Fatalf("valeurObtenue %v %v, valeurAttendue not found once the three decoys spent the cap", err, setup.indexerCalls())
+	}
+}
+
+// Une entrée trackers donne déjà l'annonce : rien n'est scellé, et la clé de scellement n'est pas exigée.
+func TestChain_fallbackSkipsSealingWhenTheAnnounceIsConfigured(t *testing.T) {
+	setup := newFallbackSetup(t)
+	setup.sealer = nil
+	raw := trackerTorrent("a.mkv")
+	indexer := setup.addIndexer(indexerA, fallbackTracker)
+	indexer.results = torznab.Results{Items: []torznab.Item{{GUID: "win"}}}
+	indexer.torrents["win"] = raw
+	chain := setup.chain(t)
+	release := releaseOf(t, raw)
+	release.AnnounceConfigured = true
+
+	fetched, err := chain.FetchTorrent(context.Background(), release, chain.NewBudget())
+
+	expectedSanitized, _ := Sanitize(raw)
+	if err != nil || fetched.Source != indexerA || fetched.Sealed != nil || !bytes.Equal(fetched.Sanitized, expectedSanitized) {
+		t.Fatalf("valeurObtenue %+v (err %v), valeurAttendue the sanitized copy only", fetched, err)
+	}
+}

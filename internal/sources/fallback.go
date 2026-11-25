@@ -81,6 +81,9 @@ func (chain *Chain) fetchFromIndexers(ctx context.Context, release Release, budg
 	search := &fallbackSearch{chain: chain, budget: budget, release: release, query: query, downloadsLeft: maxFallbackDownloads}
 	search.outcome.Searched = []ID{ProviderID}
 	for _, indexer := range indexers {
+		if search.downloadsLeft == 0 {
+			break
+		}
 		search.outcome.Searched = append(search.outcome.Searched, indexer)
 		fetched, found := search.indexer(ctx, indexer)
 		if found {
@@ -110,11 +113,7 @@ func (search *fallbackSearch) indexer(ctx context.Context, indexer ID) (Fetched,
 		return Fetched{}, false
 	}
 	search.outcome.MagnetOnly += results.MagnetOnly
-	for _, item := range results.Items {
-		isOtherRelease := item.InfoHash != "" && item.InfoHash != search.release.Infohash
-		if isOtherRelease {
-			continue
-		}
+	for _, item := range search.candidateItems(results.Items) {
 		if search.downloadsLeft == 0 {
 			return Fetched{}, false
 		}
@@ -130,6 +129,21 @@ func (search *fallbackSearch) indexer(ctx context.Context, indexer ID) (Fetched,
 		search.outcome.Skipped = append(search.outcome.Skipped, err)
 	}
 	return Fetched{}, false
+}
+
+// candidateItems met d'abord les éléments qui annoncent l'infohash du candidat, puis ceux sans attribut dans l'ordre
+// du flux ; un élément d'un autre infohash n'est jamais retenu.
+func (search *fallbackSearch) candidateItems(items []torznab.Item) []torznab.Item {
+	var announced, unannounced []torznab.Item
+	for _, item := range items {
+		switch item.InfoHash {
+		case search.release.Infohash:
+			announced = append(announced, item)
+		case "":
+			unannounced = append(unannounced, item)
+		}
+	}
+	return append(announced, unannounced...)
 }
 
 func (search *fallbackSearch) results(ctx context.Context, indexer ID) (torznab.Results, error) {
@@ -162,7 +176,8 @@ func (search *fallbackSearch) download(ctx context.Context, indexer ID, item tor
 }
 
 // keep vérifie l'infohash calculé (l'attribut de l'élément ne suffit jamais), assainit, contrôle que l'assainissement
-// n'a pas changé l'infohash, puis scelle avec la liaison des valeurs enregistrées sur la ligne du candidat.
+// n'a pas changé l'infohash, puis scelle avec la liaison des valeurs enregistrées sur la ligne du candidat ; quand une
+// entrée trackers donne l'annonce, rien n'est scellé (la passkey de l'indexeur ne servirait jamais).
 func (search *fallbackSearch) keep(indexer ID, raw []byte) (Fetched, error) {
 	if len(raw) > store.MaxTorrentBytes {
 		return Fetched{}, ErrTorrentTooLarge
@@ -176,6 +191,9 @@ func (search *fallbackSearch) keep(indexer ID, raw []byte) (Fetched, error) {
 	}
 	if err := requireInfohash(sanitized, search.release.Infohash); err != nil {
 		return Fetched{}, err
+	}
+	if search.release.AnnounceConfigured {
+		return Fetched{Source: indexer, Sanitized: sanitized}, nil
 	}
 	sealed, err := search.chain.sealer.Seal(raw, Binding{Infohash: search.release.Infohash, Tracker: search.release.Tracker, Source: indexer})
 	if err != nil {
