@@ -144,7 +144,7 @@ func (svc *service) linkInspector() func(store.Link) repair.Inspection {
 	if svc.inspect != nil {
 		return svc.inspect
 	}
-	return repair.Inspect
+	return repair.InspectWith(svc.deps.Stages.Registry)
 }
 
 // inspectLinks examine les liens dans l'ordre jusqu'à la fin du contexte ; truncated dit que le temps a manqué.

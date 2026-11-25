@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"time"
@@ -273,13 +272,17 @@ func (svc *service) locked(ctx context.Context, name string, work func(ctx conte
 	return pipeline.WithLock(ctx, svc.deps.Stages, name, work)
 }
 
+// files lit les chemins de maintenance par le registre des étapes (nil : disque local en lecture seule).
+func (svc *service) files() dedupe.Files { return dedupe.NewFiles(svc.deps.Stages.Registry) }
+
 // checkOutsideLibrary refuse un dossier égal à une racine de la bibliothèque, son ancêtre ou son descendant, chemins
-// comparés tels quels puis résolus (un lien symbolique ne contourne pas le contrôle).
-func checkOutsideLibrary(directories, libraryRoots []string, refusal error) error {
+// comparés tels quels puis résolus par leur volume (un lien symbolique ne contourne pas le contrôle). Ce n'est
+// qu'un refus précoce : Registry.WriteRoot reste le garde d'I1.
+func checkOutsideLibrary(files dedupe.Files, directories, libraryRoots []string, refusal error) error {
 	for _, directory := range directories {
 		for _, libraryRoot := range libraryRoots {
 			lexicalOverlap := config.PathsOverlap(directory, libraryRoot)
-			if lexicalOverlap || config.PathsOverlap(resolvedPath(directory), resolvedPath(libraryRoot)) {
+			if lexicalOverlap || config.PathsOverlap(resolvedPath(files, directory), resolvedPath(files, libraryRoot)) {
 				return fmt.Errorf("%w: %s", refusal, directory)
 			}
 		}
@@ -287,12 +290,19 @@ func checkOutsideLibrary(directories, libraryRoots []string, refusal error) erro
 	return nil
 }
 
-func resolvedPath(path string) string {
+// resolvedPath rend la forme canonique de path calculée par son volume ; un chemin introuvable garde la forme rendue par filepath.Abs.
+func resolvedPath(files dedupe.Files, path string) string {
+	if dedupe.IsRemote(path) {
+		if canonical, err := files.Canonical(path); err == nil {
+			return canonical
+		}
+		return path
+	}
 	absolutePath, err := filepath.Abs(path)
 	if err != nil {
 		return filepath.Clean(path)
 	}
-	resolved, err := filepath.EvalSymlinks(absolutePath)
+	resolved, err := files.Canonical(absolutePath)
 	if err != nil {
 		return absolutePath
 	}
@@ -300,7 +310,7 @@ func resolvedPath(path string) string {
 }
 
 // existingDirectories ne garde que les dossiers présents : une racine absente ne doit pas empêcher les autres.
-func existingDirectories(directories []string) []string {
+func existingDirectories(files dedupe.Files, directories []string) []string {
 	var existing []string
 	for _, directory := range directories {
 		// Un dossier distant est laissé au registre, qui le canonise (et refuse un volume injoignable).
@@ -308,7 +318,7 @@ func existingDirectories(directories []string) []string {
 			existing = append(existing, directory)
 			continue
 		}
-		if info, err := os.Stat(directory); err == nil && info.IsDir() {
+		if info, err := files.Stat(directory); err == nil && info.IsDir() {
 			existing = append(existing, directory)
 		}
 	}

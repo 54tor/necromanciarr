@@ -279,8 +279,13 @@ type Inspection struct {
 // Inspect classe un lien enregistré avec les seuls Lstat, Stat et Readlink du disque local, les mêmes contrôles que
 // Scan ; il ne lit aucun contenu et n'écrit rien, ni sur le disque ni en base.
 func Inspect(link store.Link) Inspection {
-	files := dedupe.NewFiles(nil)
-	return inspect(files, files.Lstat, files.Stat, link)
+	return InspectWith(nil)(link)
+}
+
+// InspectWith rend l'examen d'Inspect qui lit par registry (liens locaux ou distants ; nil : disque local).
+func InspectWith(registry *fsys.Registry) func(store.Link) Inspection {
+	files := dedupe.NewFiles(registry)
+	return func(link store.Link) Inspection { return inspect(files, files.Lstat, files.Stat, link) }
 }
 
 func inspect(files dedupe.Files, lstat, stat func(path string) (fs.FileInfo, error), link store.Link) Inspection {

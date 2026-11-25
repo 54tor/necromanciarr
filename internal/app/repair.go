@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -109,10 +108,10 @@ func (svc *service) scanRepairs(ctx context.Context, directory string) ([]Repair
 	settings := svc.deps.Config
 	scanDirectories := slices.Clone(settings.Dedupe.TorrentRoots)
 	if directory != "" {
-		if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+		if info, err := svc.files().Stat(directory); err != nil || !info.IsDir() {
 			return nil, fmt.Errorf("app: repair directory %s is not a directory", directory)
 		}
-		if err := checkOutsideLibrary([]string{directory}, settings.LibraryRoots, ErrDirectoryInLibrary); err != nil {
+		if err := checkOutsideLibrary(svc.files(), []string{directory}, settings.LibraryRoots, ErrDirectoryInLibrary); err != nil {
 			return nil, err
 		}
 		scanDirectories = append(scanDirectories, directory)
@@ -204,7 +203,7 @@ func (svc *service) RepairAccept(ctx context.Context, proposalID int64, options 
 // sous la bibliothèque.
 func (svc *service) applyRepair(ctx context.Context, details RepairDetails, result *MaintenanceResult) error {
 	settings := svc.deps.Config
-	if err := checkOutsideLibrary([]string{details.LinkPath}, settings.LibraryRoots, ErrDirectoryInLibrary); err != nil {
+	if err := checkOutsideLibrary(svc.files(), []string{details.LinkPath}, settings.LibraryRoots, ErrDirectoryInLibrary); err != nil {
 		return err
 	}
 	if svc.canRecheck() {
@@ -222,7 +221,7 @@ func (svc *service) applyRepair(ctx context.Context, details RepairDetails, resu
 		roots = append(roots, details.ScanDirectory)
 	}
 	applyOptions := repair.ApplyOptions{
-		Roots: existingDirectories(roots), DryRun: result.DryRun, Store: svc.deps.Store, Registry: svc.deps.Stages.Registry,
+		Roots: existingDirectories(svc.files(), roots), DryRun: result.DryRun, Store: svc.deps.Store, Registry: svc.deps.Stages.Registry,
 	}
 	if svc.canRecheck() {
 		applyOptions.Rechecker = svc.clientView()

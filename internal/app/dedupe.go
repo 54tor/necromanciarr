@@ -217,7 +217,7 @@ func (svc *service) planDedupe(ctx context.Context) ([]dedupe.Replacement, error
 	if len(torrentRoots) == 0 {
 		return nil, fmt.Errorf("%w: dedupe.torrentRoots", ErrNotConfigured)
 	}
-	if err := checkOutsideLibrary(torrentRoots, settings.LibraryRoots, dedupe.ErrTorrentRootOverlapsLibrary); err != nil {
+	if err := checkOutsideLibrary(svc.files(), torrentRoots, settings.LibraryRoots, dedupe.ErrTorrentRootOverlapsLibrary); err != nil {
 		return nil, err
 	}
 	if _, err := dedupe.Recover(ctx, torrentRoots, svc.deps.Stages.Registry); err != nil {
@@ -260,7 +260,7 @@ func (svc *service) DedupeAccept(ctx context.Context, proposalID int64, options 
 }
 
 func (svc *service) applyDedupe(ctx context.Context, details DedupeDetails, result *MaintenanceResult) error {
-	if err := checkOutsideLibrary(svc.deps.Config.Dedupe.TorrentRoots, svc.deps.Config.LibraryRoots, dedupe.ErrTorrentRootOverlapsLibrary); err != nil {
+	if err := checkOutsideLibrary(svc.files(), svc.deps.Config.Dedupe.TorrentRoots, svc.deps.Config.LibraryRoots, dedupe.ErrTorrentRootOverlapsLibrary); err != nil {
 		return err
 	}
 	isolated, err := svc.isolatedCopies(ctx)
