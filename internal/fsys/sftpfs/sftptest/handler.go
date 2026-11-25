@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path"
-	"strings"
 
 	"github.com/pkg/sftp"
 )
@@ -52,16 +51,14 @@ func (handler *fileHandler) admit(request Request, requestContext context.Contex
 	return nil
 }
 
-// relative traduit un chemin du client (absolu, nettoyé par pkg/sftp) en chemin relatif au dossier servi.
-func (handler *fileHandler) relative(clientPath string) string {
-	if handler.server.settings.windowsRoot {
-		clientPath = strings.TrimPrefix(clientPath, windowsDrivePrefix)
-	}
-	relativePath := strings.TrimPrefix(path.Clean("/"+clientPath), "/")
-	if relativePath == "" {
-		return "."
-	}
-	return relativePath
+// followed résout tous les liens, dernier segment compris (Stat, ouverture, liste) ; unfollowed garde le dernier
+// segment tel quel (Lstat, Readlink, création, suppression, renommage).
+func (handler *fileHandler) followed(clientPath string) (string, error) {
+	return handler.resolve(clientPath, true)
+}
+
+func (handler *fileHandler) unfollowed(clientPath string) (string, error) {
+	return handler.resolve(clientPath, false)
 }
 
 // Fileread ouvre un fichier en lecture (méthode Get).
@@ -69,7 +66,11 @@ func (handler *fileHandler) Fileread(request *sftp.Request) (io.ReaderAt, error)
 	if err := handler.admit(Request{Method: request.Method, Path: request.Filepath}, request.Context()); err != nil {
 		return nil, err
 	}
-	file, err := handler.server.root.Open(handler.relative(request.Filepath))
+	relativePath, err := handler.followed(request.Filepath)
+	if err != nil {
+		return nil, err
+	}
+	file, err := handler.server.root.Open(relativePath)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +109,11 @@ func (handler *fileHandler) openForWrite(request *sftp.Request, accessFlag int) 
 			flags |= option.flag
 		}
 	}
-	return handler.server.root.OpenFile(handler.relative(request.Filepath), flags, fileMode)
+	relativePath, err := handler.followed(request.Filepath)
+	if err != nil {
+		return nil, err
+	}
+	return handler.server.root.OpenFile(relativePath, flags, fileMode)
 }
 
 // Filecmd sert les requêtes sans réponse de données : Setstat, Rename, Rmdir, Mkdir, Link, Symlink, Remove.
@@ -120,11 +125,31 @@ func (handler *fileHandler) Filecmd(request *sftp.Request) error {
 	if err := handler.admit(recorded, request.Context()); err != nil {
 		return err
 	}
+	if request.Method == "Setstat" {
+		relativePath, err := handler.followed(recorded.Path)
+		if err != nil {
+			return err
+		}
+		return handler.setstat(request, relativePath)
+	}
+	source, err := handler.unfollowed(recorded.Path)
+	if err != nil {
+		return err
+	}
+	if request.Method == "Symlink" {
+		return handler.server.root.Symlink(recorded.Target, source)
+	}
+	return handler.applyOnTwoPaths(request.Method, source, recorded.Target)
+}
+
+// applyOnTwoPaths sert Rename, Rmdir, Remove, Mkdir et Link ; target n'est lu que par Rename et Link.
+func (handler *fileHandler) applyOnTwoPaths(method, source, clientTarget string) error {
 	root := handler.server.root
-	source, target := handler.relative(recorded.Path), handler.relative(recorded.Target)
-	switch request.Method {
-	case "Setstat":
-		return handler.setstat(request, source)
+	target, err := handler.unfollowed(clientTarget)
+	if err != nil {
+		return err
+	}
+	switch method {
 	case "Rename":
 		return renameWithoutReplacing(root, source, target)
 	case "Rmdir", "Remove":
@@ -133,8 +158,6 @@ func (handler *fileHandler) Filecmd(request *sftp.Request) error {
 		return root.Mkdir(source, directoryMode)
 	case "Link":
 		return root.Link(source, target)
-	case "Symlink":
-		return root.Symlink(recorded.Target, source)
 	default:
 		return sftp.ErrSSHFxOpUnsupported
 	}
@@ -180,7 +203,15 @@ func (handler *fileHandler) PosixRename(request *sftp.Request) error {
 	if err := handler.admit(Request{Method: "PosixRename", Path: request.Filepath, Target: request.Target}, request.Context()); err != nil {
 		return err
 	}
-	return handler.server.root.Rename(handler.relative(request.Filepath), handler.relative(request.Target))
+	source, err := handler.unfollowed(request.Filepath)
+	if err != nil {
+		return err
+	}
+	target, err := handler.unfollowed(request.Target)
+	if err != nil {
+		return err
+	}
+	return handler.server.root.Rename(source, target)
 }
 
 // StatVFS sert statvfs@openssh.com avec un volume factice.
@@ -188,7 +219,11 @@ func (handler *fileHandler) StatVFS(request *sftp.Request) (*sftp.StatVFS, error
 	if err := handler.admit(Request{Method: "StatVFS", Path: request.Filepath}, request.Context()); err != nil {
 		return nil, err
 	}
-	if _, err := handler.server.root.Stat(handler.relative(request.Filepath)); err != nil {
+	relativePath, err := handler.followed(request.Filepath)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := handler.server.root.Stat(relativePath); err != nil {
 		return nil, err
 	}
 	freeBlocks := uint64(statVFSBlocks / 2)
@@ -203,7 +238,10 @@ func (handler *fileHandler) Filelist(request *sftp.Request) (sftp.ListerAt, erro
 	if err := handler.admit(Request{Method: request.Method, Path: request.Filepath}, request.Context()); err != nil {
 		return nil, err
 	}
-	relativePath := handler.relative(request.Filepath)
+	relativePath, err := handler.followed(request.Filepath)
+	if err != nil {
+		return nil, err
+	}
 	if request.Method != "List" {
 		return listOne(handler.server.root.Stat(relativePath))
 	}
@@ -224,7 +262,11 @@ func (handler *fileHandler) Lstat(request *sftp.Request) (sftp.ListerAt, error) 
 	if err := handler.admit(Request{Method: "Lstat", Path: request.Filepath}, request.Context()); err != nil {
 		return nil, err
 	}
-	return listOne(handler.server.root.Lstat(handler.relative(request.Filepath)))
+	relativePath, err := handler.unfollowed(request.Filepath)
+	if err != nil {
+		return nil, err
+	}
+	return listOne(handler.server.root.Lstat(relativePath))
 }
 
 func listOne(info os.FileInfo, err error) (sftp.ListerAt, error) {
@@ -239,22 +281,28 @@ func (handler *fileHandler) Readlink(clientPath string) (string, error) {
 	if err := handler.admit(Request{Method: "Readlink", Path: clientPath}, context.Background()); err != nil {
 		return "", err
 	}
-	return handler.server.root.Readlink(handler.relative(clientPath))
+	relativePath, err := handler.unfollowed(clientPath)
+	if err != nil {
+		return "", err
+	}
+	return handler.server.root.Readlink(relativePath)
 }
 
-// RealPath rend le chemin absolu nettoyé, préfixé par « /C: » pour un serveur Windows simulé.
+// RealPath rend le chemin absolu canonique, liens résolus comme le fait OpenSSH, préfixé par « /C: » pour un
+// serveur Windows simulé.
 func (handler *fileHandler) RealPath(clientPath string) (string, error) {
 	if err := handler.admit(Request{Method: "RealPath", Path: clientPath}, context.Background()); err != nil {
 		return "", err
 	}
-	cleaned := path.Clean("/" + clientPath)
-	if handler.server.settings.windowsRoot && !strings.HasPrefix(cleaned, windowsDrivePrefix) {
-		cleaned = path.Clean(windowsDrivePrefix + cleaned)
+	relativePath, err := handler.followed(clientPath)
+	if err != nil {
+		return "", err
 	}
-	if cleaned == windowsDrivePrefix {
-		cleaned += "/"
+	canonical := path.Clean("/" + relativePath)
+	if handler.server.settings.windowsRoot {
+		canonical = windowsDrivePrefix + canonical
 	}
-	return cleaned, nil
+	return canonical, nil
 }
 
 // fileInfos sert une liste déjà lue par tranches, comme l'attend pkg/sftp.

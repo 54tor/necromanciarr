@@ -398,6 +398,7 @@ func TestServer_denyExecRejectsExecButRecordsIt(t *testing.T) {
 	}
 }
 
+// Le décompte des goroutines suppose qu'aucun autre test ne tourne : jamais de t.Parallel dans ce paquet.
 func TestServer_cleanupLeavesNoGoroutineOrListener(t *testing.T) {
 	goroutinesBefore := runtime.NumGoroutine()
 	var address string
@@ -446,5 +447,121 @@ func TestServerSources_embedNoPrivateKey(t *testing.T) {
 	}
 	if entries, _ := filepath.Glob("testdata/*"); len(entries) != 0 {
 		t.Fatalf("valeurObtenue fixtures %v, valeurAttendue no committed key file", entries)
+	}
+}
+
+func skipSymlinksOnWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need a privilege on Windows")
+	}
+}
+
+// symlinkInRoot pose un lien directement dans le dossier servi, comme un dossier de liens déjà présent sur le serveur.
+func symlinkInRoot(t *testing.T, server *sftptest.Server, target, linkPath string) {
+	t.Helper()
+	if err := os.Symlink(target, filepath.Join(server.Root, filepath.FromSlash(linkPath))); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mkdirInRoot(t *testing.T, server *sftptest.Server, directory string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(server.Root, filepath.FromSlash(directory)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readRemote(client *sftp.Client, remotePath string) (string, error) {
+	file, err := client.Open(remotePath)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	var content bytes.Buffer
+	_, err = content.ReadFrom(file)
+	return content.String(), err
+}
+
+func TestServer_followsAbsoluteAndRelativeSymlinksInsideRoot(t *testing.T) {
+	skipSymlinksOnWindows(t)
+	server := sftptest.Start(t)
+	mkdirInRoot(t, server, "data")
+	mkdirInRoot(t, server, "links")
+	if err := os.WriteFile(filepath.Join(server.Root, "data", "file"), []byte("media"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	symlinkInRoot(t, server, "/data/file", "links/absolute")
+	symlinkInRoot(t, server, "../data/file", "links/relative")
+	symlinkInRoot(t, server, "/data", "links/directory")
+	client := connect(t, server)
+
+	for _, linkPath := range []string{"/links/absolute", "/links/relative", "/links/directory/file"} {
+		info, statErr := client.Stat(linkPath)
+		content, readErr := readRemote(client, linkPath)
+		if statErr != nil || info.Size() != 5 || readErr != nil || content != "media" {
+			t.Fatalf("%s: valeurObtenue stat %v (err %v), content %q (err %v), valeurAttendue the file through the link", linkPath, info, statErr, content, readErr)
+		}
+	}
+	entries, err := client.ReadDir("/links/directory")
+	if err != nil || len(entries) != 1 || entries[0].Name() != "file" {
+		t.Fatalf("valeurObtenue %v (err %v), valeurAttendue the directory listed through the link", entries, err)
+	}
+	if info, err := client.Lstat("/links/absolute"); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("valeurObtenue %v (err %v), valeurAttendue Lstat not following the link", info, err)
+	}
+	if target, err := client.ReadLink("/links/absolute"); err != nil || target != "/data/file" {
+		t.Fatalf("valeurObtenue %q (err %v), valeurAttendue the raw target text", target, err)
+	}
+}
+
+func TestServer_danglingAndLoopingSymlinksFail(t *testing.T) {
+	skipSymlinksOnWindows(t)
+	server := sftptest.Start(t)
+	symlinkInRoot(t, server, "/missing", "dangling")
+	symlinkInRoot(t, server, "/second", "first")
+	symlinkInRoot(t, server, "first", "second")
+	client := connect(t, server)
+
+	if _, err := client.Stat("/dangling"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("dangling: valeurObtenue %v, valeurAttendue not exist", err)
+	}
+	_, err := client.Stat("/first")
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("loop: valeurObtenue %v, valeurAttendue a bounded loop error", err)
+	}
+}
+
+func TestServer_symlinksNeverLeaveRoot(t *testing.T) {
+	skipSymlinksOnWindows(t)
+	server := sftptest.Start(t)
+	outside := t.TempDir()
+	const secret = "outside-the-root"
+	if err := os.WriteFile(filepath.Join(outside, "secret"), []byte(secret), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideFile := filepath.ToSlash(filepath.Join(outside, "secret"))
+	climbing := strings.Repeat("../", 32) + strings.TrimPrefix(outsideFile, "/")
+	mkdirInRoot(t, server, "deep/inner")
+	symlinkInRoot(t, server, outsideFile, "absolute")
+	symlinkInRoot(t, server, climbing, "deep/inner/climbing")
+	symlinkInRoot(t, server, "/"+climbing, "rooted")
+	client := connect(t, server)
+
+	for _, linkPath := range []string{"/absolute", "/deep/inner/climbing", "/rooted"} {
+		if content, err := readRemote(client, linkPath); content == secret {
+			t.Fatalf("%s: valeurObtenue the file outside Root (err %v), valeurAttendue the link resolved inside Root", linkPath, err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(server.Root, filepath.FromSlash(strings.TrimPrefix(filepath.ToSlash(outside), "/"))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(server.Root, filepath.FromSlash(strings.TrimPrefix(outsideFile, "/"))), []byte("inside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, linkPath := range []string{"/absolute", "/deep/inner/climbing", "/rooted"} {
+		if content, err := readRemote(client, linkPath); err != nil || content != "inside" {
+			t.Fatalf("%s: valeurObtenue %q (err %v), valeurAttendue the same path under the virtual root", linkPath, content, err)
+		}
 	}
 }
