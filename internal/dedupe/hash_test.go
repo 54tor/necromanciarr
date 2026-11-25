@@ -45,8 +45,9 @@ func (backend *fakeBackend) Hash(_ context.Context, path string, algorithm hashs
 	return hashsource.Result{Value: hex.EncodeToString(sum[:]), Origin: hashsource.Backend, Available: true}, nil
 }
 
-func hashOptions(torrentRoot string, verification Verification, backend hashsource.HashSource) Options {
-	options := baseOptions(torrentRoot)
+func hashOptions(t *testing.T, torrentRoot string, verification Verification, backend hashsource.HashSource) Options {
+	t.Helper()
+	options := siblingOptions(t, torrentRoot)
 	options.Verify = verification
 	options.Backend = backend
 	return options
@@ -66,7 +67,7 @@ func TestDedupe_autoUsesBackendHashWhenBothSidesProvideIt(t *testing.T) {
 	fileSize := int64(12 * mebibyte)
 	torrentRoot, library := largeIdenticalPair(t, int(fileSize))
 	torrentPath := filepath.Join(torrentRoot, "copy.mkv")
-	options := hashOptions(torrentRoot, VerifyAuto, backendFor(torrentPath, library[0].Path))
+	options := hashOptions(t, torrentRoot, VerifyAuto, backendFor(torrentPath, library[0].Path))
 	replacements, err := Plan(context.Background(), []string{torrentRoot}, library, options)
 	if err != nil || len(replacements) != 1 {
 		t.Fatalf("%d replacements, err %v", len(replacements), err)
@@ -91,7 +92,7 @@ func TestDedupe_autoUsesBackendHashWhenBothSidesProvideIt(t *testing.T) {
 func TestDedupe_autoUsesOneLocalReadWhenOnlyOneSideHasBackendHash(t *testing.T) {
 	fileSize := int64(12 * mebibyte)
 	torrentRoot, library := largeIdenticalPair(t, int(fileSize))
-	options := hashOptions(torrentRoot, VerifyAuto, backendFor(library[0].Path))
+	options := hashOptions(t, torrentRoot, VerifyAuto, backendFor(library[0].Path))
 	replacements, err := Plan(context.Background(), []string{torrentRoot}, library, options)
 	if err != nil || len(replacements) != 1 {
 		t.Fatalf("%d replacements, err %v", len(replacements), err)
@@ -113,7 +114,7 @@ func TestDedupe_autoFallsBackToFullWhenNeitherSideHasBackendHash(t *testing.T) {
 	fileSize := int64(12 * mebibyte)
 	torrentRoot, library := largeIdenticalPair(t, int(fileSize))
 	backend := backendFor()
-	options := hashOptions(torrentRoot, VerifyAuto, backend)
+	options := hashOptions(t, torrentRoot, VerifyAuto, backend)
 	replacements, err := Plan(context.Background(), []string{torrentRoot}, library, options)
 	if err != nil || len(replacements) != 1 {
 		t.Fatalf("%d replacements, err %v", len(replacements), err)
@@ -133,7 +134,7 @@ func TestDedupe_hashModeRequiresEqualSizeAndEqualHash(t *testing.T) {
 	torrentRoot, libraryPath, _ := sameSizePair(t)
 	library := []store.MediaFile{{Path: libraryPath}}
 	backend := backendFor(libraryPath, filepath.Join(torrentRoot, "middle.mkv"), filepath.Join(torrentRoot, "same.mkv"))
-	options := hashOptions(torrentRoot, VerifyHash, backend)
+	options := hashOptions(t, torrentRoot, VerifyHash, backend)
 	options.DryRun = true
 	replacements, err := Plan(context.Background(), []string{torrentRoot}, library, options)
 	if err != nil {
@@ -161,7 +162,7 @@ func TestDedupe_hashModeRequiresEqualSizeAndEqualHash(t *testing.T) {
 
 func TestDedupe_hashModeReportsUnavailableInsteadOfFallingBack(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := hashOptions(layout.torrentRoot, VerifyHash, backendFor())
+	options := hashOptions(t, layout.torrentRoot, VerifyHash, backendFor())
 
 	replacement := planOne(t, layout, options)
 
@@ -171,7 +172,7 @@ func TestDedupe_hashModeReportsUnavailableInsteadOfFallingBack(t *testing.T) {
 	if _, err := Apply(context.Background(), []Replacement{replacement}, options); err == nil {
 		t.Fatal("apply must refuse a replacement without kind")
 	}
-	withoutBackend := hashOptions(layout.torrentRoot, VerifyHash, nil)
+	withoutBackend := hashOptions(t, layout.torrentRoot, VerifyHash, nil)
 	if reason := planOne(t, layout, withoutBackend).Reason; !errors.Is(reason, ErrHashUnavailable) {
 		t.Fatalf("no backend at all: got %v", reason)
 	}
@@ -179,8 +180,8 @@ func TestDedupe_hashModeReportsUnavailableInsteadOfFallingBack(t *testing.T) {
 
 func TestDedupe_hashApplyRefusesAHandBuiltReplacementWithoutBackend(t *testing.T) {
 	layout := newOperatorLayout(t)
-	planned := planOne(t, layout, baseOptions(layout.torrentRoot))
-	options := hashOptions(layout.torrentRoot, VerifyHash, nil)
+	planned := planOne(t, layout, layoutOptions(t, layout))
+	options := hashOptions(t, layout.torrentRoot, VerifyHash, nil)
 	options.DryRun = true
 
 	result, _ := Apply(context.Background(), []Replacement{planned}, options)
@@ -194,7 +195,7 @@ func TestDedupe_backendFailureAbortsInsteadOfSilentlyReadingEverything(t *testin
 	layout := newOperatorLayout(t)
 	backend := &fakeBackend{err: hashsource.ErrRcloneFailed}
 
-	_, err := Plan(context.Background(), []string{layout.torrentRoot}, layout.library(), hashOptions(layout.torrentRoot, VerifyAuto, backend))
+	_, err := Plan(context.Background(), []string{layout.torrentRoot}, layout.library(), hashOptions(t, layout.torrentRoot, VerifyAuto, backend))
 
 	if !errors.Is(err, hashsource.ErrRcloneFailed) {
 		t.Fatalf("got %v", err)
@@ -205,7 +206,7 @@ func TestDedupe_pathsOutsideAnyMountCountAsNoBackendHash(t *testing.T) {
 	layout := newOperatorLayout(t)
 	backend := &fakeBackend{err: hashsource.ErrNoMountForPath}
 
-	replacement := planOne(t, layout, hashOptions(layout.torrentRoot, VerifyAuto, backend))
+	replacement := planOne(t, layout, hashOptions(t, layout.torrentRoot, VerifyAuto, backend))
 
 	if replacement.Method != MethodFull {
 		t.Fatalf("got method %q", replacement.Method)
@@ -216,7 +217,7 @@ func TestDedupe_replacementRecordsTheMethodUsed(t *testing.T) {
 	torrentRoot, library := largeIdenticalPair(t, 12*mebibyte)
 	expectedMethods := map[Verification]Method{VerifyFull: MethodFull, VerifySampled: MethodSampled, "": MethodFull}
 	for verification, expectedValue := range expectedMethods {
-		options := baseOptions(torrentRoot)
+		options := siblingOptions(t, torrentRoot)
 		options.Verify = verification
 		options.DryRun = true
 		replacements, err := Plan(context.Background(), []string{torrentRoot}, library, options)
@@ -239,7 +240,7 @@ func TestDedupe_autoFullReadsOnceThenReusesFingerprintCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cacheStore.Close() })
-	options := hashOptions(layout.torrentRoot, VerifyAuto, backendFor())
+	options := hashOptions(t, layout.torrentRoot, VerifyAuto, backendFor())
 	options.Fingerprints = cacheStore
 	fileSize := int64(len(layout.content))
 	var planReads []int64
@@ -263,7 +264,7 @@ func TestDedupe_rejectsBackendValuesWithTheWrongLength(t *testing.T) {
 	for _, value := range []string{"", "abc"} {
 		backend := &fixedBackend{value: value}
 
-		replacement := planOne(t, layout, hashOptions(layout.torrentRoot, VerifyAuto, backend))
+		replacement := planOne(t, layout, hashOptions(t, layout.torrentRoot, VerifyAuto, backend))
 
 		if replacement.Method != MethodFull {
 			t.Fatalf("value %q accepted: method %q", value, replacement.Method)

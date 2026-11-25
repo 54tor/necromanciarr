@@ -268,7 +268,7 @@ func replaceWithLink(replacement Replacement, options Options, root, target stri
 	temporaryPath := temporaryPathFor(replacement.TorrentPath, replacement.Size)
 	createLink := options.createLink
 	if createLink == nil {
-		createLink = registryLink(options.Registry, replacement.LibraryPath)
+		createLink = registryLink(options.Registry)
 	}
 	if err := createLink(replacement.Kind, target, temporaryPath, root); err != nil {
 		return err

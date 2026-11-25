@@ -16,6 +16,8 @@ import (
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/dedupe"
 	"necromanciarr/internal/doctor"
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/fsystest"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
@@ -102,6 +104,11 @@ func newMaintenanceFixture(t *testing.T) *maintenanceFixture {
 	return fixture
 }
 
+// registry déclare la bibliothèque du cas ; la racine torrent et le dossier de liens sont des dossiers distincts.
+func (fixture *maintenanceFixture) registry() *fsys.Registry {
+	return fsystest.LocalRegistry(fixture.t, fixture.libraryDir)
+}
+
 func (fixture *maintenanceFixture) addMedia(path string) {
 	fixture.t.Helper()
 	info, err := os.Stat(path)
@@ -116,7 +123,7 @@ func (fixture *maintenanceFixture) addMedia(path string) {
 func (fixture *maintenanceFixture) service() Service {
 	mapper := linker.NewMapper([]config.PathRule{{From: fixture.torrentRoot, To: clientTorrentRoot}})
 	deps := Deps{
-		Store: fixture.store, Stages: pipeline.Deps{Store: fixture.store, ClientMapper: mapper}, Client: fixture.resumer,
+		Store: fixture.store, Stages: pipeline.Deps{Store: fixture.store, ClientMapper: mapper, Registry: fixture.registry()}, Client: fixture.resumer,
 		Config: fixture.settings, Now: func() time.Time { return fixedNow },
 	}
 	if fixture.client != nil {
@@ -596,7 +603,7 @@ func TestApp_repairRechecksTheRepointedLinkThroughTheClientAndNeverResumes(t *te
 func TestApp_repairWithoutClientKeepsHeuristicMethodsNonActionable(t *testing.T) {
 	fixture := newMaintenanceFixture(t)
 	repairablePath, _, _ := fixture.repairLayout()
-	service := New(Deps{Store: fixture.store, Stages: pipeline.Deps{Store: fixture.store}, Config: fixture.settings, Now: func() time.Time { return fixedNow }})
+	service := New(Deps{Store: fixture.store, Stages: pipeline.Deps{Store: fixture.store, Registry: fixture.registry()}, Config: fixture.settings, Now: func() time.Time { return fixedNow }})
 	ctx := context.Background()
 
 	proposals, err := service.RepairScan(ctx, "")

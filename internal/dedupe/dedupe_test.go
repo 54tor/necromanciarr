@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/fsystest"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
@@ -148,6 +150,43 @@ func baseOptions(torrentRoot string) Options {
 	}
 }
 
+// withLibrary ajoute le registre des racines d'écriture : la bibliothèque est le dossier de chacun de ces fichiers,
+// la racine torrent du cas reste en dehors.
+func withLibrary(t *testing.T, options Options, libraryPaths ...string) Options {
+	t.Helper()
+	libraryDirs := make([]string, 0, len(libraryPaths))
+	for _, libraryPath := range libraryPaths {
+		libraryDirs = append(libraryDirs, filepath.Dir(libraryPath))
+	}
+	options.Registry = fsystest.LocalRegistry(t, libraryDirs...)
+	return options
+}
+
+// siblingOptions déclare en bibliothèque chaque dossier voisin de torrentRoot (la disposition des cas : torrents et
+// bibliothèque côte à côte), créé avant l'appel.
+func siblingOptions(t *testing.T, torrentRoot string) Options {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Dir(torrentRoot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var libraryDirs []string
+	for _, entry := range entries {
+		entryPath := filepath.Join(filepath.Dir(torrentRoot), entry.Name())
+		if entry.IsDir() && entryPath != torrentRoot {
+			libraryDirs = append(libraryDirs, entryPath)
+		}
+	}
+	options := baseOptions(torrentRoot)
+	options.Registry = fsystest.LocalRegistry(t, libraryDirs...)
+	return options
+}
+
+func layoutOptions(t *testing.T, layout operatorLayout) Options {
+	t.Helper()
+	return withLibrary(t, baseOptions(layout.torrentRoot), layout.libraryPath)
+}
+
 // operatorLayout reproduit l'exemple de l'opérateur : une copie côté torrent, le même film côté bibliothèque.
 type operatorLayout struct {
 	torrentRoot, torrentPath, libraryPath string
@@ -216,7 +255,7 @@ func sameSizePair(t *testing.T) (torrentRoot, libraryPath string, middleDiffers 
 
 func TestApply_requiresIdenticalContentNotJustSize(t *testing.T) {
 	torrentRoot, libraryPath, middleDiffers := sameSizePair(t)
-	options := baseOptions(torrentRoot)
+	options := siblingOptions(t, torrentRoot)
 
 	replacements, err := Plan(context.Background(), []string{torrentRoot}, []store.MediaFile{{Path: libraryPath}}, options)
 	if err != nil {
@@ -244,7 +283,7 @@ func TestApply_requiresIdenticalContentNotJustSize(t *testing.T) {
 
 func TestApply_rejectsSameSizeSameMtimeDifferentContent(t *testing.T) {
 	torrentRoot, libraryPath, middleDiffers := sameSizePair(t)
-	options := baseOptions(torrentRoot)
+	options := siblingOptions(t, torrentRoot)
 	replacements, err := Plan(context.Background(), []string{torrentRoot}, []store.MediaFile{{Path: libraryPath}}, options)
 	if err != nil {
 		t.Fatal(err)
@@ -285,7 +324,7 @@ func TestPlan_skipsFilesAlreadyLinkedOrTooYoungOrOutsideRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	replacements, err := Plan(context.Background(), []string{torrentRoot}, []store.MediaFile{{Path: libraryPath}}, baseOptions(torrentRoot))
+	replacements, err := Plan(context.Background(), []string{torrentRoot}, []store.MediaFile{{Path: libraryPath}}, siblingOptions(t, torrentRoot))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +341,7 @@ func TestPlan_reportsAmbiguousWhenSeveralIdenticalLibraryFiles(t *testing.T) {
 	writeAged(t, secondLibraryPath, layout.content)
 	guardLibraryFile(t, secondLibraryPath)
 	library := append(layout.library(), store.MediaFile{Path: secondLibraryPath})
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 
 	replacements, err := Plan(context.Background(), []string{layout.torrentRoot}, library, options)
 	if err != nil {
@@ -330,7 +369,7 @@ func fakeProbe(capabilities linker.Capabilities) func(string) (linker.Capabiliti
 
 func TestPlan_picksFirstKindThatProbeConfirms(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	options.Kinds = []linker.Kind{linker.Hardlink, linker.Reflink, linker.Symlink}
 	options.probe = fakeProbe(linker.Capabilities{Symlink: true, Reasons: map[linker.Kind]error{
 		linker.Hardlink: linker.ErrLinkRefused, linker.Reflink: linker.ErrUnsupported,
@@ -368,7 +407,7 @@ func TestPlan_doesNotReadWholeFilesAndEstimatesBytes(t *testing.T) {
 	}
 	for verification, expectedValue := range expectedEstimates {
 		limiter := &countingLimiter{}
-		options := baseOptions(torrentRoot)
+		options := siblingOptions(t, torrentRoot)
 		options.Verify = verification
 		options.Limiter = limiter
 
@@ -391,7 +430,7 @@ func TestApply_sampledVerifyReadsFewerBytesThanFull(t *testing.T) {
 	torrentRoot, library := largeIdenticalPair(t, 12*mebibyte)
 	bytesRead := map[Verification]int64{}
 	for _, verification := range []Verification{VerifyFull, VerifySampled} {
-		options := baseOptions(torrentRoot)
+		options := siblingOptions(t, torrentRoot)
 		options.Verify = verification
 		options.DryRun = true
 		replacements, err := Plan(context.Background(), []string{torrentRoot}, library, options)
@@ -423,7 +462,7 @@ func TestPlan_reportsBytesToReadAndUsesFingerprintCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cacheStore.Close() })
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	options.Fingerprints = cacheStore
 	fileSize := int64(len(layout.content))
 	planReads := make([]int64, 0, 2)
@@ -450,7 +489,7 @@ func TestPlan_reportsBytesToReadAndUsesFingerprintCache(t *testing.T) {
 
 func TestPlan_warnsOnNonLocalVolumes(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	options.filesystemKind = func(string) (linker.FilesystemKind, error) { return linker.Fuse, nil }
 	recorder := &fakeRecorder{}
 	options.Recorder = recorder
@@ -472,7 +511,7 @@ func TestPlan_warnsOnNonLocalVolumes(t *testing.T) {
 
 func TestApply_replacesTorrentFileWithRelativeSymlinkAtomically(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	replacement := planOne(t, layout, options)
 
 	result, err := Apply(context.Background(), []Replacement{replacement}, options)
@@ -507,7 +546,7 @@ func TestApply_leavesTorrentFileIntactOnFailure(t *testing.T) {
 	}
 	for name, createLink := range failures {
 		t.Run(name, func(t *testing.T) {
-			options := baseOptions(layout.torrentRoot)
+			options := layoutOptions(t, layout)
 			options.createLink = createLink
 			replacement := planOne(t, layout, options)
 
@@ -527,7 +566,7 @@ func TestApply_neverModifiesLibraryFile(t *testing.T) {
 		t.Run(kind.String(), func(t *testing.T) {
 			layout := newOperatorLayout(t)
 			sumBefore := sha256.Sum256(layout.content)
-			options := baseOptions(layout.torrentRoot)
+			options := layoutOptions(t, layout)
 			options.Kinds = []linker.Kind{kind}
 			replacement := planOne(t, layout, options)
 
@@ -549,7 +588,7 @@ func TestApply_neverModifiesLibraryFile(t *testing.T) {
 
 func TestApply_refusesWhenFileChangedSincePlan(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	changes := map[string]func() error{
 		"torrent touched": func() error {
 			return os.Chtimes(layout.torrentPath, agedModTime, agedModTime.Add(time.Second))
@@ -582,7 +621,7 @@ func TestApply_refusesWhenFileChangedSincePlan(t *testing.T) {
 
 func TestApply_recordsLinkWithInodeSizeAndFingerprint(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	recorder := &fakeRecorder{}
 	rechecker := &fakeRechecker{}
 	options.Recorder = recorder
@@ -616,7 +655,7 @@ func TestApply_recordsLinkWithInodeSizeAndFingerprint(t *testing.T) {
 
 func TestApply_reportsRecheckErrorWithoutFailing(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	options.Rechecker = &fakeRechecker{err: errors.New("client offline")}
 	replacement := planOne(t, layout, options)
 
@@ -631,7 +670,7 @@ func TestApply_reportsRecheckErrorWithoutFailing(t *testing.T) {
 
 func TestApply_dryRunRunsTheProofWithoutCreatingAnything(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	recorder := &fakeRecorder{}
 	options.Recorder = recorder
 	options.DryRun = true
@@ -665,7 +704,7 @@ func TestApply_dryRunRunsTheProofWithoutCreatingAnything(t *testing.T) {
 
 func TestApply_refusesTorrentPathOutsideTorrentRoots(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	replacement := planOne(t, layout, options)
 	options.TorrentRoots = []string{t.TempDir()}
 
@@ -682,7 +721,7 @@ func TestPlan_stopsOnCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := Plan(ctx, []string{layout.torrentRoot}, layout.library(), baseOptions(layout.torrentRoot))
+	_, err := Plan(ctx, []string{layout.torrentRoot}, layout.library(), layoutOptions(t, layout))
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
@@ -694,7 +733,7 @@ func TestPlan_ignoresTemporaryEntriesOfThisTool(t *testing.T) {
 	leftover := layout.torrentPath + ".necromanciarr-tmp-abc"
 	writeAged(t, leftover, layout.content)
 
-	replacement := planOne(t, layout, baseOptions(layout.torrentRoot))
+	replacement := planOne(t, layout, layoutOptions(t, layout))
 
 	if replacement.TorrentPath != layout.torrentPath {
 		t.Fatalf("unexpected replacement %s", replacement.TorrentPath)
@@ -706,7 +745,7 @@ func TestPlan_ignoresTemporaryEntriesOfThisTool(t *testing.T) {
 
 func TestDedupePlan_warningsCarryStableCode(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	options.filesystemKind = func(string) (linker.FilesystemKind, error) { return linker.Fuse, nil }
 
 	replacement := planOne(t, layout, options)
@@ -723,7 +762,7 @@ func TestDedupePlan_warningsCarryStableCode(t *testing.T) {
 
 func TestPlan_warnsWhenRenameOverwriteIsNotConfirmed(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	for _, renameOverwrite := range []bool{false, true} {
 		options.probe = fakeProbe(linker.Capabilities{Symlink: true, RenameOverwrite: renameOverwrite})
 
@@ -863,7 +902,7 @@ func TestPlan_refusesTorrentRootThatContainsLibraryFiles(t *testing.T) {
 
 func TestApply_refusesTorrentRootThatContainsTheLibraryFile(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	replacement := planOne(t, layout, options)
 	options.TorrentRoots = []string{filepath.Dir(layout.torrentRoot)}
 
@@ -877,7 +916,7 @@ func TestApply_refusesTorrentRootThatContainsTheLibraryFile(t *testing.T) {
 
 func TestApply_rejectsKindNotAllowedByOptions(t *testing.T) {
 	layout := newOperatorLayout(t)
-	options := baseOptions(layout.torrentRoot)
+	options := layoutOptions(t, layout)
 	replacement := planOne(t, layout, options)
 	replacement.Kind = linker.Hardlink
 
@@ -887,5 +926,31 @@ func TestApply_rejectsKindNotAllowedByOptions(t *testing.T) {
 		t.Fatalf("expected ErrKindNotAllowed, got %v", err)
 	}
 	assertRegularWith(t, layout.torrentPath, layout.content)
+	assertNoTemporaryEntry(t, layout.torrentRoot)
+}
+
+func TestApply_refusesWritesWithoutRegistry(t *testing.T) {
+	layout := newOperatorLayout(t)
+	options := layoutOptions(t, layout)
+	replacement := planOne(t, layout, options)
+	options.Registry = nil
+
+	_, err := Apply(context.Background(), []Replacement{replacement}, options)
+
+	if !errors.Is(err, fsys.ErrNoLibraryRoots) {
+		t.Fatalf("expectedValue fsys.ErrNoLibraryRoots, gotValue %v", err)
+	}
+	assertRegularWith(t, layout.torrentPath, layout.content)
+	assertNoTemporaryEntry(t, layout.torrentRoot)
+}
+
+func TestPlan_refusesTheProbeWithoutRegistry(t *testing.T) {
+	layout := newOperatorLayout(t)
+
+	replacement := planOne(t, layout, baseOptions(layout.torrentRoot))
+
+	if replacement.Kind != 0 || !errors.Is(replacement.Reason, fsys.ErrNoLibraryRoots) {
+		t.Fatalf("expectedValue no kind with fsys.ErrNoLibraryRoots, gotValue %v %v", replacement.Kind, replacement.Reason)
+	}
 	assertNoTemporaryEntry(t, layout.torrentRoot)
 }

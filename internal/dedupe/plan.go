@@ -79,8 +79,8 @@ type Options struct {
 	// interrogé sur les chemins locaux des deux fichiers. HashAlgorithms vide : MD5 seul.
 	Backend        hashsource.HashSource
 	HashAlgorithms []hashsource.Algorithm
-	// Registry ouvre les racines d'écriture (sonde des dossiers torrent, liens) ; nil : registre du disque local
-	// dont la bibliothèque est faite des fichiers de l'appel.
+	// Registry ouvre les racines d'écriture (sonde des dossiers torrent, liens) ; nil : toute écriture est refusée
+	// (fsys.ErrNoLibraryRoots).
 	Registry *fsys.Registry
 
 	probe          func(directory string) (linker.Capabilities, error)
@@ -146,7 +146,7 @@ func Plan(ctx context.Context, torrentRoots []string, library []store.MediaFile,
 		libraryPaths = append(libraryPaths, mediaFile.Path)
 	}
 	if options.probe == nil {
-		options.probe = registryProbe(options.Registry, libraryPaths)
+		options.probe = registryProbe(options.Registry)
 	}
 	run, err := newPlanRun(ctx, options)
 	if err != nil {
