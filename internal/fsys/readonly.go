@@ -16,7 +16,7 @@ func (view readOnlyView) Lstat(name string) (fs.FileInfo, error) { return view.i
 func (view readOnlyView) ReadDir(name string) ([]fs.DirEntry, error) {
 	return view.inner.ReadDir(name)
 }
-func (view readOnlyView) Readlink(name string) (string, error) { return view.inner.Readlink(name) }
+func (view readOnlyView) Readlink(name string) (string, error)  { return view.inner.Readlink(name) }
 func (view readOnlyView) Canonical(name string) (string, error) { return view.inner.Canonical(name) }
 
 func (view readOnlyView) VolumeID(name string) (string, bool, error) {

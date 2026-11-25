@@ -2,30 +2,46 @@ package fsys
 
 import (
 	"fmt"
-	"maps"
+	"runtime"
 )
 
-// Registry résout une Location vers son volume et garde les racines de bibliothèque canoniques par volume.
-// Immuable après NewRegistry, donc sûr entre goroutines sans verrou.
+// localCaseInsensitive : NTFS et APFS (par défaut) ignorent la casse ; le registre replie alors sa clé de
+// comparaison du volume local. Lu une fois par NewRegistry.
+var localCaseInsensitive = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+
+// Registry résout une Location vers son volume et garde, par volume, les racines de bibliothèque. Leur forme
+// canonique est calculée paresseusement, une seule fois, au premier Read ou WriteRoot du volume : un volume
+// injoignable n'empêche ni la construction ni l'usage des autres, et reste fermé (erreur rendue) pour lui seul.
+// Sûr entre goroutines.
+//
+// Le contrôle d'I1 compare deux choses : les chemins canoniques, toujours, puis les identités de fichier quand le
+// volume les fournit (Capabilities.FileIdentity ou RemoteStat), ce qui attrape les graphies qui échappent au texte
+// (casse, NFD, noms 8.3, montages liés). Risque résiduel : sans identité, un alias non résolu par Canonical passe ;
+// un alias entre deux volumes (disque local et sftp://localhost sur le même disque) n'est jamais vu (doctor
+// avertira). Fenêtre TOCTOU : entre Canonical et OpenWriteRoot, un dossier peut être remplacé ; le volume compare
+// l'identité de la racine ouverte au Stat fait juste avant (contrat de OpenWriteRoot).
 type Registry struct {
-	volumes      map[string]Volume
-	libraryRoots map[string][]string
+	volumes map[string]*volumeEntry
 }
 
-// NewRegistry déclare les volumes (clé : nom du volume, "" pour le disque local) et les racines de bibliothèque,
-// canonicalisées une fois par leur volume ; une racine qui ne se canonicalise pas fait échouer la construction.
+// NewRegistry déclare les volumes (clé : nom du volume, "" pour le disque local ; chaque clé égale à
+// Volume()) et les racines de bibliothèque. Aucun accès disque ou réseau : seules les erreurs de déclaration
+// (volume inconnu, nom différent de sa clé) la font échouer.
 func NewRegistry(volumes map[string]Volume, libraryRoots []Location) (*Registry, error) {
-	registry := &Registry{volumes: maps.Clone(volumes), libraryRoots: map[string][]string{}}
+	registry := &Registry{volumes: map[string]*volumeEntry{}}
+	for name, volume := range volumes {
+		if volume == nil || volume.Volume() != name {
+			return nil, fmt.Errorf("%w %q: volume name differs from its key", ErrUnknownVolume, name)
+		}
+		isLocal := name == ""
+		registry.volumes[name] = &volumeEntry{volume: volume, foldCase: isLocal && localCaseInsensitive}
+	}
 	for _, libraryRoot := range libraryRoots {
-		volume, err := registry.volume(libraryRoot.Volume)
+		entry, err := registry.entry(libraryRoot.Volume)
 		if err != nil {
 			return nil, err
 		}
-		canonical, err := canonicalOf(volume, libraryRoot.Path)
-		if err != nil {
-			return nil, err
-		}
-		registry.libraryRoots[libraryRoot.Volume] = append(registry.libraryRoots[libraryRoot.Volume], canonical)
+		entry.rawLibraryRoots = append(entry.rawLibraryRoots, libraryRoot.Path)
 	}
 	return registry, nil
 }
@@ -33,41 +49,49 @@ func NewRegistry(volumes map[string]Volume, libraryRoots []Location) (*Registry,
 // Read rend une vue scellée en lecture seule du volume de location (jamais le Volume lui-même, même par
 // assertion de type) et le chemin à lui passer (location.Path).
 func (registry *Registry) Read(location Location) (ReadFS, string, error) {
-	volume, err := registry.volume(location.Volume)
+	entry, err := registry.entry(location.Volume)
 	if err != nil {
 		return nil, "", err
 	}
-	return readOnlyView{inner: volume}, location.Path, nil
+	if _, err := entry.load(); err != nil {
+		return nil, "", err
+	}
+	return readOnlyView{inner: entry.volume}, location.Path, nil
 }
 
 // WriteRoot est le seul constructeur de WriteRoot hors des paquets de volume : il canonicalise dir par son volume
 // et refuse (ErrWriteInLibrary) un dossier égal à une racine de bibliothèque du même volume, qui en contient une
-// ou qui y est contenu. Le volume reçoit la forme canonique.
+// ou qui y est contenu, par le texte canonique et, si le volume la fournit, par l'identité de fichier. Le volume
+// reçoit la forme canonique (sur disque, casse d'origine).
 func (registry *Registry) WriteRoot(dir Location) (WriteRoot, error) {
-	volume, err := registry.volume(dir.Volume)
+	entry, err := registry.entry(dir.Volume)
 	if err != nil {
 		return nil, err
 	}
-	canonical, err := canonicalOf(volume, dir.Path)
+	state, err := entry.load()
 	if err != nil {
 		return nil, err
 	}
-	syntax := volume.Paths()
-	for _, libraryRoot := range registry.libraryRoots[dir.Volume] {
-		overlaps := isSameOrInside(syntax, canonical, libraryRoot) || isSameOrInside(syntax, libraryRoot, canonical)
-		if overlaps {
-			return nil, fmt.Errorf("%w (volume %q)", ErrWriteInLibrary, dir.Volume)
-		}
+	canonical, err := canonicalOf(entry.volume, dir.Path)
+	if err != nil {
+		return nil, err
 	}
-	return volume.OpenWriteRoot(canonical)
+	overlaps, err := entry.overlapsLibrary(state, canonical)
+	if err != nil {
+		return nil, err
+	}
+	if overlaps {
+		return nil, fmt.Errorf("%w (volume %q)", ErrWriteInLibrary, dir.Volume)
+	}
+	return entry.volume.OpenWriteRoot(canonical)
 }
 
-func (registry *Registry) volume(name string) (Volume, error) {
-	volume, known := registry.volumes[name]
-	if !known || volume == nil {
+func (registry *Registry) entry(name string) (*volumeEntry, error) {
+	entry, known := registry.volumes[name]
+	if !known {
 		return nil, fmt.Errorf("%w %q", ErrUnknownVolume, name)
 	}
-	return volume, nil
+	return entry, nil
 }
 
 // canonicalOf exige du volume une forme non relative et propre : une sortie bancale (barre finale, "..", relative)
@@ -75,7 +99,7 @@ func (registry *Registry) volume(name string) (Volume, error) {
 func canonicalOf(volume Volume, name string) (string, error) {
 	canonical, err := volume.Canonical(name)
 	if err != nil {
-		return "", &canonicalError{cause: err}
+		return "", &causeHidingError{sentinel: ErrCannotCanonicalize, cause: err}
 	}
 	syntax := volume.Paths()
 	isCanonical := syntax.IsAbs(canonical) && syntax.Clean(canonical) == canonical
@@ -85,27 +109,11 @@ func canonicalOf(volume Volume, name string) (string, error) {
 	return canonical, nil
 }
 
-// isSameOrInside remonte candidate par Dir jusqu'à la racine du volume, sans comparer de préfixe textuel
-// ("/srv/medi" n'est pas dans "/srv/media").
-func isSameOrInside(syntax PathSyntax, candidate, ancestor string) bool {
-	current := candidate
-	for {
-		if current == ancestor {
-			return true
-		}
-		parent := syntax.Dir(current)
-		if parent == current {
-			return false
-		}
-		current = parent
-	}
-}
+// causeHidingError garde la cause pour errors.Is sans recopier son texte, qui peut contenir un chemin.
+type causeHidingError struct{ sentinel, cause error }
 
-// canonicalError garde la cause pour errors.Is sans recopier son texte, qui peut contenir un chemin.
-type canonicalError struct{ cause error }
+func (hidingErr *causeHidingError) Error() string { return hidingErr.sentinel.Error() }
 
-func (canonicalErr *canonicalError) Error() string { return ErrCannotCanonicalize.Error() }
-
-func (canonicalErr *canonicalError) Unwrap() []error {
-	return []error{ErrCannotCanonicalize, canonicalErr.cause}
+func (hidingErr *causeHidingError) Unwrap() []error {
+	return []error{hidingErr.sentinel, hidingErr.cause}
 }

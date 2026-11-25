@@ -1,9 +1,7 @@
 package fsys_test
 
 import (
-	"context"
 	"errors"
-	"io"
 	"io/fs"
 	"strings"
 	"sync"
@@ -11,69 +9,6 @@ import (
 
 	"necromanciarr/internal/fsys"
 )
-
-// fakeVolume est un volume minimal : seul Canonical a un comportement, réglable par test (liens symboliques,
-// casse repliée, refus). Il sert au registre, pas à la suite de conformité.
-type fakeVolume struct {
-	name      string
-	canonical func(name string) (string, error)
-}
-
-// posixCanonical imite un volume distant : nettoyage POSIX et alias symboliques résolus par préfixe.
-func posixCanonical(symlinks map[string]string) func(string) (string, error) {
-	return func(name string) (string, error) {
-		cleaned := fsys.RemotePaths().Clean(name)
-		for alias, target := range symlinks {
-			if cleaned == alias || strings.HasPrefix(cleaned, alias+"/") {
-				cleaned = target + strings.TrimPrefix(cleaned, alias)
-			}
-		}
-		return cleaned, nil
-	}
-}
-
-func newFakeVolume(name string) *fakeVolume {
-	return &fakeVolume{name: name, canonical: posixCanonical(nil)}
-}
-
-type fakeWriteRoot struct{ root fsys.Location }
-
-var errFake = errors.New("fake: not implemented")
-
-func (volume *fakeVolume) Volume() string                         { return volume.name }
-func (volume *fakeVolume) Open(string) (fsys.File, error)         { return nil, errFake }
-func (volume *fakeVolume) Stat(string) (fs.FileInfo, error)       { return nil, errFake }
-func (volume *fakeVolume) Lstat(string) (fs.FileInfo, error)      { return nil, errFake }
-func (volume *fakeVolume) ReadDir(string) ([]fs.DirEntry, error)  { return nil, errFake }
-func (volume *fakeVolume) Readlink(string) (string, error)        { return "", errFake }
-func (volume *fakeVolume) Canonical(name string) (string, error)  { return volume.canonical(name) }
-func (volume *fakeVolume) VolumeID(string) (string, bool, error)  { return "", false, errFake }
-func (volume *fakeVolume) FileID(fs.FileInfo) (fsys.FileID, bool) { return fsys.FileID{}, false }
-func (volume *fakeVolume) FreeSpace(string) (uint64, error)       { return 0, errFake }
-func (volume *fakeVolume) Paths() fsys.PathSyntax                 { return fsys.RemotePaths() }
-func (volume *fakeVolume) Capabilities(context.Context) (fsys.Capabilities, error) {
-	return fsys.Capabilities{}, nil
-}
-
-func (volume *fakeVolume) OpenWriteRoot(dir string) (fsys.WriteRoot, error) {
-	return &fakeWriteRoot{root: fsys.Location{Volume: volume.name, Path: dir}}, nil
-}
-
-func (root *fakeWriteRoot) Root() fsys.Location                  { return root.root }
-func (root *fakeWriteRoot) MkdirAll(string, fs.FileMode) error   { return errFake }
-func (root *fakeWriteRoot) Symlink(string, string) error         { return errFake }
-func (root *fakeWriteRoot) Hardlink(fsys.Location, string) error { return errFake }
-func (root *fakeWriteRoot) Replace(string, string) error         { return errFake }
-func (root *fakeWriteRoot) Remove(string) error                  { return errFake }
-func (root *fakeWriteRoot) Lstat(string) (fs.FileInfo, error)    { return nil, errFake }
-func (root *fakeWriteRoot) Close() error                         { return nil }
-func (root *fakeWriteRoot) CopyFrom(context.Context, fsys.Location, string) (int64, error) {
-	return 0, errFake
-}
-
-func (root *fakeWriteRoot) CreateExclusive(string, fs.FileMode) (io.WriteCloser, error) {
-	return nil, errFake
-}
 
 func newTestRegistry(t *testing.T, volumes ...*fakeVolume) *fsys.Registry {
 	t.Helper()
@@ -144,24 +79,6 @@ func TestRegistry_refusesWriteRootReachingLibraryThroughSymlink(t *testing.T) {
 	}
 }
 
-func TestRegistry_refusesWriteRootDifferingOnlyByCase(t *testing.T) {
-	volume := newFakeVolume("seedbox")
-	volume.canonical = func(name string) (string, error) {
-		return strings.ToLower(fsys.RemotePaths().Clean(name)), nil
-	}
-	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"seedbox": volume},
-		[]fsys.Location{{Volume: "seedbox", Path: "/Srv/Media"}})
-	if err != nil {
-		t.Fatalf("NewRegistry: %v", err)
-	}
-	for _, dir := range []string{"/SRV/MEDIA/links", "/srv/media", "/SRV"} {
-		_, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: dir})
-		if !errors.Is(err, fsys.ErrWriteInLibrary) {
-			t.Errorf("WriteRoot(%q) error = %v, want ErrWriteInLibrary", dir, err)
-		}
-	}
-}
-
 func TestRegistry_writeRootReceivesCanonicalDirectory(t *testing.T) {
 	volume := newFakeVolume("seedbox")
 	volume.canonical = posixCanonical(map[string]string{"/srv/alias": "/data/links"})
@@ -177,10 +94,20 @@ func TestRegistry_writeRootReceivesCanonicalDirectory(t *testing.T) {
 	}
 }
 
+// failingFor rend une canonicalisation qui n'échoue (ou ne ment) que pour un chemin donné.
+func failingFor(failedPath, output string, err error) func(string) (string, error) {
+	return func(name string) (string, error) {
+		if name == failedPath {
+			return output, err
+		}
+		return posixCanonical(nil)(name)
+	}
+}
+
 func TestRegistry_refusesWhenVolumeCannotCanonicalize(t *testing.T) {
 	volume := newFakeVolume("seedbox")
+	volume.canonical = failingFor("/srv/links", "", fsys.ErrCannotCanonicalize)
 	registry := newTestRegistry(t, volume)
-	volume.canonical = func(string) (string, error) { return "", fsys.ErrCannotCanonicalize }
 	_, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/links"})
 	if !errors.Is(err, fsys.ErrCannotCanonicalize) {
 		t.Errorf("WriteRoot error = %v, want ErrCannotCanonicalize", err)
@@ -188,10 +115,10 @@ func TestRegistry_refusesWhenVolumeCannotCanonicalize(t *testing.T) {
 
 	broken := newFakeVolume("seedbox")
 	broken.canonical = func(string) (string, error) { return "", fsys.ErrCannotCanonicalize }
-	_, err = fsys.NewRegistry(map[string]fsys.Volume{"seedbox": broken},
-		[]fsys.Location{{Volume: "seedbox", Path: "/srv/media"}})
+	brokenRegistry := newTestRegistry(t, broken)
+	_, err = brokenRegistry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/links"})
 	if !errors.Is(err, fsys.ErrCannotCanonicalize) {
-		t.Errorf("NewRegistry error = %v, want ErrCannotCanonicalize", err)
+		t.Errorf("WriteRoot on a volume whose library roots fail: error = %v, want ErrCannotCanonicalize", err)
 	}
 }
 
@@ -199,8 +126,8 @@ func TestRegistry_refusesWhenVolumeCannotCanonicalize(t *testing.T) {
 func TestRegistry_refusesNonCanonicalVolumeOutput(t *testing.T) {
 	for _, output := range []string{"/srv/links/", "/srv/../srv/links", "srv/links", ""} {
 		volume := newFakeVolume("seedbox")
+		volume.canonical = failingFor("/srv/links", output, nil)
 		registry := newTestRegistry(t, volume)
-		volume.canonical = func(string) (string, error) { return output, nil }
 		_, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/links"})
 		if !errors.Is(err, fsys.ErrCannotCanonicalize) {
 			t.Errorf("canonical output %q: error = %v, want ErrCannotCanonicalize", output, err)
@@ -210,16 +137,154 @@ func TestRegistry_refusesNonCanonicalVolumeOutput(t *testing.T) {
 
 func TestRegistry_canonicalErrorKeepsCauseWithoutPath(t *testing.T) {
 	volume := newFakeVolume("seedbox")
+	volume.canonical = failingFor("/home/u/links", "",
+		&fs.PathError{Op: "realpath", Path: "/home/u/links", Err: fs.ErrNotExist})
 	registry := newTestRegistry(t, volume)
-	volume.canonical = func(name string) (string, error) {
-		return "", &fs.PathError{Op: "realpath", Path: name, Err: fs.ErrNotExist}
-	}
 	_, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/home/u/links"})
 	if !errors.Is(err, fsys.ErrCannotCanonicalize) || !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("error = %v, want ErrCannotCanonicalize wrapping fs.ErrNotExist", err)
 	}
 	if strings.Contains(err.Error(), "/home/u") {
 		t.Errorf("error %q contains the path", err)
+	}
+}
+
+func TestRegistry_buildsAndServesOtherVolumesWhenOneIsUnreachable(t *testing.T) {
+	unreachable := newFakeVolume("seedbox")
+	unreachable.canonical = func(string) (string, error) { return "", fsys.ErrRemoteUnavailable }
+	local := newFakeVolume("")
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"seedbox": unreachable, "": local}, []fsys.Location{
+		{Volume: "seedbox", Path: "/srv/media"},
+		{Volume: "", Path: "/data/library"},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry with an unreachable volume: %v", err)
+	}
+	if _, err := registry.WriteRoot(fsys.Location{Volume: "", Path: "/data/links"}); err != nil {
+		t.Errorf("local WriteRoot: %v", err)
+	}
+	if _, err := registry.WriteRoot(fsys.Location{Volume: "", Path: "/data/library/x"}); !errors.Is(err, fsys.ErrWriteInLibrary) {
+		t.Errorf("local WriteRoot in library: error = %v, want ErrWriteInLibrary", err)
+	}
+	_, err = registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/links"})
+	if !errors.Is(err, fsys.ErrRemoteUnavailable) || !errors.Is(err, fsys.ErrCannotCanonicalize) {
+		t.Errorf("WriteRoot on the unreachable volume: error = %v, want ErrRemoteUnavailable", err)
+	}
+	if _, _, err := registry.Read(fsys.Location{Volume: "seedbox", Path: "/srv/media"}); !errors.Is(err, fsys.ErrRemoteUnavailable) {
+		t.Errorf("Read on the unreachable volume: error = %v, want ErrRemoteUnavailable", err)
+	}
+}
+
+func TestRegistry_canonicalizesLibraryRootsOnceOnFirstConcurrentUse(t *testing.T) {
+	volume := newFakeVolume("seedbox")
+	registry := newTestRegistry(t, volume)
+	if gotValue := volume.callsFor("/srv/media"); gotValue != 0 {
+		t.Fatalf("library root canonicalized %d times by NewRegistry, want 0 (lazy)", gotValue)
+	}
+	const workerCount = 8
+	var workers sync.WaitGroup
+	for range workerCount {
+		workers.Go(func() {
+			_, _ = registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/links"})
+		})
+	}
+	workers.Wait()
+	expectedValue := 1
+	for _, libraryRoot := range []string{"/srv/media", "/srv/other-library/"} {
+		if gotValue := volume.callsFor(libraryRoot); gotValue != expectedValue {
+			t.Errorf("%s canonicalized %d times, want %d", libraryRoot, gotValue, expectedValue)
+		}
+	}
+}
+
+func TestRegistry_refusesVolumeNameDifferentFromItsKey(t *testing.T) {
+	_, err := fsys.NewRegistry(map[string]fsys.Volume{"seedbox": newFakeVolume("other")}, nil)
+	if !errors.Is(err, fsys.ErrUnknownVolume) {
+		t.Errorf("NewRegistry error = %v, want ErrUnknownVolume", err)
+	}
+}
+
+// Deux graphies d'un même dossier (montage lié, NFD, nom 8.3) passent le contrôle textuel : l'identité les attrape
+// quand le volume la fournit.
+func TestRegistry_refusesAliasSharingFileIdentity(t *testing.T) {
+	for _, capabilities := range []fsys.Capabilities{{FileIdentity: true}, {RemoteStat: true}} {
+		volume := newFakeVolume("seedbox")
+		volume.capabilities = capabilities
+		volume.sharedIDs = map[string]uint64{"/srv/media": 7, "/mnt/bind": 7, "/srv": 9, "/mnt/up": 9}
+		registry := newTestRegistry(t, volume)
+		for _, dir := range []string{"/mnt/bind", "/mnt/bind/links", "/mnt/up"} {
+			_, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: dir})
+			if !errors.Is(err, fsys.ErrWriteInLibrary) {
+				t.Errorf("%+v WriteRoot(%q) error = %v, want ErrWriteInLibrary", capabilities, dir, err)
+			}
+		}
+		if _, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/mnt/links"}); err != nil {
+			t.Errorf("%+v WriteRoot(/mnt/links): %v", capabilities, err)
+		}
+	}
+}
+
+// Sans identité de fichier, seul le contrôle textuel tient : risque résiduel documenté (doctor avertira).
+func TestRegistry_withoutIdentityOnlyTextIsCompared(t *testing.T) {
+	volume := newFakeVolume("seedbox")
+	volume.sharedIDs = map[string]uint64{"/srv/media": 7, "/mnt/bind": 7}
+	registry := newTestRegistry(t, volume)
+	if _, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/mnt/bind"}); err != nil {
+		t.Errorf("WriteRoot(/mnt/bind) without identity: %v", err)
+	}
+}
+
+func TestRegistry_identityFailureIsFailClosed(t *testing.T) {
+	volume := newFakeVolume("seedbox")
+	volume.capabilities = fsys.Capabilities{FileIdentity: true}
+	volume.statError = map[string]error{"/mnt": fs.ErrPermission}
+	registry := newTestRegistry(t, volume)
+	_, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/mnt/links"})
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("WriteRoot error = %v, want a refusal wrapping fs.ErrPermission", err)
+	}
+}
+
+// Volume local insensible à la casse (Windows, macOS) : la clé de comparaison est repliée par le registre, la
+// forme sur disque rendue par Canonical est gardée pour Root.
+func TestRegistry_foldsCaseOnlyForComparisonOnCaseInsensitiveLocalVolume(t *testing.T) {
+	fsys.SetLocalCaseInsensitiveForTest(t, true)
+	local := newFakeVolume("")
+	remote := newFakeVolume("seedbox")
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"": local, "seedbox": remote}, []fsys.Location{
+		{Volume: "", Path: "/Srv/Media"},
+		{Volume: "seedbox", Path: "/Srv/Media"},
+	})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	for _, dir := range []string{"/SRV/MEDIA/links", "/srv/media", "/SRV"} {
+		if _, err := registry.WriteRoot(fsys.Location{Volume: "", Path: dir}); !errors.Is(err, fsys.ErrWriteInLibrary) {
+			t.Errorf("local WriteRoot(%q) error = %v, want ErrWriteInLibrary", dir, err)
+		}
+	}
+	root, err := registry.WriteRoot(fsys.Location{Volume: "", Path: "/Data/Links"})
+	if err != nil {
+		t.Fatalf("WriteRoot(/Data/Links): %v", err)
+	}
+	expectedValue := fsys.Location{Volume: "", Path: "/Data/Links"}
+	if gotValue := root.Root(); gotValue != expectedValue {
+		t.Errorf("Root() = %+v, want the on-disk form %+v", gotValue, expectedValue)
+	}
+	if _, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/media"}); err != nil {
+		t.Errorf("remote volumes are case-sensitive: WriteRoot(/srv/media): %v", err)
+	}
+}
+
+func TestRegistry_keepsCaseOnCaseSensitiveLocalVolume(t *testing.T) {
+	fsys.SetLocalCaseInsensitiveForTest(t, false)
+	local := newFakeVolume("")
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"": local}, []fsys.Location{{Volume: "", Path: "/Srv/Media"}})
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	if _, err := registry.WriteRoot(fsys.Location{Volume: "", Path: "/srv/media"}); err != nil {
+		t.Errorf("WriteRoot(/srv/media): %v", err)
 	}
 }
 
