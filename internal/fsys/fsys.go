@@ -63,7 +63,9 @@ type ReadFS interface {
 	Capabilities(ctx context.Context) (Capabilities, error)
 }
 
-// File est un fichier ouvert en lecture seule.
+// File est un fichier ouvert en lecture seule. Une implémentation ne rend jamais *os.File (Chmod, Chown,
+// Truncate et Write y restent appelables par assertion de type, Chmod réussit même en O_RDONLY) : elle
+// l'enveloppe dans un type non exporté qui n'expose que ReadAt, Read, Seek, Close et Stat.
 type File interface {
 	io.ReaderAt
 	io.Closer
@@ -87,6 +89,9 @@ type WriteRoot interface {
 
 // Volume joint la lecture et l'ouverture d'une racine d'écriture. OpenWriteRoot n'est appelé que par
 // Registry.WriteRoot, après le contrôle de recouvrement des bibliothèques : aucun autre paquet ne l'appelle.
+// Go ne permet pas de sceller cet appel à la compilation : une règle forbidigo de golangci-lint l'interdira hors
+// de internal/fsys, ajoutée par la tâche qui migre le premier paquet appelant. Une WriteRoot réelle n'expose ni
+// Volume() ni volume imbriqué.
 type Volume interface {
 	ReadFS
 	OpenWriteRoot(dir string) (WriteRoot, error)

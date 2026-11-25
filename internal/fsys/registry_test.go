@@ -267,3 +267,23 @@ func TestRegistry_concurrentUseIsRaceFree(t *testing.T) {
 	}
 	workers.Wait()
 }
+
+func TestRegistry_readNeverExposesTheVolume(t *testing.T) {
+	registry := newTestRegistry(t, newFakeVolume("seedbox"))
+	readFS, _, err := registry.Read(fsys.Location{Volume: "seedbox", Path: "/srv/media"})
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if _, isVolume := readFS.(fsys.Volume); isVolume {
+		t.Fatalf("Read returned a value usable as fsys.Volume")
+	}
+	if _, opensWriteRoot := readFS.(interface {
+		OpenWriteRoot(string) (fsys.WriteRoot, error)
+	}); opensWriteRoot {
+		t.Fatalf("Read returned a value with OpenWriteRoot")
+	}
+	expectedValue := "seedbox"
+	if gotValue := readFS.Volume(); gotValue != expectedValue {
+		t.Errorf("Volume() = %q, want %q", gotValue, expectedValue)
+	}
+}

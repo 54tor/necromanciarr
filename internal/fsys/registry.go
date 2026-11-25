@@ -30,13 +30,14 @@ func NewRegistry(volumes map[string]Volume, libraryRoots []Location) (*Registry,
 	return registry, nil
 }
 
-// Read rend la vue en lecture seule du volume de location et le chemin à lui passer (location.Path).
+// Read rend une vue scellée en lecture seule du volume de location (jamais le Volume lui-même, même par
+// assertion de type) et le chemin à lui passer (location.Path).
 func (registry *Registry) Read(location Location) (ReadFS, string, error) {
 	volume, err := registry.volume(location.Volume)
 	if err != nil {
 		return nil, "", err
 	}
-	return volume, location.Path, nil
+	return readOnlyView{inner: volume}, location.Path, nil
 }
 
 // WriteRoot est le seul constructeur de WriteRoot hors des paquets de volume : il canonicalise dir par son volume
