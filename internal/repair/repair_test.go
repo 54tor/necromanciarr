@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"necromanciarr/internal/dedupe"
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/fsystest"
 	"necromanciarr/internal/store"
 	"necromanciarr/internal/torrentcheck"
 )
@@ -412,7 +414,7 @@ func newApplyFixture(t *testing.T, relative bool) applyFixture {
 		place:   place,
 		target:  target,
 		fake:    fake,
-		options: ApplyOptions{Roots: []string{place.linkDirectory}, Store: fake},
+		options: ApplyOptions{Roots: []string{place.linkDirectory}, Store: fake, Registry: fsystest.LocalRegistry(t, place.libraryDirectory)},
 		repair:  Repair{LinkPath: linkPath, OldTarget: oldText, NewTarget: target.Path, Size: 4096, Method: ByFingerprint, Relative: relative},
 	}
 }
@@ -754,4 +756,20 @@ func TestApply_rechecksTheRepairedLinkAfterTheRenameButNotInDryRun(t *testing.T)
 	if gotErr := result.Outcomes[0].RecheckErr; gotErr == nil || !result.Outcomes[0].Done {
 		t.Fatalf("gotValue %+v, expectedValue the recheck failure kept beside a done repair", result.Outcomes[0])
 	}
+}
+
+func TestApply_refusesWritesWithoutRegistry(t *testing.T) {
+	fixture := newApplyFixture(t, false)
+	fixture.options.Registry = nil
+
+	_, err := Apply(t.Context(), []Repair{fixture.repair}, fixture.options)
+
+	if !errors.Is(err, fsys.ErrNoLibraryRoots) {
+		t.Fatalf("expectedValue fsys.ErrNoLibraryRoots, gotValue %v", err)
+	}
+	gotText, _ := os.Readlink(fixture.repair.LinkPath)
+	if gotText != fixture.repair.OldTarget {
+		t.Fatalf("expectedValue the broken link untouched, gotValue %q", gotText)
+	}
+	assertNoTemporary(t, fixture.place.linkDirectory)
 }
