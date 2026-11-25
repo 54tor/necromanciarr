@@ -177,6 +177,25 @@ func TestServer_recordsEveryRequest(t *testing.T) {
 			t.Fatalf("valeurAttendue %+v recorded, valeurObtenue %+v", valeurAttendue, gotValue)
 		}
 	}
+	assertMethodsListed(t, gotValue)
+}
+
+// assertMethodsListed exige que chaque méthode enregistrée soit dans sftptest.Methods, et que la liste ne nomme
+// rien que le serveur ne journalise (Exec : TestServer_withExecServesTheHandlerAndRecordsTheCommand).
+func assertMethodsListed(t *testing.T, requests []sftptest.Request) {
+	t.Helper()
+	recorded := map[string]bool{"Exec": true}
+	for _, request := range requests {
+		if !slices.Contains(sftptest.Methods, request.Method) {
+			t.Fatalf("valeurObtenue method %q recorded, valeurAttendue listed in sftptest.Methods", request.Method)
+		}
+		recorded[request.Method] = true
+	}
+	for _, listed := range sftptest.Methods {
+		if !recorded[listed] {
+			t.Fatalf("valeurObtenue %q listed but never recorded, valeurAttendue every listed method exercised", listed)
+		}
+	}
 }
 
 func TestServer_servesFilesFromRoot(t *testing.T) {

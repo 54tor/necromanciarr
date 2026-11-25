@@ -280,6 +280,9 @@ func (server *Server) Connections() int {
 	return server.accepted
 }
 
+// OpenConnections compte les connexions encore ouvertes (un client fermé en sort dès que le serveur voit la coupure).
+func (server *Server) OpenConnections() int { return len(server.openConnections()) }
+
 // DropConnections coupe côté serveur toutes les connexions ouvertes ; le serveur continue d'écouter.
 func (server *Server) DropConnections() {
 	for _, connection := range server.openConnections() {
