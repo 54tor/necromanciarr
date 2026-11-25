@@ -104,8 +104,10 @@ type Reflinker interface {
 	Reflink(source Location, relative string) error
 }
 
-// TimesSetter est l'option d'une WriteRoot qui sait fixer les dates d'une entrée de la racine (sonde de la date de
-// modification d'un montage) ; un volume sans elle laisse cette date inconnue.
+// TimesSetter est l'option d'une WriteRoot qui sait fixer les dates d'un fichier qu'elle a elle-même créé par
+// CreateExclusive pendant cette ouverture, et qui est toujours ce fichier (sonde de la date de modification d'un
+// montage) : tout autre nom, un lien dur vers un fichier d'ailleurs ou une entrée d'une ouverture précédente est
+// refusé (ErrUnconfined). Un volume sans elle laisse cette date inconnue.
 type TimesSetter interface {
 	Chtimes(relative string, accessTime, modTime time.Time) error
 }

@@ -355,33 +355,77 @@ func TestCheckOpenedChild_refusesAHandleThatIsNotTheCheckedEntry(t *testing.T) {
 	assertUnconfined(t, "checkOpenedChild", tree.root.checkOpenedChild(swappedHandle, checkedInfo))
 }
 
-func TestChtimes_setsTheTimesOfAnEntryAndNeverFollowsALinkOutOfTheRoot(t *testing.T) {
+// probeTime : date ancienne posée par les tests de Chtimes.
+var probeTime = time.Unix(1000000000, 0)
+
+func assertMovieTimeUnchanged(t *testing.T, tree testTree, before fs.FileInfo) {
+	t.Helper()
+	after, err := os.Stat(tree.moviePath)
+	if err != nil || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("expectedValue the library file times unchanged, gotValue %v (%v)", after, err)
+	}
+}
+
+func TestChtimes_setsTheTimesOfAnEntryThisRootCreated(t *testing.T) {
 	tree := newTestTree(t, true)
 	writeThrough(t, tree.root, "probe", "x")
-	expectedTime := time.Unix(1000000000, 0)
 
-	if err := tree.root.Chtimes("probe", expectedTime, expectedTime); err != nil {
+	if err := tree.root.Chtimes("probe", probeTime, probeTime); err != nil {
 		t.Fatal(err)
 	}
-	info, err := tree.root.Lstat("probe")
-	if err != nil || !info.ModTime().Equal(expectedTime) {
-		t.Fatalf("expectedValue modification time %v, gotValue %v (%v)", expectedTime, info, err)
-	}
-	assertUnconfined(t, "Chtimes ../escape", tree.root.Chtimes("../escape", expectedTime, expectedTime))
 
+	info, err := tree.root.Lstat("probe")
+	if err != nil || !info.ModTime().Equal(probeTime) {
+		t.Fatalf("expectedValue modification time %v, gotValue %v (%v)", probeTime, info, err)
+	}
+	assertUnconfined(t, "Chtimes ../escape", tree.root.Chtimes("../escape", probeTime, probeTime))
+}
+
+func TestChtimes_refusesAHardlinkToAFileOutsideTheRoot(t *testing.T) {
+	tree := newTestTree(t, true)
+	before, err := os.Stat(tree.moviePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tree.root.Hardlink(tree.movieSource(), "linked.mkv"); err != nil {
+		t.Fatal(err)
+	}
+	writeThrough(t, tree.root, "swapped.mkv", "x")
+	if err := tree.root.Remove("swapped.mkv"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tree.root.Hardlink(tree.movieSource(), "swapped.mkv"); err != nil {
+		t.Fatal(err)
+	}
+
+	assertUnconfined(t, "Chtimes on a hardlink", tree.root.Chtimes("linked.mkv", probeTime, probeTime))
+	assertUnconfined(t, "Chtimes on a created name now a hardlink", tree.root.Chtimes("swapped.mkv", probeTime, probeTime))
+	assertMovieTimeUnchanged(t, tree, before)
+}
+
+func TestChtimes_refusesAnEntryCreatedByAPreviousOpening(t *testing.T) {
+	tree := newTestTree(t, true)
+	writeThrough(t, tree.root, "old-probe", "x")
+	reopened, err := openWriteRoot(tree.linkDir, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	assertUnconfined(t, "Chtimes from a reopened root", reopened.Chtimes("old-probe", probeTime, probeTime))
+}
+
+func TestChtimes_neverFollowsASymlinkToTheLibrary(t *testing.T) {
 	skipWithoutSymlinks(t)
-	libraryBefore, err := os.Stat(tree.moviePath)
+	tree := newTestTree(t, true)
+	before, err := os.Stat(tree.moviePath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := tree.root.Symlink(tree.moviePath, "to-library"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tree.root.Chtimes("to-library", expectedTime, expectedTime); err == nil {
-		t.Fatal("expectedValue Chtimes through a link to the library refused, gotValue nil")
-	}
-	libraryAfter, err := os.Stat(tree.moviePath)
-	if err != nil || !libraryAfter.ModTime().Equal(libraryBefore.ModTime()) {
-		t.Fatalf("expectedValue the library file times unchanged, gotValue %v (%v)", libraryAfter, err)
-	}
+
+	assertUnconfined(t, "Chtimes on a symlink", tree.root.Chtimes("to-library", probeTime, probeTime))
+	assertMovieTimeUnchanged(t, tree, before)
 }

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"necromanciarr/internal/fsys"
@@ -26,13 +28,16 @@ const exclusiveCreateFlags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
 // errSourceChanged : la source a grandi pendant la copie ; la copie partielle est retirée.
 var errSourceChanged = errors.New("local: copy source changed size during the copy")
 
-// writeRoot est un dossier ouvert par handle (os.Root) ; il n'expose ni Volume() ni volume imbriqué.
+// writeRoot est un dossier ouvert par handle (os.Root) ; il n'expose ni Volume() ni volume imbriqué. created garde
+// l'identité des fichiers que cette racine a créés par CreateExclusive, seuls autorisés à Chtimes.
 type writeRoot struct {
 	dir              string
 	root             *os.Root
 	identity         fs.FileInfo
 	identityReliable bool
 	atomicReplace    bool
+	createdMutex     sync.Mutex
+	created          map[string]fs.FileInfo
 }
 
 // Root rend le dossier canonique reçu à l'ouverture.
@@ -80,12 +85,49 @@ func (root *writeRoot) Hardlink(source fsys.Location, relative string) error {
 // CreateExclusive crée relative en O_WRONLY|O_CREATE|O_EXCL ; une entrée existante rend fs.ErrExist. Seuls les
 // droits 0o777 de perm sont gardés : jamais de setuid, setgid ni sticky dans un dossier de liens.
 func (root *writeRoot) CreateExclusive(relative string, perm fs.FileMode) (io.WriteCloser, error) {
-	destination, err := root.resolve(relative)
+	segments, err := root.prepare(relative)
+	if err != nil {
+		return nil, err
+	}
+	destination, err := root.openParent(segments)
 	if err != nil {
 		return nil, err
 	}
 	defer destination.close()
-	return destination.parent.OpenFile(destination.name, exclusiveCreateFlags, perm&fs.ModePerm)
+	file, err := destination.parent.OpenFile(destination.name, exclusiveCreateFlags, perm&fs.ModePerm)
+	if err != nil {
+		return nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return nil, errors.Join(err, file.Close(), destination.parent.Remove(destination.name))
+	}
+	root.remember(segments, info)
+	return file, nil
+}
+
+func createdKey(segments []string) string { return strings.Join(segments, "/") }
+
+func (root *writeRoot) remember(segments []string, info fs.FileInfo) {
+	root.createdMutex.Lock()
+	defer root.createdMutex.Unlock()
+	if root.created == nil {
+		root.created = map[string]fs.FileInfo{}
+	}
+	root.created[createdKey(segments)] = info
+}
+
+func (root *writeRoot) forget(segments []string) {
+	root.createdMutex.Lock()
+	defer root.createdMutex.Unlock()
+	delete(root.created, createdKey(segments))
+}
+
+func (root *writeRoot) createdIdentity(segments []string) (fs.FileInfo, bool) {
+	root.createdMutex.Lock()
+	defer root.createdMutex.Unlock()
+	info, known := root.created[createdKey(segments)]
+	return info, known
 }
 
 // CopyFrom copie source vers relative : reflink si le système le permet, sinon flux borné à la taille de la
@@ -132,6 +174,8 @@ func (root *writeRoot) Replace(oldRelative, newRelative string) error {
 	if !root.atomicReplace {
 		return fsys.ErrNoAtomicReplace
 	}
+	defer root.forget(oldSegments)
+	defer root.forget(newSegments)
 	oldTarget, err := root.openParent(oldSegments)
 	if err != nil {
 		return err
@@ -152,11 +196,16 @@ func (root *writeRoot) Replace(oldRelative, newRelative string) error {
 
 // Remove supprime un fichier, un lien ou un dossier vide de la racine.
 func (root *writeRoot) Remove(relative string) error {
-	target, err := root.resolve(relative)
+	segments, err := root.prepare(relative)
+	if err != nil {
+		return err
+	}
+	target, err := root.openParent(segments)
 	if err != nil {
 		return err
 	}
 	defer target.close()
+	root.forget(segments)
 	return target.parent.Remove(target.name)
 }
 
@@ -234,12 +283,29 @@ func (reader contextReader) Read(buffer []byte) (int, error) {
 	return reader.reader.Read(buffer)
 }
 
-// Chtimes fixe les dates de relative, résolu depuis le handle de son parent.
+// Chtimes fixe les dates d'un fichier que cette racine a créé par CreateExclusive et qui est toujours le même
+// (même identité, fichier ordinaire) : jamais un autre nom, jamais un lien dur vers un fichier d'ailleurs (la
+// bibliothèque partage alors l'inode), jamais une entrée d'une ouverture précédente. Sinon ErrUnconfined.
 func (root *writeRoot) Chtimes(relative string, accessTime, modTime time.Time) error {
-	target, err := root.resolve(relative)
+	segments, err := root.prepare(relative)
+	if err != nil {
+		return err
+	}
+	createdInfo, known := root.createdIdentity(segments)
+	if !known {
+		return unconfined("times are set only on entries this write root created")
+	}
+	target, err := root.openParent(segments)
 	if err != nil {
 		return err
 	}
 	defer target.close()
+	current, err := target.parent.Lstat(target.name)
+	if err != nil {
+		return err
+	}
+	if !current.Mode().IsRegular() || !os.SameFile(current, createdInfo) {
+		return unconfined("entry is no longer the file this write root created")
+	}
 	return target.parent.Chtimes(target.name, accessTime, modTime)
 }
