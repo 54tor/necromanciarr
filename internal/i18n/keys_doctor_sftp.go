@@ -18,23 +18,25 @@ const (
 	KeyDoctorSFTPHintAgent          Key = "doctor.sftp.hint.agent"
 	KeyDoctorSFTPHintHostile        Key = "doctor.sftp.hint.hostile"
 
-	KeyDoctorSFTPLibraryNone            Key = "doctor.sftp_library.none"
-	KeyDoctorSFTPLibraryRoot            Key = "doctor.sftp_library.root"
-	KeyDoctorSFTPLibraryOK              Key = "doctor.sftp_library.ok"
-	KeyDoctorSFTPLibraryHintNoMedia     Key = "doctor.sftp_library.hint.no_media"
-	KeyDoctorSFTPLibraryHintUnread      Key = "doctor.sftp_library.hint.unreadable"
-	KeyDoctorSFTPLibraryHintReadOnly    Key = "doctor.sftp_library.hint.read_only_account"
-	KeyDoctorSFTPExecOK                 Key = "doctor.sftp_exec.ok"
-	KeyDoctorSFTPExecOff                Key = "doctor.sftp_exec.off"
-	KeyDoctorSFTPExecLowPriority        Key = "doctor.sftp_exec.low_priority"
-	KeyDoctorSFTPExecNoLowPriority      Key = "doctor.sftp_exec.no_low_priority"
-	KeyDoctorSFTPExecNoLinkDir          Key = "doctor.sftp_exec.no_link_dir"
-	KeyDoctorSFTPExecHintUnavailable    Key = "doctor.sftp_exec.hint.unavailable"
-	KeyDoctorSFTPExecHintRequired       Key = "doctor.sftp_exec.hint.required"
-	KeyDoctorVolumeIdentityUnknown      Key = "doctor.links.identity_unknown"
-	KeyDoctorVolumeIdentityUnknownHint  Key = "doctor.links.identity_unknown.hint"
-	KeyDoctorPathRuleRemoteUnmapped     Key = "doctor.path_rule.remote_unmapped"
-	KeyDoctorPathRuleRemoteUnmappedHint Key = "doctor.path_rule.remote_unmapped.hint"
+	KeyDoctorSFTPLibraryNone                Key = "doctor.sftp_library.none"
+	KeyDoctorSFTPLibraryRoot                Key = "doctor.sftp_library.root"
+	KeyDoctorSFTPLibraryOK                  Key = "doctor.sftp_library.ok"
+	KeyDoctorSFTPLibraryHintNoMedia         Key = "doctor.sftp_library.hint.no_media"
+	KeyDoctorSFTPLibraryHintUnread          Key = "doctor.sftp_library.hint.unreadable"
+	KeyDoctorSFTPLibraryHintReadOnly        Key = "doctor.sftp_library.hint.read_only_account"
+	KeyDoctorSFTPExecOK                     Key = "doctor.sftp_exec.ok"
+	KeyDoctorSFTPExecOff                    Key = "doctor.sftp_exec.off"
+	KeyDoctorSFTPExecLowPriority            Key = "doctor.sftp_exec.low_priority"
+	KeyDoctorSFTPExecNoLowPriority          Key = "doctor.sftp_exec.no_low_priority"
+	KeyDoctorSFTPExecNoLinkDir              Key = "doctor.sftp_exec.no_link_dir"
+	KeyDoctorSFTPExecHintUnavailable        Key = "doctor.sftp_exec.hint.unavailable"
+	KeyDoctorSFTPExecHintRequired           Key = "doctor.sftp_exec.hint.required"
+	KeyDoctorVolumeIdentityUnknown          Key = "doctor.links.identity_unknown"
+	KeyDoctorVolumeIdentityUnknownHint      Key = "doctor.links.identity_unknown.hint"
+	KeyDoctorPathRuleRemoteUnmapped         Key = "doctor.path_rule.remote_unmapped"
+	KeyDoctorPathRuleRemoteUnmappedHint     Key = "doctor.path_rule.remote_unmapped.hint"
+	KeyDoctorPathRuleRemoteRootUnmapped     Key = "doctor.path_rule.remote_root_unmapped"
+	KeyDoctorPathRuleRemoteRootUnmappedHint Key = "doctor.path_rule.remote_root_unmapped.hint"
 )
 
 // Libellés, sans paramètre, des codes de connexion, de capacité et de lecture distante d'un volume SFTP : ils servent
@@ -81,7 +83,7 @@ var doctorSFTPKeys = []Key{
 	KeyDoctorSFTPExecOK, KeyDoctorSFTPExecOff, KeyDoctorSFTPExecLowPriority, KeyDoctorSFTPExecNoLowPriority,
 	KeyDoctorSFTPExecNoLinkDir, KeyDoctorSFTPExecHintUnavailable, KeyDoctorSFTPExecHintRequired,
 	KeyDoctorVolumeIdentityUnknown, KeyDoctorVolumeIdentityUnknownHint, KeyDoctorPathRuleRemoteUnmapped,
-	KeyDoctorPathRuleRemoteUnmappedHint,
+	KeyDoctorPathRuleRemoteUnmappedHint, KeyDoctorPathRuleRemoteRootUnmapped, KeyDoctorPathRuleRemoteRootUnmappedHint,
 	KeyReasonHostKeyUnknown, KeyReasonHostKeyMismatch, KeyReasonAuthRefused, KeyReasonKnownHostsUnreadable,
 	KeyReasonIdentityKeyTooWeak, KeyReasonIdentityFileUnusable, KeyReasonIdentityFilePermissions,
 	KeyReasonAgentUnavailable, KeyReasonHostileResponse, KeyReasonShortRead, KeyReasonRemoteWindowsUnsupported,

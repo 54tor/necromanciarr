@@ -490,10 +490,8 @@ func (world *sftpWorld) doctor(t *testing.T) (Result, error) {
 	t.Helper()
 	settings := config.Config{
 		LibraryRoots: []string{sftpStored(sftpLibraryDir)}, LinkDirs: []string{sftpStored(sftpLinkDir)}, LinkType: "hardlink",
-		Dedupe: config.Dedupe{TorrentRoots: []string{sftpStored(sftpTorrentDir)}},
-		PathRules: []config.PathRule{
-			{From: sftpStored(sftpLinkDir), To: clientLinkDir}, {From: sftpStored(sftpTorrentDir), To: "/downloads/torrents"},
-		},
+		Dedupe:    config.Dedupe{TorrentRoots: []string{sftpStored(sftpTorrentDir)}},
+		PathRules: []config.PathRule{{From: sftpStored(sftpLinkDir), To: clientLinkDir}},
 	}
 	var selected []doctor.Check
 	for _, check := range doctor.Build(settings, doctor.Deps{Registry: world.registry}) {

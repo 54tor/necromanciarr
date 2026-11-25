@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -319,10 +320,20 @@ func checkPathMappings(settings config.Config, deps Deps) Result {
 	return collected.result()
 }
 
-// addUnmappedRemoteLinkDirs échoue pour chaque dossier de liens distant qu'aucune règle ne traduit vers la vue du client
-// (Seed, dedupe apply et repair apply le refuseraient : client_path_unmapped). La règle est celle du mapper des étapes :
-// une règle dont la cible reste une adresse sftp:// ne traduit rien.
+// hasWritableClient : seul un client torrent inscriptible recontrôle (Seed, dedupe apply, repair apply) ; sans lui, la
+// vue du client n'est jamais utilisée.
+func hasWritableClient(settings config.Config) bool {
+	return slices.ContainsFunc(settings.TorrentClients, func(client config.TorrentClient) bool { return !client.ReadOnly })
+}
+
+// addUnmappedRemoteLinkDirs, avec un client inscriptible, échoue pour un dossier de liens distant qu'aucune règle ne
+// traduit vers la vue du client (Seed le refuse : client_path_unmapped) et avertit pour une racine torrent distante
+// (seuls les recontrôles de dedupe et de repair en ont besoin). La règle est celle du mapper des étapes : une règle dont
+// la cible reste une adresse sftp:// ne traduit rien.
 func addUnmappedRemoteLinkDirs(collected *findings, settings config.Config) {
+	if !hasWritableClient(settings) {
+		return
+	}
 	mapper := linker.NewMapper(settings.PathRules)
 	for _, directory := range linkDirectories(settings) {
 		location, err := fsys.StoredLocation(directory)
@@ -331,10 +342,16 @@ func addUnmappedRemoteLinkDirs(collected *findings, settings config.Config) {
 		}
 		clientPath, translateErr := mapper.Translate(directory)
 		isMapped := translateErr == nil && clientPath != "" && !strings.HasPrefix(clientPath, "sftp:")
-		if !isMapped {
+		if isMapped {
+			continue
+		}
+		if slices.Contains(settings.LinkDirs, directory) {
 			collected.add(Fail, CodeClientPathUnmapped, message(i18n.KeyDoctorPathRuleRemoteUnmapped, "dir", directory),
 				message(i18n.KeyDoctorPathRuleRemoteUnmappedHint))
+			continue
 		}
+		collected.add(Warn, CodeClientPathUnmapped, message(i18n.KeyDoctorPathRuleRemoteRootUnmapped, "dir", directory),
+			message(i18n.KeyDoctorPathRuleRemoteRootUnmappedHint))
 	}
 }
 

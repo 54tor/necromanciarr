@@ -174,7 +174,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `cross-seed` | `cross_seed_warning` | `warn` | démon injoignable : repli `native` en mode `auto`, désactivé en `delegate` |
 | `cross-seed` | `blocked_environment` | `warn` | `config.js` lit des variables de cet outil, qui lui sont cachées |
 | `path-mappings` | `no_path_mapping` | `skipped` | aucune règle et aucun dossier de liens distant |
-| `path-mappings` | `client_path_unmapped` | `fail` | dossier de liens distant sans règle `pathMappings` dont `from` est une adresse `sftp://` qui le couvre et dont `to` est la vue du client |
+| `path-mappings` | `client_path_unmapped` | `fail`, `warn` | seulement avec un client torrent inscriptible : `fail` pour un dossier de liens distant, `warn` pour une racine torrent distante (seuls les recontrôles de dedupe et de repair en ont besoin), sans règle `pathMappings` dont `from` est une adresse `sftp://` qui le couvre et dont `to` est la vue du client |
 | `path-mappings` | `rule_unreachable` | `warn` | ni `from` ni `to` n'existe sur cette machine |
 | `path-mappings` | `rule_no_library_root` | `warn` | règle qui ne couvre aucune racine |
 | `path-mappings` | `rule_ok` | `ok` | règle utilisable |

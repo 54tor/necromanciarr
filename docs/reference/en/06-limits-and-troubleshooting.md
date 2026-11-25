@@ -174,7 +174,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `cross-seed` | `cross_seed_warning` | `warn` | daemon unreachable: `native` fallback in `auto` mode, disabled in `delegate` |
 | `cross-seed` | `blocked_environment` | `warn` | `config.js` reads this tool's variables, which are hidden from it |
 | `path-mappings` | `no_path_mapping` | `skipped` | no rule and no remote link folder |
-| `path-mappings` | `client_path_unmapped` | `fail` | remote link folder with no `pathMappings` rule whose `from` is an `sftp://` address covering it and whose `to` is the client's view |
+| `path-mappings` | `client_path_unmapped` | `fail`, `warn` | only with a writable torrent client: `fail` for a remote link folder, `warn` for a remote torrent root (only dedupe and repair rechecks need it), with no `pathMappings` rule whose `from` is an `sftp://` address covering it and whose `to` is the client's view |
 | `path-mappings` | `rule_unreachable` | `warn` | neither `from` nor `to` exists on this machine |
 | `path-mappings` | `rule_no_library_root` | `warn` | rule that covers no root |
 | `path-mappings` | `rule_ok` | `ok` | usable rule |

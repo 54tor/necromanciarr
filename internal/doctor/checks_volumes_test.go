@@ -572,7 +572,10 @@ func TestDoctor_pathMappingsFailsForUnmappedRemoteLinkDir(t *testing.T) {
 	}
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			world := newSFTPWorld(t, startSeedbox(t), func(_ *config.FSProvider, settings *config.Config) { settings.PathRules = scenario.rules })
+			world := newSFTPWorld(t, startSeedbox(t), func(_ *config.FSProvider, settings *config.Config) {
+				settings.PathRules = scenario.rules
+				settings.TorrentClients = []config.TorrentClient{{Type: "qbittorrent", BaseURL: "http://example.com"}}
+			})
 
 			outcome := world.run(t, IDPathMappings)
 
@@ -686,4 +689,60 @@ func TestDoctor_everySFTPReasonCodeIsLabelledAndDocumented(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestDoctor_pathMappingsNeedsAWritableClientAndGradesTorrentRoots(t *testing.T) {
+	writable := []config.TorrentClient{{Type: "qbittorrent", BaseURL: "http://example.com"}}
+	readOnly := []config.TorrentClient{{Type: "qbittorrent", BaseURL: "http://example.com", ReadOnly: true}}
+	linkRule := config.PathRule{From: "sftp://seedbox/links", To: "/downloads/links"}
+	scenarios := []struct {
+		name         string
+		clients      []config.TorrentClient
+		torrentRoots []string
+		rules        []config.PathRule
+		expectedCode string
+	}{
+		{"no client", nil, []string{"sftp://seedbox/torrents"}, nil, "skipped/no_path_mapping"},
+		{"read-only client only", readOnly, []string{"sftp://seedbox/torrents"}, nil, "skipped/no_path_mapping"},
+		{"writable client, unmapped link dir", writable, nil, nil, "fail/client_path_unmapped"},
+		{"writable client, unmapped torrent root", writable, []string{"sftp://seedbox/torrents"}, []config.PathRule{linkRule}, "warn/client_path_unmapped"},
+		{
+			"writable client, everything mapped", writable,
+			[]string{"sftp://seedbox/torrents"},
+			[]config.PathRule{linkRule, {From: "sftp://seedbox/torrents", To: "/downloads/torrents"}},
+			"warn/rule_no_library_root",
+		},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			world := newSFTPWorld(t, startSeedbox(t), func(_ *config.FSProvider, settings *config.Config) {
+				settings.TorrentClients, settings.PathRules = scenario.clients, scenario.rules
+				settings.Dedupe.TorrentRoots = scenario.torrentRoots
+			})
+
+			outcome := world.run(t, IDPathMappings)
+
+			if codeAndStatus(outcome) != scenario.expectedCode {
+				t.Fatalf("valeurObtenue %s %q, valeurAttendue %s", codeAndStatus(outcome), renderedText(t, outcome), scenario.expectedCode)
+			}
+		})
+	}
+}
+
+func TestDoctor_sftpExecReportsAFailedCapabilityReadAfterAProbe(t *testing.T) {
+	server := startSeedbox(t, sftptest.WithGNUExec())
+	world := newSFTPWorld(t, server, nil)
+	world.deps.RemoteVolumes[seedboxName] = capabilityFailingVolume{RemoteVolume: world.volume}
+
+	outcome := world.run(t, "sftp-exec:seedbox")
+
+	if codeAndStatus(outcome) != "warn/capability_probe_failed" {
+		t.Fatalf("valeurObtenue %s %q, valeurAttendue warn/capability_probe_failed", codeAndStatus(outcome), renderedText(t, outcome))
+	}
+}
+
+type capabilityFailingVolume struct{ RemoteVolume }
+
+func (capabilityFailingVolume) Capabilities(context.Context) (fsys.Capabilities, error) {
+	return fsys.Capabilities{}, fsys.ErrRemoteUnavailable
 }
