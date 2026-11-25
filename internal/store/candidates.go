@@ -91,12 +91,13 @@ func checkCandidateState(state CandidateState) error {
 	}
 }
 
-// SetMediaFileIDs remplace les identifiants externes du fichier (0 efface).
-func (openedStore *Store) SetMediaFileIDs(ctx context.Context, mediaFileID int64, tmdbID, tvdbID int) error {
-	_, err := openedStore.database.ExecContext(ctx, `UPDATE media_files SET tmdb_id = ?, tvdb_id = ? WHERE id = ?`,
-		tmdbID, tvdbID, mediaFileID)
+// SetMediaFileMetadata remplace identifiants et métadonnées du fichier (0 et "" effacent).
+func (openedStore *Store) SetMediaFileMetadata(ctx context.Context, mediaFileID int64, metadata MediaMetadata) error {
+	_, err := openedStore.database.ExecContext(ctx, `UPDATE media_files
+SET tmdb_id = ?, tvdb_id = ?, imdb_id = ?, title = ?, year = ?, season = ?, episode = ? WHERE id = ?`,
+		metadata.TMDBID, metadata.TVDBID, metadata.IMDBID, metadata.Title, metadata.Year, metadata.Season, metadata.Episode, mediaFileID)
 	if err != nil {
-		return fmt.Errorf("set media file ids: %w", err)
+		return fmt.Errorf("set media file metadata: %w", err)
 	}
 	return nil
 }

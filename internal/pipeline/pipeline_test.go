@@ -77,6 +77,75 @@ func TestScanStage_joinsArrItemsAndReportsUnidentifiedFiles(t *testing.T) {
 	}
 }
 
+func TestScan_recordsMediaMetadata(t *testing.T) {
+	mediaStore := openTestStore(t)
+	root := t.TempDir()
+	episodePath := writeMediaFile(t, root, "tv/Show/S02E03.mkv", 20)
+	moviePath := writeMediaFile(t, root, "movies/Film.mkv", 10)
+	idsOnlyPath := writeMediaFile(t, root, "movies/Bare.mkv", 11)
+	expectedEpisode := arr.Item{Path: episodePath, TVDBID: 81189, IMDBID: "tt0903747", Title: "Show", Year: 2008, Season: 2, Episode: 3}
+	source := fakeArr{items: []arr.Item{
+		expectedEpisode,
+		{Path: moviePath, TMDBID: 603, IMDBID: "tt0133093", Title: "Film", Year: 1999},
+		{Path: idsOnlyPath, TMDBID: 5},
+	}}
+	ctx := context.Background()
+
+	if _, err := Run(ctx, StageScan, scanDeps(mediaStore, root, source)); err != nil {
+		t.Fatal(err)
+	}
+	byPath := mediaFilesByPath(t, mediaStore)
+	gotEpisode := byPath[episodePath]
+	if gotEpisode.Title != "Show" || gotEpisode.Year != 2008 || gotEpisode.Season != 2 || gotEpisode.Episode != 3 || gotEpisode.IMDBID != "tt0903747" || gotEpisode.TVDBID != 81189 {
+		t.Fatalf("expectedValue %+v, gotValue %+v", expectedEpisode, gotEpisode)
+	}
+	if byPath[moviePath].Title != "Film" || byPath[moviePath].Year != 1999 || byPath[idsOnlyPath].TMDBID != 5 || byPath[idsOnlyPath].Title != "" {
+		t.Fatalf("gotValue %+v", byPath)
+	}
+
+	renamed := arr.Item{Path: episodePath, TVDBID: 81189, IMDBID: "tt0903747", Title: "Renamed Show", Year: 2008, Season: 2, Episode: 3}
+	rescanResult, err := Run(ctx, StageScan, scanDeps(mediaStore, root, fakeArr{items: []arr.Item{renamed}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mediaFilesByPath(t, mediaStore)[episodePath].Title; got != "Renamed Show" {
+		t.Fatalf("expectedValue the renamed title, gotValue %q", got)
+	}
+	if rescanResult.Reasons[ReasonChangedFileInvalidated] != 0 {
+		t.Fatalf("gotValue %+v, expectedValue no invalidation for a metadata change", rescanResult.Reasons)
+	}
+}
+
+func TestScan_unchangedMetadataIsNotRewritten(t *testing.T) {
+	root := t.TempDir()
+	moviePath := writeMediaFile(t, root, "movies/Film.mkv", 10)
+	counting := &countingMetadataStore{Store: openTestStore(t)}
+	item := arr.Item{Path: moviePath, TMDBID: 603, Title: "Film", Year: 1999}
+	deps := scanDeps(nil, root, fakeArr{items: []arr.Item{item}})
+	deps.Store = counting
+	deps.ScanRoot = LibraryScanner(counting.Store)
+
+	for range 2 {
+		if _, err := Run(context.Background(), StageScan, deps); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if counting.writes != 1 {
+		t.Fatalf("expectedValue 1 metadata write, gotValue %d", counting.writes)
+	}
+}
+
+type countingMetadataStore struct {
+	*store.Store
+	writes int
+}
+
+func (counting *countingMetadataStore) SetMediaFileMetadata(ctx context.Context, mediaFileID int64, metadata store.MediaMetadata) error {
+	counting.writes++
+	return counting.Store.SetMediaFileMetadata(ctx, mediaFileID, metadata)
+}
+
 func TestScanStage_translatesArrPathsWithTheMapper(t *testing.T) {
 	mediaStore := openTestStore(t)
 	root := t.TempDir()

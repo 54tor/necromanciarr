@@ -58,7 +58,7 @@ func ParseStage(raw string) (Stage, error) {
 // Store est la part du store utilisée par les étapes.
 type Store interface {
 	ListMediaFiles(ctx context.Context) ([]store.MediaFile, error)
-	SetMediaFileIDs(ctx context.Context, mediaFileID int64, tmdbID, tvdbID int) error
+	SetMediaFileMetadata(ctx context.Context, mediaFileID int64, metadata store.MediaMetadata) error
 	DeleteMediaFile(ctx context.Context, mediaFileID int64, now time.Time) error
 	InvalidateCandidatesForFile(ctx context.Context, mediaFileID int64, now time.Time) (int, error)
 	MarkChangedCandidatesStale(ctx context.Context, now time.Time) (int, error)

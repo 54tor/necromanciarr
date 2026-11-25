@@ -22,6 +22,8 @@ A missing component gives `not_configured` (Match, Verify, Seed) or the failure 
 2. A file whose size or date changed makes its candidates `stale` (`changed_file_invalidated`). A file missing from disk is removed and makes its candidates `stale` (`missing_file_removed`). If all the files of a root seem absent (detached mount), the root is not pruned (`empty_root_not_pruned`).
 3. Each Radarr and Sonarr instance lists its files with their TMDB/TVDB identifiers. Their paths are translated by `pathMappings` (from the `to` side to the `from` side) then matched against the inventoried files. Two instances that disagree: the first value seen wins (`conflicting_ids`). If an instance answers but no path matches while some files already have identifiers, the identifiers are kept (`arr_paths_matched_nothing`): a wrong rule must not erase them.
 
+For each identified file the scan also records the IMDb identifier, the title, the year and, for Sonarr, the season and the first episode of the file (two requests per series, season 0 for specials). Titles are stripped of control characters, limited to 256 characters, used only for the candidate search and never logged. A title changed on the instance is picked up by the next scan.
+
 A file without an identifier is not searched in v1 (`no_external_id`): the first ten names are returned in `unidentified_samples`. Identifiers only come from Radarr and Sonarr.
 
 ## Match

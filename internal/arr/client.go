@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 
 	"necromanciarr/internal/httpsafe"
 )
@@ -25,6 +26,8 @@ const (
 	// maxResponseBytes borne une réponse décodée : la liste des films d'une très grosse instance tient largement
 	// dessous, une réponse sans fin ne remplit pas la mémoire.
 	maxResponseBytes = 256 << 20
+	// maxTitleRunes borne un titre : il vient d'une instance (et de fichiers nommés par des tiers), donc non fiable.
+	maxTitleRunes = 256
 )
 
 // ErrUnknownKind signale un type d'instance qui n'est ni radarr ni sonarr.
@@ -41,10 +44,33 @@ var ErrAccessDenied = errors.New("arr: access denied")
 var ErrResponseTooLarge = errors.New("arr: response larger than its limit")
 
 // Item est un fichier connu d'une instance ; TMDBID (Radarr) ou TVDBID (Sonarr) vaut 0 s'il ne s'applique pas.
+// Title est nettoyé (sans caractère de contrôle ni de formatage, 256 runes au plus). Season et Episode ne sont
+// remplis que par Sonarr : pour un fichier couvrant plusieurs épisodes, Episode est le premier ; Season 0 avec
+// Episode > 0 désigne un épisode spécial, 0 et 0 un fichier dont la saison est inconnue.
 type Item struct {
-	Path   string
-	TMDBID int
-	TVDBID int
+	Path    string
+	TMDBID  int
+	TVDBID  int
+	IMDBID  string
+	Title   string
+	Year    int
+	Season  int
+	Episode int
+}
+
+// sanitizeTitle retire les caractères de contrôle (C0, C1) et de formatage (surcharges bidirectionnelles U+202E,
+// espaces de largeur nulle), puis borne le titre à maxTitleRunes.
+func sanitizeTitle(title string) string {
+	cleaned := strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			return -1
+		}
+		return character
+	}, title)
+	if runes := []rune(cleaned); len(runes) > maxTitleRunes {
+		cleaned = string(runes[:maxTitleRunes])
+	}
+	return strings.TrimSpace(cleaned)
 }
 
 // Client interroge une instance Radarr ou Sonarr en lecture seule.
@@ -101,7 +127,10 @@ func (client *Client) Items(ctx context.Context) ([]Item, error) {
 }
 
 type radarrMovie struct {
-	TMDBID    int `json:"tmdbId"`
+	Title     string `json:"title"`
+	Year      int    `json:"year"`
+	IMDBID    string `json:"imdbId"`
+	TMDBID    int    `json:"tmdbId"`
 	MovieFile *struct {
 		Path string `json:"path"`
 	} `json:"movieFile"`
@@ -117,20 +146,36 @@ func (client *Client) radarrItems(ctx context.Context) ([]Item, error) {
 		if movie.MovieFile == nil || movie.MovieFile.Path == "" {
 			continue
 		}
-		items = append(items, Item{Path: movie.MovieFile.Path, TMDBID: movie.TMDBID})
+		items = append(items, Item{
+			Path: movie.MovieFile.Path, TMDBID: movie.TMDBID,
+			IMDBID: sanitizeTitle(movie.IMDBID), Title: sanitizeTitle(movie.Title), Year: movie.Year,
+		})
 	}
 	return items, nil
 }
 
 type sonarrSeries struct {
-	ID     int `json:"id"`
-	TVDBID int `json:"tvdbId"`
+	ID     int    `json:"id"`
+	Title  string `json:"title"`
+	Year   int    `json:"year"`
+	IMDBID string `json:"imdbId"`
+	TVDBID int    `json:"tvdbId"`
 }
 
 type sonarrEpisodeFile struct {
 	Path string `json:"path"`
+	ID   int    `json:"id"`
 }
 
+type sonarrEpisode struct {
+	EpisodeFileID int `json:"episodeFileId"`
+	SeasonNumber  int `json:"seasonNumber"`
+	EpisodeNumber int `json:"episodeNumber"`
+}
+
+type seasonEpisode struct{ season, episode int }
+
+// sonarrItems fait deux requêtes par série (episodefile puis episode), quel que soit le nombre d'épisodes.
 func (client *Client) sonarrItems(ctx context.Context) ([]Item, error) {
 	var seriesList []sonarrSeries
 	if err := client.getJSON(ctx, "/api/v3/series", nil, &seriesList); err != nil {
@@ -143,11 +188,37 @@ func (client *Client) sonarrItems(ctx context.Context) ([]Item, error) {
 		if err := client.getJSON(ctx, "/api/v3/episodefile", query, &episodeFiles); err != nil {
 			return nil, err
 		}
+		var episodes []sonarrEpisode
+		if err := client.getJSON(ctx, "/api/v3/episode", query, &episodes); err != nil {
+			return nil, err
+		}
+		firstByFile := firstEpisodeByFile(episodes)
 		for _, episodeFile := range episodeFiles {
-			items = append(items, Item{Path: episodeFile.Path, TVDBID: series.TVDBID})
+			position := firstByFile[episodeFile.ID]
+			items = append(items, Item{
+				Path: episodeFile.Path, TVDBID: series.TVDBID, IMDBID: sanitizeTitle(series.IMDBID),
+				Title: sanitizeTitle(series.Title), Year: series.Year, Season: position.season, Episode: position.episode,
+			})
 		}
 	}
 	return items, nil
+}
+
+// firstEpisodeByFile associe chaque fichier à son premier épisode (saison puis numéro les plus bas) ; les épisodes
+// sans fichier (episodeFileId 0) sont ignorés.
+func firstEpisodeByFile(episodes []sonarrEpisode) map[int]seasonEpisode {
+	first := map[int]seasonEpisode{}
+	for _, episode := range episodes {
+		if episode.EpisodeFileID == 0 {
+			continue
+		}
+		candidate := seasonEpisode{episode.SeasonNumber, episode.EpisodeNumber}
+		known, seen := first[episode.EpisodeFileID]
+		if !seen || candidate.season < known.season || (candidate.season == known.season && candidate.episode < known.episode) {
+			first[episode.EpisodeFileID] = candidate
+		}
+	}
+	return first
 }
 
 // getJSON retire l'erreur réseau enveloppée (errors.Unwrap) car url.Error embarque l'URL complète de la requête.

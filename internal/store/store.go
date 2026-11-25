@@ -75,6 +75,20 @@ type MediaFile struct {
 	ModTime time.Time
 	TMDBID  int
 	TVDBID  int
+	// IMDBID, Title, Year, Season et Episode viennent de Radarr/Sonarr ; vides ou 0 si inconnus. Title est non fiable
+	// (nettoyé par arr, jamais journalisé tel quel). Season 0 avec Episode > 0 : épisode spécial.
+	IMDBID  string
+	Title   string
+	Year    int
+	Season  int
+	Episode int
+}
+
+// MediaMetadata regroupe ce que les instances savent d'un fichier ; SetMediaFileMetadata le remplace en bloc.
+type MediaMetadata struct {
+	TMDBID, TVDBID        int
+	IMDBID, Title         string
+	Year, Season, Episode int
 }
 
 // Store donne accès à la base SQLite ; sûr pour un usage concurrent via database/sql.
@@ -140,7 +154,7 @@ func (openedStore *Store) Close() error {
 }
 
 // UpsertMediaFile insère le fichier, ou met à jour taille et date si son chemin existe déjà ; un identifiant externe
-// à 0 garde la valeur connue (le parcours de la bibliothèque n'en fournit pas), SetMediaFileIDs les remplace.
+// à 0 garde la valeur connue (le parcours de la bibliothèque n'en fournit pas), SetMediaFileMetadata les remplace.
 func (openedStore *Store) UpsertMediaFile(ctx context.Context, file MediaFile) error {
 	_, err := openedStore.database.ExecContext(ctx, `
 INSERT INTO media_files (path, size, mtime, tmdb_id, tvdb_id) VALUES (?, ?, ?, ?, ?)
@@ -157,7 +171,8 @@ ON CONFLICT(path) DO UPDATE SET size = excluded.size, mtime = excluded.mtime,
 // ListMediaFiles renvoie tous les fichiers triés par chemin ; ModTime est en UTC.
 func (openedStore *Store) ListMediaFiles(ctx context.Context) ([]MediaFile, error) {
 	rows, err := openedStore.database.QueryContext(ctx,
-		`SELECT id, path, size, mtime, tmdb_id, tvdb_id FROM media_files ORDER BY path`)
+		`SELECT id, path, size, mtime, tmdb_id, tvdb_id, COALESCE(imdb_id, ''), COALESCE(title, ''),
+	COALESCE(year, 0), COALESCE(season, 0), COALESCE(episode, 0) FROM media_files ORDER BY path`)
 	if err != nil {
 		return nil, fmt.Errorf("list media files: %w", err)
 	}
@@ -167,7 +182,8 @@ func (openedStore *Store) ListMediaFiles(ctx context.Context) ([]MediaFile, erro
 	for rows.Next() {
 		var file MediaFile
 		var modTimeNanoseconds int64
-		if err := rows.Scan(&file.ID, &file.Path, &file.Size, &modTimeNanoseconds, &file.TMDBID, &file.TVDBID); err != nil {
+		if err := rows.Scan(&file.ID, &file.Path, &file.Size, &modTimeNanoseconds, &file.TMDBID, &file.TVDBID,
+			&file.IMDBID, &file.Title, &file.Year, &file.Season, &file.Episode); err != nil {
 			return nil, fmt.Errorf("scan media file: %w", err)
 		}
 		file.ModTime = time.Unix(0, modTimeNanoseconds).UTC()
@@ -179,6 +195,11 @@ func (openedStore *Store) ListMediaFiles(ctx context.Context) ([]MediaFile, erro
 // columnUpgrades liste les colonnes ajoutées après la première version du schéma ; les bases plus anciennes les
 // reçoivent à l'ouverture.
 var columnUpgrades = []struct{ table, column, definition string }{
+	{"media_files", "imdb_id", "TEXT"},
+	{"media_files", "title", "TEXT"},
+	{"media_files", "year", "INTEGER"},
+	{"media_files", "season", "INTEGER"},
+	{"media_files", "episode", "INTEGER"},
 	{"links", "mtime", "INTEGER"},
 	{"links", "hash_algo", "TEXT"},
 	{"links", "hash", "TEXT"},

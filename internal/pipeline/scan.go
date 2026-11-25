@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"necromanciarr/internal/arr"
 	"necromanciarr/internal/store"
 )
 
@@ -148,14 +149,14 @@ func vanishedFiles(files []store.MediaFile) []store.MediaFile {
 // instances en désaccord gardent la première valeur vue (raison conflicting_ids). keepKnownIDs est vrai si une instance
 // a renvoyé des fichiers sans qu'aucun chemin ne corresponde à la bibliothèque alors que des fichiers avaient déjà des
 // identifiants : règle de chemins fausse ou montage absent, les effacer serait une perte.
-func collectArrIDs(ctx context.Context, deps Deps, result *Result, files []store.MediaFile) (idsByPath map[string]externalIDs, keepKnownIDs bool, err error) {
+func collectArrIDs(ctx context.Context, deps Deps, result *Result, files []store.MediaFile) (idsByPath map[string]store.MediaMetadata, keepKnownIDs bool, err error) {
 	libraryPaths := map[string]bool{}
 	anyIdentified := false
 	for _, file := range files {
 		libraryPaths[normalizePath(file.Path)] = true
 		anyIdentified = anyIdentified || file.TMDBID != 0 || file.TVDBID != 0
 	}
-	idsByPath = map[string]externalIDs{}
+	idsByPath = map[string]store.MediaMetadata{}
 	for sourceIndex, source := range deps.ArrSources {
 		items, err := source.Items(ctx)
 		if err != nil {
@@ -167,7 +168,7 @@ func collectArrIDs(ctx context.Context, deps Deps, result *Result, files []store
 			if libraryPaths[localPath] {
 				matchedItems++
 			}
-			mergeIDs(result, idsByPath, localPath, item.TMDBID, item.TVDBID)
+			mergeMetadata(result, idsByPath, localPath, item)
 		}
 		if len(items) > 0 && matchedItems == 0 && anyIdentified {
 			result.count(ReasonArrPathsMatchedNothing, 1)
@@ -177,21 +178,31 @@ func collectArrIDs(ctx context.Context, deps Deps, result *Result, files []store
 	return idsByPath, keepKnownIDs, nil
 }
 
-func mergeIDs(result *Result, idsByPath map[string]externalIDs, localPath string, tmdbID, tvdbID int) {
-	known := idsByPath[localPath]
+// mergeMetadata garde, champ par champ, la première valeur non vide vue pour le chemin.
+func mergeMetadata(result *Result, metadataByPath map[string]store.MediaMetadata, localPath string, item arr.Item) {
+	known := metadataByPath[localPath]
 	merged := known
-	if known.tmdbID == 0 {
-		merged.tmdbID = tmdbID
+	if known.TMDBID == 0 {
+		merged.TMDBID = item.TMDBID
 	}
-	if known.tvdbID == 0 {
-		merged.tvdbID = tvdbID
+	if known.TVDBID == 0 {
+		merged.TVDBID = item.TVDBID
 	}
-	tmdbConflict := known.tmdbID != 0 && tmdbID != 0 && known.tmdbID != tmdbID
-	tvdbConflict := known.tvdbID != 0 && tvdbID != 0 && known.tvdbID != tvdbID
+	if known.IMDBID == "" {
+		merged.IMDBID = item.IMDBID
+	}
+	if known.Title == "" {
+		merged.Title, merged.Year = item.Title, item.Year
+	}
+	if known.Season == 0 && known.Episode == 0 {
+		merged.Season, merged.Episode = item.Season, item.Episode
+	}
+	tmdbConflict := known.TMDBID != 0 && item.TMDBID != 0 && known.TMDBID != item.TMDBID
+	tvdbConflict := known.TVDBID != 0 && item.TVDBID != 0 && known.TVDBID != item.TVDBID
 	if tmdbConflict || tvdbConflict {
 		result.count(ReasonConflictingIDs, 1)
 	}
-	idsByPath[localPath] = merged
+	metadataByPath[localPath] = merged
 }
 
 // localPath traduit un chemin externe ; sans règle applicable, le service voit le même chemin que nous.
@@ -212,19 +223,19 @@ func normalizePath(original string) string {
 
 // joinExternalIDs reporte les identifiants sur les fichiers ; sans instance configurée, ou si keepKnownIDs, un
 // fichier absent des instances garde ses identifiants.
-func joinExternalIDs(ctx context.Context, deps Deps, result *Result, files []store.MediaFile, idsByPath map[string]externalIDs, keepKnownIDs bool) error {
+func joinExternalIDs(ctx context.Context, deps Deps, result *Result, files []store.MediaFile, idsByPath map[string]store.MediaMetadata, keepKnownIDs bool) error {
 	matchedPaths := 0
 	for _, file := range files {
-		ids, found := idsByPath[normalizePath(file.Path)]
+		metadata, found := idsByPath[normalizePath(file.Path)]
 		if found {
 			matchedPaths++
 		}
 		mayClear := len(deps.ArrSources) > 0 && !keepKnownIDs
-		if (found || mayClear) && (ids.tmdbID != file.TMDBID || ids.tvdbID != file.TVDBID) {
-			if err := deps.Store.SetMediaFileIDs(ctx, file.ID, ids.tmdbID, ids.tvdbID); err != nil {
+		if (found || mayClear) && metadata != metadataOf(file) {
+			if err := deps.Store.SetMediaFileMetadata(ctx, file.ID, metadata); err != nil {
 				return err
 			}
-			file.TMDBID, file.TVDBID = ids.tmdbID, ids.tvdbID
+			file.TMDBID, file.TVDBID = metadata.TMDBID, metadata.TVDBID
 		}
 		result.Processed++
 		if file.TMDBID == 0 && file.TVDBID == 0 {
@@ -233,6 +244,13 @@ func joinExternalIDs(ctx context.Context, deps Deps, result *Result, files []sto
 	}
 	result.count(ReasonArrPathOutsideLibrary, len(idsByPath)-matchedPaths)
 	return nil
+}
+
+func metadataOf(file store.MediaFile) store.MediaMetadata {
+	return store.MediaMetadata{
+		TMDBID: file.TMDBID, TVDBID: file.TVDBID, IMDBID: file.IMDBID, Title: file.Title,
+		Year: file.Year, Season: file.Season, Episode: file.Episode,
+	}
 }
 
 func recordUnidentified(result *Result, file store.MediaFile) {
