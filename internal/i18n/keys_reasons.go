@@ -30,6 +30,7 @@ const (
 	KeyReasonLinkFailed                  Key = "reason.link_failed"
 	KeyReasonLinkKindRefused             Key = "reason.link_kind_refused"
 	KeyReasonLinkRootUnusable            Key = "reason.link_root_unusable"
+	KeyReasonLibraryRootUnavailable      Key = "reason.library_root_unavailable"
 	KeyReasonMediaHashFailed             Key = "reason.media_hash_failed"
 	KeyReasonMediaNotVerified            Key = "reason.media_not_verified"
 	KeyReasonMissingFileRemoved          Key = "reason.missing_file_removed"
@@ -96,7 +97,7 @@ var reasonKeys = []Key{
 	KeyReasonClientPathInvalid, KeyReasonClientReadOnly, KeyReasonConflictingIds, KeyReasonCrossDevice,
 	KeyReasonCrossseedNotifyFailed, KeyReasonDestinationConflict, KeyReasonEmptyRootNotPruned, KeyReasonIncompleteAfterRecheck,
 	KeyReasonInfohashMismatch, KeyReasonInvalidTorrent, KeyReasonLinkChanged, KeyReasonLinkDirOverlapsLibrary,
-	KeyReasonLinkFailed, KeyReasonLinkKindRefused, KeyReasonLinkRootUnusable, KeyReasonMediaHashFailed,
+	KeyReasonLinkFailed, KeyReasonLinkKindRefused, KeyReasonLinkRootUnusable, KeyReasonLibraryRootUnavailable, KeyReasonMediaHashFailed,
 	KeyReasonMediaNotVerified, KeyReasonMissingFileRemoved, KeyReasonMissingPiecesAboveCap, KeyReasonNfoFetchFailed,
 	KeyReasonNoExactSize, KeyReasonNoExternalid, KeyReasonNoFileMatched, KeyReasonNoLinkDirOnSameDevice,
 	KeyReasonNotATorrentProposal, KeyReasonNotLinked, KeyReasonNotPausedAfterAdd, KeyReasonNoVerifiedAssignment,

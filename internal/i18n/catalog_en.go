@@ -374,6 +374,7 @@ var english = map[Key]string{
 	KeyReasonLinkFailed:                    "creating the link failed",
 	KeyReasonLinkKindRefused:               "the link folder filesystem refuses this link kind",
 	KeyReasonLinkRootUnusable:              "the link root cannot be used",
+	KeyReasonLibraryRootUnavailable:        "a library root is missing or not mounted",
 	KeyReasonMediaHashFailed:               "a media file fails the piece hash",
 	KeyReasonMediaNotVerified:              "a media file is not verified",
 	KeyReasonMissingFileRemoved:            "a missing file was removed from the index",

@@ -187,6 +187,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `link_kind_refused`, `cross_device` | Link | the folder refuses the kind (see `doctor`), or two volumes |
 | `destination_conflict` | Link | the torrent folder contains an entry that is not the tool's: nothing is deleted, look at it |
 | `link_root_unusable`, `link_dir_overlaps_library` | Link | folder missing, not writable or in the library |
+| `library_root_unavailable` | Link | a library root is missing or not mounted: no write root is opened, `doctor` reports it (`library_root_unavailable`) |
 | `source_changed`, `changed_file_stale` | Link, Seed | source modified: verify again |
 | `annex_write_failed`, `link_failed` | Link | write refused or system error: permissions, space |
 | `not_linked` | Seed | proposal accepted but Link did not run |

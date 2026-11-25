@@ -187,6 +187,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `link_kind_refused`, `cross_device` | Link | le dossier refuse la sorte (voir `doctor`), ou deux volumes |
 | `destination_conflict` | Link | le dossier du torrent contient une entrée qui n'est pas de l'outil : rien n'est supprimé, la regarder |
 | `link_root_unusable`, `link_dir_overlaps_library` | Link | dossier absent, non inscriptible ou dans la bibliothèque |
+| `library_root_unavailable` | Link | une racine de bibliothèque est absente ou non montée : aucune racine d'écriture n'est ouverte, `doctor` le signale (`library_root_unavailable`) |
 | `source_changed`, `changed_file_stale` | Link, Seed | source modifiée : revérifier |
 | `annex_write_failed`, `link_failed` | Link | écriture refusée ou erreur système : droits, espace |
 | `not_linked` | Seed | proposition acceptée mais Link pas passé |

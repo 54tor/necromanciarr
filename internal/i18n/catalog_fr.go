@@ -374,6 +374,7 @@ var french = map[Key]string{
 	KeyReasonLinkFailed:                    "la création du lien a échoué",
 	KeyReasonLinkKindRefused:               "le système de fichiers du dossier de liens refuse cette sorte de lien",
 	KeyReasonLinkRootUnusable:              "la racine de liens est inutilisable",
+	KeyReasonLibraryRootUnavailable:        "une racine de bibliothèque est absente ou non montée",
 	KeyReasonMediaHashFailed:               "un fichier média échoue au contrôle des pièces",
 	KeyReasonMediaNotVerified:              "un fichier média n'est pas vérifié",
 	KeyReasonMissingFileRemoved:            "un fichier absent a été retiré de l'index",

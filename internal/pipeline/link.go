@@ -44,6 +44,10 @@ const (
 	ReasonLinkDirOverlapsLibrary = "link_dir_overlaps_library"
 )
 
+// ReasonLibraryRootUnavailable : une racine de bibliothèque ne se résout pas (absente, non montée), le registre refuse
+// alors toute racine d'écriture.
+const ReasonLibraryRootUnavailable = "library_root_unavailable"
+
 // linkRootMode : le dossier du torrent doit rester lisible par le client torrent, qui tourne souvent sous un autre compte.
 const linkRootMode fs.FileMode = 0o755
 
@@ -190,7 +194,7 @@ func (run linkRun) place(ctx context.Context, proposalID int64, proven provenTor
 	}
 	root, source, err := run.deps.openLinkRoot(placement.destRoot)
 	if err != nil {
-		return ReasonLinkRootUnusable, nil
+		return writeRootRefusalReason(err), nil
 	}
 	defer func() { _ = root.Close() }()
 	applied, err := linker.Apply(root, source, reconciled.pending, kinds)
@@ -396,7 +400,7 @@ func (run linkRun) chooseLinkDir(source string) (string, []linker.Kind, string) 
 	}
 	capabilities, err := run.probe(linkDir)
 	if err != nil {
-		return "", nil, ReasonLinkRootUnusable
+		return "", nil, writeRootRefusalReason(err)
 	}
 	kinds = keepKinds(kinds, func(kind linker.Kind) bool { return supportsKind(capabilities, kind) })
 	if len(kinds) == 0 {

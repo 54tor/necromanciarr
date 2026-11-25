@@ -1,6 +1,8 @@
 package pipeline
 
 import (
+	"errors"
+
 	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/linker"
@@ -51,6 +53,19 @@ func (deps Deps) openLinkRoot(destRoot string) (fsys.WriteRoot, fsys.ReadFS, err
 		return nil, nil, err
 	}
 	return root, source, nil
+}
+
+// writeRootRefusalReason garde la cause d'un refus du registre : bibliothèque introuvable, dossier qui la recouvre,
+// ou dossier de liens inutilisable.
+func writeRootRefusalReason(err error) string {
+	switch {
+	case errors.Is(err, fsys.ErrCannotCanonicalize), errors.Is(err, fsys.ErrNoLibraryRoots):
+		return ReasonLibraryRootUnavailable
+	case errors.Is(err, fsys.ErrWriteInLibrary):
+		return ReasonLinkDirOverlapsLibrary
+	default:
+		return ReasonLinkRootUnusable
+	}
 }
 
 func localLocations(paths []string) []fsys.Location {
