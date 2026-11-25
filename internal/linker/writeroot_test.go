@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -275,5 +276,39 @@ func TestOsWritesIn_flagsAnAliasedOsLink(t *testing.T) {
 
 	if len(gotValue) != 1 || !strings.HasSuffix(gotValue[0], "os.Link") {
 		t.Fatalf("expectedValue only os.Link, gotValue %v", gotValue)
+	}
+}
+
+// rootWithoutReflink n'expose que les méthodes de fsys.WriteRoot : aucun clonage possible.
+type rootWithoutReflink struct{ fsys.WriteRoot }
+
+func TestApply_reflinkNeverFallsBackToACopy(t *testing.T) {
+	operation := singleOp(t)
+	root := rootWithoutReflink{WriteRoot: openRoot(t, operation.Root)}
+
+	result, err := Apply(root, localSource(t), []Op{operation}, []Kind{Reflink, Hardlink})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sourceInfo, sourceErr := os.Stat(operation.Source)
+	destinationInfo, destinationErr := os.Stat(operation.Destination)
+	isHardlink := sourceErr == nil && destinationErr == nil && os.SameFile(sourceInfo, destinationInfo)
+	if !slices.Equal(result.Used, []Kind{Hardlink}) || !isHardlink {
+		t.Fatalf("expectedValue the listed hardlink after a refused reflink, gotValue %v (hardlink %v)", result.Used, isHardlink)
+	}
+}
+
+func TestApply_refusesOpRootOtherThanTheWriteRoot(t *testing.T) {
+	operation := singleOp(t)
+	writeRootDir := t.TempDir()
+
+	_, err := Apply(openRoot(t, writeRootDir), localSource(t), []Op{operation}, []Kind{Hardlink})
+
+	if !errors.Is(err, ErrDestinationEscapesRoot) {
+		t.Fatalf("expectedValue ErrDestinationEscapesRoot, gotValue %v", err)
+	}
+	if entries := directoryEntries(t, writeRootDir); len(entries) != 0 {
+		t.Fatalf("expectedValue nothing created in the write root, gotValue %v", entries)
 	}
 }
