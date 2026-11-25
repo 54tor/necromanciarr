@@ -22,7 +22,9 @@ import (
 // sans exec) ; Unavailable fait échouer chaque appel avec fsys.ErrRemoteUnavailable, comme une connexion perdue.
 // Une cible de lien symbolique en chemin complet est traduite vers ce dossier à l'écriture et retraduite par Readlink.
 // NoAtomicReplace retire le remplacement atomique (serveur sans posix-rename) ; RemoteStat annonce l'identité
-// distante (ssh exec stat). Chaque appel d'écriture d'une racine est consigné, même refusé (Writes).
+// distante (ssh exec stat) ; ServerCopy annonce une copie côté serveur prouvée (copy-data). Chaque appel d'écriture
+// d'une racine est consigné, même refusé (Writes). SymlinkOrderUnverified refuse chaque lien symbolique comme un
+// serveur SFTP dont la sonde d'ordre des arguments n'a pas abouti.
 type RemoteVolume struct {
 	name            string
 	backing         string
@@ -31,6 +33,9 @@ type RemoteVolume struct {
 	Unavailable     atomic.Bool
 	NoAtomicReplace atomic.Bool
 	RemoteStat      atomic.Bool
+	ServerCopy      atomic.Bool
+	// SymlinkOrderUnverified : chaque Symlink rend fsys.ErrSymlinkOrderUnverified.
+	SymlinkOrderUnverified atomic.Bool
 
 	writesLock sync.Mutex
 	writes     []RecordedWrite
@@ -216,7 +221,7 @@ func (volume *RemoteVolume) Capabilities(context.Context) (fsys.Capabilities, er
 	}
 	return fsys.Capabilities{
 		VolumeIdentity: true, Symlink: true, Hardlink: true,
-		AtomicReplace: !volume.NoAtomicReplace.Load(), RemoteStat: volume.RemoteStat.Load(),
+		AtomicReplace: !volume.NoAtomicReplace.Load(), RemoteStat: volume.RemoteStat.Load(), ServerCopy: volume.ServerCopy.Load(),
 	}, nil
 }
 
@@ -272,6 +277,9 @@ func (root *remoteWriteRoot) MkdirAll(relative string, perm fs.FileMode) error {
 func (root *remoteWriteRoot) Symlink(target, relative string) error {
 	if err := root.written("Symlink", relative); err != nil {
 		return err
+	}
+	if root.volume.SymlinkOrderUnverified.Load() {
+		return fmt.Errorf("%w: test volume", fsys.ErrSymlinkOrderUnverified)
 	}
 	if path.IsAbs(target) {
 		target = root.volume.LocalPath(target)

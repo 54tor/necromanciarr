@@ -26,7 +26,8 @@ const (
 // refusals sont les refus typés des règles métier : la demande est bien formée, l'action ne l'est pas.
 var refusals = []error{
 	ErrConflictNeedsChoose, ErrPartialPackNeedsForce, ErrNotATorrentProposal, ErrCandidateAlreadyAccepted,
-	ErrOneTorrentPerFile, ErrNotFull, ErrNotForceable, ErrNoPrimary, ErrForceNotAllowed, ErrForceIsolationImpossible, ErrCrossSeedNotNative,
+	ErrOneTorrentPerFile, ErrNotFull, ErrNotForceable, ErrNoPrimary, ErrForceNotAllowed, ErrForceServerCopyUnavailable,
+	ErrForceFreeSpaceUnknown, ErrForceIsolationImpossible, ErrCrossSeedNotNative,
 	ErrNotAccepted, ErrNotActionable, ErrWrongProposalKind, ErrDirectoryInLibrary, ErrRecheckUnavailable,
 	store.ErrInvalidTransition, pipeline.ErrGroupInconsistent, pipeline.ErrClientReadOnly, pipeline.ErrPlacementChanged,
 	dedupe.ErrTorrentRootOverlapsLibrary, repair.ErrOutsideRoots, ErrSourceNotTestable, ErrSourceTestRunning,
@@ -68,6 +69,7 @@ var messageKeys = map[error]i18n.Key{
 	ErrOneTorrentPerFile: i18n.KeyErrorOneTorrentPerFile, ErrNotFull: i18n.KeyErrorNotFull, ErrNotForceable: i18n.KeyErrorNotForceable,
 	ErrNoPrimary: i18n.KeyErrorNoPrimary, ErrForceNotAllowed: i18n.KeyErrorForceNotAllowed,
 	ErrForceIsolationImpossible: i18n.KeyErrorForceIsolationImpossible, ErrCrossSeedNotNative: i18n.KeyErrorCrossSeedNotNative,
+	ErrForceServerCopyUnavailable: i18n.KeyReasonServerCopyUnavailable, ErrForceFreeSpaceUnknown: i18n.KeyReasonFreeSpaceUnknown,
 	ErrNotAccepted: i18n.KeyErrorNotAccepted, ErrNotActionable: i18n.KeyErrorNotActionable,
 	ErrWrongProposalKind: i18n.KeyErrorWrongProposalKind, ErrDirectoryInLibrary: i18n.KeyErrorDirectoryInLibrary,
 	ErrRecheckUnavailable: i18n.KeyErrorRecheckUnavailable, store.ErrInvalidTransition: i18n.KeyErrorInvalidTransition,
@@ -80,12 +82,19 @@ var messageKeys = map[error]i18n.Key{
 	ErrSourceTestRunning: i18n.KeyErrorSourceTestRunning,
 }
 
-// MessageOf donne le message à rendre pour err : la clé de l'erreur typée reconnue, sinon error.internal. Le texte brut
+// MessageOf donne le message à rendre pour err : la clé de l'erreur typée reconnue (avec le volume d'un refus de
+// Force distant), sinon error.internal. Le texte brut
 // d'une erreur non typée n'en fait jamais partie (il reste pour le journal, masqué).
 func MessageOf(err error) i18n.Message {
 	_, typed := Classify(err)
-	if key, known := messageKeys[typed]; known {
-		return i18n.Message{Key: key}
+	key, known := messageKeys[typed]
+	if !known {
+		return i18n.Message{Key: i18n.KeyErrorInternal}
 	}
-	return i18n.Message{Key: i18n.KeyErrorInternal}
+	message := i18n.Message{Key: key}
+	var refusal *pipeline.ForceRefusal
+	if errors.As(err, &refusal) {
+		message.Params = map[string]string{"volume": refusal.Volume}
+	}
+	return message
 }

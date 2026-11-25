@@ -344,6 +344,9 @@ func (svc *service) force(ctx context.Context, proposalID int64) (ForceResult, e
 	candidate := state.candidates[proposal.CandidateID]
 	isolation, err := pipeline.IsolateStraddlingMedia(ctx, svc.deps.Stages, proposal, candidate, progress.LinkRoot)
 	result.Replaced = isolation.Replaced
+	if refused := forceRefusal(err); refused != nil {
+		return result, refused
+	}
 	if errors.Is(err, pipeline.ErrIsolationImpossible) {
 		return result, fmt.Errorf("%w: %w", ErrForceIsolationImpossible, err)
 	}
@@ -359,6 +362,20 @@ func (svc *service) force(ctx context.Context, proposalID int64) (ForceResult, e
 	}
 	result.Forced = true
 	return result, nil
+}
+
+// forceRefusal range un refus de Force sur un volume distant sous son erreur d'action, avec le volume en paramètre
+// du message ; nil pour toute autre erreur.
+func forceRefusal(err error) error {
+	var refusal *pipeline.ForceRefusal
+	if !errors.As(err, &refusal) {
+		return nil
+	}
+	typed := ErrForceServerCopyUnavailable
+	if refusal.Reason == pipeline.ReasonFreeSpaceUnknown {
+		typed = ErrForceFreeSpaceUnknown
+	}
+	return fmt.Errorf("%w: %w", typed, err)
 }
 
 // checkSourcesUnchanged refait le contrôle de Link avant de démarrer : un fichier source changé depuis la vérification

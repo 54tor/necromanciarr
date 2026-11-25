@@ -47,6 +47,11 @@ var (
 	// ErrForceIsolationImpossible : un média à cheval sur une pièce manquante ne peut être remplacé par une copie
 	// indépendante (ni reflink ni copie, ou place insuffisante) ; rien n'a changé et le torrent reste en pause.
 	ErrForceIsolationImpossible = errors.New("app: force refused, a straddling media file cannot be copied out of the library")
+	// ErrForceServerCopyUnavailable : le dossier de liens est sur un volume distant sans copie côté serveur
+	// (copy-data) ; rien n'est copié (jamais de copie par flux), rien n'a changé.
+	ErrForceServerCopyUnavailable = errors.New("app: force refused, the remote volume offers no server-side copy")
+	// ErrForceFreeSpaceUnknown : la place libre du dossier de liens distant ne peut pas être lue ; rien n'a changé.
+	ErrForceFreeSpaceUnknown = errors.New("app: force refused, the free space of the remote link folder is unknown")
 	// ErrNoPrimary : le groupe n'a pas de proposition principale full ouverte (Choose d'abord).
 	ErrNoPrimary = errors.New("app: the group has no open primary full proposal")
 	// ErrGroupNotFound : aucun candidat vérifié n'appartient à ce groupe.

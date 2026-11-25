@@ -23,6 +23,30 @@ var (
 	ErrPlacementChanged = errors.New("pipeline: the torrent link folder no longer matches its proven content")
 )
 
+// Raisons d'un refus de Force sur un volume distant, avant toute écriture.
+const (
+	// ReasonServerCopyUnavailable : le volume du dossier de liens n'offre pas de copie côté serveur prouvée
+	// (copy-data) ; une copie par flux ferait transiter tout le média par cet hôte, elle n'est jamais tentée.
+	ReasonServerCopyUnavailable = "server_copy_unavailable"
+	// ReasonFreeSpaceUnknown : la place libre du dossier de liens ne peut pas être lue (pas de statvfs).
+	ReasonFreeSpaceUnknown = "free_space_unknown"
+)
+
+// ForceRefusal refuse Force sur un volume distant avant toute écriture ; rien n'a été copié ni changé. Reason est le
+// code stable, Volume le volume du dossier de liens, Cause l'erreur typée (fsys.ErrServerCopyUnavailable ou
+// linker.ErrFreeSpaceUnknown). La chaîne porte aussi ErrIsolationImpossible.
+type ForceRefusal struct {
+	Reason, Volume string
+	Cause          error
+}
+
+func (refusal *ForceRefusal) Error() string {
+	return fmt.Sprintf("pipeline: force refused on volume %q (%s): %v", refusal.Volume, refusal.Reason, refusal.Cause)
+}
+
+// Unwrap rend ErrIsolationImpossible et la cause.
+func (refusal *ForceRefusal) Unwrap() []error { return []error{ErrIsolationImpossible, refusal.Cause} }
+
 // IsolationResult nomme les fichiers du dossier de liens remplacés par une copie indépendante, et la sorte utilisée.
 type IsolationResult struct {
 	Replaced []IsolatedFile `json:"replaced,omitempty"`
@@ -55,6 +79,11 @@ func IsolateStraddlingMedia(ctx context.Context, deps Deps, proposal store.Propo
 	if err != nil {
 		return IsolationResult{}, fmt.Errorf("%w: %w", ErrPlacementChanged, err)
 	}
+	if len(ops) > 0 {
+		if err := checkRemoteCopy(ctx, deps, root); err != nil {
+			return IsolationResult{}, err
+		}
+	}
 	prepared, err := prepareCopies(deps, root.Volume, ops)
 	if err != nil {
 		return IsolationResult{}, err
@@ -72,6 +101,33 @@ func IsolateStraddlingMedia(ctx context.Context, deps Deps, proposal store.Propo
 		return result, errors.Join(err, fmt.Errorf("%w: %s", ErrPlacementChanged, damage))
 	}
 	return result, nil
+}
+
+// checkRemoteCopy refuse, avant toute écriture, une isolation dans un dossier de liens distant sans copie côté
+// serveur prouvée (Capabilities.ServerCopy, jamais de repli sur une copie par flux) ou sans place libre connue. Une
+// panne du volume reste fsys.ErrRemoteUnavailable, jamais un refus. Le disque local n'est pas concerné.
+func checkRemoteCopy(ctx context.Context, deps Deps, root fsys.Location) error {
+	if root.Volume == "" {
+		return nil
+	}
+	readFS, _, err := readRegistryOrLocal(deps.Registry).Read(root)
+	if err != nil {
+		return err
+	}
+	capabilities, err := readFS.Capabilities(ctx)
+	if isRemoteUnavailable(err) {
+		return err
+	}
+	if err != nil || !capabilities.ServerCopy {
+		return &ForceRefusal{Reason: ReasonServerCopyUnavailable, Volume: root.Volume, Cause: errors.Join(fsys.ErrServerCopyUnavailable, err)}
+	}
+	if _, err := readFS.FreeSpace(root.Path); err != nil {
+		if isRemoteUnavailable(err) {
+			return err
+		}
+		return &ForceRefusal{Reason: ReasonFreeSpaceUnknown, Volume: root.Volume, Cause: fmt.Errorf("%w: %w", linker.ErrFreeSpaceUnknown, err)}
+	}
+	return nil
 }
 
 // straddlingLinks liste les liens du dossier qui désignent encore le fichier de la bibliothèque (lien dur ou

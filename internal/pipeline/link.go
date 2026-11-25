@@ -42,6 +42,9 @@ const (
 	ReasonLinkFailed             = "link_failed"
 	ReasonAnnexWriteFailed       = "annex_write_failed"
 	ReasonLinkDirOverlapsLibrary = "link_dir_overlaps_library"
+	// ReasonSymlinkOrderUnverified : le serveur SFTP n'a pas prouvé l'ordre des arguments d'un lien symbolique ; les
+	// liens symboliques y sont refusés, la proposition reste acceptée.
+	ReasonSymlinkOrderUnverified = "symlink_order_unverified"
 )
 
 // ReasonLibraryRootUnavailable : une racine de bibliothèque ne se résout pas (absente, non montée), le registre refuse
@@ -407,6 +410,8 @@ func applyFailureReason(err error) string {
 	switch {
 	case isRemoteUnavailable(err):
 		return ReasonRemoteUnavailable
+	case errors.Is(err, fsys.ErrSymlinkOrderUnverified):
+		return ReasonSymlinkOrderUnverified
 	case errors.Is(err, linker.ErrCrossDevice):
 		return ReasonCrossDevice
 	case errors.Is(err, linker.ErrLinkRefused), errors.Is(err, linker.ErrUnsupported):
@@ -510,9 +515,17 @@ func (run linkRun) chooseLinkDir(source fsys.Location) (fsys.Location, []linker.
 	}
 	kinds = keepKinds(kinds, func(kind linker.Kind) bool { return supportsKind(capabilities, kind) })
 	if len(kinds) == 0 {
-		return fsys.Location{}, nil, ReasonLinkKindRefused
+		return fsys.Location{}, nil, refusedKindsReason(capabilities)
 	}
 	return linkDir, kinds, ""
+}
+
+// refusedKindsReason nomme un symlink refusé faute d'ordre des arguments prouvé (SFTP), sinon le refus générique.
+func refusedKindsReason(capabilities linker.Capabilities) string {
+	if errors.Is(capabilities.Reasons[linker.Symlink], fsys.ErrSymlinkOrderUnverified) {
+		return ReasonSymlinkOrderUnverified
+	}
+	return ReasonLinkKindRefused
 }
 
 // firstOnVolume : un symlink ne relie que deux chemins du même volume.

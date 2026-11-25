@@ -400,3 +400,21 @@ func TestLinkSeedAndForce_touchTheDiskOnlyThroughTheRegistry(t *testing.T) {
 		})
 	}
 }
+
+func TestLink_unverifiedSymlinkOrderFailsTheProposalWithItsOwnReason(t *testing.T) {
+	fixture, volume := newRemoteApplyFixture(t)
+	fixture.linkKinds = []linker.Kind{linker.Symlink}
+	volume.SymlinkOrderUnverified.Store(true)
+	candidate := fixture.addCandidate("Movie.2020", "", movieOnly())
+	proposal := fixture.verifiedProposal(candidate, store.ProposalFull)
+	fixture.accept(proposal.ID)
+
+	result := fixture.mustRunStage(StageLink)
+
+	if valeurObtenue := result.Reasons[ReasonSymlinkOrderUnverified]; valeurObtenue != 1 || result.Linked != 0 {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue %s once and nothing linked", result, ReasonSymlinkOrderUnverified)
+	}
+	if valeurObtenue := fixture.decisionOf(proposal.ID); valeurObtenue != store.ProposalFailed {
+		t.Errorf("valeurObtenue %s, valeurAttendue the proposal failed like any refused link kind", valeurObtenue)
+	}
+}

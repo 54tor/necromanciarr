@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"testing"
 
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/i18n"
+	"necromanciarr/internal/linker"
+	"necromanciarr/internal/pipeline"
 )
 
 func TestClassify_everyTypedErrorHasMessageKey(t *testing.T) {
@@ -70,5 +73,42 @@ func TestStatus_reportsLanguage(t *testing.T) {
 
 	if err != nil || status.Language != "en" {
 		t.Fatalf("gotValue %q (%v), expectedValue en", status.Language, err)
+	}
+}
+
+func TestMessageOf_remoteForceRefusalNamesTheVolumeInBothLanguages(t *testing.T) {
+	for _, scenario := range []struct {
+		reason       string
+		cause        error
+		french, text string
+	}{
+		{
+			pipeline.ReasonServerCopyUnavailable, fsys.ErrServerCopyUnavailable,
+			"Forcer est impossible sur seedbox : le serveur n'offre pas la copie côté serveur (copy-data)",
+			"Force is not available on seedbox: the server offers no server-side copy (copy-data)",
+		},
+		{
+			pipeline.ReasonFreeSpaceUnknown, linker.ErrFreeSpaceUnknown,
+			"Forcer est impossible sur seedbox : la place libre du dossier de liens est inconnue (statvfs absent)",
+			"Force is not available on seedbox: the free space of the link folder is unknown (no statvfs)",
+		},
+	} {
+		refused := forceRefusal(fmt.Errorf("isolate: %w", &pipeline.ForceRefusal{Reason: scenario.reason, Volume: "seedbox", Cause: scenario.cause}))
+
+		code, _ := Classify(refused)
+		message := MessageOf(refused)
+
+		if code != ErrorCodeRefused {
+			t.Errorf("%s: valeurObtenue code %s, valeurAttendue %s", scenario.reason, code, ErrorCodeRefused)
+		}
+		if valeurObtenue := i18n.New(i18n.French, nil).Render(message); valeurObtenue != scenario.french {
+			t.Errorf("%s fr: valeurObtenue %q, valeurAttendue %q", scenario.reason, valeurObtenue, scenario.french)
+		}
+		if valeurObtenue := i18n.New(i18n.English, nil).Render(message); valeurObtenue != scenario.text {
+			t.Errorf("%s en: valeurObtenue %q, valeurAttendue %q", scenario.reason, valeurObtenue, scenario.text)
+		}
+	}
+	if forceRefusal(errors.New("other")) != nil {
+		t.Error("valeurObtenue a refusal, valeurAttendue nil for any other error")
 	}
 }
