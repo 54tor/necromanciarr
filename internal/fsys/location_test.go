@@ -2,7 +2,9 @@ package fsys_test
 
 import (
 	"errors"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -12,6 +14,8 @@ import (
 func localAbsolute() string {
 	return filepath.Join(filepath.VolumeName(mustAbs(".")), string(filepath.Separator), "srv", "media")
 }
+
+var separator = string(filepath.Separator)
 
 func mustAbs(name string) string {
 	absolute, err := filepath.Abs(name)
@@ -30,6 +34,8 @@ func TestParseLocation_sftpAndLocal(t *testing.T) {
 		{"sftp://seedbox/", fsys.Location{Volume: "seedbox", Path: "/"}},
 		{"sftp://seed-box-2/srv//media/./x/", fsys.Location{Volume: "seed-box-2", Path: "/srv/media/x"}},
 		{localAbsolute(), fsys.Location{Volume: "", Path: localAbsolute()}},
+		{localAbsolute() + separator, fsys.Location{Volume: "", Path: localAbsolute()}},
+		{localAbsolute() + separator + "." + separator + "x", fsys.Location{Volume: "", Path: filepath.Join(localAbsolute(), "x")}},
 	}
 	for _, testCase := range cases {
 		gotValue, err := fsys.ParseLocation(testCase.raw)
@@ -61,6 +67,15 @@ func TestParseLocation_refusesMalformed(t *testing.T) {
 		"./media",
 		"srv\x00media",
 		"sftp://seedbox/" + strings.Repeat("a", 4096),
+		localAbsolute() + separator + ".." + separator + "media",
+		localAbsolute() + separator + "..",
+		"sftp://seedbox/srv\u0085media",
+		"sftp://seedbox/srv\u009fmedia",
+		"sftp://seedbox/srv\u202emedia",
+		"sftp://seedbox/srv\u2066media",
+		"sftp://seedbox/srv\u200emedia",
+		"sftp://seedbox/srv\xffmedia",
+		localAbsolute() + "\u202e",
 	}
 	for _, raw := range refused {
 		_, err := fsys.ParseLocation(raw)
@@ -96,11 +111,13 @@ func TestLocation_StringRoundTrips(t *testing.T) {
 	}
 }
 
+var volumeNamePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
+
 func FuzzParseLocation(f *testing.F) {
 	seeds := []string{
 		"sftp://seedbox/srv/media", "sftp://", "sftp:///x", "sftp://x/../y", "sftp://x//y/", "/srv/media",
 		"C:\\srv\\media", "\\\\server\\share", "sftp://x/\x00", "sftp://\xff/x", "sftp://x/\xff", "sftp:/x",
-		"sftp://-/x", "sftp://x/%2e%2e/y", "sftp://x/a\\..\\b",
+		"sftp://-/x", "sftp://x/%2e%2e/y", "sftp://x/a\\..\\b", "/srv/../x", "/srv/media/", "sftp://x/\u202e",
 	}
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -117,8 +134,17 @@ func FuzzParseLocation(f *testing.F) {
 		if err != nil || reparsed != location {
 			t.Fatalf("round trip of %q: %+v, %v, want %+v", raw, reparsed, err, location)
 		}
-		if location.Volume != "" && strings.Contains("/"+location.Path+"/", "/../") {
-			t.Fatalf("remote path with .. accepted: %q", raw)
+		if location.Volume == "" {
+			if location.Path != filepath.Clean(location.Path) || !filepath.IsAbs(location.Path) {
+				t.Fatalf("local path not absolute and clean: %q", location.Path)
+			}
+			return
+		}
+		if !volumeNamePattern.MatchString(location.Volume) {
+			t.Fatalf("volume name %q accepted", location.Volume)
+		}
+		if location.Path != path.Clean(location.Path) || !path.IsAbs(location.Path) {
+			t.Fatalf("remote path not absolute and clean: %q", location.Path)
 		}
 	})
 }

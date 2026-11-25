@@ -2,9 +2,13 @@ package fsys
 
 import (
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // sftpScheme préfixe une Location distante ; tout autre texte est un chemin local.
@@ -17,8 +21,9 @@ const maxLocationLength = 4096
 // Deux Location ne se comparent jamais par leur texte brut : seul Registry compare, sur les formes canoniques.
 type Location struct{ Volume, Path string }
 
-// ParseLocation lit "sftp://seedbox/srv/media" (chemin distant nettoyé en POSIX, sans "..") ou un chemin local
-// absolu, gardé tel quel : sa forme canonique dépend des liens symboliques, que seul le volume connaît.
+// ParseLocation lit "sftp://seedbox/srv/media" (nettoyé par path.Clean) ou un chemin local absolu (nettoyé par
+// filepath.Clean) ; tout segment ".." est refusé avant nettoyage, car le résoudre lexicalement à travers un lien
+// symbolique changerait le dossier désigné. La forme canonique reste l'affaire du volume (Canonical).
 func ParseLocation(raw string) (Location, error) {
 	if err := checkRawLocation(raw); err != nil {
 		return Location{}, err
@@ -30,7 +35,10 @@ func ParseLocation(raw string) (Location, error) {
 	if !filepath.IsAbs(raw) {
 		return Location{}, invalidLocation("local path is not absolute")
 	}
-	return Location{Path: raw}, nil
+	if slices.Contains(strings.FieldsFunc(raw, isLocalSeparator), "..") {
+		return Location{}, invalidLocation("local path contains ..")
+	}
+	return Location{Path: filepath.Clean(raw)}, nil
 }
 
 // String rend la forme textuelle relue par ParseLocation.
@@ -48,13 +56,21 @@ func checkRawLocation(raw string) error {
 	if len(raw) > maxLocationLength {
 		return invalidLocation("location too long")
 	}
+	if !utf8.ValidString(raw) {
+		return invalidLocation("location is not valid UTF-8")
+	}
 	for _, character := range raw {
-		isControl := character < 0x20 || character == 0x7f
-		if isControl {
+		// C0, DEL, C1 et contrôles bidirectionnels : invisibles ou trompeurs à l'affichage d'un chemin.
+		isRefused := unicode.IsControl(character) || unicode.Is(unicode.Bidi_Control, character)
+		if isRefused {
 			return invalidLocation("location contains a control character")
 		}
 	}
 	return nil
+}
+
+func isLocalSeparator(character rune) bool {
+	return character < utf8.RuneSelf && os.IsPathSeparator(uint8(character))
 }
 
 func parseRemoteLocation(remainder string) (Location, error) {
@@ -65,10 +81,8 @@ func parseRemoteLocation(remainder string) (Location, error) {
 	if !hasPath {
 		return Location{}, invalidLocation("remote location has no path")
 	}
-	for _, segment := range strings.Split(remotePath, "/") {
-		if segment == ".." {
-			return Location{}, invalidLocation("remote path contains ..")
-		}
+	if slices.Contains(strings.Split(remotePath, "/"), "..") {
+		return Location{}, invalidLocation("remote path contains ..")
 	}
 	return Location{Volume: volume, Path: path.Clean("/" + remotePath)}, nil
 }
