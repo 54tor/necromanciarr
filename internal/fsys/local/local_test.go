@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"necromanciarr/internal/fsys"
 )
@@ -352,4 +353,35 @@ func TestCheckOpenedChild_refusesAHandleThatIsNotTheCheckedEntry(t *testing.T) {
 	}
 	defer func() { _ = swappedHandle.Close() }()
 	assertUnconfined(t, "checkOpenedChild", tree.root.checkOpenedChild(swappedHandle, checkedInfo))
+}
+
+func TestChtimes_setsTheTimesOfAnEntryAndNeverFollowsALinkOutOfTheRoot(t *testing.T) {
+	tree := newTestTree(t, true)
+	writeThrough(t, tree.root, "probe", "x")
+	expectedTime := time.Unix(1000000000, 0)
+
+	if err := tree.root.Chtimes("probe", expectedTime, expectedTime); err != nil {
+		t.Fatal(err)
+	}
+	info, err := tree.root.Lstat("probe")
+	if err != nil || !info.ModTime().Equal(expectedTime) {
+		t.Fatalf("expectedValue modification time %v, gotValue %v (%v)", expectedTime, info, err)
+	}
+	assertUnconfined(t, "Chtimes ../escape", tree.root.Chtimes("../escape", expectedTime, expectedTime))
+
+	skipWithoutSymlinks(t)
+	libraryBefore, err := os.Stat(tree.moviePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tree.root.Symlink(tree.moviePath, "to-library"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tree.root.Chtimes("to-library", expectedTime, expectedTime); err == nil {
+		t.Fatal("expectedValue Chtimes through a link to the library refused, gotValue nil")
+	}
+	libraryAfter, err := os.Stat(tree.moviePath)
+	if err != nil || !libraryAfter.ModTime().Equal(libraryBefore.ModTime()) {
+		t.Fatalf("expectedValue the library file times unchanged, gotValue %v (%v)", libraryAfter, err)
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"necromanciarr/internal/fsys"
 )
@@ -231,4 +232,14 @@ func (reader contextReader) Read(buffer []byte) (int, error) {
 		return 0, err
 	}
 	return reader.reader.Read(buffer)
+}
+
+// Chtimes fixe les dates de relative, résolu depuis le handle de son parent.
+func (root *writeRoot) Chtimes(relative string, accessTime, modTime time.Time) error {
+	target, err := root.resolve(relative)
+	if err != nil {
+		return err
+	}
+	defer target.close()
+	return target.parent.Chtimes(target.name, accessTime, modTime)
 }

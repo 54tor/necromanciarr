@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"time"
 )
 
 // Erreurs typées du paquet, à tester avec errors.Is ; leurs messages ne contiennent jamais de chemin.
@@ -101,6 +102,12 @@ type WriteRoot interface {
 // volume) quand le clonage est impossible. Une destination existante n'est jamais remplacée.
 type Reflinker interface {
 	Reflink(source Location, relative string) error
+}
+
+// TimesSetter est l'option d'une WriteRoot qui sait fixer les dates d'une entrée de la racine (sonde de la date de
+// modification d'un montage) ; un volume sans elle laisse cette date inconnue.
+type TimesSetter interface {
+	Chtimes(relative string, accessTime, modTime time.Time) error
 }
 
 // Volume joint la lecture et l'ouverture d'une racine d'écriture. OpenWriteRoot n'est appelé que par
