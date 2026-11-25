@@ -84,6 +84,9 @@ func (handler *fileHandler) Fileread(request *sftp.Request) (io.ReaderAt, error)
 	if err != nil {
 		return nil, err
 	}
+	if limit, found := handler.server.settings.truncatedReads[path.Clean(request.Filepath)]; found {
+		return truncatedReader{file: file, limit: limit}, nil
+	}
 	return file, nil
 }
 

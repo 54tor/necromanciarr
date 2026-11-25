@@ -30,3 +30,12 @@ func SetMaxListingEntries(t testing.TB, ceiling int) {
 	maxListingEntries = ceiling
 	t.Cleanup(func() { maxListingEntries = previous })
 }
+
+// IsTransportFailure expose le classement des échecs de transport de pkg/sftp.
+var IsTransportFailure = isTransportFailure
+
+// ClassifyOnLiveSession passe err à operationError sur la session vivante du volume, avant que la fin de session
+// soit remarquée : le cas d'un envoi qui échoue juste après la coupure.
+func ClassifyOnLiveSession(volume *Volume, err error) error {
+	return volume.operationError(volume.live(), "stat", err)
+}

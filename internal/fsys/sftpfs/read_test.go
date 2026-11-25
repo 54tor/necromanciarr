@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"go/parser"
 	"go/token"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"github.com/pkg/sftp"
+	"golang.org/x/crypto/ssh"
 	"golang.org/x/time/rate"
 
 	"necromanciarr/internal/fsys"
@@ -648,4 +651,73 @@ func TestSFTPReader_negativeOffsetIsInvalid(t *testing.T) {
 	if _, err := file.ReadAt(make([]byte, 5), -1); !errors.Is(err, fs.ErrInvalid) {
 		t.Fatalf("valeurObtenue %v, valeurAttendue fs.ErrInvalid", err)
 	}
+}
+
+func TestSFTP_transportFailuresAreConnectionLosses(t *testing.T) {
+	for label, testCase := range map[string]struct {
+		err            error
+		valeurAttendue bool
+	}{
+		"send header EOF":  {fmt.Errorf("failed to send packet: %w", io.EOF), true},
+		"send payload EOF": {fmt.Errorf("failed to send packet payload: %w", io.EOF), true},
+		"connection lost":  {fmt.Errorf("%w: %w", sftp.ErrSSHFxConnectionLost, io.EOF), true},
+		"closed pipe":      {io.ErrClosedPipe, true},
+		"closed network":   {fmt.Errorf("write: %w", net.ErrClosed), true},
+		"exit missing":     {&ssh.ExitMissingError{}, true},
+		"end of file":      {io.EOF, false},
+		"missing entry":    {os.ErrNotExist, false},
+	} {
+		if valeurObtenue := sftpfs.IsTransportFailure(testCase.err); valeurObtenue != testCase.valeurAttendue {
+			t.Errorf("%s: valeurObtenue %v, valeurAttendue %v", label, valeurObtenue, testCase.valeurAttendue)
+		}
+	}
+}
+
+func TestSFTPReader_endOfFileBeforeTheKnownSizeIsALostConnection(t *testing.T) {
+	server, volume := readVolume(t, testDeps(), sftptest.WithTruncatedReads("/movie.mkv", 1000))
+	writeServedFile(t, server, "/movie.mkv", patternBytes(readFileBytes))
+	file := openRemote(t, volume, "/movie.mkv")
+
+	_, err := file.ReadAt(make([]byte, readFileBytes), 0)
+
+	assertRemoteUnavailableNotEndOfFile(t, "ReadAt", err)
+	waitForState(t, volume, sftpfs.StateBroken)
+}
+
+func TestSFTPReader_sequentialEndOfFileBeforeTheKnownSizeIsALostConnection(t *testing.T) {
+	server, volume := readVolume(t, testDeps(), sftptest.WithTruncatedReads("/movie.mkv", 4))
+	writeServedFile(t, server, "/movie.mkv", []byte("0123456789"))
+	file := openRemote(t, volume, "/movie.mkv")
+	reader, isReader := file.(io.Reader)
+	if !isReader {
+		t.Fatal("valeurAttendue a Read method")
+	}
+
+	_, err := io.ReadAll(reader)
+
+	assertRemoteUnavailableNotEndOfFile(t, "Read", err)
+}
+
+func TestSFTPReader_readReachingTheSizeIsEndOfFile(t *testing.T) {
+	server, volume := readVolume(t, testDeps())
+	writeServedFile(t, server, "/movie.mkv", []byte("0123456789"))
+	file := openRemote(t, volume, "/movie.mkv")
+
+	readCount, err := file.ReadAt(make([]byte, 10), 5)
+
+	if readCount != 5 || !errors.Is(err, io.EOF) || errors.Is(err, fsys.ErrRemoteUnavailable) {
+		t.Errorf("valeurObtenue %d bytes, %v, valeurAttendue 5 bytes and a real io.EOF", readCount, err)
+	}
+	if valeurObtenue := volume.State(); valeurObtenue != sftpfs.StateOK {
+		t.Errorf("valeurObtenue %q, valeurAttendue the session kept", valeurObtenue)
+	}
+}
+
+func TestSFTP_sendFailureBeforeTheSessionEndIsNoticedIsALostConnection(t *testing.T) {
+	_, volume := readVolume(t, testDeps())
+
+	err := sftpfs.ClassifyOnLiveSession(volume, fmt.Errorf("failed to send packet: %w", io.EOF))
+
+	assertRemoteUnavailableNotEndOfFile(t, "Stat", err)
+	waitForState(t, volume, sftpfs.StateBroken)
 }

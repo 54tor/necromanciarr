@@ -2,7 +2,6 @@ package sftpfs
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -231,7 +230,7 @@ func (volume *Volume) operationError(current *session, operation string, err err
 	if err == nil {
 		return nil
 	}
-	connectionLost := errors.Is(err, sftp.ErrSSHFxConnectionLost) || current.closed.Load()
+	connectionLost := isTransportFailure(err) || current.closed.Load()
 	select {
 	case <-current.done:
 		connectionLost = true

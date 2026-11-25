@@ -1,7 +1,10 @@
 package sftptest_test
 
 import (
+	"errors"
+	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -68,5 +71,27 @@ func TestServer_recordsTheOpenFlags(t *testing.T) {
 	valeurAttendue := sftptest.Request{Method: "Get", Path: "/file", Flags: sftptest.FlagRead | sftptest.FlagExclusive}
 	if !slices.Contains(server.Requests(), valeurAttendue) {
 		t.Fatalf("valeurObtenue %+v, valeurAttendue %+v recorded", server.Requests(), valeurAttendue)
+	}
+}
+
+func TestServer_withTruncatedReadsEndsReadsEarlyButKeepsTheSize(t *testing.T) {
+	server := sftptest.Start(t, sftptest.WithTruncatedReads("/movie.mkv", 4))
+	sftptest.WriteFile(t, filepath.Join(server.Root, "movie.mkv"), []byte("0123456789"), 0o644)
+	client := connect(t, server)
+	file, err := client.Open("/movie.mkv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = file.Close() }()
+
+	buffer := make([]byte, 10)
+	readCount, err := file.ReadAt(buffer, 0)
+
+	if readCount != 4 || !errors.Is(err, io.EOF) {
+		t.Errorf("valeurObtenue %d bytes, %v, valeurAttendue 4 bytes then io.EOF", readCount, err)
+	}
+	info, err := file.Stat()
+	if err != nil || info.Size() != 10 {
+		t.Errorf("valeurObtenue %v (err %v), valeurAttendue the real size 10", info, err)
 	}
 }

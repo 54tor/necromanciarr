@@ -2,7 +2,9 @@ package sftpfs
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 
 	"github.com/pkg/sftp"
@@ -59,15 +61,19 @@ func (readOnly readOnlyFile) ReadAt(buffer []byte, offset int64) (int, error) {
 	if offset < 0 {
 		return 0, fmt.Errorf("sftpfs: read %q: %w: negative offset", readOnly.name, fs.ErrInvalid)
 	}
-	return readOnly.read(len(buffer), func(file *sftp.File) (int, error) { return file.ReadAt(buffer, offset) })
+	endOffset := func(readCount int) (int64, error) { return offset + int64(readCount), nil }
+	return readOnly.read(len(buffer), func(file *sftp.File) (int, error) { return file.ReadAt(buffer, offset) }, endOffset)
 }
 
 // Read lit à la position courante, sous les mêmes limiteurs que ReadAt.
 func (readOnly readOnlyFile) Read(buffer []byte) (int, error) {
-	return readOnly.read(len(buffer), func(file *sftp.File) (int, error) { return file.Read(buffer) })
+	endOffset := func(int) (int64, error) { return readOnly.file.Seek(0, io.SeekCurrent) }
+	return readOnly.read(len(buffer), func(file *sftp.File) (int, error) { return file.Read(buffer) }, endOffset)
 }
 
-func (readOnly readOnlyFile) read(byteCount int, readFn func(file *sftp.File) (int, error)) (int, error) {
+// read attend les limiteurs puis lit ; une fin de fichier est confirmée par la taille du fichier (fstat) avant
+// d'être rendue. endOffset rend la position atteinte après readCount octets.
+func (readOnly readOnlyFile) read(byteCount int, readFn func(file *sftp.File) (int, error), endOffset func(readCount int) (int64, error)) (int, error) {
 	if err := readOnly.volume.sessionGone(readOnly.current, "read"); err != nil {
 		return 0, err
 	}
@@ -80,7 +86,28 @@ func (readOnly readOnlyFile) read(byteCount int, readFn func(file *sftp.File) (i
 		readCount, readErr = readFn(readOnly.file)
 		return readErr
 	})
+	isUnconfirmedEndOfFile := errors.Is(err, io.EOF) && !errors.Is(err, fsys.ErrRemoteUnavailable)
+	if isUnconfirmedEndOfFile {
+		err = readOnly.confirmEndOfFile(endOffset(readCount))
+	}
 	return readCount, mapError("read", readOnly.name, err)
+}
+
+// confirmEndOfFile ne rend io.EOF que si la position atteinte touche la taille du fichier : une fin de fichier
+// avant la taille connue est une connexion qui lâche (pièce faussement mauvaise sinon), le volume passe broken.
+func (readOnly readOnlyFile) confirmEndOfFile(end int64, positionErr error) error {
+	if positionErr != nil {
+		return fmt.Errorf("%w: sftpfs: read %q: end of file unconfirmed: %v", fsys.ErrRemoteUnavailable, readOnly.name, positionErr) //nolint:errorlint // jamais io.EOF dans la chaîne
+	}
+	info, err := readOnly.Stat()
+	if err != nil {
+		return fmt.Errorf("%w: sftpfs: read %q: end of file unconfirmed: %v", fsys.ErrRemoteUnavailable, readOnly.name, err) //nolint:errorlint // jamais io.EOF dans la chaîne
+	}
+	if end >= info.Size() {
+		return io.EOF
+	}
+	readOnly.volume.drop(readOnly.current)
+	return fmt.Errorf("%w: sftpfs: read %q: end of file at %d before the size %d", fsys.ErrRemoteUnavailable, readOnly.name, end, info.Size())
 }
 
 // throttleError : une attente coupée par la fermeture de la session est une indisponibilité du volume.

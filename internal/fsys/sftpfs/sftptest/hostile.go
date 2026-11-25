@@ -1,6 +1,7 @@
 package sftptest
 
 import (
+	"io"
 	"os"
 	"path"
 	"time"
@@ -40,6 +41,32 @@ func WithReadlinkTarget(linkPath, target string) Option {
 func WithStatVFS(mutate func(*sftp.StatVFS)) Option {
 	return func(current *settings) { current.statVFSMutator = mutate }
 }
+
+// WithTruncatedReads fait finir les lectures de clientPath par une fin de fichier après servedBytes octets, alors
+// que Stat et fstat rendent toujours la taille réelle : la fin de fichier précoce d'une connexion qui lâche.
+func WithTruncatedReads(clientPath string, servedBytes int64) Option {
+	return func(current *settings) { current.truncatedReads[path.Clean(clientPath)] = servedBytes }
+}
+
+// truncatedReader rend io.EOF au-delà de limit octets ; Close ferme le fichier servi.
+type truncatedReader struct {
+	file  *os.File
+	limit int64
+}
+
+func (reader truncatedReader) ReadAt(buffer []byte, offset int64) (int, error) {
+	if offset >= reader.limit {
+		return 0, io.EOF
+	}
+	allowed := min(int64(len(buffer)), reader.limit-offset)
+	readCount, err := reader.file.ReadAt(buffer[:allowed], offset)
+	if err == nil && allowed < int64(len(buffer)) {
+		err = io.EOF
+	}
+	return readCount, err
+}
+
+func (reader truncatedReader) Close() error { return reader.file.Close() }
 
 // fakeEntry rend l'entrée factice clientPath de WithListing, s'il y en a une.
 func (handler *fileHandler) fakeEntry(clientPath string) (os.FileInfo, bool) {
