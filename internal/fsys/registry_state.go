@@ -18,6 +18,8 @@ type volumeEntry struct {
 	volume          Volume
 	rawLibraryRoots []string
 	foldCase        bool
+	// writeRootCheck, s'il est posé, passe sur chaque racine d'écriture du volume avant qu'elle soit rendue.
+	writeRootCheck func(WriteRoot) error
 
 	loadMutex sync.Mutex
 	state     *volumeState

@@ -1,6 +1,7 @@
 package fsys
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 )
@@ -30,10 +31,27 @@ type Registry struct {
 	volumes map[string]*volumeEntry
 }
 
+// RegistryOption règle un Registry à sa construction.
+type RegistryOption func(*Registry) error
+
+// WithWriteRootCheck fait passer chaque racine d'écriture ouverte sur volume par check avant de la rendre : un refus
+// la ferme et rend l'erreur de check (sonde des capacités d'un volume distant avant tout lien). Volume non déclaré :
+// ErrUnknownVolume.
+func WithWriteRootCheck(volume string, check func(WriteRoot) error) RegistryOption {
+	return func(registry *Registry) error {
+		entry, err := registry.entry(volume)
+		if err != nil {
+			return err
+		}
+		entry.writeRootCheck = check
+		return nil
+	}
+}
+
 // NewRegistry déclare les volumes (clé : nom du volume, "" pour le disque local ; chaque clé égale à
 // Volume()) et les racines de bibliothèque. Aucun accès disque ou réseau : seules les erreurs de déclaration
 // (volume inconnu, nom différent de sa clé) la font échouer.
-func NewRegistry(volumes map[string]Volume, libraryRoots []Location) (*Registry, error) {
+func NewRegistry(volumes map[string]Volume, libraryRoots []Location, options ...RegistryOption) (*Registry, error) {
 	registry := &Registry{volumes: map[string]*volumeEntry{}}
 	for name, volume := range volumes {
 		if volume == nil || volume.Volume() != name {
@@ -49,7 +67,24 @@ func NewRegistry(volumes map[string]Volume, libraryRoots []Location) (*Registry,
 		}
 		entry.rawLibraryRoots = append(entry.rawLibraryRoots, libraryRoot.Path)
 	}
+	for _, option := range options {
+		if err := option(registry); err != nil {
+			return nil, err
+		}
+	}
 	return registry, nil
+}
+
+// stageResetter est un volume qui borne ses reconnexions par étape (sftpfs).
+type stageResetter interface{ ResetForStage() }
+
+// ResetForStage ouvre une nouvelle étape sur chaque volume qui le demande : une reconnexion y redevient possible.
+func (registry *Registry) ResetForStage() {
+	for _, entry := range registry.volumes {
+		if resetter, resets := entry.volume.(stageResetter); resets {
+			resetter.ResetForStage()
+		}
+	}
 }
 
 // Read rend une vue scellée en lecture seule du volume de location (jamais le Volume lui-même, même par
@@ -90,7 +125,14 @@ func (registry *Registry) WriteRoot(dir Location) (WriteRoot, error) {
 	if overlaps {
 		return nil, fmt.Errorf("%w (volume %q)", ErrWriteInLibrary, dir.Volume)
 	}
-	return entry.volume.OpenWriteRoot(canonical)
+	root, err := entry.volume.OpenWriteRoot(canonical)
+	if err != nil || entry.writeRootCheck == nil {
+		return root, err
+	}
+	if err := entry.writeRootCheck(root); err != nil {
+		return nil, errors.Join(err, root.Close())
+	}
+	return root, nil
 }
 
 func (registry *Registry) hasLibraryRoots() bool {

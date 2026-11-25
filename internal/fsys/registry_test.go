@@ -509,3 +509,72 @@ func TestWriteRoot_refusesWithoutLibraryRoots(t *testing.T) {
 		t.Fatalf("valeurAttendue ErrNoLibraryRoots, valeurObtenue %v", valeurObtenue)
 	}
 }
+
+func TestRegistry_writeRootCheckSeesTheRootBeforeItIsReturned(t *testing.T) {
+	var checked []fsys.WriteRoot
+	check := func(root fsys.WriteRoot) error {
+		checked = append(checked, root)
+		return nil
+	}
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"seedbox": newFakeVolume("seedbox"), "other": newFakeVolume("other")},
+		[]fsys.Location{{Volume: "seedbox", Path: "/srv/media"}}, fsys.WithWriteRootCheck("seedbox", check))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	checkedRoot, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/links"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.WriteRoot(fsys.Location{Volume: "other", Path: "/srv/links"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(checked) != 1 || checked[0] != checkedRoot {
+		t.Fatalf("valeurObtenue %d checked roots, valeurAttendue exactly the seedbox root returned", len(checked))
+	}
+}
+
+var errRefusedByCheck = errors.New("refused by the check")
+
+func TestRegistry_failedWriteRootCheckClosesTheRootAndRefusesIt(t *testing.T) {
+	var opened *fakeWriteRoot
+	check := func(root fsys.WriteRoot) error {
+		opened, _ = root.(*fakeWriteRoot)
+		return errRefusedByCheck
+	}
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"seedbox": newFakeVolume("seedbox")},
+		[]fsys.Location{{Volume: "seedbox", Path: "/srv/media"}}, fsys.WithWriteRootCheck("seedbox", check))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	root, valeurObtenue := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/links"})
+
+	if root != nil || !errors.Is(valeurObtenue, errRefusedByCheck) {
+		t.Fatalf("valeurObtenue %v %v, valeurAttendue no root and the check's error", root, valeurObtenue)
+	}
+	if opened == nil || !opened.closed.Load() {
+		t.Fatal("valeurAttendue the refused root closed")
+	}
+}
+
+func TestRegistry_writeRootCheckOnAnUndeclaredVolumeIsRefused(t *testing.T) {
+	_, err := fsys.NewRegistry(map[string]fsys.Volume{"seedbox": newFakeVolume("seedbox")}, nil,
+		fsys.WithWriteRootCheck("missing", func(fsys.WriteRoot) error { return nil }))
+
+	if !errors.Is(err, fsys.ErrUnknownVolume) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue ErrUnknownVolume", err)
+	}
+}
+
+func TestRegistry_resetForStageReachesEveryVolume(t *testing.T) {
+	seedbox, other := newFakeVolume("seedbox"), newFakeVolume("other")
+	registry := newTestRegistry(t, seedbox, other)
+
+	registry.ResetForStage()
+
+	if seedbox.stageResets.Load() != 1 || other.stageResets.Load() != 1 {
+		t.Fatalf("valeurObtenue %d and %d resets, valeurAttendue one per volume", seedbox.stageResets.Load(), other.stageResets.Load())
+	}
+}

@@ -32,7 +32,11 @@ type fakeVolume struct {
 
 	callsMutex     sync.Mutex
 	canonicalCalls map[string]int
+	// stageResets compte les appels de ResetForStage (volume distant qui rouvre une session par étape).
+	stageResets atomic.Int32
 }
+
+func (volume *fakeVolume) ResetForStage() { volume.stageResets.Add(1) }
 
 // posixCanonical imite un volume distant : nettoyage POSIX et alias symboliques résolus par préfixe.
 func posixCanonical(symlinks map[string]string) func(string) (string, error) {
@@ -122,7 +126,10 @@ func (info fakeInfo) ModTime() time.Time { return time.Time{} }
 func (info fakeInfo) IsDir() bool        { return true }
 func (info fakeInfo) Sys() any           { return info.path }
 
-type fakeWriteRoot struct{ root fsys.Location }
+type fakeWriteRoot struct {
+	root   fsys.Location
+	closed atomic.Bool
+}
 
 func (root *fakeWriteRoot) Root() fsys.Location                  { return root.root }
 func (root *fakeWriteRoot) MkdirAll(string, fs.FileMode) error   { return errFake }
@@ -131,7 +138,10 @@ func (root *fakeWriteRoot) Hardlink(fsys.Location, string) error { return errFak
 func (root *fakeWriteRoot) Replace(string, string) error         { return errFake }
 func (root *fakeWriteRoot) Remove(string) error                  { return errFake }
 func (root *fakeWriteRoot) Lstat(string) (fs.FileInfo, error)    { return nil, errFake }
-func (root *fakeWriteRoot) Close() error                         { return nil }
+func (root *fakeWriteRoot) Close() error {
+	root.closed.Store(true)
+	return nil
+}
 
 func (root *fakeWriteRoot) CopyFrom(context.Context, fsys.Location, string) (int64, error) {
 	return 0, errFake
