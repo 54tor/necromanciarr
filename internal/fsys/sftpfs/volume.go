@@ -186,6 +186,22 @@ func (volume *Volume) ResetForStage() {
 	}
 }
 
+// Release ferme la session sans fermer le volume : le diagnostic ne laisse aucune connexion ouverte derrière lui. La
+// prochaine opération se reconnecte comme au début d'une nouvelle étape ; les verdicts de sonde, propres à la session,
+// sont refaits.
+func (volume *Volume) Release() {
+	volume.mutex.Lock()
+	current := volume.current
+	volume.current, volume.reconnectUsed = nil, false
+	if !volume.closed {
+		volume.state = StateUnknown
+	}
+	volume.mutex.Unlock()
+	if current != nil {
+		current.close()
+	}
+}
+
 // Close ferme la session ; le volume ne se reconnecte plus jamais.
 func (volume *Volume) Close() error {
 	volume.mutex.Lock()

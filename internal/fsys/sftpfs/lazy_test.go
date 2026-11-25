@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh/knownhosts"
 
@@ -76,4 +77,34 @@ func TestNewLazy_hostKeyMismatchKeepsItsStableCode(t *testing.T) {
 	if requests := server.Requests(); len(requests) != 0 {
 		t.Fatalf("valeurObtenue %+v, valeurAttendue no SFTP request on a refused host key", requests)
 	}
+}
+
+func TestVolume_releaseClosesTheSessionAndAllowsANewDial(t *testing.T) {
+	server := sftptest.Start(t)
+	volume := sftpfs.NewLazy(pinnedProvider(t, server), testDeps())
+	t.Cleanup(func() { _ = volume.Close() })
+	if _, err := volume.Stat("/"); err != nil {
+		t.Fatal(err)
+	}
+
+	volume.Release()
+	stateAfterRelease, connectionsAfterRelease := volume.State(), waitOpenConnections(t, server, 0)
+	_, againErr := volume.Stat("/")
+
+	if stateAfterRelease != sftpfs.StateUnknown || connectionsAfterRelease != 0 {
+		t.Fatalf("valeurObtenue state %q with %d connections, valeurAttendue %q and none", stateAfterRelease, connectionsAfterRelease, sftpfs.StateUnknown)
+	}
+	if againErr != nil || server.Connections() != 2 {
+		t.Fatalf("valeurObtenue err %v and %d dials, valeurAttendue a second dial that works", againErr, server.Connections())
+	}
+}
+
+// waitOpenConnections attend, au plus deux secondes, que le serveur voie want connexions ouvertes ; rend la dernière valeur lue.
+func waitOpenConnections(t *testing.T, server *sftptest.Server, want int) int {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for server.OpenConnections() != want && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	return server.OpenConnections()
 }
