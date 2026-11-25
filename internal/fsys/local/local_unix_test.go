@@ -60,3 +60,19 @@ func TestClassifyLinkError_mapsKernelRefusals(t *testing.T) {
 		t.Errorf("ClassifyLinkError(nil) = %v, want nil", gotValue)
 	}
 }
+
+func TestFileID_zeroInodeIsUnknown(t *testing.T) {
+	if _, known := New().FileID(fakeInfo{stat: &syscall.Stat_t{Dev: 1, Ino: 0}}); known {
+		t.Error("FileID known for a zero inode")
+	}
+}
+
+func TestCapabilities_announceFileIdentityOnUnix(t *testing.T) {
+	capabilities, err := New().Capabilities(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !capabilities.FileIdentity {
+		t.Error("FileIdentity not announced on unix")
+	}
+}

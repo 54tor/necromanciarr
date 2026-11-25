@@ -10,10 +10,11 @@ import (
 	"necromanciarr/internal/fsys"
 )
 
-// fileIdentity lit périphérique et inode ; false si le système ne les fournit pas.
+// fileIdentity lit périphérique et inode ; false si le système ne les fournit pas ou si l'inode est nul (certains
+// FUSE), qui ne distinguerait rien.
 func fileIdentity(info fs.FileInfo) (fsys.FileID, bool) {
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
+	if !ok || stat == nil || stat.Ino == 0 {
 		return fsys.FileID{}, false
 	}
 	return fsys.FileID{Device: uint64(stat.Dev), Inode: uint64(stat.Ino)}, true //nolint:unconvert // #nosec G115 -- types propres à chaque OS

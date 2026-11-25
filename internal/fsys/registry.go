@@ -16,12 +16,16 @@ var localCaseInsensitive = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 //
 // Le contrôle d'I1 compare deux choses : les chemins canoniques, toujours, puis les identités de fichier quand le
 // volume les fournit (Capabilities.FileIdentity ou RemoteStat), ce qui attrape les graphies qui échappent au texte
-// (casse, NFD, noms 8.3, montages liés). Risque résiduel : sans identité, un alias non résolu par Canonical passe ;
+// (casse, NFD, noms 8.3, montages liés). Un chemin dont Stat réussit mais dont l'identité est inconnue (inode nul,
+// FUSE) garde le seul plancher textuel, raison notée ; une erreur de Stat refuse toujours. Risque résiduel : sans identité, un alias non résolu par Canonical passe ;
 // un alias entre deux volumes (disque local et sftp://localhost sur le même disque) n'est jamais vu (doctor
 // avertira). Fenêtre TOCTOU : entre Canonical et OpenWriteRoot, un dossier peut être remplacé ; le volume compare
 // l'identité de la racine ouverte au Stat fait juste avant (contrat de OpenWriteRoot). Un alias de la
 // bibliothèque SOUS la racine d'écriture (montage lié posé dedans après coup) n'est pas vu ici : le volume
 // revérifie l'identité à chaque opération dans sa résolution de chemin (contrat C2), doctor le signalera (C16).
+// Ce recontrôle de la racine (local : Lstat du chemin canonique comparé au handle) laisse lui-même une fenêtre
+// entre le contrôle et l'appel système ; sous Linux avant 5.8, un montage lié du même système de fichiers n'est
+// pas vu (Capabilities.Reasons["mountRoot"]).
 type Registry struct {
 	volumes map[string]*volumeEntry
 }

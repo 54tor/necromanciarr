@@ -9,7 +9,24 @@ import (
 	"testing"
 )
 
-func TestFileID_knownOnlyForInformationFromTheVolume(t *testing.T) {
+func TestFileID_knownForAnyInformationWithAnInode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rawInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotValue, known := New().FileID(rawInfo)
+	stat := rawInfo.Sys().(*syscall.Stat_t)
+	expectedDevice, expectedInode := uint64(stat.Dev), uint64(stat.Ino) //nolint:unconvert // types propres à chaque architecture
+	if !known || gotValue.Device != expectedDevice || gotValue.Inode != expectedInode {
+		t.Errorf("FileID = %+v, %v, want the device and inode of the file", gotValue, known)
+	}
+}
+
+func TestReliableFileID_knownOnlyForVolumeInformationOnALocalFilesystem(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -22,18 +39,19 @@ func TestFileID_knownOnlyForInformationFromTheVolume(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotValue, known := New().FileID(volumeInfo)
-	stat := volumeInfo.Sys().(*syscall.Stat_t)
-	expectedDevice, expectedInode := uint64(stat.Dev), uint64(stat.Ino) //nolint:unconvert // types propres à chaque architecture
-	if !known || gotValue.Device != expectedDevice || gotValue.Inode != expectedInode {
-		t.Errorf("FileID = %+v, %v, want the device and inode of the file", gotValue, known)
+	if _, known := ReliableFileID(volumeInfo); !known {
+		t.Error("ReliableFileID unknown for a volume information on a local filesystem")
 	}
 	rawInfo, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, known := New().FileID(rawInfo); known {
-		t.Error("FileID known for an information not produced by the volume")
+	if _, known := ReliableFileID(rawInfo); known {
+		t.Error("ReliableFileID known for an information not produced by the volume")
+	}
+	unreliableInfo := localInfo{FileInfo: rawInfo, identityReliable: false}
+	if _, known := ReliableFileID(unreliableInfo); known {
+		t.Error("ReliableFileID known for an information on a network or FUSE filesystem")
 	}
 }
 

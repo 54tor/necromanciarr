@@ -8,7 +8,6 @@ const (
 	reasonKeyServerCopy   = "serverCopy"
 
 	reasonLocalVolume             = "local_volume"
-	reasonFilesystemUnclassified  = "filesystem_unclassified"
 	reasonUnsupportedPlatform     = "unsupported_platform"
 	reasonNoFileIndex             = "no_file_index"
 	reasonSymlinkPrivilegeMissing = "symlink_privilege_missing"

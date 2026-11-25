@@ -46,10 +46,21 @@ func (volume) VolumeID(name string) (string, bool, error) {
 // FreeSpace rend la place disponible pour le compte courant sur le volume de name.
 func (volume) FreeSpace(name string) (uint64, error) { return FreeBytes(name) }
 
-// FileID rend périphérique et inode d'une information rendue par ce volume (Stat, Lstat, File.Stat,
-// WriteRoot.Lstat), seulement si elle porte sur un système de fichiers local au sens de FilesystemKindOf ; toute
-// autre information, réseau, FUSE, Windows, ou venue d'ailleurs, rend known=false.
+// FileID rend périphérique et inode de toute information portant un Stat_t à inode non nul (Unix) : identité de
+// dossier pour le contrôle de recouvrement du registre, où une collision fausse (FUSE, réseau) ne cause qu'un
+// refus. Un inode nul ou Windows rendent known=false. Pour une décision destructive, utiliser ReliableFileID.
 func (volume) FileID(info fs.FileInfo) (fsys.FileID, bool) {
+	if tagged, isTagged := info.(localInfo); isTagged {
+		info = tagged.FileInfo
+	}
+	return fileIdentity(info)
+}
+
+// ReliableFileID est l'identité stricte : seulement pour une information rendue par ce volume (Stat, Lstat,
+// File.Stat, WriteRoot.Lstat) sur un système de fichiers Local au sens de FilesystemKindOf. Réseau, FUSE,
+// Windows ou information venue d'ailleurs rendent known=false : c'est celle qu'exige un « même fichier »
+// destructif (dedupe, preuve d'un lien).
+func ReliableFileID(info fs.FileInfo) (fsys.FileID, bool) {
 	tagged, isTagged := info.(localInfo)
 	if !isTagged || !tagged.identityReliable {
 		return fsys.FileID{}, false

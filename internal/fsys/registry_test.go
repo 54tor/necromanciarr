@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"maps"
 	"strings"
 	"sync"
 	"testing"
@@ -473,13 +474,24 @@ func TestRegistry_capabilitiesProbeHonoursDeadline(t *testing.T) {
 	}
 }
 
-func TestRegistry_unknownFileIDWithIdentityCapabilityIsRefused(t *testing.T) {
+// Une identité inconnue alors que Stat a réussi (inode nul, FUSE) ne fait pas tomber tout le volume : ce chemin
+// garde le plancher textuel seul, la raison est notée, les autres chemins gardent la comparaison d'identité.
+func TestRegistry_unknownIdentityFallsBackToTheTextFloorForThatPathOnly(t *testing.T) {
 	volume := newFakeVolume("seedbox")
 	volume.capabilities = fsys.Capabilities{FileIdentity: true}
-	volume.unknownIDs = map[string]bool{"/mnt": true}
+	volume.unknownIDs = map[string]bool{"/srv": true, "/mnt": true}
+	volume.sharedIDs = map[string]uint64{"/srv/media": 7, "/mnt/bind": 7}
 	registry := newTestRegistry(t, volume)
-	_, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/mnt/links"})
-	if !errors.Is(err, fsys.ErrCannotCanonicalize) {
-		t.Errorf("WriteRoot error = %v, want ErrCannotCanonicalize", err)
+	if _, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/mnt/links"}); err != nil {
+		t.Errorf("WriteRoot(/mnt/links) with one unknown ancestor: %v", err)
+	}
+	for _, dir := range []string{"/srv/media/links", "/mnt/bind"} {
+		if _, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: dir}); !errors.Is(err, fsys.ErrWriteInLibrary) {
+			t.Errorf("WriteRoot(%q) error = %v, want ErrWriteInLibrary", dir, err)
+		}
+	}
+	expectedValue := map[string]string{"/srv": fsys.IdentityUnknownReasonForTest}
+	if gotValue := fsys.IdentityGapsForTest(t, registry, "seedbox"); !maps.Equal(gotValue, expectedValue) {
+		t.Errorf("identity gaps = %v, want %v", gotValue, expectedValue)
 	}
 }

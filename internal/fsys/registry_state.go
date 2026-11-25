@@ -26,11 +26,16 @@ type volumeEntry struct {
 // volumeState est immuable une fois chargé.
 type volumeState struct {
 	libraryKeys []string
-	// useIdentity : le volume fournit des identités de fichier fiables (Capabilities).
+	// useIdentity : le volume annonce des identités de dossier comparables (Capabilities.FileIdentity, RemoteStat).
 	useIdentity     bool
 	libraryIDs      map[FileID]bool
 	libraryAncestry map[FileID]bool // identités de chaque racine et de tous ses ancêtres
+	// identityGaps : chemins de bibliothèque (racine ou ancêtre) sans identité connue, comparés par le texte seul.
+	identityGaps map[string]string
 }
+
+// identityUnknownReason : Stat a réussi mais le volume ne donne pas d'identité (inode nul, FUSE) pour ce chemin.
+const identityUnknownReason = "file_identity_unknown"
 
 // load tient le verrou pendant le chargement : les appelants concurrents patientent derrière le même essai au lieu de
 // lancer chacun le leur.
@@ -76,16 +81,20 @@ func (entry *volumeEntry) buildState() (*volumeState, error) {
 }
 
 func (entry *volumeEntry) recordLibraryIdentities(state *volumeState, canonicalRoots []string) error {
+	state.identityGaps = map[string]string{}
 	for _, canonicalRoot := range canonicalRoots {
-		rootID, err := entry.identityOf(canonicalRoot)
-		if err != nil {
-			return err
-		}
-		state.libraryIDs[rootID] = true
-		for _, ancestor := range ancestorsOf(entry.volume.Paths(), canonicalRoot) {
-			ancestorID, err := entry.identityOf(ancestor)
+		for ancestorIndex, ancestor := range ancestorsOf(entry.volume.Paths(), canonicalRoot) {
+			ancestorID, known, err := entry.identityOf(ancestor)
 			if err != nil {
 				return err
+			}
+			if !known {
+				state.identityGaps[ancestor] = identityUnknownReason
+				continue
+			}
+			isRootItself := ancestorIndex == 0
+			if isRootItself {
+				state.libraryIDs[ancestorID] = true
 			}
 			state.libraryAncestry[ancestorID] = true
 		}
@@ -108,9 +117,12 @@ func (entry *volumeEntry) overlapsLibrary(state *volumeState, canonical string) 
 		return false, nil
 	}
 	for ancestorIndex, ancestor := range ancestorsOf(syntax, canonical) {
-		ancestorID, err := entry.identityOf(ancestor)
+		ancestorID, known, err := entry.identityOf(ancestor)
 		if err != nil {
 			return false, err
+		}
+		if !known {
+			continue
 		}
 		isCandidateItself := ancestorIndex == 0
 		if state.libraryIDs[ancestorID] || (isCandidateItself && state.libraryAncestry[ancestorID]) {
@@ -120,17 +132,15 @@ func (entry *volumeEntry) overlapsLibrary(state *volumeState, canonical string) 
 	return false, nil
 }
 
-// identityOf échoue fermé : une identité promise mais absente refuse l'écriture.
-func (entry *volumeEntry) identityOf(name string) (FileID, error) {
+// identityOf échoue fermé sur une erreur de Stat. Une identité inconnue alors que Stat a réussi rend
+// known=false : ce chemin garde le plancher textuel seul, sans faire tomber le volume.
+func (entry *volumeEntry) identityOf(name string) (FileID, bool, error) {
 	info, err := entry.volume.Stat(name)
 	if err != nil {
-		return FileID{}, &causeHidingError{sentinel: ErrCannotCanonicalize, cause: err}
+		return FileID{}, false, &causeHidingError{sentinel: ErrCannotCanonicalize, cause: err}
 	}
 	id, known := entry.volume.FileID(info)
-	if !known {
-		return FileID{}, ErrCannotCanonicalize
-	}
-	return id, nil
+	return id, known, nil
 }
 
 // comparisonKey est privée au registre : Canonical garde la forme sur disque (Root, pathMappings), seule la

@@ -33,7 +33,10 @@ type FileID struct{ Device, Inode uint64 }
 
 // Capabilities dit ce qu'un volume sait faire, sondé réellement.
 type Capabilities struct {
-	FileIdentity                                          bool // inode + périphérique fiables (local non réseau)
+	// FileIdentity : FileID rend des identités pour les dossiers, assez stables pour le contrôle de recouvrement du
+	// registre (une collision fausse n'y cause qu'un refus). Ce n'est PAS une preuve « même fichier » pour une
+	// opération destructive (dedupe) : celle-ci passe par l'accesseur strict du volume (local.ReliableFileID).
+	FileIdentity                                          bool
 	VolumeIdentity                                        bool // dev local ou fsid statvfs
 	Symlink, Hardlink, AtomicReplace, ServerCopy, Reflink bool
 	// RemoteStat : identité de fichier distante obtenue par ssh exec stat.
@@ -58,7 +61,9 @@ type ReadFS interface {
 	// ne sait pas canonicaliser rend ErrCannotCanonicalize.
 	Canonical(name string) (string, error)
 	VolumeID(name string) (id string, known bool, err error)
-	FileID(info fs.FileInfo) (id FileID, known bool) // toujours known=false en SFTP sans exec
+	// FileID rend l'identité au sens de Capabilities.FileIdentity ; known=false (inode nul, plateforme sans inode,
+	// SFTP sans exec) fait retomber le registre sur le seul contrôle textuel pour ce chemin.
+	FileID(info fs.FileInfo) (id FileID, known bool)
 	FreeSpace(name string) (uint64, error)
 	Paths() PathSyntax // filepath local, path (POSIX) distant
 	Capabilities(ctx context.Context) (Capabilities, error)

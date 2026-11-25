@@ -11,17 +11,16 @@ import (
 // platformAtomicReplace : rename(2) remplace atomiquement une entrée du même système de fichiers.
 const platformAtomicReplace = true
 
-// platformCapabilities : l'identité de fichier n'est annoncée que là où FilesystemKindOf sait classer un volume
-// (Linux) ; ailleurs FileID rend toujours known=false et l'annoncer ferait échouer le registre.
+// platformCapabilities : FileIdentity au sens du registre (Stat_t partout sous Unix) ; l'identité stricte est
+// ReliableFileID.
 func platformCapabilities() fsys.Capabilities {
 	isLinux := runtime.GOOS == "linux"
 	capabilities := fsys.Capabilities{
-		FileIdentity: isLinux, VolumeIdentity: true,
+		FileIdentity: true, VolumeIdentity: true,
 		Symlink: true, Hardlink: true, AtomicReplace: platformAtomicReplace, Reflink: isLinux,
 		Reasons: map[string]string{reasonKeyServerCopy: reasonLocalVolume},
 	}
 	if !isLinux {
-		capabilities.Reasons[reasonKeyFileIdentity] = reasonFilesystemUnclassified
 		capabilities.Reasons[reasonKeyReflink] = reasonUnsupportedPlatform
 	}
 	return capabilities

@@ -19,3 +19,16 @@ func SetCapabilitiesTimeoutForTest(t *testing.T, timeout time.Duration) {
 	capabilitiesTimeout = timeout
 	t.Cleanup(func() { capabilitiesTimeout = previous })
 }
+
+// IdentityUnknownReasonForTest est le code noté pour une racine ou un ancêtre sans identité connue.
+const IdentityUnknownReasonForTest = identityUnknownReason
+
+// IdentityGapsForTest charge le volume et rend les chemins de bibliothèque comparés par le texte seul.
+func IdentityGapsForTest(t *testing.T, registry *Registry, volumeName string) map[string]string {
+	t.Helper()
+	state, err := registry.volumes[volumeName].load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	return state.identityGaps
+}
