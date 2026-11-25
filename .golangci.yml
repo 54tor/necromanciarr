@@ -18,6 +18,10 @@ linters:
         # Invariant I1 : seul fsys.Registry.WriteRoot ouvre une racine d'écriture, après le contrôle des bibliothèques.
         - pattern: '^fsys\.Volume\.OpenWriteRoot$'
           msg: only fsys.Registry.WriteRoot opens a write root
+        # Même règle par le type concret du volume SFTP : un *sftpfs.Volume tenu en main ne passe pas par l'interface.
+        - pattern: '^sftpfs\.Volume\.OpenWriteRoot$'
+          pkg: '^necromanciarr/internal/fsys/sftpfs$'
+          msg: only fsys.Registry.WriteRoot opens a write root
         # Invariant I1 : hors de internal/fsys et internal/store, toute écriture disque passe par une fsys.WriteRoot
         # (doublé, dans linker, pipeline, dedupe et repair, par des tests qui interdisent l'import de os).
         - pattern: '^os\.(Link|Symlink|WriteFile|Rename|Remove|RemoveAll|Mkdir|MkdirAll|MkdirTemp|Create|CreateTemp|OpenFile|OpenRoot|Chmod|Chown|Lchown|Truncate|Chtimes|CopyFS)$'

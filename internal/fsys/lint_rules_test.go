@@ -61,6 +61,7 @@ const (
 
 var expectedForbidRules = []forbidRule{
 	{Pattern: `^fsys\.Volume\.OpenWriteRoot$`, Msg: "only fsys.Registry.WriteRoot opens a write root"},
+	{Pattern: `^sftpfs\.Volume\.OpenWriteRoot$`, Pkg: `^necromanciarr/internal/fsys/sftpfs$`, Msg: "only fsys.Registry.WriteRoot opens a write root"},
 	{Pattern: `^os\.(Link|Symlink|WriteFile|Rename|Remove|RemoveAll|Mkdir|MkdirAll|MkdirTemp|Create|CreateTemp|OpenFile|OpenRoot|Chmod|Chown|Lchown|Truncate|Chtimes|CopyFS)$`, Pkg: `^os$`, Msg: messageWrites},
 	{Pattern: `^os\.File\.(Chmod|Chown|Truncate|Write|WriteAt|WriteString|ReadFrom)$`, Pkg: `^os$`, Msg: messageWrites},
 	{Pattern: `^ioutil\.(WriteFile|TempFile|TempDir)$`, Pkg: `^io/ioutil$`, Msg: messageWrites},
