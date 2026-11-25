@@ -86,6 +86,10 @@ linters:
       - path: '^internal/fsys/sftpfs/shellquote/[^/]+_test\.go$'
         linters: [forbidigo]
         text: run external programs only from
+      # Test du script de garde : lancé par /bin/sh local avec des lignes constantes.
+      - path: '^internal/fsys/sftpfs/guard_script_test\.go$'
+        linters: [forbidigo]
+        text: run external programs only from
       # Seul point d'envoi des commandes distantes.
       - path: '^internal/fsys/sftpfs/exec\.go$'
         linters: [forbidigo]

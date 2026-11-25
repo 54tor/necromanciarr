@@ -82,6 +82,7 @@ var expectedExclusionRules = []exclusionRule{
 	{Path: `^internal/fsys/local/hardlink_unix\.go$`, Linters: forbidigoOnly, Text: "mutate the disk by system call only"},
 	{Path: `^internal/hashsource/rclone\.go$`, Linters: forbidigoOnly, Text: "run external programs only from"},
 	{Path: `^internal/fsys/sftpfs/shellquote/[^/]+_test\.go$`, Linters: forbidigoOnly, Text: "run external programs only from"},
+	{Path: `^internal/fsys/sftpfs/guard_script_test\.go$`, Linters: forbidigoOnly, Text: "run external programs only from"},
 	{Path: `^internal/fsys/sftpfs/exec\.go$`, Linters: forbidigoOnly, Text: "remote commands run only from"},
 }
 
