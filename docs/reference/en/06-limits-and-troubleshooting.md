@@ -236,8 +236,8 @@ Reason why remote commands are disabled on an `sftp` volume, in the volume capab
 |---|---|
 | `exec_off` | `exec` is `off`: no command is ever sent |
 | `exec_denied` | the server refuses exec (restricted account, `ForceCommand internal-sftp`, command guard): normal for an SFTP-only account; allow the exact lines of the configuration to benefit from it |
-| `login_shell_not_posix` | the login-shell probe did not return its exact POSIX output (fish, csh): give the account a POSIX shell (`chsh -s /bin/sh`); no other line is sent for the session |
-| `exec_probe_failed` | `stat` missing, failing or not GNU coreutils (BusyBox, BSD): unsupported, SFTP-only |
+| `login_shell_not_posix` | the login-shell probe finished without returning its exact POSIX output (fish, csh): give the account a POSIX shell (`chsh -s /bin/sh`); no other line is sent for the session |
+| `exec_probe_failed` | a probe line did not finish (timeout, oversized output, channel cut): SFTP-only for the stage, probe run again on the next stage; or `stat` missing, failing or not GNU coreutils (BusyBox, BSD): unsupported, SFTP-only |
 | `exec_program_missing` | `sha1sum` or `md5sum` missing or not GNU coreutils: remote hashes are unavailable, `stat` is still used |
 
 ### By error code

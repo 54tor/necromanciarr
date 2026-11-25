@@ -24,11 +24,11 @@ const (
 
 // AllowExecRoots ajoute des racines (dossiers de liens, racines torrent de ce volume) sous lesquelles Exec admet un
 // chemin, en plus de Deps.LibraryRoots et des racines d'écriture ouvertes par ce volume. Chaque racine doit être un
-// chemin POSIX absolu et canonique ; sinon rien n'est ajouté.
+// chemin POSIX absolu et canonique, autre que « / » (qui admettrait tout chemin) ; sinon rien n'est ajouté.
 func (volume *Volume) AllowExecRoots(roots ...string) error {
 	for _, root := range roots {
-		if !isCanonicalRemotePath(root) {
-			return fmt.Errorf("sftpfs: exec root %q: %w: canonical absolute POSIX path required", root, fs.ErrInvalid)
+		if !isAdmissibleRoot(root) {
+			return fmt.Errorf("sftpfs: exec root %q: %w: canonical absolute POSIX path other than / required", root, fs.ErrInvalid)
 		}
 	}
 	for _, root := range roots {
@@ -40,7 +40,7 @@ func (volume *Volume) AllowExecRoots(roots ...string) error {
 func (volume *Volume) allowExecRoot(root string) {
 	volume.execRootsMutex.Lock()
 	defer volume.execRootsMutex.Unlock()
-	if !slices.Contains(volume.execRoots, root) {
+	if isAdmissibleRoot(root) && !slices.Contains(volume.execRoots, root) {
 		volume.execRoots = append(volume.execRoots, root)
 	}
 }
@@ -50,7 +50,7 @@ func (volume *Volume) execRootList() []string {
 	defer volume.execRootsMutex.Unlock()
 	roots := slices.Clone(volume.execRoots)
 	for _, libraryRoot := range volume.deps.LibraryRoots {
-		if isCanonicalRemotePath(libraryRoot) {
+		if isAdmissibleRoot(libraryRoot) {
 			roots = append(roots, libraryRoot)
 		}
 	}
@@ -69,6 +69,9 @@ func (volume *Volume) admitPaths(paths []string) error {
 	}
 	return nil
 }
+
+// isAdmissibleRoot : une racine canonique autre que « / ».
+func isAdmissibleRoot(root string) bool { return isCanonicalRemotePath(root) && root != "/" }
 
 // isCanonicalRemotePath : absolu, égal à son path.Clean (donc sans « .. », « . » ni « // »), sans NUL, au plus
 // maxNameBytes octets.

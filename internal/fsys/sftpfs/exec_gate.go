@@ -20,10 +20,11 @@ const (
 	ExecReasonOff = "exec_off"
 	// ExecReasonDenied : le serveur refuse exec (compte restreint, garde de commande) ; lecture SFTP seule.
 	ExecReasonDenied = "exec_denied"
-	// ExecReasonLoginShellNotPOSIX : la sonde du shell de connexion n'a pas rendu ShellSemanticsExpected (fish, csh) :
-	// toute commande est coupée pour la session, lignes constantes comprises.
+	// ExecReasonLoginShellNotPOSIX : la sonde du shell de connexion a fini sans rendre ShellSemanticsExpected (fish,
+	// csh) : toute commande est coupée pour la session, lignes constantes comprises.
 	ExecReasonLoginShellNotPOSIX = "login_shell_not_posix"
-	// ExecReasonProbeFailed : stat --version absent, en échec ou pas GNU coreutils.
+	// ExecReasonProbeFailed : une ligne de sonde n'a pas fini (délai, sortie démesurée, canal coupé), ou stat --version
+	// est absent, en échec ou pas GNU coreutils.
 	ExecReasonProbeFailed = "exec_probe_failed"
 	// ExecReasonProgramMissing : sha1sum ou md5sum absent ou pas GNU coreutils ; stat reste permis.
 	ExecReasonProgramMissing = "exec_program_missing"
@@ -86,8 +87,10 @@ func (volume *Volume) ProbeExec(ctx context.Context) (ExecStatus, error) {
 	if volume.provider.Exec == config.SFTPExecOff {
 		return ExecStatus{Reason: ExecReasonOff}, nil
 	}
-	volume.execMutex.Lock()
-	defer volume.execMutex.Unlock()
+	if err := volume.lockExec(ctx); err != nil {
+		return ExecStatus{}, err
+	}
+	defer volume.unlockExec()
 	current, err := volume.acquire(ctx)
 	if err != nil {
 		return ExecStatus{}, err
@@ -102,37 +105,51 @@ func (volume *Volume) ProbeExec(ctx context.Context) (ExecStatus, error) {
 	return status, nil
 }
 
-// probeExecOn rend le verdict gardé par la session, ou sonde ; execMutex est tenu.
+// probeExecOn rend le verdict gardé par la session, ou sonde ; le droit d'exécuter est tenu. Un verdict passager (une
+// ligne de sonde hors délai) reste gardé pour l'étape et tombe à ResetForStage.
 func (volume *Volume) probeExecOn(ctx context.Context, current *session) (ExecStatus, error) {
 	if cached := current.execStatus.Load(); cached != nil {
 		return cloneStatus(*cached), nil
 	}
-	status, err := volume.runExecProbe(ctx, current)
+	status, transient, err := volume.runExecProbe(ctx, current)
 	if err != nil {
 		return ExecStatus{}, err
 	}
+	current.execVerdictTransient.Store(transient)
 	current.execStatus.Store(&status)
 	return cloneStatus(status), nil
 }
 
-func (volume *Volume) runExecProbe(ctx context.Context, current *session) (ExecStatus, error) {
+// forgetTransientExecVerdict oublie un verdict passager : la prochaine commande sonde à nouveau.
+func (current *session) forgetTransientExecVerdict() {
+	if current.execVerdictTransient.CompareAndSwap(true, false) {
+		current.execStatus.Store(nil)
+	}
+}
+
+// runExecProbe rend le verdict et s'il est passager (une ligne hors délai : aucun verdict sur les programmes, refait à
+// l'étape suivante, exec coupé d'ici là).
+func (volume *Volume) runExecProbe(ctx context.Context, current *session) (ExecStatus, bool, error) {
 	output, err := volume.runLine(ctx, current, shellquote.ShellSemanticsProbe, nil, maxProbeOutputBytes, probeDeadline())
 	if isConclusiveExecError(ctx, err) {
-		return ExecStatus{}, err
+		return ExecStatus{}, false, err
 	}
 	if reason := shellReason(output, err); reason != "" {
-		return ExecStatus{Reason: reason}, nil
+		return ExecStatus{Reason: reason}, errors.Is(err, ErrExecTimeout), nil
 	}
 	found := map[string]bool{}
 	for _, probe := range versionProbes {
 		output, err := volume.runLine(ctx, current, probe.line, nil, maxProbeOutputBytes, probeDeadline())
 		if isConclusiveExecError(ctx, err) {
-			return ExecStatus{}, err
+			return ExecStatus{}, false, err
+		}
+		if errors.Is(err, ErrExecTimeout) {
+			return ExecStatus{Reason: ExecReasonProbeFailed}, true, nil
 		}
 		found[probe.program] = err == nil && probe.matches(output)
 	}
 	if !found["stat"] {
-		return ExecStatus{Reason: ExecReasonProbeFailed}, nil
+		return ExecStatus{Reason: ExecReasonProbeFailed}, false, nil
 	}
 	status := ExecStatus{Enabled: true, BatchMode: found["xargs"], LowPriority: found["nice"] && found["ionice"]}
 	for _, command := range []CommandID{CommandSHA1, CommandMD5} {
@@ -141,15 +158,19 @@ func (volume *Volume) runExecProbe(ctx context.Context, current *session) (ExecS
 			status.Hashes = append(status.Hashes, algorithm.name)
 		}
 	}
-	return status, nil
+	return status, false, nil
 }
 
-// shellReason range la sonde du shell de connexion : refus d'exec, ou toute autre sortie que celle d'un shell POSIX
-// (échec compris) ; vide quand le shell est POSIX.
+// shellReason range la sonde du shell de connexion : refus d'exec ; exécution complète (code de sortie reçu) dont la
+// sortie n'est pas celle d'un shell POSIX ; ou exécution incomplète (délai, sortie démesurée, canal coupé), qui ne dit
+// rien du shell. Vide quand le shell est POSIX.
 func shellReason(output []byte, probeErr error) string {
+	isCompletedRun := probeErr == nil || errors.Is(probeErr, errExecExitStatus)
 	switch {
 	case errors.Is(probeErr, errExecRefused):
 		return ExecReasonDenied
+	case !isCompletedRun:
+		return ExecReasonProbeFailed
 	case probeErr != nil || string(output) != shellquote.ShellSemanticsExpected:
 		return ExecReasonLoginShellNotPOSIX
 	}
@@ -204,4 +225,17 @@ func (volume *Volume) withExecReason(current *session, capabilities fsys.Capabil
 	}
 	capabilities.Reasons[reasonKeyRemoteExec] = reason
 	return capabilities
+}
+
+// guardLines rend, dans l'ordre d'envoi, chaque ligne constante qu'une garde de commande distante doit autoriser
+// (« volumes commands ») : sonde du shell, sondes de version, lignes en lots, lignes d'empreinte préfixées.
+func guardLines() []string {
+	lines := []string{shellquote.ShellSemanticsProbe}
+	for _, probe := range versionProbes {
+		lines = append(lines, probe.line)
+	}
+	for _, command := range []CommandID{CommandStat, CommandSHA1, CommandMD5} {
+		lines = append(lines, commandLines[command])
+	}
+	return append(lines, lowPriorityLines[CommandSHA1], lowPriorityLines[CommandMD5])
 }

@@ -69,6 +69,8 @@ type session struct {
 	capabilities atomic.Pointer[fsys.Capabilities]
 	// execStatus : verdict de ProbeExec sur cette session, nil tant qu'aucune sonde de l'exécution distante n'a abouti.
 	execStatus atomic.Pointer[ExecStatus]
+	// execVerdictTransient : execStatus vient d'une sonde hors délai ; ResetForStage l'oublie.
+	execVerdictTransient atomic.Bool
 }
 
 func newSession(sshClient *ssh.Client, client *sftp.Client) *session {
@@ -96,8 +98,8 @@ type Volume struct {
 
 	// probe sérialise les sondes et les nettoyages de fichiers de sonde.
 	probeMutex sync.Mutex
-	// execMutex : une commande distante (ou sonde) à la fois par volume.
-	execMutex sync.Mutex
+	// execSlot : une commande distante (ou sonde) à la fois par volume ; un canal, pour que l'attente suive ctx.
+	execSlot chan struct{}
 	// execRoots : racines admises par Exec en plus de Deps.LibraryRoots (AllowExecRoots, racines d'écriture).
 	execRootsMutex sync.Mutex
 	execRoots      []string
@@ -121,7 +123,7 @@ func Dial(ctx context.Context, provider config.FSProvider, deps Deps) (*Volume, 
 	}
 	volume := &Volume{
 		provider: provider, deps: deps, providerLimiter: newProviderLimiter(provider),
-		current: current, state: StateOK, warnings: warnings,
+		current: current, state: StateOK, warnings: warnings, execSlot: make(chan struct{}, 1),
 	}
 	volume.watch(current)
 	return volume, nil
@@ -133,6 +135,7 @@ func Dial(ctx context.Context, provider config.FSProvider, deps Deps) (*Volume, 
 func NewLazy(provider config.FSProvider, deps Deps) *Volume {
 	return &Volume{
 		provider: provider, deps: deps.withDefaults(), providerLimiter: newProviderLimiter(provider), state: StateUnknown,
+		execSlot: make(chan struct{}, 1),
 	}
 }
 
@@ -172,6 +175,9 @@ func (volume *Volume) ResetForStage() {
 	volume.mutex.Lock()
 	defer volume.mutex.Unlock()
 	volume.reconnectUsed = false
+	if volume.current != nil {
+		volume.current.forgetTransientExecVerdict()
+	}
 	if volume.current == nil && !volume.closed {
 		volume.state = StateUnknown
 	}

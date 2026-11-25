@@ -912,3 +912,141 @@ func TestExec_brokenConnectionMidExecIsRemoteUnavailable(t *testing.T) {
 		t.Fatalf("valeurObtenue %+v, %v ; valeurAttendue ErrRemoteUnavailable", results, err)
 	}
 }
+
+func TestExec_refusesTheRootDirectoryAsAnExecRoot(t *testing.T) {
+	server := sftptest.Start(t, sftptest.WithExec((&fakeRemote{}).serve))
+	writeServedFile(t, server, execLibrary+"/ok.mkv", []byte("x"))
+	deps := testDeps()
+	deps.LibraryRoots = []string{"/"}
+	volume := dialVolume(t, pinnedProvider(t, server), deps)
+
+	allowErr := volume.AllowExecRoots("/")
+	_, execErr := volume.Exec(context.Background(), sftpfs.CommandStat, []string{execLibrary + "/ok.mkv"})
+
+	if allowErr == nil || !errors.Is(execErr, sftpfs.ErrExecPathOutsideRoots) || len(server.ExecSessions()) != 0 {
+		t.Fatalf("valeurObtenue %v / %v, exec %v ; valeurAttendue « / » jamais admis comme racine", allowErr, execErr, commandsSent(server))
+	}
+}
+
+// docsGuardBlock lit, dans le fichier de documentation, le bloc délimité qui contient la sonde du shell.
+func docsGuardBlock(t *testing.T, relative string) []string {
+	t.Helper()
+	directory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		content, err := os.ReadFile(filepath.Join(directory, relative))
+		if err == nil {
+			for blockIndex, block := range strings.Split(string(content), "```") {
+				if blockIndex%2 == 1 && strings.Contains(block, shellquote.ShellSemanticsProbe) {
+					return strings.Split(strings.Trim(block, "\n"), "\n")
+				}
+			}
+			t.Fatalf("%s : aucun bloc ne contient la sonde du shell", relative)
+		}
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			t.Skipf("%s introuvable depuis le dossier du test : documentation absente de cet arbre", relative)
+		}
+		directory = parent
+	}
+}
+
+func TestExec_guardLinesMatchTheDocs(t *testing.T) {
+	var valeurAttendue []string
+	for _, line := range sftpfs.GuardLines() {
+		valeurAttendue = append(valeurAttendue, strings.ReplaceAll(line, "\t", "<TAB>"))
+	}
+	if len(valeurAttendue) != 12 {
+		t.Fatalf("valeurObtenue %d lignes de garde, valeurAttendue 12", len(valeurAttendue))
+	}
+	for _, docsFile := range []string{"docs/reference/02-configuration.md", "docs/reference/en/02-configuration.md"} {
+		if valeurObtenue := docsGuardBlock(t, docsFile); !slices.Equal(valeurObtenue, valeurAttendue) {
+			t.Errorf("%s : valeurObtenue %q, valeurAttendue %q", docsFile, valeurObtenue, valeurAttendue)
+		}
+	}
+}
+
+func TestExec_shellProbeTimeoutIsAProbeFailureRetriedNextStage(t *testing.T) {
+	sftpfs.SetStatExecTimeout(t, 200*time.Millisecond)
+	server, volume := execVolume(t, &fakeRemote{}, nil, sftptest.StallExec(shellquote.ShellSemanticsProbe))
+	remotePath := writeLibraryFile(t, server, "movie.mkv", "movie bytes")
+
+	_, first := volume.Exec(context.Background(), sftpfs.CommandStat, []string{remotePath})
+	_, cached := volume.Exec(context.Background(), sftpfs.CommandStat, []string{remotePath})
+	probesBeforeReset := len(server.ExecSessions())
+	volume.ResetForStage()
+	_, retried := volume.Exec(context.Background(), sftpfs.CommandStat, []string{remotePath})
+
+	if disabledReason(first) != "exec_probe_failed" || disabledReason(cached) != "exec_probe_failed" || disabledReason(retried) != "exec_probe_failed" {
+		t.Fatalf("valeurObtenue %v / %v / %v ; valeurAttendue exec_probe_failed", first, cached, retried)
+	}
+	if probesBeforeReset != 1 || len(server.ExecSessions()) != 2 {
+		t.Fatalf("valeurObtenue %d puis %d sondes ; valeurAttendue 1 dans l'étape, une de plus après ResetForStage", probesBeforeReset, len(server.ExecSessions()))
+	}
+}
+
+func TestExec_shellProbeExitingNonZeroIsNotPOSIX(t *testing.T) {
+	remote := &fakeRemote{}
+	remote.setIntercept(func(command string, _ []byte) ([]byte, []byte, int, bool) {
+		// csh : « !x » déclenche l'historique, la commande échoue sans rien écrire.
+		return nil, []byte("!x: Event not found."), 1, command == shellquote.ShellSemanticsProbe
+	})
+	server, volume := execVolume(t, remote, nil)
+	remotePath := writeLibraryFile(t, server, "movie.mkv", "movie bytes")
+
+	_, err := volume.Exec(context.Background(), sftpfs.CommandStat, []string{remotePath})
+
+	if disabledReason(err) != "login_shell_not_posix" {
+		t.Fatalf("valeurObtenue %v, valeurAttendue login_shell_not_posix", err)
+	}
+}
+
+func TestExec_versionProbeTimeoutIsNotAMissingProgram(t *testing.T) {
+	sftpfs.SetStatExecTimeout(t, 200*time.Millisecond)
+	server, volume := execVolume(t, &fakeRemote{}, nil, sftptest.StallExec(sftpfs.ProbeLine("sha1sum")))
+	remotePath := writeLibraryFile(t, server, "movie.mkv", "movie bytes")
+
+	_, hashErr := volume.Exec(context.Background(), sftpfs.CommandSHA1, []string{remotePath})
+	_, statErr := volume.Exec(context.Background(), sftpfs.CommandStat, []string{remotePath})
+	sessionsBeforeReset := len(server.ExecSessions())
+	volume.ResetForStage()
+	_, retried := volume.Exec(context.Background(), sftpfs.CommandStat, []string{remotePath})
+
+	if disabledReason(hashErr) != "exec_probe_failed" || disabledReason(statErr) != "exec_probe_failed" || disabledReason(retried) != "exec_probe_failed" {
+		t.Fatalf("valeurObtenue %v / %v / %v ; valeurAttendue exec_probe_failed", hashErr, statErr, retried)
+	}
+	if len(batchSessions(server)) != 0 || len(server.ExecSessions()) <= sessionsBeforeReset {
+		t.Fatalf("valeurAttendue aucun lot et une nouvelle sonde après ResetForStage, valeurObtenue %q", commandsSent(server))
+	}
+}
+
+func TestExec_waitingCallerCanBeCancelled(t *testing.T) {
+	server, volume := execVolume(t, &fakeRemote{}, nil, sftptest.StallExec(sftpfs.LowPriorityLine(sftpfs.CommandSHA1)))
+	remotePath := writeLibraryFile(t, server, "movie.mkv", "movie bytes")
+	longHash, stopHash := context.WithCancel(context.Background())
+	defer stopHash()
+	hashDone := make(chan error, 1)
+	go func() {
+		_, err := volume.Exec(longHash, sftpfs.CommandSHA1, []string{remotePath})
+		hashDone <- err
+	}()
+	waitUntil(t, "lot d'empreintes en cours", func() bool {
+		batches := batchSessions(server)
+		return len(batches) == 1 && batches[0].StdinReceived
+	})
+
+	waiting, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := volume.Exec(waiting, sftpfs.CommandStat, []string{remotePath})
+
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > settleTimeout {
+		t.Fatalf("valeurObtenue %v après %v, valeurAttendue l'annulation de l'attente", err, time.Since(started))
+	}
+	stopHash()
+	if hashErr := <-hashDone; !errors.Is(hashErr, context.Canceled) {
+		t.Fatalf("lot d'empreintes : valeurObtenue %v", hashErr)
+	}
+}

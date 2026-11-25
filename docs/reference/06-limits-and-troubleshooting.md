@@ -236,8 +236,8 @@ Raison de coupure des commandes distantes d'un volume `sftp`, dans les capacité
 |---|---|
 | `exec_off` | `exec` vaut `off` : aucune commande n'est envoyée |
 | `exec_denied` | le serveur refuse exec (compte restreint, `ForceCommand internal-sftp`, garde de commande) : normal pour un compte SFTP seul ; autoriser les lignes exactes de la configuration pour en profiter |
-| `login_shell_not_posix` | la sonde du shell de connexion n'a pas rendu exactement sa sortie POSIX (fish, csh) : donner au compte un shell POSIX (`chsh -s /bin/sh`) ; aucune autre ligne n'est envoyée de la session |
-| `exec_probe_failed` | `stat` absent, en échec ou pas GNU coreutils (BusyBox, BSD) : non pris en charge, SFTP seul |
+| `login_shell_not_posix` | la sonde du shell de connexion a fini sans rendre exactement sa sortie POSIX (fish, csh) : donner au compte un shell POSIX (`chsh -s /bin/sh`) ; aucune autre ligne n'est envoyée de la session |
+| `exec_probe_failed` | une ligne de sonde n'a pas fini (délai, sortie démesurée, canal coupé) : SFTP seul pour l'étape, sonde refaite à l'étape suivante ; ou `stat` absent, en échec ou pas GNU coreutils (BusyBox, BSD) : non pris en charge, SFTP seul |
 | `exec_program_missing` | `sha1sum` ou `md5sum` absent ou pas GNU coreutils : les empreintes distantes sont indisponibles, `stat` reste utilisé |
 
 ### Par code d'erreur

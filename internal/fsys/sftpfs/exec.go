@@ -116,6 +116,8 @@ var (
 var (
 	errExecRefused    = fmt.Errorf("%w: the server refused the command", ErrExecFailed)
 	errExecIncomplete = fmt.Errorf("%w: no exit status", ErrExecFailed)
+	// errExecExitStatus : la commande a fini avec un code non nul (exécution complète).
+	errExecExitStatus = fmt.Errorf("%w: exit status", ErrExecFailed)
 	errOutputCapped   = errors.New("sftpfs: output capped")
 )
 
@@ -132,7 +134,8 @@ type ExecResult struct {
 
 // Exec lance une commande autorisée ; les chemins passent par l'entrée standard, séparés par NUL, par lots de 64, une
 // session SSH par lot, une commande à la fois par volume. Les résultats suivent l'ordre de paths. Chaque chemin est
-// admis avant tout envoi (ErrExecPathOutsideRoots) ; le premier usage d'une session la sonde (ProbeExec). La taille
+// admis avant tout envoi (ErrExecPathOutsideRoots), par comparaison de texte : l'appelant passe des chemins rendus par
+// Canonical (RealPath du serveur), jamais un chemin configuré ou reçu tel quel ; le premier usage d'une session la sonde (ProbeExec). La taille
 // de chaque stat est comparée à un Lstat SFTP. Un lot en échec fait échouer l'appel entier : jamais de résultat
 // incomplet. CommandProbe ne prend aucun chemin : il sonde la session et rend ErrExecDisabled si l'exécution distante y
 // est coupée.
@@ -156,8 +159,10 @@ func (volume *Volume) Exec(ctx context.Context, command CommandID, paths []strin
 	if len(paths) == 0 {
 		return []ExecResult{}, nil
 	}
-	volume.execMutex.Lock()
-	defer volume.execMutex.Unlock()
+	if err := volume.lockExec(ctx); err != nil {
+		return nil, err
+	}
+	defer volume.unlockExec()
 	current, status, err := volume.enabledSession(ctx, command)
 	if err != nil {
 		return nil, err
@@ -171,6 +176,19 @@ func (volume *Volume) Exec(ctx context.Context, command CommandID, paths []strin
 	}
 	return results, nil
 }
+
+// lockExec prend le droit d'exécuter (une commande à la fois par volume) ; un appelant en attente derrière un long lot
+// d'empreintes renonce à l'annulation de ctx.
+func (volume *Volume) lockExec(ctx context.Context) error {
+	select {
+	case volume.execSlot <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("sftpfs: exec on %s: %w", volume.provider.Address, ctx.Err())
+	}
+}
+
+func (volume *Volume) unlockExec() { <-volume.execSlot }
 
 // enabledSession rend la session et sa sonde quand la commande y est autorisée.
 func (volume *Volume) enabledSession(ctx context.Context, command CommandID) (*session, ExecStatus, error) {
@@ -416,7 +434,7 @@ func exitError(waitErr error) error {
 	}
 	var exited *ssh.ExitError
 	if errors.As(waitErr, &exited) {
-		return fmt.Errorf("%w: exit status %d", ErrExecFailed, exited.ExitStatus())
+		return fmt.Errorf("%w %d", errExecExitStatus, exited.ExitStatus())
 	}
 	return errExecIncomplete
 }
