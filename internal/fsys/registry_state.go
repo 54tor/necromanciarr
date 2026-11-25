@@ -32,7 +32,7 @@ type volumeState struct {
 	libraryAncestry map[FileID]bool // identités de chaque racine et de tous ses ancêtres
 }
 
-// load tient le verrou pendant le chargement : les appelants concurrents attendent le même essai au lieu de
+// load tient le verrou pendant le chargement : les appelants concurrents patientent derrière le même essai au lieu de
 // lancer chacun le leur.
 func (entry *volumeEntry) load() (*volumeState, error) {
 	entry.loadMutex.Lock()
