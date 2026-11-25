@@ -345,6 +345,7 @@ func addCapabilityFindings(ctx context.Context, collected *findings, settings co
 	}
 	capabilities, err := remote.Capabilities(ctx)
 	if err != nil {
+		collected.add(Warn, CodeCapabilityProbeFailed, reasonMessage("probe_failed"), message(i18n.KeyDoctorSFTPHintUnavailable))
 		return
 	}
 	if reason := capabilities.Reasons[remoteExecReasonKey]; reason != "" {
