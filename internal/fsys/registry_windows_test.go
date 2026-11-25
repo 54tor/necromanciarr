@@ -23,7 +23,7 @@ func TestRegistry_uncShareRootIsAParentOfItsLibrary(t *testing.T) {
 			t.Errorf("WriteRoot(%q) error = %v, want ErrWriteInLibrary", dir, err)
 		}
 	}
-	for _, dir := range []string{`\\server\share\links`, `\\server\other\media`} {
+	for _, dir := range []string{`\\server\share\links`, `\\server\archive\media`} {
 		if _, err := registry.WriteRoot(fsys.Location{Volume: "", Path: dir}); err != nil {
 			t.Errorf("WriteRoot(%q): %v", dir, err)
 		}
