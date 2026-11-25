@@ -634,8 +634,8 @@ func TestServer_recordsAnUnknownExtendedRequest(t *testing.T) {
 	}
 }
 
-// RealPath suit OpenSSH : liens des segments existants résolus, dernier segment absent permis, segment
-// intermédiaire absent refusé (SSH_FX_NO_SUCH_FILE) au lieu d'un chemin inventé.
+// RealPath suit OpenSSH : liens des segments existants résolus, dernier segment absent permis, parent absent
+// refusé (SSH_FX_NO_SUCH_FILE) au lieu d'un chemin inventé.
 func TestServer_realPathBehavesLikeOpenSSH(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks need a privilege on Windows")
