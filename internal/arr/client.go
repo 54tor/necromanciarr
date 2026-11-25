@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -58,19 +59,48 @@ type Item struct {
 	Episode int
 }
 
-// sanitizeTitle retire les caractères de contrôle (C0, C1) et de formatage (surcharges bidirectionnelles U+202E,
-// espaces de largeur nulle), puis borne le titre à maxTitleRunes.
-func sanitizeTitle(title string) string {
-	cleaned := strings.Map(func(character rune) rune {
-		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
-			return -1
-		}
-		return character
-	}, title)
-	if runes := []rune(cleaned); len(runes) > maxTitleRunes {
-		cleaned = string(runes[:maxTitleRunes])
+// maxCombiningMarks borne les marques combinantes consécutives d'un titre (texte « zalgo »).
+const maxCombiningMarks = 3
+
+var imdbIDPattern = regexp.MustCompile(`^tt\d{1,10}$`)
+
+// sanitizeIMDBID ne garde qu'un identifiant IMDb bien formé ; tout autre texte devient vide, car l'identifiant part
+// ensuite dans une requête de recherche.
+func sanitizeIMDBID(value string) string {
+	if imdbIDPattern.MatchString(value) {
+		return value
 	}
-	return strings.TrimSpace(cleaned)
+	return ""
+}
+
+// sanitizeTitle supprime les caractères de formatage (surcharges bidirectionnelles U+202E, largeur nulle) et C1,
+// remplace par une espace les autres contrôles, espaces et séparateurs (U+2028, U+2029) puis réduit les suites
+// d'espaces ; au plus maxCombiningMarks marques combinantes d'affilée ; borné à maxTitleRunes.
+func sanitizeTitle(title string) string {
+	var cleaned strings.Builder
+	marks := 0
+	for _, character := range title {
+		switch {
+		case unicode.Is(unicode.Cf, character) || (character >= 0x80 && character <= 0x9f):
+			continue
+		case unicode.IsControl(character) || unicode.IsSpace(character) || unicode.In(character, unicode.Zl, unicode.Zp, unicode.Zs):
+			character = ' '
+			marks = 0
+		case unicode.Is(unicode.Mn, character):
+			marks++
+			if marks > maxCombiningMarks {
+				continue
+			}
+		default:
+			marks = 0
+		}
+		cleaned.WriteRune(character)
+	}
+	collapsed := strings.Join(strings.Fields(cleaned.String()), " ")
+	if runes := []rune(collapsed); len(runes) > maxTitleRunes {
+		collapsed = strings.TrimSpace(string(runes[:maxTitleRunes]))
+	}
+	return collapsed
 }
 
 // Client interroge une instance Radarr ou Sonarr en lecture seule.
@@ -148,7 +178,7 @@ func (client *Client) radarrItems(ctx context.Context) ([]Item, error) {
 		}
 		items = append(items, Item{
 			Path: movie.MovieFile.Path, TMDBID: movie.TMDBID,
-			IMDBID: sanitizeTitle(movie.IMDBID), Title: sanitizeTitle(movie.Title), Year: movie.Year,
+			IMDBID: sanitizeIMDBID(movie.IMDBID), Title: sanitizeTitle(movie.Title), Year: movie.Year,
 		})
 	}
 	return items, nil
@@ -196,7 +226,7 @@ func (client *Client) sonarrItems(ctx context.Context) ([]Item, error) {
 		for _, episodeFile := range episodeFiles {
 			position := firstByFile[episodeFile.ID]
 			items = append(items, Item{
-				Path: episodeFile.Path, TVDBID: series.TVDBID, IMDBID: sanitizeTitle(series.IMDBID),
+				Path: episodeFile.Path, TVDBID: series.TVDBID, IMDBID: sanitizeIMDBID(series.IMDBID),
 				Title: sanitizeTitle(series.Title), Year: series.Year, Season: position.season, Episode: position.episode,
 			})
 		}

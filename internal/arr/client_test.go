@@ -153,7 +153,7 @@ func TestItems_sanitisesHostileTitles(t *testing.T) {
 		t.Fatalf("gotValue %+v (err %v)", items, err)
 	}
 
-	if items[0].Title != "AB[31mCDE" {
+	if items[0].Title != "A B [31mCDE" {
 		t.Fatalf("expectedValue a title without control or bidi characters, gotValue %q", items[0].Title)
 	}
 	if got := utf8.RuneCountInString(items[1].Title); got != 256 {
@@ -301,5 +301,44 @@ func TestItems_refusesAResponseBodyOverTheCap(t *testing.T) {
 
 	if !errors.Is(err, ErrResponseTooLarge) {
 		t.Fatalf("gotValue %v, expectedValue ErrResponseTooLarge", err)
+	}
+}
+
+func TestSanitizeTitle_keepsWordBoundariesAndBoundsMarks(t *testing.T) {
+	zalgo := "e" + strings.Repeat("\u0301", 50) + "x"
+	cases := map[string]string{
+		"A\nB":            "A B",
+		"A\tB":            "A B",
+		"A\u2028B\u2029C": "A B C",
+		"  A \r\n  B  ":   "A B",
+		"a\u202eb\u200bc": "abc",
+		"a\u009bb":        "ab",
+		zalgo:             "e\u0301\u0301\u0301x",
+	}
+	for input, expectedValue := range cases {
+		if gotValue := sanitizeTitle(input); gotValue != expectedValue {
+			t.Errorf("sanitizeTitle(%q): expectedValue %q, gotValue %q", input, expectedValue, gotValue)
+		}
+	}
+	long := sanitizeTitle(strings.Repeat("é", 1000))
+	if !utf8.ValidString(long) || utf8.RuneCountInString(long) != 256 {
+		t.Fatalf("expectedValue 256 valid runes, gotValue %d", utf8.RuneCountInString(long))
+	}
+}
+
+func TestSanitizeIMDBID_acceptsOnlyTTAndDigits(t *testing.T) {
+	cases := map[string]string{
+		"tt0133093":              "tt0133093",
+		"tt1&t=foo":              "",
+		strings.Repeat("x", 256): "",
+		"tt12345678901":          "",
+		"TT1":                    "",
+		"tt":                     "",
+		"tt1\n":                  "",
+	}
+	for input, expectedValue := range cases {
+		if gotValue := sanitizeIMDBID(input); gotValue != expectedValue {
+			t.Errorf("sanitizeIMDBID(%q): expectedValue %q, gotValue %q", input, expectedValue, gotValue)
+		}
 	}
 }
