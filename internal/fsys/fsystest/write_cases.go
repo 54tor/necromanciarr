@@ -3,6 +3,7 @@ package fsystest
 import (
 	"errors"
 	"io/fs"
+	"runtime"
 	"testing"
 
 	"necromanciarr/internal/fsys"
@@ -33,6 +34,11 @@ func caseWriteRootRefusesEscapes(t *testing.T, subject Subject) {
 	escapes := []string{
 		"..", "../escape", "a/../b", "a/../../escape", "",
 		subject.Volume.Paths().Join(subject.LibraryRoot, "escape"),
+	}
+	// Formes à séparateur Windows : seulement pour le volume local, "\" étant un caractère ordinaire en POSIX.
+	isWindowsLocal := runtime.GOOS == "windows" && subject.Volume.Volume() == ""
+	if isWindowsLocal {
+		escapes = append(escapes, `..\escape`, `a\..\..\escape`, `\escape`, `C:escape`)
 	}
 	for _, relative := range escapes {
 		assertEveryMethodUnconfined(t, subject, root, relative)

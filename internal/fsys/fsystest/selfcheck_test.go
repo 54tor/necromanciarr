@@ -70,7 +70,8 @@ func (root *osWriteRoot) Close() error        { return nil }
 
 // resolve confine relative à la racine : ni vide, ni absolu, ni "..", ni parent symbolique (vérifié par Lstat).
 func (root *osWriteRoot) resolve(relative string) (string, error) {
-	isEscaping := relative == "" || filepath.IsAbs(relative) || filepath.VolumeName(relative) != ""
+	isEscaping := relative == "" || filepath.IsAbs(relative) || filepath.VolumeName(relative) != "" ||
+		os.IsPathSeparator(relative[0])
 	segments := strings.FieldsFunc(relative, func(character rune) bool { return os.IsPathSeparator(uint8(character)) })
 	if isEscaping || slices.Contains(segments, "..") {
 		return "", fsys.ErrUnconfined
