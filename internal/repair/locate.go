@@ -69,8 +69,11 @@ func without(files []store.MediaFile, excludedPath string) []store.MediaFile {
 func (run *scanRun) sameInode(link store.Link, sized []store.MediaFile) []store.MediaFile {
 	var matching []store.MediaFile
 	files := run.options.files
+	targetVolume := dedupe.VolumeOf(link.TargetPath)
 	for _, candidate := range sized {
-		if !run.announcesFileIdentity(candidate.Path) {
+		// Une identité n'a de sens que sur son volume : jamais un inode local comparé à un inode distant.
+		isOtherVolume := dedupe.VolumeOf(candidate.Path) != targetVolume
+		if isOtherVolume || !run.announcesFileIdentity(candidate.Path) {
 			continue
 		}
 		info, err := files.Stat(candidate.Path)

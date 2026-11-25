@@ -92,8 +92,9 @@ func TestRepair_inodeMethodRequiresFileIdentity(t *testing.T) {
 	}
 }
 
-func TestRepair_inodeMethodAllowedWithRemoteStat(t *testing.T) {
-	place := newRemotePlace(t)
+// remoteIdentityOf rend l'identité du fichier renommé, lue par le volume distant (stat distant annoncé).
+func remoteIdentityOf(t *testing.T, place remotePlace) fsys.FileID {
+	t.Helper()
 	place.volume.FileIDKnown.Store(true)
 	place.volume.RemoteStat.Store(true)
 	info, err := place.volume.Stat(place.renamedRemotePath)
@@ -104,6 +105,31 @@ func TestRepair_inodeMethodAllowedWithRemoteStat(t *testing.T) {
 	if !known {
 		t.Skip("no inode on this platform")
 	}
+	return identity
+}
+
+// Aujourd'hui aucune réparation distante par inode n'est atteignable : un lien distant n'est jamais enregistré avec
+// InodeReliable (C5). La méthode n'est ouverte que par la capacité du volume ; la ligne est écrite comme en production.
+func TestRepair_inodeMethodAllowedWithRemoteStat(t *testing.T) {
+	place := newRemotePlace(t)
+	identity := remoteIdentityOf(t, place)
+	row := brokenRow(place.linkPath, place.volume.Location(remoteLibraryDir+"/old.mkv").String(), remoteFileSize)
+	row.Volume, row.TargetDevice, row.TargetInode = "seedbox", identity.Device, identity.Inode
+
+	repairs, _ := scanOne(t, Options{AutoApply: true, Registry: place.registry}, row, []store.MediaFile{place.renamed})
+
+	for _, repair := range repairs {
+		if repair.Method == ByInode || repair.AutoApplicable {
+			t.Fatalf("gotValue %+v, expectedValue no inode repair from a production remote row (never InodeReliable)", repairs)
+		}
+	}
+}
+
+// Ligne forgée (InodeReliable sur un lien distant, ce que la production n'écrit pas) : garde la porte pour le jour où
+// un inode distant serait enregistré.
+func TestRepair_remoteInodeMatchIsNeverAutoApplied(t *testing.T) {
+	place := newRemotePlace(t)
+	identity := remoteIdentityOf(t, place)
 	row := brokenRow(place.linkPath, place.volume.Location(remoteLibraryDir+"/old.mkv").String(), remoteFileSize)
 	row.InodeReliable, row.TargetDevice, row.TargetInode = true, identity.Device, identity.Inode
 
@@ -112,6 +138,26 @@ func TestRepair_inodeMethodAllowedWithRemoteStat(t *testing.T) {
 	isProposedByInode := len(repairs) == 1 && repairs[0].Method == ByInode && repairs[0].NewTarget == place.renamed.Path
 	if !isProposedByInode || repairs[0].AutoApplicable {
 		t.Fatalf("gotValue %+v, expectedValue the inode repair proposed, never applied automatically on a remote volume", repairs)
+	}
+}
+
+func TestRepair_inodeNeverMatchesAcrossVolumes(t *testing.T) {
+	place := newRemotePlace(t)
+	identity := remoteIdentityOf(t, place)
+	localDir := t.TempDir()
+	localLink, missingTarget := filepath.Join(localDir, "movie.mkv"), filepath.Join(localDir, "old.mkv")
+	if err := os.Symlink(missingTarget, localLink); err != nil {
+		t.Skip("symlinks unavailable on this platform")
+	}
+	row := brokenRow(localLink, missingTarget, remoteFileSize)
+	row.InodeReliable, row.TargetDevice, row.TargetInode = true, identity.Device, identity.Inode
+
+	repairs, _ := scanOne(t, Options{AutoApply: true, Registry: place.registry}, row, []store.MediaFile{place.renamed})
+
+	for _, repair := range repairs {
+		if repair.Method == ByInode {
+			t.Fatalf("gotValue %+v, expectedValue a local link identity never matched with a remote one, even with equal numbers", repairs)
+		}
 	}
 }
 
