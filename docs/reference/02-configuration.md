@@ -219,6 +219,36 @@ Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer 
 - Un dossier créé modifiable par le groupe ou les autres (umask du compte) donne l'avertissement `link_dir_world_writable`, sans échec ; les droits demandés ne sont jamais posés par chemin.
 - Une session perdue invalide la racine d'écriture : l'opération rend `remote_unavailable`, et l'étape suivante rouvre et revérifie la racine.
 
+#### Exécution distante en lecture seule
+
+SFTP ne donne ni inode, ni nombre de liens, ni empreinte calculée par le serveur. Quand `exec` le permet, le volume lance sur la même connexion SSH, dans des sessions à part, une liste fermée de commandes en lecture : `stat` (périphérique, inode, liens, taille, date) et `sha1sum`/`md5sum` (empreinte complète calculée par l'hôte). Aucune écriture, aucun lien, aucun renommage ne passe par exec : les écritures restent SFTP, dans la racine confinée.
+
+- Liste fermée : les lignes envoyées sont des constantes, construites une fois. Aucun nom de fichier n'y figure : les chemins passent sur l'entrée standard, séparés par NUL, lus par `xargs -0`, après `--`. Les sorties sont des enregistrements terminés par NUL (`--printf=…\0`, `-z`) : un nom qui contient un saut de ligne ne décale rien.
+- Lignes possibles (`<TAB>` est une tabulation) :
+
+```
+printf %s 'a'\''b\' '!x'
+'stat' '--version'
+'xargs' '--version'
+'sha1sum' '--version'
+'md5sum' '--version'
+'nice' '--version'
+'ionice' '--version'
+'xargs' '-0' '-r' 'stat' '--printf=%d<TAB>%i<TAB>%h<TAB>%s<TAB>%Y\0' '--'
+'xargs' '-0' '-r' 'sha1sum' '-z' '--'
+'xargs' '-0' '-r' 'md5sum' '-z' '--'
+'nice' '-n' '10' 'ionice' '-c3' 'xargs' '-0' '-r' 'sha1sum' '-z' '--'
+'nice' '-n' '10' 'ionice' '-c3' 'xargs' '-0' '-r' 'md5sum' '-z' '--'
+```
+
+- Shell de connexion POSIX requis : le serveur fait lire chaque ligne au shell de connexion du compte (`$SHELL -c`). La première ligne de chaque session est une sonde constante : sa sortie doit valoir exactement `a'b\!x`. Sous fish ou csh, elle diffère : toute exécution distante est coupée pour la session (`login_shell_not_posix`), y compris les lignes constantes, et le volume continue en SFTP seul.
+- Sonde : ensuite, `stat`, `sha1sum` et `md5sum` doivent être ceux de GNU coreutils, `xargs` celui de GNU findutils ; `nice` et `ionice` présents ajoutent le préfixe `nice -n 10 ionice -c3` aux empreintes, pour ne pas écraser le disque de l'hôte. Sans `xargs` GNU, chaque fichier part dans sa propre commande `stat --printf=… -- '/…'` : le chemin, absolu, est alors le seul argument externe, entre guillemets simples POSIX. Le verdict vaut pour la session.
+- Chemins admis : absolus, canoniques, sans NUL, d'au plus 4096 octets, sous une racine de bibliothèque, un dossier de liens ou une racine torrent (`dedupe.torrentRoots`) du même volume ; sinon refus avant tout envoi.
+- Bornes : 64 fichiers par commande (une liste plus longue est découpée), une commande à la fois par volume ; sortie standard plafonnée à 64 Kio pour `stat` et à 64 × (longueur du chemin + 128) octets pour les empreintes ; sortie d'erreur lue sur 4 Kio au plus et jamais recopiée (elle peut citer des chemins) : seuls le code de sortie et une raison typée remontent. Délai de 30 s par lot `stat`, `execHashTimeout` par lot d'empreintes ; au dépassement, la session reçoit `KILL` puis est fermée (un serveur OpenSSH antérieur à 7.9 ignore le signal : la fermeture du canal reste).
+- Contrôles : chaque enregistrement `stat` a exactement cinq champs numériques, et sa taille doit égaler celle que donne SFTP pour le même chemin ; chaque empreinte (hexadécimal minuscule) doit être suivie du chemin envoyé, octet pour octet, dans l'ordre d'envoi. Un enregistrement manquant, en trop ou mal formé rejette tout le lot : aucun résultat partiel.
+- `exec: auto` : sonde au premier usage ; exec refusé par le serveur (`exec_denied`) ou sonde en échec : SFTP seul, sans erreur. `exec: off` : jamais d'exec. `exec: required` : exec indisponible est une erreur.
+- Durcissement côté serveur (recommandé, non exigé) : une clé dédiée dans `authorized_keys`, avec `restrict` et une commande forcée de garde (`restrict,command="<garde>" ssh-ed25519 …`). La garde compare `SSH_ORIGINAL_COMMAND` octet pour octet aux lignes ci-dessus, lance une ligne reconnue par `/bin/sh -c` et refuse tout le reste ; elle laisse passer le sous-système SFTP. Les lignes « un fichier par commande » ne passent pas une telle garde : un hôte gardé doit avoir `xargs` GNU. Avec un compte qui ne peut que lire la bibliothèque, exec ne peut rien y écrire même si un appel échappait au code.
+
 #### Obtenir la ligne `known_hosts`
 
 L'outil ne fait jamais confiance à une clé d'hôte inconnue et n'écrit jamais dans `knownHosts`. Pour remplir le fichier sans risque :

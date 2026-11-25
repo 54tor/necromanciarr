@@ -219,6 +219,36 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 - A folder created writable by group or others (the account's umask) gives the warning `link_dir_world_writable`, never a failure; the requested permissions are never set by path.
 - A lost session invalidates the write root: the operation returns `remote_unavailable`, and the next stage reopens and re-checks the root.
 
+#### Read-only remote execution
+
+SFTP gives no inode, no link count and no hash computed by the server. When `exec` allows it, the volume runs, on the same SSH connection but in separate sessions, a closed list of read-only commands: `stat` (device, inode, links, size, date) and `sha1sum`/`md5sum` (full hash computed by the host). No write, no link and no rename ever goes through exec: writes stay SFTP, inside the confined root.
+
+- Closed list: the lines sent are constants, built once. No file name is ever in them: paths travel on standard input, NUL-separated, read by `xargs -0`, after `--`. Outputs are NUL-terminated records (`--printf=…\0`, `-z`): a name holding a newline shifts nothing.
+- Possible lines (`<TAB>` is a tab character):
+
+```
+printf %s 'a'\''b\' '!x'
+'stat' '--version'
+'xargs' '--version'
+'sha1sum' '--version'
+'md5sum' '--version'
+'nice' '--version'
+'ionice' '--version'
+'xargs' '-0' '-r' 'stat' '--printf=%d<TAB>%i<TAB>%h<TAB>%s<TAB>%Y\0' '--'
+'xargs' '-0' '-r' 'sha1sum' '-z' '--'
+'xargs' '-0' '-r' 'md5sum' '-z' '--'
+'nice' '-n' '10' 'ionice' '-c3' 'xargs' '-0' '-r' 'sha1sum' '-z' '--'
+'nice' '-n' '10' 'ionice' '-c3' 'xargs' '-0' '-r' 'md5sum' '-z' '--'
+```
+
+- POSIX login shell required: the server has each line read by the account's login shell (`$SHELL -c`). The first line of every session is a constant probe: its output must be exactly `a'b\!x`. Under fish or csh it differs: all remote execution is disabled for the session (`login_shell_not_posix`), constant lines included, and the volume carries on SFTP-only.
+- Probe: next, `stat`, `sha1sum` and `md5sum` must be GNU coreutils, `xargs` GNU findutils; `nice` and `ionice`, when present, add the `nice -n 10 ionice -c3` prefix to hashes, so the host's disk is not crushed. Without GNU `xargs`, each file goes in its own `stat --printf=… -- '/…'` command: the absolute path is then the only external argument, in POSIX single quotes. The verdict holds for the session.
+- Admitted paths: absolute, canonical, without NUL, at most 4096 bytes, under a library root, a link folder or a torrent root (`dedupe.torrentRoots`) of the same volume; otherwise refused before anything is sent.
+- Bounds: 64 files per command (a longer list is split), one command at a time per volume; standard output capped at 64 KiB for `stat` and at 64 × (path length + 128) bytes for hashes; standard error read up to 4 KiB and never echoed (it may quote paths): only the exit status and a typed reason come back. Timeout of 30 s per `stat` batch, `execHashTimeout` per hash batch; past it, the session gets `KILL` and is then closed (an OpenSSH server older than 7.9 ignores the signal: closing the channel remains).
+- Checks: every `stat` record has exactly five numeric fields, and its size must equal the one SFTP gives for the same path; every hash (lowercase hexadecimal) must be followed by the path sent, byte for byte, in the order sent. A missing, extra or malformed record rejects the whole batch: no partial result.
+- `exec: auto`: probe on first use; exec refused by the server (`exec_denied`) or a failed probe: SFTP-only, no error. `exec: off`: never any exec. `exec: required`: exec being unavailable is an error.
+- Server-side hardening (recommended, not required): a dedicated key in `authorized_keys`, with `restrict` and a forced guard command (`restrict,command="<garde>" ssh-ed25519 …`). The guard compares `SSH_ORIGINAL_COMMAND` byte for byte with the lines above, runs a recognised line through `/bin/sh -c` and refuses everything else; it lets the SFTP subsystem through. The one-file-per-command lines cannot pass such a guard: a guarded host needs GNU `xargs`. With an account that can only read the library, exec cannot write there even if a call escaped the code.
+
 #### Getting the `known_hosts` line
 
 The tool never trusts an unknown host key and never writes to `knownHosts`. To fill the file safely:

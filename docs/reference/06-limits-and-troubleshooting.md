@@ -228,6 +228,18 @@ Codes stables d'une connexion à un fournisseur `sftp`, identiques dans les deux
 | `agent_unavailable` | avertissement | `agent` est demandé mais `SSH_AUTH_SOCK` est absent ou injoignable, ou l'agent ne répond pas dans `timeout` (jamais transmis dans Docker) : la méthode est sautée, les autres sont essayées |
 | `link_dir_world_writable` | avertissement | des dossiers créés dans un dossier de liens distant sont modifiables par le groupe ou les autres (un seul avertissement par dossier de liens, avec leur nombre) : régler le umask du compte SFTP à `022` (par exemple `ForceCommand internal-sftp -u 022` côté OpenSSH) ou créer ces dossiers à l'avance ; l'opération continue |
 
+### Par raison d'exécution distante (`remoteExec`)
+
+Raison de coupure des commandes distantes d'un volume `sftp`, dans les capacités du volume (`remoteExec`) ; le volume continue en SFTP seul (lectures complètes, pas d'inode ni d'empreinte distante), sauf avec `exec: required`.
+
+| Code | Cause et action |
+|---|---|
+| `exec_off` | `exec` vaut `off` : aucune commande n'est envoyée |
+| `exec_denied` | le serveur refuse exec (compte restreint, `ForceCommand internal-sftp`, garde de commande) : normal pour un compte SFTP seul ; autoriser les lignes exactes de la configuration pour en profiter |
+| `login_shell_not_posix` | la sonde du shell de connexion n'a pas rendu exactement sa sortie POSIX (fish, csh) : donner au compte un shell POSIX (`chsh -s /bin/sh`) ; aucune autre ligne n'est envoyée de la session |
+| `exec_probe_failed` | `stat` absent, en échec ou pas GNU coreutils (BusyBox, BSD) : non pris en charge, SFTP seul |
+| `exec_program_missing` | `sha1sum` ou `md5sum` absent ou pas GNU coreutils : les empreintes distantes sont indisponibles, `stat` reste utilisé |
+
 ### Par code d'erreur
 
 | Code | Cause et action |

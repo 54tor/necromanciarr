@@ -228,6 +228,18 @@ Stable codes of a connection to an `sftp` provider, identical in both languages.
 | `agent_unavailable` | warning | `agent` is requested but `SSH_AUTH_SOCK` is missing or unreachable, or the agent does not answer within `timeout` (never forwarded in Docker): the method is skipped, the others are tried |
 | `link_dir_world_writable` | warning | folders created in a remote link folder are writable by group or others (one warning per link folder, with their count): set the SFTP account's umask to `022` (for example `ForceCommand internal-sftp -u 022` on OpenSSH) or create these folders beforehand; the operation goes on |
 
+### By remote execution reason (`remoteExec`)
+
+Reason why remote commands are disabled on an `sftp` volume, in the volume capabilities (`remoteExec`); the volume carries on SFTP-only (full reads, no inode and no remote hash), except with `exec: required`.
+
+| Code | Cause and action |
+|---|---|
+| `exec_off` | `exec` is `off`: no command is ever sent |
+| `exec_denied` | the server refuses exec (restricted account, `ForceCommand internal-sftp`, command guard): normal for an SFTP-only account; allow the exact lines of the configuration to benefit from it |
+| `login_shell_not_posix` | the login-shell probe did not return its exact POSIX output (fish, csh): give the account a POSIX shell (`chsh -s /bin/sh`); no other line is sent for the session |
+| `exec_probe_failed` | `stat` missing, failing or not GNU coreutils (BusyBox, BSD): unsupported, SFTP-only |
+| `exec_program_missing` | `sha1sum` or `md5sum` missing or not GNU coreutils: remote hashes are unavailable, `stat` is still used |
+
 ### By error code
 
 | Code | Cause and action |
