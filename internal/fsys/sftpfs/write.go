@@ -53,7 +53,8 @@ type writeRoot struct {
 // acceptée : entre le dernier contrôle et l'écriture, un acteur qui écrit déjà dans le dossier de liens peut
 // remplacer un parent par un lien ; l'écriture atterrit alors ailleurs avant d'être vue. Défense recommandée : un
 // compte SFTP sans droit d'écriture sur la bibliothèque. Un dossier qui recouvre une racine de Deps.LibraryRoots est
-// refusé avant toute requête (fsys.ErrWriteInLibrary), en plus du contrôle du registre.
+// refusé avant toute requête (fsys.ErrWriteInLibrary), en plus du contrôle du registre. Une racine ouverte devient
+// une racine admise par Exec (dossier de liens, racine torrent).
 func (volume *Volume) OpenWriteRoot(dir string) (fsys.WriteRoot, error) {
 	isCanonical := path.IsAbs(dir) && path.Clean(dir) == dir && len(dir) <= maxNameBytes && !strings.ContainsRune(dir, 0)
 	if !isCanonical {
@@ -85,6 +86,7 @@ func (volume *Volume) OpenWriteRoot(dir string) (fsys.WriteRoot, error) {
 	if err != nil {
 		return nil, mapError("openwriteroot", dir, err)
 	}
+	volume.allowExecRoot(dir)
 	return opened, nil
 }
 

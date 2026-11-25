@@ -1,7 +1,9 @@
 package sftpfs
 
 import (
+	"slices"
 	"testing"
+	"time"
 
 	"necromanciarr/internal/fsys"
 )
@@ -38,4 +40,48 @@ var IsTransportFailure = isTransportFailure
 // soit remarquée : le cas d'un envoi qui échoue juste après la coupure.
 func ClassifyOnLiveSession(volume *Volume, err error) error {
 	return volume.operationError(volume.live(), "stat", err)
+}
+
+// CommandIDs rend les identifiants de la table fermée, triés.
+func CommandIDs() []CommandID {
+	ids := make([]CommandID, 0, len(commands))
+	for id := range commands {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+// CommandArgv rend une copie de l'argv constant d'une commande de la table.
+func CommandArgv(id CommandID) []string { return slices.Clone(commands[id]) }
+
+// CommandLine rend la ligne constante d'une commande, construite à l'initialisation.
+func CommandLine(id CommandID) string { return commandLines[id] }
+
+// LowPriorityLine rend la ligne d'empreinte préfixée de nice et ionice.
+func LowPriorityLine(id CommandID) string { return lowPriorityLines[id] }
+
+// LowPriorityPrefix rend une copie de l'argv constant du préfixe nice et ionice.
+func LowPriorityPrefix() []string { return slices.Clone(lowPriorityPrefix) }
+
+// ProbeLine rend la ligne de sonde d'un programme (stat, xargs, sha1sum, md5sum, nice, ionice).
+func ProbeLine(program string) string {
+	for _, probe := range versionProbes {
+		if probe.program == program {
+			return probe.line
+		}
+	}
+	return ""
+}
+
+// FallbackLine rend la ligne « un fichier par commande » d'une commande pour un chemin.
+func FallbackLine(id CommandID, remotePath string) (string, error) {
+	return fallbackLine(id, remotePath)
+}
+
+// SetStatExecTimeout abaisse le délai d'un lot stat et d'une ligne de sonde pour un test.
+func SetStatExecTimeout(t testing.TB, timeout time.Duration) {
+	previous := statExecTimeout
+	statExecTimeout = timeout
+	t.Cleanup(func() { statExecTimeout = previous })
 }

@@ -220,10 +220,10 @@ func (volume *Volume) Capabilities(ctx context.Context) (fsys.Capabilities, erro
 	var capabilities fsys.Capabilities
 	err := volume.callSession(ctx, "capabilities", func(current *session) error {
 		if probed := current.capabilities.Load(); probed != nil {
-			capabilities = cloneCapabilities(*probed)
+			capabilities = volume.withExecReason(current, cloneCapabilities(*probed))
 			return nil
 		}
-		capabilities = unprobedCapabilities(current.client)
+		capabilities = volume.withExecReason(current, unprobedCapabilities(current.client))
 		return nil
 	})
 	if err != nil {

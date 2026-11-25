@@ -67,6 +67,8 @@ type session struct {
 	symlinkOrder atomic.Int32
 	// capabilities : résultat de ProbeCapabilities sur cette session, nil tant qu'aucune sonde n'a abouti.
 	capabilities atomic.Pointer[fsys.Capabilities]
+	// execStatus : verdict de ProbeExec sur cette session, nil tant qu'aucune sonde de l'exécution distante n'a abouti.
+	execStatus atomic.Pointer[ExecStatus]
 }
 
 func newSession(sshClient *ssh.Client, client *sftp.Client) *session {
@@ -94,6 +96,11 @@ type Volume struct {
 
 	// probe sérialise les sondes et les nettoyages de fichiers de sonde.
 	probeMutex sync.Mutex
+	// execMutex : une commande distante (ou sonde) à la fois par volume.
+	execMutex sync.Mutex
+	// execRoots : racines admises par Exec en plus de Deps.LibraryRoots (AllowExecRoots, racines d'écriture).
+	execRootsMutex sync.Mutex
+	execRoots      []string
 	// redial sérialise les reconnexions ; mutex protège les champs qui suivent.
 	redial        sync.Mutex
 	mutex         sync.Mutex
