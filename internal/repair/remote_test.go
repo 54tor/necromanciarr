@@ -92,6 +92,29 @@ func TestRepair_inodeMethodRequiresFileIdentity(t *testing.T) {
 	}
 }
 
+func TestRepair_inodeMethodAllowedWithRemoteStat(t *testing.T) {
+	place := newRemotePlace(t)
+	place.volume.FileIDKnown.Store(true)
+	place.volume.RemoteStat.Store(true)
+	info, err := place.volume.Stat(place.renamedRemotePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, known := place.volume.FileID(info)
+	if !known {
+		t.Skip("no inode on this platform")
+	}
+	row := brokenRow(place.linkPath, place.volume.Location(remoteLibraryDir+"/old.mkv").String(), remoteFileSize)
+	row.InodeReliable, row.TargetDevice, row.TargetInode = true, identity.Device, identity.Inode
+
+	repairs, _ := scanOne(t, Options{AutoApply: true, Registry: place.registry}, row, []store.MediaFile{place.renamed})
+
+	isProposedByInode := len(repairs) == 1 && repairs[0].Method == ByInode && repairs[0].NewTarget == place.renamed.Path
+	if !isProposedByInode || repairs[0].AutoApplicable {
+		t.Fatalf("gotValue %+v, expectedValue the inode repair proposed, never applied automatically on a remote volume", repairs)
+	}
+}
+
 func TestRepair_remoteFingerprintReadsGoThroughTheReadLimiter(t *testing.T) {
 	place := newRemotePlace(t)
 	row := brokenRow(place.linkPath, place.volume.Location(remoteLibraryDir+"/old.mkv").String(), remoteFileSize)

@@ -2,6 +2,7 @@ package repair
 
 import (
 	"errors"
+	"slices"
 	"sort"
 
 	"necromanciarr/internal/dedupe"
@@ -34,7 +35,10 @@ func (run *scanRun) locate(link store.Link) (located, error) {
 	if link.InodeReliable {
 		byInode := run.sameInode(link, sized)
 		if len(byInode) > 0 {
-			return located{method: ByInode, matches: paths(byInode), unique: len(byInode) == 1, autoSafe: true}, nil
+			// Un inode distant (stat par ssh exec) propose la réparation sans jamais l'appliquer d'office : il faut
+			// l'acceptation explicite de l'opérateur.
+			autoSafe := !slices.ContainsFunc(byInode, func(candidate store.MediaFile) bool { return dedupe.IsRemote(candidate.Path) })
+			return located{method: ByInode, matches: paths(byInode), unique: len(byInode) == 1, autoSafe: autoSafe}, nil
 		}
 	}
 	sameModTime := run.sameModTime(link, sized)
