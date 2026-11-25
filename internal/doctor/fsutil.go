@@ -11,24 +11,25 @@ import (
 )
 
 // registryFor rend le registre du diagnostic : celui de Deps, sinon le disque local et les racines de bibliothèque de
-// la configuration ; une racine qui ne s'y déclare pas (volume inconnu) laisse un registre en lecture seule, dont
-// toute racine d'écriture est refusée (fsys.ErrNoLibraryRoots).
+// la configuration. Il échoue fermé : si une seule racine ne se lit pas comme Location ou ne se déclare pas (volume
+// inconnu), le registre rendu ne connaît aucune racine et refuse toute racine d'écriture (fsys.ErrNoLibraryRoots).
 func (deps Deps) registryFor(settings config.Config) *fsys.Registry {
 	if deps.Registry != nil {
 		return deps.Registry
 	}
+	volumes := map[string]fsys.Volume{"": local.New()}
+	readOnly, _ := fsys.NewRegistry(volumes, nil)
 	libraryRoots := make([]fsys.Location, 0, len(settings.LibraryRoots))
 	for _, root := range settings.LibraryRoots {
 		location, err := fsys.StoredLocation(root)
 		if err != nil {
-			continue
+			return readOnly
 		}
 		libraryRoots = append(libraryRoots, location)
 	}
-	volumes := map[string]fsys.Volume{"": local.New()}
 	registry, err := fsys.NewRegistry(volumes, libraryRoots)
 	if err != nil {
-		registry, _ = fsys.NewRegistry(volumes, nil)
+		return readOnly
 	}
 	return registry
 }
