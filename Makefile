@@ -21,7 +21,7 @@ GOFUMPT_CMD ?= $(GO_RUN) tool gofumpt
 GOIMPORTS_CMD ?= $(GO_RUN) tool goimports
 DEADCODE_CMD ?= $(GO_RUN) tool deadcode
 PACKAGE_LIST_CMD ?= $(GO_RUN) list ./...
-QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode shell hadolint gitleaks actionlint docs-check ui-lint ui-test ui-audit ui-csp ui-licences
+QUALITY_TARGETS = fmt imports vet staticcheck lint test vuln sec mod deadcode shell hadolint gitleaks actionlint docs-check ui-lint ui-test ui-audit ui-csp ui-licences notices-check
 
 # Chaîne front (web/) : tout est no-op tant que web/package.json n'existe pas.
 # Quand il existe, l'absence de Node/npm fait échouer la cible avec un message explicite.
@@ -35,7 +35,7 @@ UI_GUARD = @test -f $(WEB_DIR)/package.json || { echo "web/package.json absent :
 	node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 12) ? 0 : 1)' \
 		|| { echo "Node trop ancien : version >= 22.12 requise"; exit 1; }
 
-.PHONY: ui ui-deps ui-lint ui-test ui-audit ui-csp ui-licences build cross-build docker-buildx quality hooks docker-build docker-lint site docs-check $(QUALITY_TARGETS)
+.PHONY: notices notices-check ui ui-deps ui-lint ui-test ui-audit ui-csp ui-licences build cross-build docker-buildx quality hooks docker-build docker-lint site docs-check $(QUALITY_TARGETS)
 
 build: ui
 	CGO_ENABLED=0 $(GO_RUN) build -p $(QUALITY_PARALLELISM) ./cmd/necromanciarr
@@ -158,6 +158,16 @@ ui-audit: ui-deps
 ui-licences:
 	$(UI_GUARD); \
 	node --test scripts/check-licences.test.mjs && node scripts/check-licences.mjs $(WEB_DIR)
+
+# THIRD_PARTY_NOTICES.md : licences des modules Go liés et des paquets npm embarqués (échoue hors liste d'autorisation).
+notices: ui-deps
+	$(UI_GUARD); \
+	nice -n 10 ionice -c3 node scripts/third-party-notices.mjs
+
+# Échoue si le fichier versionné n'est plus celui que produirait make notices.
+notices-check: ui-deps
+	$(UI_GUARD); \
+	nice -n 10 ionice -c3 node scripts/third-party-notices.mjs --check
 
 # La CSP du serveur interdit unsafe-eval : le bundle construit ne doit ni évaluer ni compiler de texte, et
 # index.html ne doit porter aucun script en ligne (le test Go de internal/web ne couvre que les builds présents).

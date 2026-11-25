@@ -38,6 +38,7 @@ L'image écoute sur `0.0.0.0:8787` : `serve` refuse de démarrer sans jeton d'au
 ## Documentation
 
 - Référence complète : [`docs/reference/00-index.md`](docs/reference/00-index.md) (pipeline, configuration, sécurité du seed, CLI et web, Docker, limites).
+- Licences des dépendances liées dans le binaire et l'interface : [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) (régénéré par `make notices`, livré dans l'image sous `/usr/share/doc/necromanciarr/`).
 - Contrat HTTP du fournisseur de bibliothèque : [`docs/contract/openapi.yaml`](docs/contract/openapi.yaml).
 
 ## Plateformes

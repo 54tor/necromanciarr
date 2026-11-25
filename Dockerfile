@@ -33,6 +33,8 @@ RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /out/necromanciarr ./cmd/necro
 FROM debian:trixie-20261027-slim
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /out/necromanciarr /usr/local/bin/necromanciarr
+# Attribution MIT/BSD/MPL exigée par les dépendances liées dans le binaire et le bundle web.
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/necromanciarr/
 # La base SQLite par défaut vit dans /data (clé dbPath).
 COPY --from=builder --chown=1000:1000 /data /data
 # UID/GID 1000 par défaut, surchargeables par user: au lancement pour coller aux droits de la bibliothèque.
