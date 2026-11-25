@@ -14,6 +14,8 @@ const (
 	CodeAgentUnavailable        = "agent_unavailable"
 	CodeIdentityKeyTooWeak      = "identity_key_too_weak"
 	CodeKnownHostsUnreadable    = "known_hosts_unreadable"
+	// CodeLinkDirWorldWritable : un dossier créé dans un dossier de liens est modifiable par le groupe ou les autres.
+	CodeLinkDirWorldWritable = "link_dir_world_writable"
 )
 
 // Erreurs de connexion, à tester avec errors.Is. Leurs messages ne citent que l'adresse et les chemins configurés,

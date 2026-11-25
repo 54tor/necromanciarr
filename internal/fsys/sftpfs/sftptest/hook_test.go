@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -46,5 +47,25 @@ func TestServer_exclusiveOpenNeverFollowsAFinalSymlink(t *testing.T) {
 
 	if _, err := os.Lstat(filepath.Join(server.Root, "missing-target")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("valeurObtenue %v, valeurAttendue nothing created at the symlink target", err)
+	}
+}
+
+func TestServer_withDirectoryModeGivesCreatedDirectoriesThatMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX modes")
+	}
+	server := sftptest.Start(t, sftptest.WithDirectoryMode(0o777))
+	client := connect(t, server)
+
+	if err := client.Mkdir("/open"); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(filepath.Join(server.Root, "open"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if valeurObtenue := info.Mode().Perm(); valeurObtenue != 0o777 {
+		t.Errorf("valeurObtenue %v, valeurAttendue 0777 whatever the process umask", valeurObtenue)
 	}
 }

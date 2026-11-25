@@ -55,6 +55,7 @@ type settings struct {
 	readlinkTargets     map[string]string
 	statVFSMutator      func(*sftp.StatVFS)
 	requestHooks        map[string][]func(Request)
+	directoryMode       os.FileMode
 }
 
 // AuthAttempt est un essai d'authentification reçu, dans l'ordre d'arrivée : Method vaut « publickey » (avec

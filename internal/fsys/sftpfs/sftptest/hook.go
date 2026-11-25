@@ -15,6 +15,12 @@ func OnRequest(method string, callback func(Request)) Option {
 	}
 }
 
+// WithDirectoryMode donne à chaque dossier créé par Mkdir exactement ce mode, comme un compte au umask permissif
+// (0o777 : dossiers modifiables par tous).
+func WithDirectoryMode(mode os.FileMode) Option {
+	return func(current *settings) { current.directoryMode = mode }
+}
+
 func (server *Server) runHooks(request Request) {
 	for _, callback := range server.settings.requestHooks[request.Method] {
 		callback(request)

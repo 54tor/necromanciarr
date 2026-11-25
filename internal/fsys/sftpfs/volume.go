@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -121,11 +122,21 @@ func (volume *Volume) State() string {
 	return volume.state
 }
 
-// Warnings rend les avertissements de la dernière connexion (identity_file_permissions, agent_unavailable).
+// Warnings rend les avertissements de la dernière connexion (identity_file_permissions, agent_unavailable) et des
+// racines d'écriture ouvertes depuis (link_dir_world_writable).
 func (volume *Volume) Warnings() []Warning {
 	volume.mutex.Lock()
 	defer volume.mutex.Unlock()
 	return append([]Warning(nil), volume.warnings...)
+}
+
+// addWarning ajoute un avertissement à ceux de la connexion, sans doublon ; une reconnexion les remplace.
+func (volume *Volume) addWarning(warning Warning) {
+	volume.mutex.Lock()
+	defer volume.mutex.Unlock()
+	if !slices.Contains(volume.warnings, warning) {
+		volume.warnings = append(volume.warnings, warning)
+	}
 }
 
 // ResetForStage ouvre une nouvelle étape : une reconnexion redevient autorisée.

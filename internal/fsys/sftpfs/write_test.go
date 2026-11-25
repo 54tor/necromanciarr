@@ -345,6 +345,23 @@ func TestSFTPHardlink_escapeAfterTheWriteIsReportedAndNeverRemovedByPath(t *test
 	})
 }
 
+func TestSFTPRemove_escapeDuringTheRemovalIsReported(t *testing.T) {
+	skipWithoutSymlinks(t)
+	var server *sftptest.Server
+	hook := swapOnce(t, &server, linksDir+"/a/entry", linksDir+"/a")
+	server, volume := writeVolume(t, sftptest.OnRequest("Remove", hook))
+	root := openLinksRoot(t, volume)
+	sftptest.WriteFile(t, localPathOf(server, linksDir+"/a/entry"), []byte("x"), 0o644)
+	sftptest.WriteFile(t, localPathOf(server, outsideDir+"/entry"), []byte("pre-existing"), 0o644)
+
+	err := root.Remove("a/entry")
+
+	// La course elle-même peut supprimer l'entrée extérieure (fenêtre acceptée) : elle ne doit jamais être muette.
+	if !errors.Is(err, fsys.ErrUnconfined) {
+		t.Errorf("valeurObtenue %v, valeurAttendue ErrUnconfined: an escape during a removal is reported", err)
+	}
+}
+
 func TestSFTPReplace_withoutPosixRenameRefuses(t *testing.T) {
 	server, volume := writeVolume(t, sftptest.WithoutExtension("posix-rename@openssh.com"))
 	root := openLinksRoot(t, volume)
@@ -702,6 +719,42 @@ func TestSFTPMkdirAll_refusesExistingNonDirectoryAndKeepsExistingDirectories(t *
 	}
 	if entries := outsideEntries(t, server); len(entries) != 0 {
 		t.Errorf("valeurObtenue %q, valeurAttendue nothing outside", entries)
+	}
+}
+
+func TestSFTPMkdirAll_warnsWhenTheServerCreatesWritableDirectories(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX modes")
+	}
+	_, volume := writeVolume(t, sftptest.WithDirectoryMode(0o777))
+	root := openLinksRoot(t, volume)
+
+	if err := root.MkdirAll("a/b", 0o755); err != nil {
+		t.Fatalf("valeurObtenue %v, valeurAttendue a warning, never a failure", err)
+	}
+
+	valeurAttendue := []sftpfs.Warning{
+		{Code: sftpfs.CodeLinkDirWorldWritable, Path: linksDir + "/a"},
+		{Code: sftpfs.CodeLinkDirWorldWritable, Path: linksDir + "/a/b"},
+	}
+	if valeurObtenue := volume.Warnings(); !slices.Equal(valeurObtenue, valeurAttendue) {
+		t.Errorf("valeurObtenue %+v, valeurAttendue %+v", valeurObtenue, valeurAttendue)
+	}
+}
+
+func TestSFTPMkdirAll_privateDirectoriesRaiseNoWarning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX modes")
+	}
+	_, volume := writeVolume(t, sftptest.WithDirectoryMode(0o755))
+	root := openLinksRoot(t, volume)
+
+	if err := root.MkdirAll("a", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if valeurObtenue := volume.Warnings(); len(valeurObtenue) != 0 {
+		t.Errorf("valeurObtenue %+v, valeurAttendue none", valeurObtenue)
 	}
 }
 

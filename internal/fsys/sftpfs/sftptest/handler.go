@@ -166,12 +166,24 @@ func (handler *fileHandler) applyOnTwoPaths(method, source, clientTarget string)
 	case "Rmdir", "Remove":
 		return root.Remove(source)
 	case "Mkdir":
-		return root.Mkdir(source, directoryMode)
+		return handler.mkdir(source)
 	case "Link":
 		return root.Link(source, target)
 	default:
 		return sftp.ErrSSHFxOpUnsupported
 	}
+}
+
+// mkdir crée un dossier ; avec WithDirectoryMode, son mode exact est posé, umask du processus ignoré.
+func (handler *fileHandler) mkdir(relativePath string) error {
+	root, mode := handler.server.root, handler.server.settings.directoryMode
+	if err := root.Mkdir(relativePath, directoryMode); err != nil {
+		return err
+	}
+	if mode == 0 {
+		return nil
+	}
+	return root.Chmod(relativePath, mode)
 }
 
 // symlinkRequest : pkg/sftp donne la cible brute dans Filepath et le lien, nettoyé, dans Target (ordre OpenSSH) ;

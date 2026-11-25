@@ -22,6 +22,8 @@ const (
 	extensionPosixRename = "posix-rename@openssh.com"
 	// exclusiveCreateFlags : SSH_FXF_WRITE|CREAT|EXCL ; jamais TRUNC, jamais READ, jamais un lien final suivi.
 	exclusiveCreateFlags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	// othersWriteBits : écriture du groupe ou des autres sur un dossier créé.
+	othersWriteBits fs.FileMode = 0o022
 )
 
 var _ fsys.Volume = (*Volume)(nil)
@@ -114,7 +116,7 @@ func (root *writeRoot) MkdirAll(relative string, _ fs.FileMode) error {
 		for _, segment := range segments {
 			parent := current
 			current = path.Join(current, segment)
-			if err := ensureDirectory(client, parent, current); err != nil {
+			if err := root.ensureDirectory(client, parent, current); err != nil {
 				return err
 			}
 		}
@@ -123,8 +125,10 @@ func (root *writeRoot) MkdirAll(relative string, _ fs.FileMode) error {
 }
 
 // ensureDirectory garde un dossier déjà présent ou le crée, après le RealPath de son parent ; un dossier créé par
-// ailleurs entre-temps est accepté s'il est un vrai dossier.
-func ensureDirectory(client *sftp.Client, parent, directory string) error {
+// ailleurs entre-temps est accepté s'il est un vrai dossier. Un dossier que ce Mkdir a créé modifiable par le groupe
+// ou les autres (umask du compte) donne l'avertissement link_dir_world_writable, jamais un échec : un chmod par
+// chemin suivrait un lien posé entre-temps.
+func (root *writeRoot) ensureDirectory(client *sftp.Client, parent, directory string) error {
 	err := checkPlainDirectory(client, directory)
 	if !errors.Is(err, fs.ErrNotExist) {
 		return err
@@ -133,8 +137,16 @@ func ensureDirectory(client *sftp.Client, parent, directory string) error {
 		return err
 	}
 	mkdirErr := client.Mkdir(directory)
-	if err := checkPlainDirectory(client, directory); err != nil {
+	info, err := client.Lstat(directory)
+	if err != nil {
 		return errors.Join(mkdirErr, err)
+	}
+	if err := checkDirectoryEntry(directory, info); err != nil {
+		return errors.Join(mkdirErr, err)
+	}
+	isWritableByOthers := info.Mode().Perm()&othersWriteBits != 0
+	if mkdirErr == nil && isWritableByOthers {
+		root.volume.addWarning(Warning{Code: CodeLinkDirWorldWritable, Path: directory})
 	}
 	return nil
 }
@@ -308,7 +320,8 @@ func (root *writeRoot) Replace(oldRelative, newRelative string) error {
 	})
 }
 
-// Remove supprime un fichier, un lien (jamais sa cible) ou un dossier vide ; jamais récursif.
+// Remove supprime un fichier, un lien (jamais sa cible) ou un dossier vide ; jamais récursif. Un parent détourné
+// pendant la suppression est signalé après coup (fsys.ErrUnconfined), comme pour Replace.
 func (root *writeRoot) Remove(relative string) error {
 	target, err := root.target(relative)
 	if err != nil {
@@ -318,7 +331,10 @@ func (root *writeRoot) Remove(relative string) error {
 		if err := root.checkParents(client, target); err != nil {
 			return err
 		}
-		return client.Remove(target.fullPath)
+		if err := client.Remove(target.fullPath); err != nil {
+			return err
+		}
+		return checkResolvesTo(client, target.parentPath)
 	})
 }
 
