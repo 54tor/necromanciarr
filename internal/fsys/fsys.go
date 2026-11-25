@@ -53,7 +53,8 @@ type ReadFS interface {
 	ReadDir(name string) ([]fs.DirEntry, error)
 	Readlink(name string) (string, error)
 	// Canonical rend la forme canonique d'un chemin, non relative et propre (Paths().Clean) : EvalSymlinks + Abs
-	// (+ casse repliée sous Windows) en local, RealPath puis nettoyage POSIX sans ".." à distance. Un volume qui
+	// en local, RealPath puis nettoyage POSIX sans ".." à distance. C'est la forme SUR DISQUE (casse d'origine) :
+	// elle nourrit Root et pathMappings ; le registre replie lui-même la casse pour comparer. Un volume qui
 	// ne sait pas canonicaliser rend ErrCannotCanonicalize.
 	Canonical(name string) (string, error)
 	VolumeID(name string) (id string, known bool, err error)
@@ -94,5 +95,7 @@ type WriteRoot interface {
 // Volume() ni volume imbriqué.
 type Volume interface {
 	ReadFS
+	// OpenWriteRoot reçoit le dossier canonique ; il compare l'identité du dossier ouvert à un Stat fait juste
+	// avant l'ouverture et refuse s'ils diffèrent (fenêtre TOCTOU entre Canonical et l'ouverture).
 	OpenWriteRoot(dir string) (WriteRoot, error)
 }
