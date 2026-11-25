@@ -139,7 +139,7 @@ func (root *osWriteRoot) CopyFrom(_ context.Context, source fsys.Location, relat
 	if err != nil {
 		return 0, err
 	}
-	defer sourceFile.Close()
+	defer func() { _ = sourceFile.Close() }()
 	writer, err := root.CreateExclusive(relative, 0o644)
 	if err != nil {
 		return 0, err

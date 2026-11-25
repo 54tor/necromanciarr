@@ -47,7 +47,7 @@ type NewVolume func(t *testing.T) Subject
 
 // WriteLibraryFixture pose la bibliothèque de test dans un dossier local (celui que sert le volume, y compris un
 // serveur SFTP de test) et dit si le lien symbolique a pu être posé. Sous Windows sans droit de lien symbolique,
-// le lien manque (journalisé) et seuls les cas qui le lisent sont sautés.
+// le lien manque (signalé par t.Logf) et seuls les cas qui le lisent sont sautés.
 func WriteLibraryFixture(t *testing.T, localDir string) (hasSymlink bool) {
 	t.Helper()
 	writeFixtureFile(t, filepath.Join(localDir, FixtureMovieName), FixtureMovieContent)

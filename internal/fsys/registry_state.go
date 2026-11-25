@@ -27,7 +27,7 @@ type volumeState struct {
 	libraryAncestry map[FileID]bool // identités de chaque racine et de tous ses ancêtres
 }
 
-// ponytail: une erreur de chargement reste en cache jusqu'au redémarrage ; reprise à prévoir avec la reconnexion
+// ponytail: une erreur de chargement reste en cache pour la vie du processus ; reprise à prévoir avec la reconnexion
 // des volumes cassés (C9) si elle doit rouvrir le registre.
 func (entry *volumeEntry) load() (*volumeState, error) {
 	entry.loadOnce.Do(func() { entry.state, entry.loadErr = entry.buildState() })
