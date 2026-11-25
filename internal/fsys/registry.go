@@ -10,16 +10,18 @@ import (
 var localCaseInsensitive = runtime.GOOS == "windows" || runtime.GOOS == "darwin"
 
 // Registry résout une Location vers son volume et garde, par volume, les racines de bibliothèque. Leur forme
-// canonique est calculée paresseusement, une seule fois, au premier Read ou WriteRoot du volume : un volume
-// injoignable n'empêche ni la construction ni l'usage des autres, et reste fermé (erreur rendue) pour lui seul.
-// Sûr entre goroutines.
+// canonique est calculée paresseusement au premier WriteRoot du volume et gardée seulement après succès : un
+// volume injoignable n'empêche ni la construction, ni Read, ni l'usage des autres ; ses WriteRoot échouent
+// jusqu'à ce qu'un chargement réussisse. Sûr entre goroutines.
 //
 // Le contrôle d'I1 compare deux choses : les chemins canoniques, toujours, puis les identités de fichier quand le
 // volume les fournit (Capabilities.FileIdentity ou RemoteStat), ce qui attrape les graphies qui échappent au texte
 // (casse, NFD, noms 8.3, montages liés). Risque résiduel : sans identité, un alias non résolu par Canonical passe ;
 // un alias entre deux volumes (disque local et sftp://localhost sur le même disque) n'est jamais vu (doctor
 // avertira). Fenêtre TOCTOU : entre Canonical et OpenWriteRoot, un dossier peut être remplacé ; le volume compare
-// l'identité de la racine ouverte au Stat fait juste avant (contrat de OpenWriteRoot).
+// l'identité de la racine ouverte au Stat fait juste avant (contrat de OpenWriteRoot). Un alias de la
+// bibliothèque SOUS la racine d'écriture (montage lié posé dedans après coup) n'est pas vu ici : le volume
+// revérifie l'identité à chaque opération dans sa résolution de chemin (contrat C2), doctor le signalera (C16).
 type Registry struct {
 	volumes map[string]*volumeEntry
 }
@@ -51,9 +53,6 @@ func NewRegistry(volumes map[string]Volume, libraryRoots []Location) (*Registry,
 func (registry *Registry) Read(location Location) (ReadFS, string, error) {
 	entry, err := registry.entry(location.Volume)
 	if err != nil {
-		return nil, "", err
-	}
-	if _, err := entry.load(); err != nil {
 		return nil, "", err
 	}
 	return readOnlyView{inner: entry.volume}, location.Path, nil

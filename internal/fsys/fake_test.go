@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"necromanciarr/internal/fsys"
@@ -22,7 +23,12 @@ type fakeVolume struct {
 	// sharedIDs donne à des graphies différentes une même identité (montage lié, NFD, nom 8.3).
 	sharedIDs map[string]uint64
 	statError map[string]error
-	paths     fsys.PathSyntax
+	// unknownIDs : FileID rend known=false pour ces chemins.
+	unknownIDs map[string]bool
+	paths      fsys.PathSyntax
+	// unavailable simule un volume injoignable, réparable en cours de test.
+	unavailable      atomic.Bool
+	capabilitiesFunc func(ctx context.Context) (fsys.Capabilities, error)
 
 	callsMutex     sync.Mutex
 	canonicalCalls map[string]int
@@ -56,7 +62,10 @@ func (volume *fakeVolume) VolumeID(string) (string, bool, error) { return "", fa
 func (volume *fakeVolume) FreeSpace(string) (uint64, error)      { return 0, errFake }
 func (volume *fakeVolume) Paths() fsys.PathSyntax                { return volume.paths }
 
-func (volume *fakeVolume) Capabilities(context.Context) (fsys.Capabilities, error) {
+func (volume *fakeVolume) Capabilities(ctx context.Context) (fsys.Capabilities, error) {
+	if volume.capabilitiesFunc != nil {
+		return volume.capabilitiesFunc(ctx)
+	}
 	return volume.capabilities, nil
 }
 
@@ -67,6 +76,9 @@ func (volume *fakeVolume) Canonical(name string) (string, error) {
 	}
 	volume.canonicalCalls[name]++
 	volume.callsMutex.Unlock()
+	if volume.unavailable.Load() {
+		return "", fsys.ErrRemoteUnavailable
+	}
 	return volume.canonical(name)
 }
 
@@ -86,7 +98,7 @@ func (volume *fakeVolume) Stat(name string) (fs.FileInfo, error) {
 
 func (volume *fakeVolume) FileID(info fs.FileInfo) (fsys.FileID, bool) {
 	path, isFake := info.Sys().(string)
-	if !isFake {
+	if !isFake || volume.unknownIDs[path] {
 		return fsys.FileID{}, false
 	}
 	if shared, isShared := volume.sharedIDs[path]; isShared {

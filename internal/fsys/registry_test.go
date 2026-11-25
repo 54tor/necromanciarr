@@ -1,11 +1,13 @@
 package fsys_test
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"necromanciarr/internal/fsys"
 )
@@ -170,8 +172,8 @@ func TestRegistry_buildsAndServesOtherVolumesWhenOneIsUnreachable(t *testing.T) 
 	if !errors.Is(err, fsys.ErrRemoteUnavailable) || !errors.Is(err, fsys.ErrCannotCanonicalize) {
 		t.Errorf("WriteRoot on the unreachable volume: error = %v, want ErrRemoteUnavailable", err)
 	}
-	if _, _, err := registry.Read(fsys.Location{Volume: "seedbox", Path: "/srv/media"}); !errors.Is(err, fsys.ErrRemoteUnavailable) {
-		t.Errorf("Read on the unreachable volume: error = %v, want ErrRemoteUnavailable", err)
+	if _, _, err := registry.Read(fsys.Location{Volume: "seedbox", Path: "/srv/media"}); err != nil {
+		t.Errorf("Read does not depend on loading the library roots: %v", err)
 	}
 }
 
@@ -395,5 +397,89 @@ func TestRegistry_shareRootSpellingsCompareEqual(t *testing.T) {
 	}
 	if _, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/share/links"}); err != nil {
 		t.Errorf("WriteRoot(/share/links): %v", err)
+	}
+}
+
+func TestRegistry_retriesLoadingAfterAFailure(t *testing.T) {
+	volume := newFakeVolume("seedbox")
+	volume.unavailable.Store(true)
+	registry := newTestRegistry(t, volume)
+	links := fsys.Location{Volume: "seedbox", Path: "/srv/links"}
+	if _, err := registry.WriteRoot(links); !errors.Is(err, fsys.ErrRemoteUnavailable) {
+		t.Fatalf("first WriteRoot error = %v, want ErrRemoteUnavailable", err)
+	}
+	if _, _, err := registry.Read(links); err != nil {
+		t.Errorf("Read while unreachable: %v", err)
+	}
+	volume.unavailable.Store(false)
+	if _, err := registry.WriteRoot(links); err != nil {
+		t.Errorf("WriteRoot after healing: %v", err)
+	}
+	if _, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/media/x"}); !errors.Is(err, fsys.ErrWriteInLibrary) {
+		t.Errorf("WriteRoot in library after healing: error = %v, want ErrWriteInLibrary", err)
+	}
+	if _, _, err := registry.Read(links); err != nil {
+		t.Errorf("Read after healing: %v", err)
+	}
+}
+
+func TestRegistry_concurrentCallersWhileTheVolumeHeals(t *testing.T) {
+	volume := newFakeVolume("seedbox")
+	volume.unavailable.Store(true)
+	registry := newTestRegistry(t, volume)
+	links := fsys.Location{Volume: "seedbox", Path: "/srv/links"}
+	library := fsys.Location{Volume: "seedbox", Path: "/srv/media/x"}
+	var workers sync.WaitGroup
+	for workerIndex := range 8 {
+		workers.Go(func() {
+			for iteration := range 50 {
+				if workerIndex == 0 && iteration == 25 {
+					volume.unavailable.Store(false)
+				}
+				_, _ = registry.WriteRoot(links)
+				_, _, _ = registry.Read(links)
+				if _, err := registry.WriteRoot(library); err == nil {
+					t.Errorf("worker %d iteration %d: WriteRoot in library succeeded", workerIndex, iteration)
+				}
+			}
+		})
+	}
+	workers.Wait()
+	if _, err := registry.WriteRoot(links); err != nil {
+		t.Errorf("WriteRoot after healing: %v", err)
+	}
+}
+
+func TestRegistry_capabilitiesProbeHonoursDeadline(t *testing.T) {
+	fsys.SetCapabilitiesTimeoutForTest(t, 50*time.Millisecond)
+	volume := newFakeVolume("seedbox")
+	volume.capabilitiesFunc = func(ctx context.Context) (fsys.Capabilities, error) {
+		<-ctx.Done()
+		return fsys.Capabilities{}, ctx.Err()
+	}
+	registry := newTestRegistry(t, volume)
+	result := make(chan error, 1)
+	go func() {
+		_, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/srv/links"})
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("WriteRoot error = %v, want context.DeadlineExceeded", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("WriteRoot still blocked on a hanging Capabilities probe")
+	}
+}
+
+func TestRegistry_unknownFileIDWithIdentityCapabilityIsRefused(t *testing.T) {
+	volume := newFakeVolume("seedbox")
+	volume.capabilities = fsys.Capabilities{FileIdentity: true}
+	volume.unknownIDs = map[string]bool{"/mnt": true}
+	registry := newTestRegistry(t, volume)
+	_, err := registry.WriteRoot(fsys.Location{Volume: "seedbox", Path: "/mnt/links"})
+	if !errors.Is(err, fsys.ErrCannotCanonicalize) {
+		t.Errorf("WriteRoot error = %v, want ErrCannotCanonicalize", err)
 	}
 }

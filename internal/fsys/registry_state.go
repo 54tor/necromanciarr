@@ -4,18 +4,23 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 )
 
+// capabilitiesTimeout borne la sonde des capacités faite sous le verrou de chargement : WriteRoot n'a pas de
+// contexte et un volume figé ne doit pas bloquer les autres appelants indéfiniment.
+var capabilitiesTimeout = 30 * time.Second
+
 // volumeEntry porte un volume et ses racines de bibliothèque ; l'état dérivé (formes canoniques, identités) est
-// calculé une fois, au premier usage, sous sync.Once.
+// calculé au premier usage et gardé seulement s'il a réussi : un échec n'est pas mis en cache, l'appel suivant
+// réessaie (volume revenu).
 type volumeEntry struct {
 	volume          Volume
 	rawLibraryRoots []string
 	foldCase        bool
 
-	loadOnce sync.Once
-	state    *volumeState
-	loadErr  error
+	loadMutex sync.Mutex
+	state     *volumeState
 }
 
 // volumeState est immuable une fois chargé.
@@ -27,11 +32,20 @@ type volumeState struct {
 	libraryAncestry map[FileID]bool // identités de chaque racine et de tous ses ancêtres
 }
 
-// ponytail: une erreur de chargement reste en cache pour la vie du processus ; reprise à prévoir avec la reconnexion
-// des volumes cassés (C9) si elle doit rouvrir le registre.
+// load tient le verrou pendant le chargement : les appelants concurrents attendent le même essai au lieu de
+// lancer chacun le leur.
 func (entry *volumeEntry) load() (*volumeState, error) {
-	entry.loadOnce.Do(func() { entry.state, entry.loadErr = entry.buildState() })
-	return entry.state, entry.loadErr
+	entry.loadMutex.Lock()
+	defer entry.loadMutex.Unlock()
+	if entry.state != nil {
+		return entry.state, nil
+	}
+	state, err := entry.buildState()
+	if err != nil {
+		return nil, err
+	}
+	entry.state = state
+	return state, nil
 }
 
 func (entry *volumeEntry) buildState() (*volumeState, error) {
@@ -48,8 +62,9 @@ func (entry *volumeEntry) buildState() (*volumeState, error) {
 	if len(canonicalRoots) == 0 {
 		return state, nil
 	}
-	// Pas de contexte dans WriteRoot : la sonde des capacités est bornée par le délai propre du volume.
-	capabilities, err := entry.volume.Capabilities(context.Background())
+	probeContext, cancelProbe := context.WithTimeout(context.Background(), capabilitiesTimeout)
+	defer cancelProbe()
+	capabilities, err := entry.volume.Capabilities(probeContext)
 	if err != nil {
 		return nil, err
 	}
