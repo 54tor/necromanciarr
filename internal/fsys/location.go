@@ -49,6 +49,15 @@ func (location Location) String() string {
 	return sftpScheme + location.Volume + location.Path
 }
 
+// StoredLocation relit un chemin enregistré (inventaire, liens, configuration) : une adresse sftp:// est analysée
+// par ParseLocation, un chemin local est gardé brut, sans nettoyage, pour qu'un nom de fichier inhabituel s'ouvre.
+func StoredLocation(stored string) (Location, error) {
+	if strings.HasPrefix(stored, sftpScheme) {
+		return ParseLocation(stored)
+	}
+	return Location{Path: stored}, nil
+}
+
 func checkRawLocation(raw string) error {
 	if raw == "" {
 		return invalidLocation("empty location")
