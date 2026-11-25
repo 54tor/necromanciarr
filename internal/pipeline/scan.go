@@ -31,7 +31,7 @@ type externalIDs struct {
 	tmdbID, tvdbID int
 }
 
-// runScan inventorie les racines, invalide tout candidat d'un fichier changé ou disparu, puis reporte les
+// runScan inventorie les racines (une racine distante injoignable est laissée telle quelle, remote_unavailable), invalide tout candidat d'un fichier changé ou disparu, puis reporte les
 // identifiants TMDB/TVDB de Radarr et Sonarr sur les fichiers de même chemin.
 func runScan(ctx context.Context, deps Deps) (Result, error) {
 	var result Result
@@ -40,7 +40,12 @@ func runScan(ctx context.Context, deps Deps) (Result, error) {
 		return result, err
 	}
 	for rootIndex, root := range deps.LibraryRoots {
-		if err := deps.ScanRoot(ctx, root); err != nil {
+		err := deps.ScanRoot(ctx, root)
+		if isRemoteUnavailable(err) {
+			result.count(ReasonRemoteUnavailable, 1)
+			continue
+		}
+		if err != nil {
 			return result, fmt.Errorf("scan library root %d: %w", rootIndex, err)
 		}
 	}
