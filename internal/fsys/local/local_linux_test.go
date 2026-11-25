@@ -81,3 +81,19 @@ func TestDeviceOf_readsTheDeviceOfTheFile(t *testing.T) {
 		t.Errorf("DeviceOf = %d, %v, want %d, true", gotValue, known, expectedValue)
 	}
 }
+
+func TestCapabilities_reportMissingMountRootDetection(t *testing.T) {
+	previous := mountRootDetectable
+	t.Cleanup(func() { mountRootDetectable = previous })
+	cases := map[bool]string{false: reasonStatxMountRootUnsupported, true: ""}
+	for detectable, expectedValue := range cases {
+		mountRootDetectable = func() bool { return detectable }
+		capabilities, err := New().Capabilities(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gotValue := capabilities.Reasons[reasonKeyMountRoot]; gotValue != expectedValue {
+			t.Errorf("detectable=%v: Reasons[%q] = %q, want %q", detectable, reasonKeyMountRoot, gotValue, expectedValue)
+		}
+	}
+}

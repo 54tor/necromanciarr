@@ -23,5 +23,6 @@ func platformCapabilities() fsys.Capabilities {
 	if !isLinux {
 		capabilities.Reasons[reasonKeyReflink] = reasonUnsupportedPlatform
 	}
+	recordMountRootGap(capabilities.Reasons)
 	return capabilities
 }

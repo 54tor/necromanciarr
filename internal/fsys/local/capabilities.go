@@ -6,6 +6,7 @@ const (
 	reasonKeyReflink      = "reflink"
 	reasonKeySymlink      = "symlink"
 	reasonKeyServerCopy   = "serverCopy"
+	reasonKeyMountRoot    = "mountRoot"
 
 	reasonLocalVolume             = "local_volume"
 	reasonUnsupportedPlatform     = "unsupported_platform"

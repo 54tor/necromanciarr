@@ -8,3 +8,8 @@ import "os"
 func isMountRoot(*os.Root) (bool, error) {
 	return false, nil
 }
+
+// recordMountRootGap : hors Linux, aucun montage lié du même système de fichiers n'est détecté.
+func recordMountRootGap(reasons map[string]string) {
+	reasons[reasonKeyMountRoot] = reasonUnsupportedPlatform
+}
