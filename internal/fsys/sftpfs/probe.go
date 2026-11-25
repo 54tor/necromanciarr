@@ -193,12 +193,21 @@ func (volume *Volume) probeRoot(root fsys.WriteRoot) (*writeRoot, error) {
 	if confined.volume != volume {
 		return nil, ErrNoProbeDir
 	}
-	for _, libraryRoot := range volume.deps.LibraryRoots {
-		if overlaps(confined.dir, path.Clean(libraryRoot)) {
-			return nil, fmt.Errorf("%w: sftpfs: probe directory %q", fsys.ErrWriteInLibrary, confined.dir)
-		}
+	if err := volume.refuseLibrary(confined.dir); err != nil {
+		return nil, err
 	}
 	return confined, nil
+}
+
+// refuseLibrary rend fsys.ErrWriteInLibrary pour un dossier égal à une racine de Deps.LibraryRoots, qui en contient une
+// ou qui y est contenu.
+func (volume *Volume) refuseLibrary(dir string) error {
+	for _, libraryRoot := range volume.deps.LibraryRoots {
+		if overlaps(dir, path.Clean(libraryRoot)) {
+			return fmt.Errorf("%w: sftpfs: write directory %q", fsys.ErrWriteInLibrary, dir)
+		}
+	}
+	return nil
 }
 
 func overlaps(left, right string) bool {

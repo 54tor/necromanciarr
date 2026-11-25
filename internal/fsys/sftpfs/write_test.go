@@ -980,3 +980,27 @@ func TestSFTPOpenWriteRoot_transientProbeFailureIsRetriedOnTheNextOpening(t *tes
 		t.Errorf("valeurObtenue %d symlink requests, valeurAttendue two probes and the link", valeurObtenue)
 	}
 }
+
+// Défense propre du volume, en plus du registre : une racine d'écriture qui recouvre une de ses racines de bibliothèque
+// est refusée avant toute requête (la sonde d'ordre des liens symboliques de l'ouverture écrirait sinon dedans).
+func TestSFTPOpenWriteRoot_refusesALibraryRootOfItsDepsBeforeAnyRequest(t *testing.T) {
+	server, _ := writeVolume(t)
+	deps := testDeps()
+	deps.LibraryRoots = []string{libraryDir}
+	volume := dialVolume(t, pinnedProvider(t, server), deps)
+	requestsBefore := len(server.Requests())
+
+	for _, dir := range []string{libraryDir, libraryDir + "/sub", "/"} {
+		root, err := volume.OpenWriteRoot(dir)
+		if !errors.Is(err, fsys.ErrWriteInLibrary) {
+			if root != nil {
+				_ = root.Close()
+			}
+			t.Fatalf("%s: valeurObtenue %v, valeurAttendue fsys.ErrWriteInLibrary", dir, err)
+		}
+	}
+
+	if sent := server.Requests()[requestsBefore:]; len(sent) != 0 {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue no request", sent)
+	}
+}

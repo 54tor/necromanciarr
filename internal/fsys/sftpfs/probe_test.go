@@ -90,16 +90,13 @@ func TestCapabilities_refusesARootInsideALibraryRoot(t *testing.T) {
 	deps := testDeps()
 	deps.LibraryRoots = []string{libraryDir}
 	volume := dialVolume(t, pinnedProvider(t, server), deps)
+	// Le volume refuse dès l'ouverture (C13) : aucune racine sur la bibliothèque n'atteint la sonde.
 	for _, directory := range []string{libraryDir, libraryDir + "/sub"} {
-		root, err := volume.OpenWriteRoot(directory)
-		if err != nil {
-			t.Fatalf("OpenWriteRoot(%s): %v", directory, err)
-		}
 		before := len(server.Requests())
 
-		_, err = volume.ProbeCapabilities(t.Context(), root)
+		root, err := volume.OpenWriteRoot(directory)
 
-		if !errors.Is(err, fsys.ErrWriteInLibrary) {
+		if root != nil || !errors.Is(err, fsys.ErrWriteInLibrary) {
 			t.Errorf("%s: valeurObtenue %v, valeurAttendue ErrWriteInLibrary", directory, err)
 		}
 		if requests := server.Requests()[before:]; len(requests) != 0 {
