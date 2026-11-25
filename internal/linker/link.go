@@ -109,21 +109,6 @@ func CreateLinkInRoot(root fsys.WriteRoot, kind Kind, source, relative string) e
 	return systemApplier().createInRoot(root, kind, source, relative)
 }
 
-// CreateLinkUnder ouvre la racine d'écriture root par registry (refus d'une racine qui recouvre la bibliothèque)
-// puis y crée le lien destination comme CreateLinkInRoot.
-func CreateLinkUnder(registry *fsys.Registry, kind Kind, source string, destination, root fsys.Location) error {
-	relative, err := relativeUnder(root, destination)
-	if err != nil {
-		return err
-	}
-	writeRoot, err := registry.WriteRoot(root)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = writeRoot.Close() }()
-	return CreateLinkInRoot(writeRoot, kind, source, relative)
-}
-
 func (linkApplier applier) createInRoot(root fsys.WriteRoot, kind Kind, source, relative string) error {
 	relative = slashRelative(root.Root(), relative)
 	maker := &directoryMaker{}

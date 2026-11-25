@@ -135,6 +135,7 @@
       "link_dir_unresolved": "Link directory not resolved",
       "link_dir_in_library": "Link directory inside the library",
       "link_probe_failed": "Link probe failed",
+      "library_root_unavailable": "Library root missing or not mounted",
       "link_kinds_ok": "Link kinds available",
       "link_kind_fallback": "Link kind fallback",
       "link_kinds_refused": "Link kinds refused",

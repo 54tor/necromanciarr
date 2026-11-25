@@ -135,6 +135,7 @@
       "link_dir_unresolved": "Dossier de liens introuvable",
       "link_dir_in_library": "Dossier de liens dans la bibliothèque",
       "link_probe_failed": "Essai de lien échoué",
+      "library_root_unavailable": "Racine de bibliothèque absente ou non montée",
       "link_kinds_ok": "Types de liens disponibles",
       "link_kind_fallback": "Type de lien de repli",
       "link_kinds_refused": "Types de liens refusés",
