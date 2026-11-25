@@ -75,3 +75,30 @@ func TestScan_remoteLibraryFilesGetTheirArrIDsThroughThePathMapping(t *testing.T
 		t.Fatalf("valeurObtenue %+v and TMDB %d, valeurAttendue the remote file identified as 603", result, stored.TMDBID)
 	}
 }
+
+// Une coupure après deux inventaires ne doit rien effacer : lignes et identifiants restent.
+func TestScan_remoteOutageKeepsTheExistingRemoteRows(t *testing.T) {
+	deps, mediaStore, volume, _ := newRemoteScanDeps(t)
+	remoteFile := "sftp://" + remoteVolumeName + remoteLibraryPath + "/Film (1999)/film.mkv"
+	writeScanFile(t, volume.LocalPath(remoteLibraryPath+"/Film (1999)/film.mkv"))
+	writeScanFile(t, volume.LocalPath(remoteLibraryPath+"/Other (2001)/other.mkv"))
+	deps.Mapper = linker.NewMapper([]config.PathRule{{From: "sftp://" + remoteVolumeName + remoteLibraryPath, To: "/movies"}})
+	deps.ArrSources = []ItemsSource{fakeArr{items: []arr.Item{{Path: "/movies/Film (1999)/film.mkv", TMDBID: 603}}}}
+	for range 2 {
+		if _, err := Run(context.Background(), StageScan, deps); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rowsBefore := mediaFilesByPath(t, mediaStore)
+
+	volume.Unavailable.Store(true)
+	result, err := Run(context.Background(), StageScan, deps)
+
+	rowsAfter := mediaFilesByPath(t, mediaStore)
+	if err != nil || result.Reasons[ReasonRemoteUnavailable] != 1 || result.Reasons[ReasonMissingFileRemoved] != 0 {
+		t.Fatalf("valeurObtenue %+v err %v, valeurAttendue remote_unavailable and nothing removed", result, err)
+	}
+	if len(rowsAfter) != len(rowsBefore) || len(rowsBefore) != 2 || rowsAfter[remoteFile].TMDBID != 603 {
+		t.Fatalf("valeurObtenue %d rows (TMDB %d), valeurAttendue the 2 rows kept with TMDB 603", len(rowsAfter), rowsAfter[remoteFile].TMDBID)
+	}
+}

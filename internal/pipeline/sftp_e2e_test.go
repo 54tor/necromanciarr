@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -79,7 +80,8 @@ func isUnderRoot(name, root string) bool {
 }
 
 // requestViolations rend chaque requête qui écrit sous libraryRoot, lit la bibliothèque autrement qu'en lecture
-// seule, porte une méthode interdite ou une méthode que la classification ne connaît pas.
+// seule, porte une méthode interdite, une requête étendue que pkg/sftp ne sert pas (aucune n'est classée) ou une
+// méthode que la classification ne connaît pas.
 func requestViolations(requests []sftptest.Request, libraryRoot string) []string {
 	var violations []string
 	for _, request := range requests {
@@ -91,12 +93,64 @@ func requestViolations(requests []sftptest.Request, libraryRoot string) []string
 			violations = append(violations, fmt.Sprintf("write %+v", request))
 		case request.Method == "Get" && isUnderRoot(request.Path, libraryRoot) && request.Flags != sftptest.FlagRead:
 			violations = append(violations, fmt.Sprintf("open flags %+v", request))
+		case strings.HasPrefix(request.Method, sftptest.ExtendedMethodPrefix):
+			violations = append(violations, fmt.Sprintf("unclassified-extended %+v", request))
 		case !isWrite && !slices.Contains(sftpReadMethods, request.Method):
 			violations = append(violations, fmt.Sprintf("unclassified %+v", request))
 		}
 	}
 	return violations
 }
+
+// followsLinks : Setstat et une ouverture non exclusive suivent, côté serveur, un lien symbolique final et écrivent
+// dans le fichier d'un lien dur ; leur chemin seul ne dit donc pas quel fichier elles touchent.
+func followsLinks(request sftptest.Request) bool {
+	isOpen := request.Method == "Put" || request.Method == "Open"
+	return request.Method == "Setstat" || (isOpen && request.Flags&sftptest.FlagExclusive == 0)
+}
+
+// maxVirtualLinks borne la résolution des liens symboliques sous la racine servie, comme sftptest.
+const maxVirtualLinks = 40
+
+// resolveOnServer suit les liens symboliques du dernier segment comme le serveur : une cible qui commence par « / » repart de la
+// racine servie (les dossiers parents du test sont de vrais dossiers).
+func (world *sftpWorld) resolveOnServer(remotePath string) string {
+	current := remotePath
+	for range maxVirtualLinks {
+		target, err := os.Readlink(world.serverPath(current))
+		if err != nil {
+			return world.serverPath(current)
+		}
+		if !path.IsAbs(target) {
+			target = path.Join(path.Dir(current), target)
+		}
+		current = target
+	}
+	return world.serverPath(current)
+}
+
+// inodeViolations rend chaque écriture qui suit les liens et touche, côté serveur, une entrée de la bibliothèque
+// (même fichier qu'une entrée de library), ou dont l'entrée a disparu sans porter un nom d'outil (sonde, temporaire).
+func (world *sftpWorld) inodeViolations(requests []sftptest.Request, library map[string]treeEntry) []string {
+	var violations []string
+	for _, request := range requests {
+		if !followsLinks(request) {
+			continue
+		}
+		info, err := os.Stat(world.resolveOnServer(request.Path))
+		isToolEntry := strings.Contains(path.Base(request.Path), toolEntryMarker)
+		switch {
+		case err != nil && !isToolEntry:
+			violations = append(violations, fmt.Sprintf("unverifiable %+v", request))
+		case err == nil && slices.ContainsFunc(slices.Collect(maps.Values(library)), func(entry treeEntry) bool { return os.SameFile(entry.info, info) }):
+			violations = append(violations, fmt.Sprintf("library inode %+v", request))
+		}
+	}
+	return violations
+}
+
+// toolEntryMarker : les sondes et temporaires de l'outil portent « .necromanciarr- » dans leur nom.
+const toolEntryMarker = ".necromanciarr-"
 
 func countWrites(requests []sftptest.Request) int {
 	writes := 0
@@ -121,6 +175,8 @@ type sftpWorld struct {
 	annexHash    string
 	brokenLink   store.Link
 	localLibrary string
+	// preferredKinds est l'ordre des sortes de liens de Link (vide : hardlink, le linkType par défaut).
+	preferredKinds []linker.Kind
 }
 
 func (world *sftpWorld) serverPath(remotePath string) string {
@@ -141,12 +197,12 @@ func probeEveryRoot(volume *sftpfs.Volume) func(fsys.WriteRoot) error {
 	}
 }
 
-func newSFTPWorld(t *testing.T) *sftpWorld {
+func newSFTPWorld(t *testing.T, options ...sftptest.Option) *sftpWorld {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("the served tree needs symlinks planted on a Unix host")
 	}
-	server := sftptest.Start(t)
+	server := sftptest.Start(t, options...)
 	world := &sftpWorld{applyFixture: newApplyFixture(t), server: server}
 	for _, dir := range []string{sftpLibraryDir, sftpLinkDir, sftpTorrentDir, sftpRepairDir} {
 		sftptest.Mkdir(t, world.serverPath(dir))
@@ -342,6 +398,9 @@ func (world *sftpWorld) link(t *testing.T) (Result, error) {
 	}
 	world.accept(world.annexProposal().ID)
 	world.linkKinds = []linker.Kind{linker.Hardlink}
+	if len(world.preferredKinds) > 0 {
+		world.linkKinds = world.preferredKinds
+	}
 	return Run(t.Context(), StageLink, world.stageDeps())
 }
 
@@ -373,15 +432,22 @@ func (world *sftpWorld) force(t *testing.T) (Result, error) {
 	return Result{}, nil
 }
 
+// planDedupe planifie le remplacement du doublon de /torrents par un lien vers la bibliothèque.
+func (world *sftpWorld) planDedupe(t *testing.T, dryRun bool) ([]dedupe.Replacement, dedupe.Options, error) {
+	t.Helper()
+	library := []store.MediaFile{{Path: sftpStored(sftpLibraryDir + "/duplicate.mkv"), Size: movieSize, ModTime: agedLibraryTime}}
+	options := dedupe.Options{
+		Kinds: []linker.Kind{linker.Hardlink}, TorrentRoots: []string{sftpStored(sftpTorrentDir)}, Recorder: world.store,
+		Registry: world.registry, DryRun: dryRun,
+	}
+	replacements, err := dedupe.Plan(t.Context(), options.TorrentRoots, library, options)
+	return replacements, options, err
+}
+
 func (world *sftpWorld) dedupe(dryRun bool) func(t *testing.T) (Result, error) {
 	return func(t *testing.T) (Result, error) {
 		t.Helper()
-		library := []store.MediaFile{{Path: sftpStored(sftpLibraryDir + "/duplicate.mkv"), Size: movieSize, ModTime: agedLibraryTime}}
-		options := dedupe.Options{
-			Kinds: []linker.Kind{linker.Hardlink}, TorrentRoots: []string{sftpStored(sftpTorrentDir)}, Recorder: world.store,
-			Registry: world.registry, DryRun: dryRun,
-		}
-		replacements, err := dedupe.Plan(t.Context(), options.TorrentRoots, library, options)
+		replacements, options, err := world.planDedupe(t, dryRun)
 		if err != nil || len(replacements) != 1 || replacements[0].Kind == 0 {
 			return Result{}, fmt.Errorf("plan: gotValue %+v %w, expectedValue one applicable replacement", replacements, err)
 		}
@@ -456,8 +522,34 @@ func TestSFTP_noWriteRequestUnderLibraryRoot_endToEnd(t *testing.T) {
 
 	world.runEveryPhase(t)
 
+	world.assertLibraryUntouched(t, before)
+}
+
+// Link par lien symbolique d'abord : la garde d'ordre des arguments passe par Link ; le texte de la cible désigne la
+// bibliothèque (côté lecture), le lien créé reste sous /links.
+func TestSFTP_noWriteRequestUnderLibraryRoot_endToEndWithSymlinkLinks(t *testing.T) {
+	world := newSFTPWorld(t)
+	world.preferredKinds = []linker.Kind{linker.Symlink, linker.Hardlink}
+	before := snapshotTree(t, world.localLibrary)
+
+	world.runEveryPhase(t)
+
+	symlinkIntoLibrary := func(request sftptest.Request) bool {
+		return request.Method == "Symlink" && isUnderRoot(request.Path, sftpLinkDir) && isUnderRoot(request.Target, sftpLibraryDir)
+	}
+	if !slices.ContainsFunc(world.server.Requests(), symlinkIntoLibrary) {
+		t.Fatal("expectedValue Link to create symbolic links under /links that point into the library")
+	}
+	world.assertLibraryUntouched(t, before)
+}
+
+func (world *sftpWorld) assertLibraryUntouched(t *testing.T, before map[string]treeEntry) {
+	t.Helper()
 	if violations := requestViolations(world.server.Requests(), world.canonicalLibraryRoot(t)); len(violations) != 0 {
 		t.Fatalf("expectedValue no write request under the library, gotValue %v", violations)
+	}
+	if violations := world.inodeViolations(world.server.Requests(), before); len(violations) != 0 {
+		t.Fatalf("expectedValue no write through a library inode, gotValue %v", violations)
 	}
 	if differences := treeDifferences(before, snapshotTree(t, world.localLibrary)); len(differences) != 0 {
 		t.Fatalf("expectedValue the library tree unchanged, gotValue changes in %v", differences)
@@ -551,7 +643,7 @@ func TestSFTP_noWriteRequestUnderLibraryRoot_checksTheCanonicalRootBySegments(t 
 // TestSFTP_noWriteRequestUnderLibraryRoot_failsWhenAStageDidNotRun : une étape remplacée par une étape vide doit faire
 // échouer la preuve, sinon le test de bout en bout pourrait passer sans rien exercer.
 func TestSFTP_noWriteRequestUnderLibraryRoot_failsWhenAStageDidNotRun(t *testing.T) {
-	for _, skipped := range []string{"scan", "match", "verify", "link", "seed"} {
+	for _, skipped := range []string{"scan", "match", "verify", "link", "seed", "force", "dedupe dry-run", "dedupe", "repair", "doctor"} {
 		t.Run(skipped, func(t *testing.T) {
 			world := newSFTPWorld(t)
 			steps := world.phases()
@@ -593,5 +685,134 @@ func TestSFTP_endToEndSeedsWithClientRecheck(t *testing.T) {
 	guarded := slices.Sorted(slices.Values(world.client.guardCalls))
 	if valeurAttendue := slices.Sorted(slices.Values([]string{world.hardHash, world.softHash})); !slices.Equal(guarded, valeurAttendue) {
 		t.Fatalf("valeurObtenue rechecks %v, valeurAttendue the two full torrents rechecked by the client", guarded)
+	}
+}
+
+// writesOutsideProbes rend les écritures qui ne sont pas une entrée de sonde directement sous dir.
+func writesOutsideProbes(requests []sftptest.Request, dir string) []sftptest.Request {
+	var outside []sftptest.Request
+	for _, request := range requests {
+		writtenPaths, isWrite := sftpWrittenPaths[request.Method]
+		if !isWrite {
+			continue
+		}
+		for _, written := range writtenPaths(request) {
+			isProbeEntry := path.Dir(written) == dir && strings.HasPrefix(path.Base(written), ".necromanciarr-probe-")
+			if !isProbeEntry {
+				outside = append(outside, request)
+				break
+			}
+		}
+	}
+	return outside
+}
+
+// Une session neuve (aucun Link avant) : le plan sonde d'abord le dossier torrent, puis lit le remplacement atomique
+// prouvé ; seules les entrées de sonde y sont écrites.
+func TestSFTP_freshSessionDedupePlanProbesBeforeReadingAtomicReplace(t *testing.T) {
+	world := newSFTPWorld(t)
+
+	replacements, _, err := world.planDedupe(t, true)
+
+	if err != nil || len(replacements) != 1 || replacements[0].Kind == 0 {
+		t.Fatalf("valeurObtenue %+v %v, valeurAttendue one applicable replacement on a fresh session", replacements, err)
+	}
+	if outside := writesOutsideProbes(world.server.Requests(), sftpTorrentDir); len(outside) != 0 {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue only probe entries written in %s", outside, sftpTorrentDir)
+	}
+}
+
+func TestSFTP_freshSessionDedupePlanWithoutPosixRenameIsTruthfullyRefused(t *testing.T) {
+	world := newSFTPWorld(t, sftptest.WithoutExtension("posix-rename@openssh.com"))
+
+	replacements, _, err := world.planDedupe(t, true)
+
+	if err != nil || len(replacements) != 1 || !errors.Is(replacements[0].Reason, fsys.ErrNoAtomicReplace) {
+		t.Fatalf("valeurObtenue %+v %v, valeurAttendue the replacement refused with fsys.ErrNoAtomicReplace", replacements, err)
+	}
+	if !slices.ContainsFunc(world.server.Requests(), func(request sftptest.Request) bool { return request.Method == "StatVFS" }) {
+		t.Fatal("valeurAttendue the volume probed before the refusal")
+	}
+}
+
+var errProbeRefused = errors.New("probe refused")
+
+// Une sonde en échec se dit telle quelle : le refus ne prétend jamais que le serveur manque de posix-rename.
+func TestSFTP_freshSessionDedupePlanReportsAFailedProbeAsSuch(t *testing.T) {
+	world := newSFTPWorld(t)
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"": local.New(), sftpVolumeName: world.volume},
+		[]fsys.Location{{Volume: sftpVolumeName, Path: sftpLibraryDir}},
+		fsys.WithWriteRootCheck(sftpVolumeName, func(fsys.WriteRoot) error { return errProbeRefused }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	world.registry = registry
+
+	replacements, _, err := world.planDedupe(t, true)
+
+	if err != nil || len(replacements) != 1 {
+		t.Fatalf("valeurObtenue %+v %v, valeurAttendue one replacement", replacements, err)
+	}
+	reason := replacements[0].Reason
+	if replacements[0].Kind != 0 || !errors.Is(reason, errProbeRefused) || errors.Is(reason, fsys.ErrNoAtomicReplace) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue the probe failure, never fsys.ErrNoAtomicReplace", reason)
+	}
+}
+
+// Un lien dur de la bibliothèque sous /links, et un lien symbolique planté vers elle : une ouverture en écriture ou un
+// Setstat par ces chemins écrirait la bibliothèque sans que leur chemin soit dessous.
+func TestSFTP_noWriteRequestUnderLibraryRoot_flagsWritesThroughLibraryInodes(t *testing.T) {
+	world := newSFTPWorld(t)
+	before := snapshotTree(t, world.localLibrary)
+	if err := world.runPhases(t, world.phases()[:4]); err != nil {
+		t.Fatal(err)
+	}
+	hardlinkPath := world.linkPathOf(t, world.hardHash)
+	if err := os.Symlink(sftpLibraryDir+"/soft.mkv", world.serverPath(sftpLinkDir+"/planted-link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	writes := []sftptest.Request{
+		{Method: "Put", Path: hardlinkPath, Flags: sftptest.FlagWrite | sftptest.FlagTruncate},
+		{Method: "Setstat", Path: sftpLinkDir + "/planted-link"},
+		{Method: "Open", Path: sftpLinkDir + "/vanished.mkv", Flags: sftptest.FlagRead | sftptest.FlagWrite},
+		{Method: "Put", Path: hardlinkPath, Flags: sftptest.FlagWrite | sftptest.FlagCreate | sftptest.FlagExclusive},
+	}
+
+	valeurObtenue := world.inodeViolations(writes, before)
+
+	valeurAttendue := []string{"library inode", "library inode", "unverifiable"}
+	if len(valeurObtenue) != len(valeurAttendue) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue %v (the exclusive create, which never follows, is not flagged)", valeurObtenue, valeurAttendue)
+	}
+	for violationIndex, prefix := range valeurAttendue {
+		if !strings.HasPrefix(valeurObtenue[violationIndex], prefix) {
+			t.Fatalf("valeurObtenue %v, valeurAttendue %v", valeurObtenue, valeurAttendue)
+		}
+	}
+}
+
+// linkPathOf rend le chemin, vu par le serveur, du lien du film de ce torrent.
+func (world *sftpWorld) linkPathOf(t *testing.T, infohash string) string {
+	t.Helper()
+	for _, link := range world.linksOf() {
+		if strings.Contains(link.LinkPath, infohash) && strings.HasSuffix(link.LinkPath, ".mkv") {
+			location, err := fsys.StoredLocation(link.LinkPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return location.Path
+		}
+	}
+	t.Fatalf("no recorded link for %s", infohash)
+	return ""
+}
+
+func TestSFTP_requestViolations_refusesUnknownExtendedRequests(t *testing.T) {
+	unknown := []sftptest.Request{{Method: sftptest.ExtendedMethodPrefix + "fsync@openssh.com"}}
+
+	valeurObtenue := requestViolations(unknown, sftpLibraryDir)
+
+	if len(valeurObtenue) != 1 || !strings.HasPrefix(valeurObtenue[0], "unclassified-extended") {
+		t.Fatalf("valeurObtenue %v, valeurAttendue the unknown extended request refused as unclassified-extended", valeurObtenue)
 	}
 }
