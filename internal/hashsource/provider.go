@@ -140,7 +140,7 @@ func (registry Registry) CachedHashAlgorithms(ctx context.Context, cache Capabil
 		}
 		for _, mount := range provider.spec.Mounts {
 			probe := func(probeCtx context.Context) (Capabilities, error) {
-				return ProbeCapabilities(probeCtx, provider.source, findSampleFile(probeCtx, mount.LocalPath), "")
+				return ProbeCapabilities(probeCtx, provider.source, findSampleFile(probeCtx, mount.LocalPath), "", nil)
 			}
 			capabilities, err := CachedCapabilities(ctx, cache, provider.spec.Name, mount.LocalPath, probe)
 			if ctx.Err() != nil {

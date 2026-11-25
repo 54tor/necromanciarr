@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/i18n"
 )
 
@@ -26,13 +27,14 @@ var (
 )
 
 // DescribeOptions complète DescribeMountWith. SamplePath vide : un fichier est cherché sous le montage. WritableDir
-// vide : les symlinks ne sont pas sondés.
+// vide : les symlinks ne sont pas sondés ; sinon Registry ouvre ce dossier (nil : sonde refusée).
 type DescribeOptions struct {
 	RCURL       string
 	Binary      string
 	Timeout     time.Duration
 	SamplePath  string
 	WritableDir string
+	Registry    *fsys.Registry
 }
 
 // MountReport résume ce qu'on sait d'un montage, pour le contrôle `rclone` de doctor.
@@ -76,7 +78,7 @@ func DescribeMountWith(ctx context.Context, mount Mount, options DescribeOptions
 	if samplePath == "" {
 		samplePath = findSampleFile(ctx, mount.LocalPath)
 	}
-	capabilities, err := ProbeCapabilities(ctx, source, samplePath, options.WritableDir)
+	capabilities, err := ProbeCapabilities(ctx, source, samplePath, options.WritableDir, options.Registry)
 	report.Advice = append(report.Advice, adviceFor(err, capabilities, options.WritableDir != "")...)
 	if err != nil {
 		return report

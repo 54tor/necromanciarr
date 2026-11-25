@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/fsystest"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/store"
 )
@@ -48,7 +50,7 @@ func TestCapabilities_detectedByProbeNotByBackendName(t *testing.T) {
 	source := &scriptedSource{available: map[Algorithm]string{SHA1: sha1Value}}
 	sample := sampleFile(t, time.Unix(1700000000, 0))
 
-	gotValue, err := ProbeCapabilities(context.Background(), source, sample, t.TempDir())
+	gotValue, err := ProbeCapabilities(context.Background(), source, sample, t.TempDir(), fsystest.LocalRegistry(t, filepath.Dir(sample)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +62,7 @@ func TestCapabilities_detectedByProbeNotByBackendName(t *testing.T) {
 func TestCapabilities_modTimeUnknownWithoutWritableDirectory(t *testing.T) {
 	source := &scriptedSource{available: map[Algorithm]string{MD5: md5Value}}
 
-	gotValue, err := ProbeCapabilities(context.Background(), source, sampleFile(t, time.Unix(1700000000, 0)), "")
+	gotValue, err := ProbeCapabilities(context.Background(), source, sampleFile(t, time.Unix(1700000000, 0)), "", nil)
 
 	if err != nil || gotValue.ModTime || gotValue.Symlinks {
 		t.Fatalf("got %+v %v", gotValue, err)
@@ -79,11 +81,11 @@ func TestProbeModTime_roundTripOnARealDirectoryAndNoLeftover(t *testing.T) {
 }
 
 func TestCapabilities_unknownWithoutSampleAndPropagatesSourceErrors(t *testing.T) {
-	if _, err := ProbeCapabilities(context.Background(), &scriptedSource{}, "", ""); !errors.Is(err, ErrNoSampleFile) {
+	if _, err := ProbeCapabilities(context.Background(), &scriptedSource{}, "", "", nil); !errors.Is(err, ErrNoSampleFile) {
 		t.Fatalf("got %v", err)
 	}
 	failing := &scriptedSource{err: ErrRcloneFailed}
-	if _, err := ProbeCapabilities(context.Background(), failing, sampleFile(t, time.Now()), ""); !errors.Is(err, ErrRcloneFailed) {
+	if _, err := ProbeCapabilities(context.Background(), failing, sampleFile(t, time.Now()), "", nil); !errors.Is(err, ErrRcloneFailed) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -97,8 +99,9 @@ func TestCachedCapabilities_probesOnceThenReadsTheStore(t *testing.T) {
 	source := &scriptedSource{available: map[Algorithm]string{MD5: md5Value}}
 	sample := sampleFile(t, time.Unix(1700000000, 0))
 	writable := t.TempDir()
+	registry := fsystest.LocalRegistry(t, filepath.Dir(sample))
 	probe := func(ctx context.Context) (Capabilities, error) {
-		return ProbeCapabilities(ctx, source, sample, writable)
+		return ProbeCapabilities(ctx, source, sample, writable, registry)
 	}
 
 	first, err := CachedCapabilities(context.Background(), testStore, "remote", "/home/u/mnt/remote", probe)
@@ -188,7 +191,7 @@ func TestDescribeMount_explainsMissingHash(t *testing.T) {
 	fake := newFakeRclone(t, "", 0)
 
 	report := DescribeMountWith(context.Background(), Mount{LocalPath: mountDirectory, Remote: "remote:bucket"},
-		DescribeOptions{Binary: fake.binary, WritableDir: t.TempDir()})
+		DescribeOptions{Binary: fake.binary, WritableDir: t.TempDir(), Registry: fsystest.LocalRegistry(t, mountDirectory)})
 
 	if report.Mode != ModeBinary || !report.BinaryFound || !report.Probed || len(report.Capabilities.Hashes) != 0 || !report.SymlinksKnown {
 		t.Fatalf("unexpected report %+v", report)
@@ -266,5 +269,15 @@ func TestProbeModTime_falseWhenTheStorageKeepsUploadTime(t *testing.T) {
 
 	if err != nil || gotValue {
 		t.Fatalf("got %v %v", gotValue, err)
+	}
+}
+
+func TestProbeCapabilities_refusesTheWritableProbeWithoutRegistry(t *testing.T) {
+	source := &scriptedSource{available: map[Algorithm]string{MD5: md5Value}}
+
+	_, err := ProbeCapabilities(context.Background(), source, sampleFile(t, time.Unix(1700000000, 0)), t.TempDir(), nil)
+
+	if !errors.Is(err, fsys.ErrNoLibraryRoots) {
+		t.Fatalf("expectedValue fsys.ErrNoLibraryRoots, gotValue %v", err)
 	}
 }

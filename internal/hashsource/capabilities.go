@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"necromanciarr/internal/fsys"
-	localfs "necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
 )
@@ -30,9 +29,10 @@ func (capabilities Capabilities) Supports(algorithm Algorithm) bool {
 }
 
 // ProbeCapabilities demande à source chaque algorithme de AllAlgorithms pour samplePath (un petit fichier réel du
-// montage), lit sa date de modification et, si writableDir n'est pas vide, essaie un symlink dans ce dossier
-// (linker.ProbeDirectory y crée puis supprime des entrées d'essai, jamais dans un dossier qui contient samplePath).
-func ProbeCapabilities(ctx context.Context, source HashSource, samplePath, writableDir string) (Capabilities, error) {
+// montage), lit sa date de modification et, si writableDir n'est pas vide, essaie un symlink dans ce dossier, ouvert
+// par registry (linker.ProbeDirectory y crée puis supprime des entrées d'essai) ; registry nil refuse cette sonde
+// (fsys.ErrNoLibraryRoots), la lecture des empreintes n'en a pas besoin.
+func ProbeCapabilities(ctx context.Context, source HashSource, samplePath, writableDir string, registry *fsys.Registry) (Capabilities, error) {
 	if samplePath == "" {
 		return Capabilities{}, ErrNoSampleFile
 	}
@@ -50,7 +50,7 @@ func ProbeCapabilities(ctx context.Context, source HashSource, samplePath, writa
 		return Capabilities{}, err
 	}
 	if writableDir != "" {
-		probed, err := probeWritableDir(samplePath, writableDir)
+		probed, err := probeWritableDir(registry, writableDir)
 		if err != nil {
 			return Capabilities{}, err
 		}
@@ -63,12 +63,10 @@ func ProbeCapabilities(ctx context.Context, source HashSource, samplePath, writa
 	return capabilities, nil
 }
 
-// probeWritableDir ouvre writableDir par un registre dont la bibliothèque est le fichier d'essai du montage : un
-// dossier qui le contient est refusé, rien n'est écrit à côté de ce qu'on lit.
-func probeWritableDir(samplePath, writableDir string) (linker.Capabilities, error) {
-	registry, err := localfs.NewRegistry(samplePath)
-	if err != nil {
-		return linker.Capabilities{}, err
+// probeWritableDir n'ouvre writableDir que par le registre, qui refuse un dossier recouvrant la bibliothèque.
+func probeWritableDir(registry *fsys.Registry, writableDir string) (linker.Capabilities, error) {
+	if registry == nil {
+		return linker.Capabilities{}, fsys.ErrNoLibraryRoots
 	}
 	return linker.ProbeDirectory(registry, fsys.Location{Path: writableDir})
 }
