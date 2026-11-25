@@ -21,7 +21,7 @@ function vueFilesUnder(directory: string): string[] {
   })
 }
 
-const appVueFiles = vueFilesUnder('src').filter((path) => !path.startsWith('src/components/ui/'))
+const appVueFiles = vueFilesUnder('src')
 
 describe('raw-text lint applies to every file', () => {
   it('has no exception list left', () => {
@@ -71,7 +71,7 @@ describe('raw-text lint applies to every file', () => {
 
 const SCRIPT_FILES = vueFilesUnder('src')
   .concat(tsFilesUnder('src'))
-  .filter((path) => !path.startsWith('src/components/ui/') && !path.startsWith('src/test/'))
+  .filter((path) => !path.startsWith('src/test/'))
 
 function tsFilesUnder(directory: string): string[] {
   return readdirSync(`${webRoot}${directory}`, { withFileTypes: true }).flatMap((entry) => {

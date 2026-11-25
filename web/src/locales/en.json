@@ -223,6 +223,7 @@
   },
   "dialog": {
     "cancel": "Cancel",
+    "close": "Close",
     "items": "Affected items ({count})",
     "confirmPhrase": "Type “{phrase}” to confirm"
   },

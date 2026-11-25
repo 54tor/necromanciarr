@@ -16,7 +16,7 @@ export default tseslint.config(
   {
     // Aucun texte d'interface en dur : tout passe par src/locales/{fr,en}.json (plugin vue-i18n).
     files: ['src/**/*.vue', 'src/**/*.ts'],
-    ignores: ['src/**/*.spec.ts', 'src/test/**', 'src/components/ui/**'],
+    ignores: ['src/**/*.spec.ts', 'src/test/**'],
     plugins: { '@intlify/vue-i18n': pluginVueI18n },
     settings: {
       'vue-i18n': { localeDir: './src/locales/*.json', messageSyntaxVersion: '^11.0.0' },

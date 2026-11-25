@@ -223,6 +223,7 @@
   },
   "dialog": {
     "cancel": "Annuler",
+    "close": "Fermer",
     "items": "Éléments concernés ({count})",
     "confirmPhrase": "Saisissez « {phrase} » pour confirmer"
   },
