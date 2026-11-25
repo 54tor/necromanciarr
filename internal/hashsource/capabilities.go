@@ -3,8 +3,10 @@ package hashsource
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
 	"os"
 	"slices"
+	"strconv"
 	"time"
 
 	"necromanciarr/internal/fsys"
@@ -55,7 +57,7 @@ func ProbeCapabilities(ctx context.Context, source HashSource, samplePath, writa
 			return Capabilities{}, err
 		}
 		capabilities.Symlinks = probed.Symlink
-		capabilities.ModTime, err = probeModTime(writableDir)
+		capabilities.ModTime, err = probeModTime(registry, writableDir)
 		if err != nil {
 			return Capabilities{}, err
 		}
@@ -111,31 +113,60 @@ func toStored(providerName, mountPath string, capabilities Capabilities) store.M
 	return stored
 }
 
-// probeModTime crée une entrée d'essai, lui fixe une date ancienne puis la relit : un stockage qui garde l'heure
-// d'envoi (backend mega classique) ne la restitue pas. Sans dossier inscriptible la date reste inconnue (false).
-func probeModTime(directory string) (bool, error) {
-	probeFile, err := os.CreateTemp(directory, ".necromanciarr-probe-mtime-")
+// probeModTime crée une entrée d'essai dans la racine d'écriture de directory (ouverte par le registre), lui fixe une
+// date ancienne puis la relit : un stockage qui garde l'heure d'envoi (backend mega classique) ne la restitue pas. Une
+// racine sans réglage des dates (fsys.TimesSetter) ou qui le refuse laisse la date inconnue (false).
+func probeModTime(registry *fsys.Registry, directory string) (bool, error) {
+	if registry == nil {
+		return false, fsys.ErrNoLibraryRoots
+	}
+	root, err := registry.WriteRoot(fsys.Location{Path: directory})
 	if err != nil {
 		return false, err
 	}
-	probePath := probeFile.Name()
-	defer func() { _ = os.Remove(probePath) }()
-	if err := probeFile.Close(); err != nil {
+	defer func() { _ = root.Close() }()
+	probeName, err := createProbeEntry(root)
+	if err != nil {
 		return false, err
 	}
+	defer func() { _ = root.Remove(probeName) }()
 	oldTime := time.Unix(probeModTimeSeconds, 0)
-	if err := setModTime(probePath, oldTime, oldTime); err != nil {
+	if err := setModTime(root, probeName, oldTime, oldTime); err != nil {
 		return false, nil //nolint:nilerr // un montage qui refuse Chtimes n'a pas de date réglable
 	}
-	info, err := os.Stat(probePath)
+	info, err := root.Lstat(probeName)
 	if err != nil {
 		return false, err
 	}
 	return info.ModTime().Unix() == probeModTimeSeconds, nil
 }
 
+// probeEntryPrefix nomme l'entrée d'essai ; un suffixe aléatoire de 64 bits évite la collision entre deux sondes.
+const probeEntryPrefix = ".necromanciarr-probe-mtime-"
+
+func createProbeEntry(root fsys.WriteRoot) (string, error) {
+	probeName := probeEntryPrefix + strconv.FormatUint(rand.Uint64(), 36) // #nosec G404 -- nom d'essai, pas un secret
+	probeFile, err := root.CreateExclusive(probeName, 0o600)
+	if err != nil {
+		return "", err
+	}
+	if err := probeFile.Close(); err != nil {
+		return "", errors.Join(err, root.Remove(probeName))
+	}
+	return probeName, nil
+}
+
+// setTimesIn fixe les dates par l'option de la racine ; sans elle, le réglage est refusé.
+func setTimesIn(root fsys.WriteRoot, relative string, accessTime, modTime time.Time) error {
+	setter, supported := root.(fsys.TimesSetter)
+	if !supported {
+		return errors.ErrUnsupported
+	}
+	return setter.Chtimes(relative, accessTime, modTime)
+}
+
 // probeModTimeSeconds : 2001-09-09, loin de toute heure d'envoi plausible.
 const probeModTimeSeconds = 1000000000
 
 // setModTime est remplaçable dans les tests pour simuler un stockage qui garde l'heure d'envoi.
-var setModTime = os.Chtimes
+var setModTime = setTimesIn

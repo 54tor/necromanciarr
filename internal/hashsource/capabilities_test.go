@@ -72,7 +72,7 @@ func TestCapabilities_modTimeUnknownWithoutWritableDirectory(t *testing.T) {
 func TestProbeModTime_roundTripOnARealDirectoryAndNoLeftover(t *testing.T) {
 	directory := t.TempDir()
 
-	gotValue, err := probeModTime(directory)
+	gotValue, err := probeModTime(fsystest.LocalRegistry(t, t.TempDir()), directory)
 
 	entries, _ := os.ReadDir(directory)
 	if err != nil || !gotValue || len(entries) != 0 {
@@ -263,9 +263,9 @@ func TestConfirmer_comparesHashesCaseInsensitively(t *testing.T) {
 func TestProbeModTime_falseWhenTheStorageKeepsUploadTime(t *testing.T) {
 	original := setModTime
 	t.Cleanup(func() { setModTime = original })
-	setModTime = func(string, time.Time, time.Time) error { return nil }
+	setModTime = func(fsys.WriteRoot, string, time.Time, time.Time) error { return nil }
 
-	gotValue, err := probeModTime(t.TempDir())
+	gotValue, err := probeModTime(fsystest.LocalRegistry(t, t.TempDir()), t.TempDir())
 
 	if err != nil || gotValue {
 		t.Fatalf("got %v %v", gotValue, err)
