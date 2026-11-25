@@ -20,12 +20,24 @@ linters:
           msg: only fsys.Registry.WriteRoot opens a write root
         # Invariant I1 : hors de internal/fsys et internal/store, toute écriture disque passe par une fsys.WriteRoot
         # (doublé, dans linker, pipeline, dedupe et repair, par des tests qui interdisent l'import de os).
-        - pattern: '^os\.(Link|Symlink|WriteFile|Rename|Remove|RemoveAll|Mkdir|MkdirAll|MkdirTemp|Create|CreateTemp|OpenFile|OpenRoot|Chmod|Chown|Lchown|Truncate|Chtimes)$'
+        - pattern: '^os\.(Link|Symlink|WriteFile|Rename|Remove|RemoveAll|Mkdir|MkdirAll|MkdirTemp|Create|CreateTemp|OpenFile|OpenRoot|Chmod|Chown|Lchown|Truncate|Chtimes|CopyFS)$'
+          pkg: '^os$'
+          msg: write to disk only through fsys.WriteRoot (fsys.Registry.WriteRoot)
+        # Méthodes d'écriture d'un *os.File : un fichier ouvert ailleurs ne doit pas servir de porte dérobée.
+        - pattern: '^os\.File\.(Chmod|Chown|Truncate|Write|WriteAt|WriteString|ReadFrom)$'
           pkg: '^os$'
           msg: write to disk only through fsys.WriteRoot (fsys.Registry.WriteRoot)
         - pattern: '^ioutil\.(WriteFile|TempFile|TempDir)$'
           pkg: '^io/ioutil$'
           msg: write to disk only through fsys.WriteRoot (fsys.Registry.WriteRoot)
+        # Appels système qui modifient le disque : seul le volume local les emploie (hardlink confiné).
+        - pattern: '^(syscall|unix)\.(Unlink|Unlinkat|Rename|Renameat|Renameat2|Link|Linkat|Symlink|Symlinkat|Mkdir|Mkdirat|Rmdir|Chmod|Fchmod|Fchmodat|Chown|Fchown|Truncate|Ftruncate|Utimes|UtimesNano|UtimesNanoAt|Creat)$'
+          pkg: '^(syscall|golang\.org/x/sys/unix)$'
+          msg: mutate the disk by system call only inside internal/fsys/local
+        # Un programme externe pourrait écrire n'importe où : seul le client rclone en lance un.
+        - pattern: '^exec\.(Command|CommandContext)$'
+          pkg: '^os/exec$'
+          msg: run external programs only from internal/hashsource/rclone.go
         # La clé d'hôte SSH est toujours vérifiée (knownHosts) : aucune exception, tests compris.
         - pattern: '^ssh\.InsecureIgnoreHostKey$'
           pkg: '^golang\.org/x/crypto/ssh$'
@@ -37,8 +49,9 @@ linters:
           msg: remote commands run only from internal/fsys/sftpfs/exec.go
   exclusions:
     rules:
-      # Les volumes implémentent les écritures ; la base SQLite écrit son propre fichier.
-      - path: '^internal/(fsys|store)/'
+      # Le volume local et l'outillage de test des volumes implémentent les écritures ; la base SQLite écrit son
+      # propre fichier.
+      - path: '^internal/(fsys/(local|fsystest)|store)/'
         linters: [forbidigo]
         text: write to disk only through
       # Tests qui posent leurs fixtures sur le disque, paquet par paquet (liste explicite, jamais internal/**).
@@ -53,6 +66,14 @@ linters:
       - path: '^internal/pipeline/registry_test\.go$'
         linters: [forbidigo]
         text: only fsys.Registry.WriteRoot
+      # Hardlink confiné du volume local (linkat depuis le handle du parent).
+      - path: '^internal/fsys/local/hardlink_unix\.go$'
+        linters: [forbidigo]
+        text: mutate the disk by system call only
+      # Client rclone : seul lanceur de programme externe (lecture d'empreintes).
+      - path: '^internal/hashsource/rclone\.go$'
+        linters: [forbidigo]
+        text: run external programs only from
       # Seul point d'envoi des commandes distantes.
       - path: '^internal/fsys/sftpfs/exec\.go$'
         linters: [forbidigo]
