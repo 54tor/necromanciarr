@@ -464,6 +464,10 @@ func TestDoctor_sftpExecReportsFallback(t *testing.T) {
 			outcome := world.run(t, "sftp-exec:seedbox")
 
 			text := renderedText(t, outcome)
+			announcesWorkingExec := strings.Contains(text, "remote commands available")
+			if announcesWorkingExec && !strings.HasPrefix(scenario.expectedCode, "ok/exec_ok") {
+				t.Fatalf("valeurObtenue %q, valeurAttendue no « remote commands available » when the probe failed", text)
+			}
 			if codeAndStatus(outcome) != scenario.expectedCode || !strings.Contains(text, scenario.expectedText) {
 				t.Fatalf("valeurObtenue %s %q, valeurAttendue %s containing %q", codeAndStatus(outcome), text, scenario.expectedCode, scenario.expectedText)
 			}
@@ -608,6 +612,9 @@ func TestDoctor_redactsSFTPSecrets(t *testing.T) {
 		"key that cannot be used": func(t *testing.T, provider *config.FSProvider) {
 			provider.IdentityFile = filepath.Join(t.TempDir(), "id_junk")
 			sftptest.WriteFile(t, provider.IdentityFile, []byte("-----BEGIN OPENSSH PRIVATE KEY-----\n"+keyMarker+"\n"), 0o600)
+			provider.Password, provider.IdentityPassphrase = password, passphrase
+		},
+		"working connection": func(_ *testing.T, provider *config.FSProvider) {
 			provider.Password, provider.IdentityPassphrase = password, passphrase
 		},
 		"refused password": func(_ *testing.T, provider *config.FSProvider) {

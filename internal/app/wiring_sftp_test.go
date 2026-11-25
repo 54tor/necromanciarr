@@ -404,7 +404,8 @@ func TestDoctor_keepsTheConnectionOfARunningStage(t *testing.T) {
 
 	_, err = New(deps).Doctor(context.Background(), DoctorOptions{CheckIDs: []string{"sftp:" + seedboxName}})
 
-	if open := server.OpenConnections(); err != nil || open != 1 {
-		t.Fatalf("valeurObtenue %d open connections, err %v, valeurAttendue the running stage's connection kept", open, err)
+	volume := closer.(*sftpVolumes).volumes[seedboxName]
+	if state := volume.State(); err != nil || state != sftpfs.StateOK {
+		t.Fatalf("valeurObtenue state %q, err %v, valeurAttendue %q: the running stage's session is kept", state, err, sftpfs.StateOK)
 	}
 }
