@@ -58,6 +58,9 @@ func (handler *fileHandler) admit(request Request, requestContext context.Contex
 	if extension, found := extensionOfMethod[request.Method]; found && server.settings.hiddenExtensions[extension] {
 		return sftp.ErrSSHFxOpUnsupported
 	}
+	if server.takeFailure(request.Method) {
+		return errTransientFailure
+	}
 	return nil
 }
 

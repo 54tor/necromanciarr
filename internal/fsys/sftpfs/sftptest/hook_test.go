@@ -69,3 +69,16 @@ func TestServer_withDirectoryModeGivesCreatedDirectoriesThatMode(t *testing.T) {
 		t.Errorf("valeurObtenue %v, valeurAttendue 0777 whatever the process umask", valeurObtenue)
 	}
 }
+
+func TestServer_failMethodRefusesOnlyTheFirstRequests(t *testing.T) {
+	skipSymlinksOnWindows(t)
+	server := sftptest.Start(t, sftptest.FailMethod("Symlink", 1))
+	client := connect(t, server)
+
+	firstErr := client.Symlink("/target", "/first")
+	secondErr := client.Symlink("/target", "/second")
+
+	if firstErr == nil || secondErr != nil {
+		t.Errorf("valeurObtenue %v then %v, valeurAttendue one failure then success", firstErr, secondErr)
+	}
+}

@@ -1,6 +1,7 @@
 package sftptest
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,4 +48,23 @@ func ReplaceWithSymlink(t testing.TB, localPath, target string) {
 	if err := os.Symlink(target, localPath); err != nil {
 		t.Errorf("symlink %s: %v", filepath.Base(localPath), err)
 	}
+}
+
+// FailMethod fait échouer les times premières requêtes de cette méthode (SSH_FX_FAILURE, « no space left on
+// device »), enregistrées quand même : un refus passager du serveur (quota, disque plein).
+func FailMethod(method string, times int) Option {
+	return func(current *settings) { current.failures[method] = times }
+}
+
+var errTransientFailure = errors.New("sftptest: no space left on device")
+
+// takeFailure consomme un échec programmé de method ; faux quand il n'en reste plus.
+func (server *Server) takeFailure(method string) bool {
+	server.mutex.Lock()
+	defer server.mutex.Unlock()
+	if server.settings.failures[method] <= 0 {
+		return false
+	}
+	server.settings.failures[method]--
+	return true
 }

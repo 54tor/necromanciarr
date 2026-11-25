@@ -23,7 +23,7 @@ const (
 	probeRandomSize = 16
 )
 
-// probeSymlinkOrder sonde une fois par session, dans dir (racine dont le RealPath vient d'être vérifié), l'ordre
+// probeSymlinkOrder sonde, jusqu'à un verdict gardé par la session, dans dir (racine dont le RealPath vient d'être vérifié), l'ordre
 // des arguments : lien et cible sont deux noms absolus imprévisibles de dir, si bien que les deux ordres restent
 // dans la racine. Le lien doit se lire au nom demandé avec la cible demandée. Les deux noms sont retirés ensuite :
 // ce sont des entrées que cette sonde vient de créer dans la racine.
@@ -37,24 +37,32 @@ func probeSymlinkOrder(current *session, dir string) (bool, error) {
 	}
 	linkPath := path.Join(dir, probeNamePrefix+hex.EncodeToString(random))
 	targetPath := linkPath + probeTargetTail
-	isVerified := probeSymlink(current.client, linkPath, targetPath)
+	verdict := probeSymlink(current.client, linkPath, targetPath)
 	if err := removeProbeEntries(current.client, linkPath, targetPath); err != nil {
 		return false, err
 	}
-	verdict := symlinkOrderRefused
-	if isVerified {
-		verdict = symlinkOrderVerified
+	if verdict != symlinkOrderUnknown {
+		current.symlinkOrder.Store(verdict)
 	}
-	current.symlinkOrder.Store(verdict)
-	return isVerified, nil
+	return verdict == symlinkOrderVerified, nil
 }
 
-func probeSymlink(client *sftp.Client, linkPath, targetPath string) bool {
+// probeSymlink rend Verified quand le lien se lit au nom demandé avec la cible demandée, Refused quand il est absent
+// ou mène ailleurs (ordre inverse), Unknown sur un échec passager (Symlink refusé, quota, disque plein ; ReadLink en
+// échec autre qu'une absence) : la sonde sera refaite à la prochaine ouverture, les liens restant refusés d'ici là.
+func probeSymlink(client *sftp.Client, linkPath, targetPath string) int32 {
 	if err := client.Symlink(targetPath, linkPath); err != nil {
-		return false
+		return symlinkOrderUnknown
 	}
 	applied, err := client.ReadLink(linkPath)
-	return err == nil && applied == targetPath
+	switch {
+	case err == nil && applied == targetPath:
+		return symlinkOrderVerified
+	case err == nil || errors.Is(err, fs.ErrNotExist):
+		return symlinkOrderRefused
+	default:
+		return symlinkOrderUnknown
+	}
 }
 
 // removeProbeEntries retire celui des deux noms que le serveur a créé ; un nom absent n'est pas une erreur.

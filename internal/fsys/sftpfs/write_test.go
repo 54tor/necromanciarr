@@ -960,3 +960,20 @@ func TestSFTPMkdirAll_serverMessageNamingAConnectionLossKeepsTheVolume(t *testin
 		t.Errorf("valeurObtenue %q, valeurAttendue the volume kept ok", valeurObtenue)
 	}
 }
+
+func TestSFTPOpenWriteRoot_transientProbeFailureIsRetriedOnTheNextOpening(t *testing.T) {
+	server, volume := writeVolume(t, sftptest.FailMethod("Symlink", 1))
+
+	first := openLinksRoot(t, volume)
+	if err := first.Symlink("../x", "early"); !errors.Is(err, sftpfs.ErrSymlinkOrderUnverified) {
+		t.Errorf("valeurObtenue %v, valeurAttendue symlinks refused while the order is unknown", err)
+	}
+	second := openLinksRoot(t, volume)
+
+	if err := second.Symlink("../x", "later"); err != nil {
+		t.Errorf("valeurObtenue %v, valeurAttendue the order verified by a second probe", err)
+	}
+	if valeurObtenue := len(methodsSince(server, 0, "Symlink")); valeurObtenue != 3 {
+		t.Errorf("valeurObtenue %d symlink requests, valeurAttendue two probes and the link", valeurObtenue)
+	}
+}
