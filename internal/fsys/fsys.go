@@ -96,6 +96,13 @@ type WriteRoot interface {
 	Close() error
 }
 
+// Reflinker est l'option d'une WriteRoot qui sait cloner un fichier du même volume (copie à l'écriture) sans
+// repli sur une copie complète : CopyFrom copie toujours, Reflink refuse (ErrCrossDevice, ErrUnsupported du
+// volume) quand le clonage est impossible. Une destination existante n'est jamais remplacée.
+type Reflinker interface {
+	Reflink(source Location, relative string) error
+}
+
 // Volume joint la lecture et l'ouverture d'une racine d'écriture. OpenWriteRoot n'est appelé que par
 // Registry.WriteRoot, après le contrôle de recouvrement des bibliothèques : aucun autre paquet ne l'appelle.
 // Go ne permet pas de sceller cet appel à la compilation : une règle forbidigo de golangci-lint l'interdira hors

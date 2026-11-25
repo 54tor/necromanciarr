@@ -11,11 +11,7 @@ import (
 // bibliothèque ; libraryRoots sont des chemins locaux absolus.
 func LocalRegistry(t testing.TB, libraryRoots ...string) *fsys.Registry {
 	t.Helper()
-	roots := make([]fsys.Location, 0, len(libraryRoots))
-	for _, libraryRoot := range libraryRoots {
-		roots = append(roots, fsys.Location{Path: libraryRoot})
-	}
-	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"": local.New()}, roots)
+	registry, err := local.NewRegistry(libraryRoots...)
 	if err != nil {
 		t.Fatal(err)
 	}
