@@ -9,4 +9,34 @@ linters:
     - misspell
     - unconvert
     - nilerr
+    - forbidigo
+  settings:
+    forbidigo:
+      # Résolution par types : un alias d'import ou une variable d'interface ne contourne pas la règle.
+      analyze-types: true
+      forbid:
+        # Invariant I1 : seul fsys.Registry.WriteRoot ouvre une racine d'écriture, après le contrôle des bibliothèques.
+        - pattern: '^fsys\.Volume\.OpenWriteRoot$'
+          msg: only fsys.Registry.WriteRoot opens a write root
+        # Le linker n'écrit qu'à travers une fsys.WriteRoot (doublé par un test qui interdit l'import de os).
+        - pattern: '^os\.(Link|Symlink|WriteFile|Rename|Remove|RemoveAll|Mkdir|MkdirAll|MkdirTemp|Create|CreateTemp|OpenFile|OpenRoot|Chmod|Chown|Lchown|Truncate|Chtimes)$'
+          pkg: '^os$'
+          msg: the linker writes only through fsys.WriteRoot
+  exclusions:
+    rules:
+      # Les autres paquets écrivent encore par os jusqu'à leur migration (C5, C6) ; les tests du linker posent leurs fixtures.
+      - path-except: '^internal/linker/'
+        linters: [forbidigo]
+        text: the linker writes only through
+      - path: '^internal/linker/.*_test\.go$'
+        linters: [forbidigo]
+        text: the linker writes only through
+      # Les volumes et leur suite de conformité implémentent ou éprouvent OpenWriteRoot.
+      - path: '^internal/fsys/'
+        linters: [forbidigo]
+        text: only fsys.Registry.WriteRoot
+      # Volume de test qui relaie OpenWriteRoot au volume local enveloppé ; seul le registre l'appelle.
+      - path: '^internal/pipeline/registry_test\.go$'
+        linters: [forbidigo]
+        text: only fsys.Registry.WriteRoot
 # gofumpt et goimports tournent via make fmt / make imports (même version épinglée dans go.mod).
