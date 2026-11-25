@@ -10,12 +10,14 @@
 - `dedupe plan` announces `bytes_to_read` before acceptance: 0 if the storage gives both fingerprints, the size of one file if one is needed, both otherwise. Start-end fingerprints (2 MiB) are cached by (path, size, date).
 - A mount that does not return the file's modification date (classic `mega` backend) disables the "size and date" method of repair; a rewritten object changes date and makes the affected candidates stale at the next scan.
 - A rename over a file is not atomic on some volumes (rclone's VFS can delete the destination before renaming): deduplication writes this as a warning and `dedupe plan` picks up the remaining temporary entries.
+- `dedupe` and `repair` read and write through the volume registry: every write (temporary link, replacement, removal, recovery by `dedupe plan`) goes through the write root of the torrent folder or link folder, refused if it overlaps the library. The replacement requires an atomic replace announced by the volume: without it (SFTP server without `posix-rename`), the dedupe proposal is not applicable (`no_atomic_replace`) and `repair apply` refuses, writing nothing and never falling back to a rename or a delete then create.
+- On a remote volume (`sftp://`), dedupe has no storage fingerprint: `verify: auto` proves by a full read of both files, announced before acceptance by `bytes_to_read` and the `warning.dedupe.full_remote_read` warning; `verify: hash` gives `hash_unavailable`. A remote file identity is never a proof: a file is not "already linked" without a known identity, and the temporary link is checked by the start-end fingerprint of the library file read back through it. Repair "by inode" is only tried on a volume that announces file identity (`FileIdentity` locally, `RemoteStat` remotely); a hardlink whose identity is unknown is `ok` without comparison.
 - A `Force` on a `partial_annex` copies into the link directory each media file straddling a missing piece: without reflink, this costs the media file's size in free space (and in reads on remote storage).
 - Scan only inventories media files, follows no symlink inside a root and ignores a subfolder mounted on another filesystem (on every platform): declare each mount as its own root in `libraryRoots`.
 
 ### Volume types
 
-`linker` classifies a path's volume by `statfs` (Linux): `local`, `fuse` (rclone, sshfs…), `network` (NFS, SMB/CIFS, 9p, Ceph, AFS, Lustre, GFS2, OCFS2, Coda, NCP, OrangeFS) or `unknown` (other platforms). Only `local` has stable inodes: on the others, the inode is not kept in the database, repair "by inode" is impossible and deduplication adds the warnings `warning.dedupe.unreliable_inode`, `warning.dedupe.full_network_read` or `warning.dedupe.sampled_verify` (translated text in the proposal's `warnings`). On Windows, only a network drive or a UNC share is recognized as `network`; an rclone mount (WinFsp) shows up there as a fixed drive and is not detected.
+`linker` classifies a path's volume by `statfs` (Linux): `local`, `fuse` (rclone, sshfs…), `network` (NFS, SMB/CIFS, 9p, Ceph, AFS, Lustre, GFS2, OCFS2, Coda, NCP, OrangeFS) or `unknown` (other platforms). Only `local` has stable inodes: on the others, the inode is not kept in the database, repair "by inode" is impossible and deduplication adds the warnings `warning.dedupe.unreliable_inode`, `warning.dedupe.full_network_read`, `warning.dedupe.full_remote_read` (`sftp://` volume) or `warning.dedupe.sampled_verify` (translated text in the proposal's `warnings`). On Windows, only a network drive or a UNC share is recognized as `network`; an rclone mount (WinFsp) shows up there as a fixed drive and is not detected.
 
 ### Links
 
@@ -198,7 +200,8 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `incomplete_after_recheck`, `paused_incomplete` | Seed | torrent left paused (see [03-seed-safety.md](03-seed-safety.md)) |
 | `link_changed`, `annex_changed` | Seed | torrent folder modified since Link: re-accept and rerun `link` |
 | `client_path_invalid` | Seed | client path with a forbidden character on Windows |
-| `client_path_unmapped` | Seed | remote link folder with no `pathMappings` rule whose `from` is an `sftp://` location of the same provider: add the rule to the client's view, re-accept then rerun |
+| `client_path_unmapped` | Seed, `dedupe apply`, `repair apply` | remote link folder with no `pathMappings` rule whose `from` is an `sftp://` location of the same provider: add the rule to the client's view, re-accept then rerun. dedupe and repair refuse before any write when a client recheck is planned |
+| `no_atomic_replace` | `dedupe plan` | the torrent folder's volume cannot replace a file atomically (SFTP without `posix-rename`): proposal not applicable, nothing is written |
 | `identity_unproven` | Seed | remote link: identity never proven, `skip_checking` refused, the client rechecks and the torrent stays paused until 100% (no action) |
 | `remote_unavailable` | Link, Seed | the remote volume does not answer: proposal kept as is, rerun the stage once the volume is back |
 | `crossseed_notify_failed` | Seed | daemon refuses or unreachable: warning only |
