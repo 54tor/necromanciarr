@@ -49,10 +49,10 @@
 ### Périmètre
 
 - Seul qBittorrent (et qui par son proxy) est pris en charge ; seul le premier client de `torrentClients` reçoit des torrents. Le tag `necromanciarr` est fixe ; la catégorie est `linkCategory`.
-- Match n'interroge que les fichiers qui ont un identifiant TMDB ou TVDB de Radarr ou Sonarr. Une bibliothèque `sftp://` a besoin d'une règle `pathMappings` dont `from` est son adresse, pour que les chemins de Radarr et Sonarr la rejoignent. Torznab et Prowlarr se configurent et `doctor` les vérifie, mais Match ne les interroge pas encore.
+- Match n'interroge que les fichiers qui ont un identifiant TMDB ou TVDB de Radarr ou Sonarr. Une bibliothèque `sftp://` a besoin d'une règle `pathMappings` dont `from` est son adresse, pour que les chemins de Radarr et Sonarr la rejoignent.
 - Une proposition acceptée ne s'annule pas ; une proposition rejetée ne se rouvre pas dans la même génération. Un candidat `failed` n'a pas de relance manuelle : il revient à `matched` seulement si ses associations changent.
 - Les jobs web ne sont pas persistés ; `dedupe apply` et `repair apply` du web s'appliquent un par un.
-- Les titres, détails et conseils de `doctor` suivent `language` ; ses codes ne changent jamais. Les motifs d'échec du serveur restent en anglais jusqu'à leur traduction, et `doctor` affiche des chemins absolus à l'opérateur authentifié.
+- Les titres, détails et conseils de `doctor` suivent `language` ; ses codes ne changent jamais. Les motifs d'échec portent un libellé traduit (seuls les paramètres `err.Error()` restent en anglais, voir 04) ; `doctor` affiche des chemins absolus à l'opérateur authentifié.
 
 ### Sécurité de l'API
 

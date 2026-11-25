@@ -145,7 +145,7 @@ Deux types : `rclone` donne l'empreinte de contenu d'un fichier monté sans le r
 |---|---|---|
 | `type` | obligatoire | `rclone` |
 | `name` | obligatoire | `[a-z0-9-]+`, unique |
-| `mounts` | vide | `"/chemin/local=remote:sous/chemin"`, un seul `=`, chemin local absolu sans `..`, unique entre fournisseurs. L'imbrication est permise : le plus long préfixe gagne |
+| `mounts` | vide | `"/local/path=remote:sub/path"`, un seul `=`, chemin local absolu sans `..`, unique entre fournisseurs. L'imbrication est permise : le plus long préfixe gagne |
 | `rc` | vide | URL `http(s)` de l'API `--rc` du processus rclone qui porte le montage ; `user:password@` retiré de l'URL et envoyé en authentification basique ; redirections refusées. Prioritaire sur `binary` |
 | `binary` | `rclone` du PATH | exécutable |
 | `timeout` | `60s` | durée Go strictement positive |
@@ -247,7 +247,7 @@ printf %s 'a'\''b\' '!x'
 - Bornes : 64 fichiers par commande (une liste plus longue est découpée), une commande à la fois par volume ; sortie standard plafonnée à 64 Kio pour `stat` et à 64 × (longueur du chemin + 128) octets pour les empreintes ; sortie d'erreur lue sur 4 Kio au plus et jamais recopiée (elle peut citer des chemins) : seuls le code de sortie et une raison typée remontent. Délai de 30 s par lot `stat`, `execHashTimeout` par lot d'empreintes ; au dépassement, la session reçoit `KILL` puis est fermée (un serveur OpenSSH antérieur à 7.9 ignore le signal : la fermeture du canal reste).
 - Contrôles : chaque enregistrement `stat` a exactement cinq champs numériques, et sa taille doit égaler celle que donne SFTP pour le même chemin ; chaque empreinte (hexadécimal minuscule) doit être suivie du chemin envoyé, octet pour octet, dans l'ordre d'envoi. Un enregistrement manquant, en trop ou mal formé rejette tout le lot : aucun résultat partiel.
 - `exec: auto` : sonde au premier usage ; exec refusé par le serveur (`exec_denied`) ou sonde en échec : SFTP seul, sans erreur. `exec: off` : jamais d'exec. `exec: required` : exec indisponible est une erreur.
-- Durcissement côté serveur (recommandé, non exigé) : une clé dédiée dans `authorized_keys`, avec `restrict` et une commande forcée de garde (`restrict,command="<garde>" ssh-ed25519 …`). La garde compare `SSH_ORIGINAL_COMMAND` octet pour octet aux lignes ci-dessus, lance une ligne reconnue par `/bin/sh -c` et refuse tout le reste ; elle laisse passer le sous-système SFTP. Les lignes « un fichier par commande » ne passent pas une telle garde : un hôte gardé doit avoir `xargs` GNU. Avec un compte qui ne peut que lire la bibliothèque, exec ne peut rien y écrire même si un appel échappait au code.
+- Durcissement côté serveur (recommandé, non exigé) : une clé dédiée dans `authorized_keys`, avec `restrict` et une commande forcée de garde (`restrict,command="<guard>" ssh-ed25519 …`). La garde compare `SSH_ORIGINAL_COMMAND` octet pour octet aux lignes ci-dessus, lance une ligne reconnue par `/bin/sh -c` et refuse tout le reste ; elle laisse passer le sous-système SFTP. Les lignes « un fichier par commande » ne passent pas une telle garde : un hôte gardé doit avoir `xargs` GNU. Avec un compte qui ne peut que lire la bibliothèque, exec ne peut rien y écrire même si un appel échappait au code.
 
 #### Obtenir la ligne `known_hosts`
 
@@ -261,7 +261,7 @@ Les entrées hachées (`-H`) sont prises en charge. Seuls les types de clé pré
 
 ## Indexeurs (`torznab`, `prowlarr`, `sourceOrder`)
 
-Un indexeur Torznab est une source de secours de `.torrent`, après le fournisseur de bibliothèque. À ce stade `config.json` les accepte et `doctor` les vérifie ; Match ne les interroge pas encore. Chaque entrée de `torznab` est une URL ou un objet :
+Un indexeur Torznab est une source de secours de `.torrent`, après le fournisseur de bibliothèque. Chaque entrée de `torznab` est une URL ou un objet :
 
 ```json
 "torznab": [

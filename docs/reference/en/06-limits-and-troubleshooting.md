@@ -49,10 +49,10 @@
 ### Scope
 
 - Only qBittorrent (and qui through its proxy) is supported; only the first client of `torrentClients` receives torrents. The `necromanciarr` tag is fixed; the category is `linkCategory`.
-- Match only queries files that have a TMDB or TVDB identifier from Radarr or Sonarr. An `sftp://` library needs a `pathMappings` rule whose `from` is its location, so that Radarr and Sonarr paths reach it. Torznab and Prowlarr can be configured and `doctor` checks them, but Match does not query them yet.
+- Match only queries files that have a TMDB or TVDB identifier from Radarr or Sonarr. An `sftp://` library needs a `pathMappings` rule whose `from` is its location, so that Radarr and Sonarr paths reach it.
 - An accepted proposal cannot be cancelled; a rejected proposal is not reopened in the same generation. A `failed` candidate has no manual retry: it goes back to `matched` only if its associations change.
 - Web jobs are not persisted; the web's `dedupe apply` and `repair apply` apply one at a time.
-- The titles, details and hints of `doctor` follow `language`; its codes never change. The server's failure reasons stay in English until translated, and `doctor` shows absolute paths to the authenticated operator.
+- The titles, details and hints of `doctor` follow `language`; its codes never change. Failure reasons carry a translated label (only the `err.Error()` parameters stay in English, see 04); `doctor` shows absolute paths to the authenticated operator.
 
 ### API security
 

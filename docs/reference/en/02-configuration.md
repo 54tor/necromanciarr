@@ -145,7 +145,7 @@ Two types: `rclone` gives the content fingerprint of a mounted file without rere
 |---|---|---|
 | `type` | required | `rclone` |
 | `name` | required | `[a-z0-9-]+`, unique |
-| `mounts` | empty | `"/chemin/local=remote:sous/chemin"`, a single `=`, absolute local path without `..`, unique across providers. Nesting is allowed: the longest prefix wins |
+| `mounts` | empty | `"/local/path=remote:sub/path"`, a single `=`, absolute local path without `..`, unique across providers. Nesting is allowed: the longest prefix wins |
 | `rc` | empty | `http(s)` URL of the `--rc` API of the rclone process that carries the mount; `user:password@` removed from the URL and sent as basic authentication; redirections refused. Takes priority over `binary` |
 | `binary` | `rclone` from the PATH | executable |
 | `timeout` | `60s` | strictly positive Go duration |
@@ -247,7 +247,7 @@ printf %s 'a'\''b\' '!x'
 - Bounds: 64 files per command (a longer list is split), one command at a time per volume; standard output capped at 64 KiB for `stat` and at 64 × (path length + 128) bytes for hashes; standard error read up to 4 KiB and never echoed (it may quote paths): only the exit status and a typed reason come back. Timeout of 30 s per `stat` batch, `execHashTimeout` per hash batch; past it, the session gets `KILL` and is then closed (an OpenSSH server older than 7.9 ignores the signal: closing the channel remains).
 - Checks: every `stat` record has exactly five numeric fields, and its size must equal the one SFTP gives for the same path; every hash (lowercase hexadecimal) must be followed by the path sent, byte for byte, in the order sent. A missing, extra or malformed record rejects the whole batch: no partial result.
 - `exec: auto`: probe on first use; exec refused by the server (`exec_denied`) or a failed probe: SFTP-only, no error. `exec: off`: never any exec. `exec: required`: exec being unavailable is an error.
-- Server-side hardening (recommended, not required): a dedicated key in `authorized_keys`, with `restrict` and a forced guard command (`restrict,command="<garde>" ssh-ed25519 …`). The guard compares `SSH_ORIGINAL_COMMAND` byte for byte with the lines above, runs a recognised line through `/bin/sh -c` and refuses everything else; it lets the SFTP subsystem through. The one-file-per-command lines cannot pass such a guard: a guarded host needs GNU `xargs`. With an account that can only read the library, exec cannot write there even if a call escaped the code.
+- Server-side hardening (recommended, not required): a dedicated key in `authorized_keys`, with `restrict` and a forced guard command (`restrict,command="<guard>" ssh-ed25519 …`). The guard compares `SSH_ORIGINAL_COMMAND` byte for byte with the lines above, runs a recognised line through `/bin/sh -c` and refuses everything else; it lets the SFTP subsystem through. The one-file-per-command lines cannot pass such a guard: a guarded host needs GNU `xargs`. With an account that can only read the library, exec cannot write there even if a call escaped the code.
 
 #### Getting the `known_hosts` line
 
@@ -261,7 +261,7 @@ Hashed entries (`-H`) are supported. Only the key types present for the host are
 
 ## Indexers (`torznab`, `prowlarr`, `sourceOrder`)
 
-A Torznab indexer is a fallback source of `.torrent` files, after the library provider. At this stage `config.json` accepts them and `doctor` checks them; Match does not query them yet. Each entry of `torznab` is a URL string or an object:
+A Torznab indexer is a fallback source of `.torrent` files, after the library provider. Each entry of `torznab` is a URL string or an object:
 
 ```json
 "torznab": [
