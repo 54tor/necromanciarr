@@ -645,6 +645,7 @@
     "commandsHint": "Lines the remote guard must allow as they are, tabs included. Shipped script: {script}",
     "copy": "Copy the lines",
     "copied": "Lines copied.",
+    "copyFailed": "Copy failed: select the lines and copy them by hand.",
     "columns": {
       "volume": "Volume",
       "type": "Type",

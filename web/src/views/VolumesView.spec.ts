@@ -174,6 +174,14 @@ describe('VolumesView', () => {
     expect(wrapper.get('[data-testid="commands"]').text()).toContain(
       'docs/reference/remote-command-guard.sh',
     )
+
+    vi.stubGlobal('navigator', { ...navigator, clipboard: undefined })
+    await wrapper.get('[data-testid="copy-commands"]').trigger('click')
+    await flushPromises()
+
+    expect(toastError).toHaveBeenCalledWith(
+      'Copie impossible : sélectionnez les lignes et copiez-les à la main.',
+    )
     wrapper.unmount()
   })
 

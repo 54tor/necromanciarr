@@ -159,8 +159,14 @@ async function showCommands(volume: string): Promise<void> {
   if (commands) shownCommands.value = commands
 }
 
+// Presse-papiers absent (page hors HTTPS, navigateur qui refuse) : l'opérateur copie le bloc à la main.
 async function copyCommands(commands: VolumeCommands): Promise<void> {
-  await navigator.clipboard.writeText(commands.lines.join('\n') + '\n')
+  try {
+    await navigator.clipboard.writeText(commands.lines.join('\n') + '\n')
+  } catch {
+    toast.error(t('volumes.copyFailed'))
+    return
+  }
   toast.success(t('volumes.copied'))
 }
 
@@ -285,7 +291,12 @@ onMounted(load)
         data-testid="commands-lines"
         >{{ shownCommands.lines.join('\n') }}</pre>
       <div>
-        <Button variant="outline" size="sm" @click="copyCommands(shownCommands)">
+        <Button
+          variant="outline"
+          size="sm"
+          data-testid="copy-commands"
+          @click="copyCommands(shownCommands)"
+        >
           <Copy aria-hidden="true" /> {{ t('volumes.copy') }}
         </Button>
       </div>

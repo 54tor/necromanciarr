@@ -101,4 +101,5 @@ export const ROW_SCOPED_ACTIONS: readonly string[] = [
   'doctor',
   'sources test',
   'volumes probe',
+  'volumes commands',
 ]

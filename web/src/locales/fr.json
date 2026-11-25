@@ -645,6 +645,7 @@
     "commandsHint": "Lignes à admettre à l'identique dans la garde distante, tabulations comprises. Script livré : {script}",
     "copy": "Copier les lignes",
     "copied": "Lignes copiées.",
+    "copyFailed": "Copie impossible : sélectionnez les lignes et copiez-les à la main.",
     "columns": {
       "volume": "Volume",
       "type": "Type",
