@@ -1,4 +1,7 @@
 // Package shellquote rend des arguments en mots littéraux pour un shell POSIX, sans aucune expansion possible.
+//
+// Contrat : valable pour un shell POSIX (sh, bash, dash, ash, zsh, ksh) ; fish interprète \' et \\ entre
+// apostrophes : le shell de connexion distant doit être vérifié (voir C16) avec ShellSemanticsProbe.
 package shellquote
 
 import (
@@ -8,6 +11,13 @@ import (
 
 // ErrUnquotable signale un argument qu'aucun shell POSIX ne peut recevoir : il contient un octet NUL.
 var ErrUnquotable = errors.New("shellquote: argument contains a NUL byte")
+
+// ShellSemanticsProbe est la ligne de sonde du shell de connexion distant : printf des mots Join("a'b\\", "!x"),
+// soit un guillemet simple échappé collé à une barre oblique inverse finale, puis un point d'exclamation.
+const ShellSemanticsProbe = `printf %s 'a'\''b\' '!x'`
+
+// ShellSemanticsExpected est la sortie exacte de ShellSemanticsProbe sous un shell POSIX.
+const ShellSemanticsExpected = `a'b\!x`
 
 // escapedSingleQuote ferme les guillemets simples, ajoute un ' échappé et les rouvre.
 const escapedSingleQuote = `'\''`

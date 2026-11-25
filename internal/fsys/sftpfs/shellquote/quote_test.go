@@ -169,7 +169,7 @@ func FuzzQuote_roundTripsThroughPOSIXParser(f *testing.F) {
 	seeds := []string{
 		"a'b", "$(id)", "`id`", "-rf", "--", "\n", `'\''`, ";", "&&", "|", "*", "~", "$HOME", `\`,
 		" ", "  a  b  ", "''", "'", "''''", "\xff\xfe", strings.Repeat("'", 4096), "${IFS}", "#comment",
-		"\n; rm -rf /", "\r", "\t", "a\x00b", "",
+		"\n; rm -rf /", "\r", "\t", "a\x00b", "", "\r\n", "\U000F0000\xff",
 	}
 	for _, seed := range seeds {
 		f.Add(seed)
@@ -230,7 +230,7 @@ func TestQuote_refusesNUL(t *testing.T) {
 }
 
 func TestQuote_keepsInvalidUTF8AndControlBytesUnaltered(t *testing.T) {
-	for _, argument := range []string{"\xff\xfe", "a\xc3", "\x80", "\x1b[31m", "\r\n\t", "\u202eevil", "\u00a0"} {
+	for _, argument := range []string{"\xff\xfe", "a\xc3", "\x80", "\x1b[31m", "\r\n\t", "\u202eevil", "\u00a0", "\U000F0000\xff"} {
 		valeurObtenue, err := shellquote.Quote(argument)
 		if err != nil {
 			t.Fatalf("Quote(%q): %v", argument, err)
@@ -335,18 +335,34 @@ func TestJoin_randomHostileSlicesParseAsOneWordPerArgument(t *testing.T) {
 	}
 }
 
-func TestQuote_roundTripsThroughShell(t *testing.T) {
-	const shellPath = "/bin/sh"
+const localShellPath = "/bin/sh"
+
+func requireLocalPOSIXShell(t *testing.T) {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("no POSIX shell on Windows")
 	}
-	if _, err := os.Stat(shellPath); err != nil {
-		t.Skipf("%s absent: %v", shellPath, err)
+	if _, err := os.Stat(localShellPath); err != nil {
+		t.Skipf("%s absent: %v", localShellPath, err)
 	}
+}
+
+func runInLocalShell(t *testing.T, script string) string {
+	t.Helper()
+	command := exec.Command(localShellPath, "-c", script) // #nosec G204 -- script de test, construit par la fonction sous test
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("sh -c %q: %v", script, err)
+	}
+	return string(output)
+}
+
+func TestQuote_roundTripsThroughShell(t *testing.T) {
+	requireLocalPOSIXShell(t)
 	arguments := []string{
 		"a'b", "$(id)", "`id`", "-rf", "--", "a\nb", "\n; rm -rf /", `'\''`, ";", "&&", "|", "*", "~", "$HOME",
 		`\`, "  a  b  ", "''", "'", "\xff\xfe", "${IFS}", "#comment", "\r", "\t", "\x1b[31m", "\u202eevil", "%s%d",
-		"",
+		"", "\r\n", "\x80", "a\xc3", "\ufeff", "\u2028", `a'\''b`, `x\`,
 	}
 	for _, argument := range arguments {
 		quoted, err := shellquote.Quote(argument)
@@ -354,14 +370,41 @@ func TestQuote_roundTripsThroughShell(t *testing.T) {
 			t.Fatalf("Quote(%q): %v", argument, err)
 		}
 		// Le texte quoté est l'argument de printf dans la ligne de script : %s ne réinterprète pas son contenu.
-		command := exec.Command(shellPath, "-c", "printf %s "+quoted) // #nosec G204 -- script de test, argument quoté sous test
-		output, err := command.Output()
-		if err != nil {
-			t.Fatalf("sh -c %q: %v", "printf %s "+quoted, err)
-		}
-		if valeurObtenue := string(output); valeurObtenue != argument {
+		if valeurObtenue := runInLocalShell(t, "printf %s "+quoted); valeurObtenue != argument {
 			t.Errorf("sh printed %s, expectedValue %s", strconv.Quote(valeurObtenue), strconv.Quote(argument))
 		}
+	}
+}
+
+func TestQuote_refusesNULBeforeAnyShellRuns(t *testing.T) {
+	valeurObtenue, err := shellquote.Quote("a\x00")
+	if !errors.Is(err, shellquote.ErrUnquotable) || valeurObtenue != "" {
+		t.Fatalf("expectedValue \"\", ErrUnquotable, gotValue %q, %v", valeurObtenue, err)
+	}
+}
+
+func TestShellSemanticsProbe_isBuiltByJoin(t *testing.T) {
+	quotedArguments, err := shellquote.Join([]string{"a'b\\", "!x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if valeurAttendue := "printf %s " + quotedArguments; shellquote.ShellSemanticsProbe != valeurAttendue {
+		t.Fatalf("expectedValue %q, gotValue %q", valeurAttendue, shellquote.ShellSemanticsProbe)
+	}
+}
+
+func TestShellSemanticsProbe_printsExpectedThroughLocalShell(t *testing.T) {
+	requireLocalPOSIXShell(t)
+	if valeurObtenue := runInLocalShell(t, shellquote.ShellSemanticsProbe); valeurObtenue != shellquote.ShellSemanticsExpected {
+		t.Fatalf("expectedValue %q, gotValue %q", shellquote.ShellSemanticsExpected, valeurObtenue)
+	}
+}
+
+func TestFreePlaceholderBase_skipsABlockUsedByTheScript(t *testing.T) {
+	const valeurAttendue = privateUseFirst + placeholderBlockSize
+	valeurObtenue, err := freePlaceholderBase("'\U000F0000\xff'")
+	if err != nil || valeurObtenue != valeurAttendue {
+		t.Fatalf("expectedValue %#x, gotValue %#x, %v", valeurAttendue, valeurObtenue, err)
 	}
 }
 
