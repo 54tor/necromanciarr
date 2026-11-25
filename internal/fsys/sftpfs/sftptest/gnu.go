@@ -54,6 +54,11 @@ func WithExecOutputFilter(filter func(command string, stdout []byte) []byte) Opt
 	return func(current *settings) { current.execOutputFilter = filter }
 }
 
+// WithoutGNUProgram retire program (« md5sum »…) du faux hôte GNU : sa sonde de version répond 127.
+func WithoutGNUProgram(program string) Option {
+	return func(current *settings) { current.gnuMissingLines[mustJoinLine(program, "--version")] = true }
+}
+
 // BeforeExec appelle hook avec chaque ligne exec acceptée, avant de la servir (fichier qui disparaît en plein lot).
 func BeforeExec(hook func(command string)) Option {
 	return func(current *settings) { current.beforeExec = hook }
@@ -64,7 +69,7 @@ func (server *Server) gnuExec(command string, stdin []byte) ([]byte, []byte, int
 	if command == shellquote.ShellSemanticsProbe {
 		return []byte(shellquote.ShellSemanticsExpected), nil, 0
 	}
-	if version, known := gnuVersions[command]; known {
+	if version, known := gnuVersions[command]; known && !server.settings.gnuMissingLines[command] {
 		return []byte(version), nil, 0
 	}
 	unprefixed := strings.TrimPrefix(command, gnuNice+" ")

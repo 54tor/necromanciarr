@@ -182,3 +182,30 @@ func TestHashsource_byVolumeSendsRemotePathsToTheRemoteSource(t *testing.T) {
 		t.Fatalf("valeurObtenue %+v (%v), valeurAttendue aucune empreinte sans source distante", nilRemote, err)
 	}
 }
+
+func TestHashsource_sftpExecIsNeverUsedForAnAlgorithmTheVolumeDoesNotAnnounce(t *testing.T) {
+	place := newExecPlace(t, sftptest.WithoutGNUProgram("md5sum"))
+	capabilities, err := place.volume.Capabilities(t.Context())
+	if err != nil || !slices.Equal(capabilities.RemoteHash, []string{"sha1"}) {
+		t.Fatalf("valeurObtenue %+v (%v), valeurAttendue sha1 seul annoncé", capabilities.RemoteHash, err)
+	}
+	source := hashsource.NewSFTPExec(map[string]*sftpfs.Volume{execVolumeName: place.volume})
+	md5LinesBefore := md5CommandsSent(place.server)
+
+	got, err := source.Hash(t.Context(), place.movie, hashsource.MD5)
+
+	if err != nil || got.Available || md5CommandsSent(place.server) != md5LinesBefore {
+		t.Fatalf("valeurObtenue %+v (%v), %d lignes md5sum, valeurAttendue aucune empreinte et aucune ligne md5sum", got, err, md5CommandsSent(place.server)-md5LinesBefore)
+	}
+}
+
+// md5CommandsSent compte les lots md5sum reçus.
+func md5CommandsSent(server *sftptest.Server) int {
+	count := 0
+	for _, session := range server.ExecSessions() {
+		if strings.Contains(session.Command, "'md5sum' '-z'") {
+			count++
+		}
+	}
+	return count
+}

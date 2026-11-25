@@ -62,6 +62,7 @@ type settings struct {
 	gnuExec             bool
 	execOutputFilter    func(command string, stdout []byte) []byte
 	beforeExec          func(command string)
+	gnuMissingLines     map[string]bool
 }
 
 // AuthAttempt est un essai d'authentification reçu, dans l'ordre d'arrivée : Method vaut « publickey » (avec
@@ -159,6 +160,7 @@ func Start(t *testing.T, options ...Option) *Server {
 			hiddenExtensions: map[string]bool{}, stalledMethods: map[string]bool{},
 			listings: map[string][]Entry{}, readlinkTargets: map[string]string{}, requestHooks: map[string][]func(Request){},
 			truncatedReads: map[string]int64{}, failures: map[string]int{}, stalledExecs: map[string]bool{},
+			gnuMissingLines: map[string]bool{},
 		},
 	}
 	for _, option := range options {
