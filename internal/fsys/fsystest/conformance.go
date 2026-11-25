@@ -52,7 +52,7 @@ func WriteLibraryFixture(t *testing.T, localDir string) (hasSymlink bool) {
 	t.Helper()
 	writeFixtureFile(t, filepath.Join(localDir, FixtureMovieName), FixtureMovieContent)
 	writeFixtureFile(t, filepath.Join(localDir, FixtureNoteName), FixtureNoteContent)
-	if err := os.Mkdir(filepath.Join(localDir, FixtureSubdirName), dirMode); err != nil {
+	if err := os.Mkdir(filepath.Join(localDir, FixtureSubdirName), dirMode); err != nil { // #nosec G301 -- fixture de test, dossier temporaire
 		t.Fatalf("fixture subdir: %v", err)
 	}
 	err := os.Symlink(FixtureMovieName, filepath.Join(localDir, FixtureLinkName))
@@ -83,7 +83,7 @@ func PlantLocalSymlink(t *testing.T, localPath, target string) {
 
 func writeFixtureFile(t *testing.T, name, content string) {
 	t.Helper()
-	if err := os.WriteFile(name, []byte(content), fileMode); err != nil {
+	if err := os.WriteFile(name, []byte(content), fileMode); err != nil { // #nosec G306 -- fixture de test, dossier temporaire
 		t.Fatalf("fixture file: %v", err)
 	}
 }

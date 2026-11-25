@@ -70,7 +70,7 @@ func checkRawLocation(raw string) error {
 }
 
 func isLocalSeparator(character rune) bool {
-	return character < utf8.RuneSelf && os.IsPathSeparator(uint8(character))
+	return character == '/' || character == rune(os.PathSeparator)
 }
 
 func parseRemoteLocation(remainder string) (Location, error) {

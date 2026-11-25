@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"unicode/utf8"
 )
 
 // errParentNotDirectory : un parent existe mais est un fichier ordinaire (ce n'est pas une sortie de la racine).
@@ -40,7 +39,7 @@ func splitRelative(relative string) ([]string, error) {
 
 // isPathSeparator ne teste que l'ASCII : tronquer une rune en octet ferait d'un « į » (U+012F) un '/'.
 func isPathSeparator(character rune) bool {
-	return character < utf8.RuneSelf && os.IsPathSeparator(uint8(character))
+	return character == '/' || character == rune(os.PathSeparator)
 }
 
 // prepare découpe relative et revérifie que la racine est toujours le dossier ouvert, à son chemin canonique.
