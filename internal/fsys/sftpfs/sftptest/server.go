@@ -48,6 +48,7 @@ type settings struct {
 	reversedSymlinkArgs bool
 	windowsRoot         bool
 	execHandler         ExecHandler
+	stalledExecs        map[string]bool
 	password            string
 	ignoreKeepalive     bool
 	ecdsaHostKey        bool
@@ -112,6 +113,12 @@ func WithExec(handler ExecHandler) Option {
 	return func(current *settings) { current.execHandler = handler }
 }
 
+// StallExec fige toute requête exec de cette commande exacte, une fois son entrée standard lue : le handler n'est pas
+// appelé, aucune sortie ni code de sortie n'est envoyé, jusqu'à ce que le client ferme le canal ou la fin du test.
+func StallExec(command string) Option {
+	return func(current *settings) { current.stalledExecs[command] = true }
+}
+
 // DenyExec refuse les requêtes exec (enregistrées quand même), même après WithExec.
 func DenyExec() Option {
 	return func(current *settings) { current.execHandler = nil }
@@ -131,12 +138,13 @@ type Server struct {
 	stopped      chan struct{}
 	routines     sync.WaitGroup
 
-	mutex       sync.Mutex
-	closed      bool
-	requests    []Request
-	attempts    []AuthAttempt
-	accepted    int
-	connections map[net.Conn]bool
+	mutex        sync.Mutex
+	closed       bool
+	requests     []Request
+	execSessions []ExecSession
+	attempts     []AuthAttempt
+	accepted     int
+	connections  map[net.Conn]bool
 }
 
 // Start démarre un serveur arrêté par t.Cleanup : écoute, connexions, sessions et requêtes figées compris.
@@ -147,7 +155,7 @@ func Start(t *testing.T, options ...Option) *Server {
 		settings: settings{
 			hiddenExtensions: map[string]bool{}, stalledMethods: map[string]bool{},
 			listings: map[string][]Entry{}, readlinkTargets: map[string]string{}, requestHooks: map[string][]func(Request){},
-			truncatedReads: map[string]int64{}, failures: map[string]int{},
+			truncatedReads: map[string]int64{}, failures: map[string]int{}, stalledExecs: map[string]bool{},
 		},
 	}
 	for _, option := range options {

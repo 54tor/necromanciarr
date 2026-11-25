@@ -2,7 +2,6 @@ package sftptest
 
 import (
 	"encoding/binary"
-	"io"
 	"math"
 
 	"github.com/pkg/sftp"
@@ -43,8 +42,7 @@ func (server *Server) serveSession(channel ssh.Channel, requests <-chan *ssh.Req
 			if handler == nil {
 				continue
 			}
-			server.goTracked(func() { ssh.DiscardRequests(requests) })
-			runExec(channel, payload.Value, handler)
+			server.serveExec(channel, requests, payload.Value, handler)
 			return
 		default:
 			_ = request.Reply(false, nil)
@@ -59,18 +57,6 @@ func (server *Server) serveSFTP(channel ssh.Channel, ended <-chan struct{}) {
 	requestServer := sftp.NewRequestServer(filter, handlers)
 	_ = requestServer.Serve()
 	_ = requestServer.Close()
-}
-
-// runExec lit l'entrée standard jusqu'à sa fin, appelle handler, renvoie les sorties et le code de sortie.
-func runExec(channel ssh.Channel, command string, handler ExecHandler) {
-	stdin, err := io.ReadAll(channel)
-	if err != nil {
-		return
-	}
-	stdout, stderr, exit := handler(command, stdin)
-	_, _ = channel.Write(stdout)
-	_, _ = channel.Stderr().Write(stderr)
-	_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{exitStatus(exit)}))
 }
 
 // exitStatus borne un code de sortie à l'intervalle d'un processus POSIX ; hors bornes, il devient maxExitStatus.
