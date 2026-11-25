@@ -126,3 +126,14 @@ Une bibliothèque sur un montage rclone se lit comme un dossier local. Notes pou
 - Si rclone est relancé sur l'hôte, le conteneur ne voit le nouveau montage que si le montage de liaison propage les montages (`bind.propagation: rslave` dans Compose) ; sinon redémarrer le conteneur.
 - Lancer le processus qui porte le montage avec `--rc --rc-addr :5572 --rc-user <utilisateur> --rc-pass <motdepasse>` et déclarer `fsProviders[].rc` vers `rclone:5572` sur un réseau privé : sans rc, aucune empreinte n'est disponible et la déduplication relit les fichiers.
 - Le cache VFS de rclone peut faire croire à une date de modification restituée par le stockage : `doctor` l'écrit en conseil.
+
+## Fournisseur SFTP
+
+Un fournisseur `fsProviders` de type `sftp` ([02-configuration.md](02-configuration.md)) n'a besoin d'aucun montage pour le stockage distant : seuls ses fichiers de confiance et de clé entrent dans le conteneur.
+
+- Monter `known_hosts` et la clé privée en lecture seule, par exemple `- /home/u/necromanciarr/ssh:/data/ssh:ro`, et déclarer `knownHosts: "/data/ssh/known_hosts"`, `identityFile: "/data/ssh/id_ed25519"` (chemins vus par le conteneur). La clé doit être lisible par l'utilisateur `1000:1000` et rester en `0600`.
+- La passphrase de la clé ou le mot de passe passent par le `.env` de `/data` (`SFTP_KEY_PASSPHRASE=…`, référencé par `"${SFTP_KEY_PASSPHRASE}"`), jamais en clair dans `config.json`.
+- L'agent SSH de l'hôte (`SSH_AUTH_SOCK`) n'est pas transmis au conteneur : `agent: true` exige de monter soi-même la socket et de définir `SSH_AUTH_SOCK`, ce que l'image ne fait pas. Préférer `identityFile`.
+- Recommandé : un compte SFTP sans droit d'écriture sur la bibliothèque (ACL, groupe ou montage en lecture seule côté serveur), en défense en profondeur. Ce n'est pas exigé ; un contrôle de `doctor` le signalera.
+- La base (`dbPath`) reste dans `/data`, jamais sur le serveur SFTP.
+- Serveurs SFTP Windows : non pris en charge.

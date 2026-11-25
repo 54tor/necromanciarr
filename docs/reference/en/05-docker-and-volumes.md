@@ -126,3 +126,14 @@ A library on an rclone mount is read like a local folder. Notes for the host's m
 - If rclone is restarted on the host, the container only sees the new mount if the bind mount propagates mounts (`bind.propagation: rslave` in Compose); otherwise restart the container.
 - Start the process that carries the mount with `--rc --rc-addr :5572 --rc-user <utilisateur> --rc-pass <motdepasse>` and declare `fsProviders[].rc` towards `rclone:5572` on a private network: without rc, no fingerprint is available and deduplication rereads the files.
 - rclone's VFS cache can make a modification date look like one returned by the storage: `doctor` writes it as advice.
+
+## SFTP provider
+
+An `fsProviders` entry of type `sftp` ([02-configuration.md](02-configuration.md)) needs no mount for the remote storage: only its trust and key files enter the container.
+
+- Mount `known_hosts` and the private key read-only, for example `- /home/u/necromanciarr/ssh:/data/ssh:ro`, and declare `knownHosts: "/data/ssh/known_hosts"`, `identityFile: "/data/ssh/id_ed25519"` (paths as seen by the container). The key must be readable by user `1000:1000` and stay at `0600`.
+- The key passphrase or the password go through the `.env` in `/data` (`SFTP_KEY_PASSPHRASE=…`, referenced as `"${SFTP_KEY_PASSPHRASE}"`), never in clear text in `config.json`.
+- The host's SSH agent (`SSH_AUTH_SOCK`) is not forwarded to the container: `agent: true` requires mounting the socket and setting `SSH_AUTH_SOCK` yourself, which the image does not do. Prefer `identityFile`.
+- Recommended: an SFTP account with no write access to the library (ACL, group, or a read-only mount on the server side), as defence in depth. It is not required; a `doctor` check will report it.
+- The database (`dbPath`) stays in `/data`, never on the SFTP server.
+- Windows SFTP servers: not supported.

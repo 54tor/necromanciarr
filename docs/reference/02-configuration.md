@@ -40,11 +40,11 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 | Clé | Type | Défaut | Validation |
 |---|---|---|---|
 | `listen` | `host:port` | `127.0.0.1:8787` | hors boucle locale, `serve` exige `NECROMANCIARR_AUTH_TOKEN` ; les autres commandes non |
-| `dbPath` | chemin | `necromanciarr.db` | relatif : résolu depuis le dossier de configuration. Doit rester hors de la bibliothèque (`doctor`) |
+| `dbPath` | chemin | `necromanciarr.db` | relatif : résolu depuis le dossier de configuration. Doit rester hors de la bibliothèque (`doctor`). Toujours local : une adresse `sftp://` (fichier ou `--db-path`) est refusée au chargement |
 | `readBytesPerSecond` | entier (octets/s) | `20971520` (20 Mio/s) | strictement positif |
 | `tieBreakReadBytes` | entier (octets) | `53687091200` (50 Gio) | strictement positif. Octets lus au plus, par candidat, pour départager des fichiers locaux de même taille ; la couverture n'est pas concernée |
 | `libraryApi` | URL | vide | `http(s)`, sans fragment. Vide : Match et Verify refusent (`not_configured`) |
-| `libraryRoots` | liste de chemins | vide | vus par ce processus ; chemins absolus, sans segment `..` (refus au chargement). Le préfixe `sftp://<provider>/<absolute path>` est réservé aux fournisseurs de système de fichiers, pas encore disponibles |
+| `libraryRoots` | liste de chemins | vide | vus par ce processus ; chemins absolus, sans segment `..` (refus au chargement). Une adresse `sftp://<provider>/<absolute path>` vise un fournisseur `fsProviders` de type `sftp` déclaré (exemple : `sftp://seedbox/srv/media`) ; un fournisseur `rclone` est refusé |
 | `pathMappings` | liste `{from, to}` | vide | `from` : vue de ce processus (chemin local, ou adresse `sftp://<provider>/<absolute path>` d'un fournisseur déclaré) ; `to` : vue de Radarr, Sonarr et du client torrent, jamais une adresse `sftp://` |
 | `radarr`, `sonarr` | liste d'URL | vide | `http(s)://host:port[/path]?apikey=KEY`, `user:password@` facultatif (proxy en authentification basique) ; seul `apikey` est admis |
 | `torrentClients` | liste de chaînes | vide | `qbittorrent[:readonly]:http(s)://[user:password@]host:port[/path]`, sans paramètre de requête. Seul le premier client reçoit les torrents (avertissement s'il y en a plusieurs) |
@@ -135,7 +135,11 @@ Avec un client torrent configuré, chaque lien remplacé fait recontrôler le to
 
 ## Fournisseurs de système de fichiers (`fsProviders`)
 
-Donnent l'empreinte de contenu d'un fichier sans le relire, pour la déduplication et la réparation. Seul le type `rclone` existe : `rclone hashsum`, jamais `--download`.
+Deux types : `rclone` donne l'empreinte de contenu d'un fichier monté sans le relire ; `sftp` expose un stockage distant par SFTP, désigné par des adresses `sftp://<name>/<absolute path>` dans `libraryRoots`, `linkDirs`, `dedupe.torrentRoots` et `pathMappings[].from`. Chaque entrée est lue selon son type : une clé d'un autre type est refusée en la nommant.
+
+### Type `rclone`
+
+`rclone hashsum`, jamais `--download`.
 
 | Clé | Défaut | Règle |
 |---|---|---|
@@ -149,6 +153,48 @@ Donnent l'empreinte de contenu d'un fichier sans le relire, pour la déduplicati
 Les méthodes `rc` appelées forment une liste fermée en lecture seule. Lancer rclone avec `--rc --rc-addr :5572 --rc-user <utilisateur> --rc-pass <motdepasse>` et ne jamais exposer `rc` hors d'un réseau privé : qui l'atteint pilote rclone. Sans `rc` ni binaire, aucune empreinte n'est disponible et la comparaison relit les fichiers.
 
 `dedupe plan` et `dedupe apply` demandent au stockage les algorithmes que ses montages fournissent : la première fois, chaque montage est sondé sur un fichier d'essai (MD5, SHA-1, SHA-256) et le résultat est gardé en base (table `mount_capabilities`, une ligne par montage) ; ensuite seule la base est lue. Une sonde en échec n'est pas gardée. Sans algorithme connu, dedupe demande MD5. Le cache ne se rafraîchit pas seul : après un changement de backend ou de `rc`, supprimer la base ou la ligne du montage. Le contrôle `rclone` de `doctor` sonde toujours de nouveau, sans écrire ce cache.
+
+### Type `sftp`
+
+```json
+"fsProviders": [
+  {
+    "type": "sftp",
+    "name": "seedbox",
+    "address": "seedbox.example.com:22",
+    "user": "media",
+    "identityFile": "/data/ssh/id_ed25519",
+    "identityPassphrase": "${SFTP_KEY_PASSPHRASE}",
+    "knownHosts": "/data/ssh/known_hosts"
+  }
+],
+"libraryRoots": ["sftp://seedbox/srv/media"],
+"linkDirs": ["sftp://seedbox/srv/links"]
+```
+
+| Clé | Défaut | Règle |
+|---|---|---|
+| `type` | obligatoire | `sftp` |
+| `name` | obligatoire | `[a-z0-9-]+`, unique ; c'est le `<name>` des adresses `sftp://<name>/…` |
+| `address` | obligatoire | `host` ou `host:port` (nom d'hôte ou adresse IP), port `22` par défaut ; IPv6 entre crochets (`[::1]` ou `[::1]:22`) |
+| `user` | obligatoire | compte SSH ; un compte sans droit d'écriture sur la bibliothèque est recommandé |
+| `knownHosts` | obligatoire | chemin local absolu d'un fichier `known_hosts` OpenSSH ; la clé d'hôte est toujours vérifiée, aucune option ne l'ignore. L'existence du fichier relève de `doctor` |
+| `identityFile` | vide | chemin local absolu d'une clé privée (ed25519, ecdsa ou rsa ≥ 3072) |
+| `identityPassphrase` | vide | passphrase de `identityFile`, seulement par une référence `${VAR}` ; exige `identityFile` |
+| `agent` | `false` | agent SSH (`SSH_AUTH_SOCK`), lu à la connexion seulement |
+| `password` | vide | seulement par une référence `${VAR}` ; méthode la moins recommandée |
+| `readBytesPerSecond` | débit global | octets par seconde ; `0` ou absent garde `readBytesPerSecond` global, les deux limites s'appliquent |
+| `maxConcurrentRequests` | `16` | requêtes SFTP en vol par fichier, entier strictement positif |
+| `timeout` | `30s` | délai d'une opération SFTP, durée Go strictement positive |
+| `keepalive` | `15s` | intervalle des requêtes keepalive OpenSSH (trois sans réponse : session morte), durée Go strictement positive |
+| `exec` | `auto` | `auto`, `off` ou `required` : commandes distantes en lecture seule (`stat`, `sha1sum`, `md5sum`) |
+| `execHashTimeout` | `30m` | délai d'un lot d'empreintes distantes, durée Go strictement positive |
+
+- Au moins une méthode d'authentification : `identityFile`, `agent` ou `password`. Elles sont essayées dans l'ordre agent, clé, mot de passe. Le dossier `~/.ssh` n'est jamais lu implicitement.
+- `password` et `identityPassphrase` ne prennent qu'une référence `${VAR}` entière (valeur dans l'environnement ou le `.env`) : une valeur en clair, ou du texte autour de la référence, est une erreur d'usage qui nomme la clé sans citer la valeur. `config check` et toute sortie les masquent ; `identityFile`, `knownHosts`, `address` et `user` restent visibles.
+- `mounts`, `rc` et `binary` ne s'appliquent pas au type `sftp` : refusés.
+- La base SQLite (`dbPath`) reste sur un disque local.
+- Serveurs SFTP Windows (chemins `/C:/…`) : non pris en charge.
 
 ## Indexeurs (`torznab`, `prowlarr`, `sourceOrder`)
 

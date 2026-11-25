@@ -40,11 +40,11 @@ The configuration folder must exist when it is given. With no option or variable
 | Key | Type | Default | Validation |
 |---|---|---|---|
 | `listen` | `host:port` | `127.0.0.1:8787` | outside loopback, `serve` requires `NECROMANCIARR_AUTH_TOKEN`; the other commands do not |
-| `dbPath` | path | `necromanciarr.db` | relative: resolved from the configuration folder. Must stay outside the library (`doctor`) |
+| `dbPath` | path | `necromanciarr.db` | relative: resolved from the configuration folder. Must stay outside the library (`doctor`). Always local: an `sftp://` location (file or `--db-path`) is refused at load time |
 | `readBytesPerSecond` | integer (bytes/s) | `20971520` (20 MiB/s) | strictly positive |
 | `tieBreakReadBytes` | integer (bytes) | `53687091200` (50 GiB) | strictly positive. Maximum bytes read, per candidate, to tell same-size local files apart; coverage is not affected |
 | `libraryApi` | URL | empty | `http(s)`, no fragment. Empty: Match and Verify refuse (`not_configured`) |
-| `libraryRoots` | list of paths | empty | as seen by this process; absolute paths without a `..` segment (refused at load time). The `sftp://<provider>/<absolute path>` prefix is reserved for filesystem providers, not available yet |
+| `libraryRoots` | list of paths | empty | as seen by this process; absolute paths without a `..` segment (refused at load time). An `sftp://<provider>/<absolute path>` location targets a declared `fsProviders` entry of type `sftp` (example: `sftp://seedbox/srv/media`); an `rclone` provider is refused |
 | `pathMappings` | list of `{from, to}` | empty | `from`: this process's view (a local path, or an `sftp://<provider>/<absolute path>` location of a declared provider); `to`: the view of Radarr, Sonarr and the torrent client, never an `sftp://` location |
 | `radarr`, `sonarr` | list of URLs | empty | `http(s)://host:port[/path]?apikey=KEY`, optional `user:password@` (basic-authentication proxy); only `apikey` is allowed |
 | `torrentClients` | list of strings | empty | `qbittorrent[:readonly]:http(s)://[user:password@]host:port[/path]`, no query parameter. Only the first client receives torrents (warning if there are several) |
@@ -135,7 +135,11 @@ With a torrent client configured, each replaced link makes the torrent that cont
 
 ## Filesystem providers (`fsProviders`)
 
-Give the content fingerprint of a file without rereading it, for deduplication and repair. Only the `rclone` type exists: `rclone hashsum`, never `--download`.
+Two types: `rclone` gives the content fingerprint of a mounted file without rereading it; `sftp` exposes remote storage over SFTP, named by `sftp://<name>/<absolute path>` locations in `libraryRoots`, `linkDirs`, `dedupe.torrentRoots` and `pathMappings[].from`. Each entry is read according to its type: a key of another type is refused and named.
+
+### Type `rclone`
+
+`rclone hashsum`, never `--download`.
 
 | Key | Default | Rule |
 |---|---|---|
@@ -149,6 +153,48 @@ Give the content fingerprint of a file without rereading it, for deduplication a
 The `rc` methods called form a closed, read-only list. Start rclone with `--rc --rc-addr :5572 --rc-user <utilisateur> --rc-pass <motdepasse>` and never expose `rc` outside a private network: whoever reaches it drives rclone. Without `rc` or binary, no fingerprint is available and the comparison rereads the files.
 
 `dedupe plan` and `dedupe apply` ask the storage for the algorithms its mounts provide: the first time, each mount is probed on a test file (MD5, SHA-1, SHA-256) and the result is kept in the database (table `mount_capabilities`, one row per mount); afterwards only the database is read. A failed probe is not kept. The cache does not refresh by itself: after a backend or `rc` change, delete the database or the mount's row. The `rclone` check of `doctor` always probes again, without writing this cache.
+
+### Type `sftp`
+
+```json
+"fsProviders": [
+  {
+    "type": "sftp",
+    "name": "seedbox",
+    "address": "seedbox.example.com:22",
+    "user": "media",
+    "identityFile": "/data/ssh/id_ed25519",
+    "identityPassphrase": "${SFTP_KEY_PASSPHRASE}",
+    "knownHosts": "/data/ssh/known_hosts"
+  }
+],
+"libraryRoots": ["sftp://seedbox/srv/media"],
+"linkDirs": ["sftp://seedbox/srv/links"]
+```
+
+| Key | Default | Rule |
+|---|---|---|
+| `type` | required | `sftp` |
+| `name` | required | `[a-z0-9-]+`, unique; it is the `<name>` of the `sftp://<name>/…` locations |
+| `address` | required | `host` or `host:port` (host name or IP address), port `22` by default; IPv6 between brackets (`[::1]` or `[::1]:22`) |
+| `user` | required | SSH account; an account with no write access to the library is recommended |
+| `knownHosts` | required | absolute local path of an OpenSSH `known_hosts` file; the host key is always checked, no option skips it. Whether the file exists is a `doctor` matter |
+| `identityFile` | empty | absolute local path of a private key (ed25519, ecdsa or rsa ≥ 3072) |
+| `identityPassphrase` | empty | passphrase of `identityFile`, only as a `${VAR}` reference; needs `identityFile` |
+| `agent` | `false` | SSH agent (`SSH_AUTH_SOCK`), read at connection time only |
+| `password` | empty | only as a `${VAR}` reference; the least recommended method |
+| `readBytesPerSecond` | global rate | bytes per second; `0` or absent keeps the global `readBytesPerSecond`, both limits apply |
+| `maxConcurrentRequests` | `16` | SFTP requests in flight per file, strictly positive integer |
+| `timeout` | `30s` | timeout of one SFTP operation, strictly positive Go duration |
+| `keepalive` | `15s` | interval of the OpenSSH keepalive requests (three unanswered: dead session), strictly positive Go duration |
+| `exec` | `auto` | `auto`, `off` or `required`: read-only remote commands (`stat`, `sha1sum`, `md5sum`) |
+| `execHashTimeout` | `30m` | timeout of one batch of remote fingerprints, strictly positive Go duration |
+
+- At least one authentication method: `identityFile`, `agent` or `password`. They are tried in the order agent, key, password. The `~/.ssh` folder is never read implicitly.
+- `password` and `identityPassphrase` take only a whole `${VAR}` reference (value in the environment or the `.env`): a clear-text value, or text around the reference, is a usage error that names the key without quoting the value. `config check` and every output mask them; `identityFile`, `knownHosts`, `address` and `user` stay visible.
+- `mounts`, `rc` and `binary` do not apply to the `sftp` type: refused.
+- The SQLite database (`dbPath`) stays on a local disk.
+- Windows SFTP servers (`/C:/…` paths): not supported.
 
 ## Indexers (`torznab`, `prowlarr`, `sourceOrder`)
 
