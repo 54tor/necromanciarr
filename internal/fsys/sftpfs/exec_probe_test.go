@@ -255,13 +255,8 @@ func TestFileID_knownOnlyOnceRemoteStatIsProven(t *testing.T) {
 	if !isSameFile || !noteKnown || noteID == movieID || movieID.Inode == 0 {
 		t.Fatalf("valeurObtenue %+v %+v %+v %+v, valeurAttendue le lien dur identique, l'autre fichier différent", movieID, againID, twinID, noteID)
 	}
-	if len(server.ExecSessions()) != execsAfterFirst+2 {
-		t.Errorf("valeurObtenue %d sessions, valeurAttendue la relecture servie par le cache de l'étape", len(server.ExecSessions())-execsAfterFirst)
-	}
-	volume.ResetForStage()
-	before := len(server.ExecSessions())
-	if _, known := volume.FileID(movieInfo); !known || len(server.ExecSessions()) == before {
-		t.Errorf("valeurAttendue une nouvelle commande après ResetForStage")
+	if len(server.ExecSessions()) != execsAfterFirst+3 {
+		t.Errorf("valeurObtenue %d sessions, valeurAttendue une lecture fraîche par appel (aucun cache)", len(server.ExecSessions())-execsAfterFirst)
 	}
 }
 

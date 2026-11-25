@@ -120,10 +120,13 @@ func (volume *Volume) probeExecOn(ctx context.Context, current *session) (ExecSt
 	return cloneStatus(status), nil
 }
 
-// forgetTransientExecVerdict oublie un verdict passager : la prochaine commande sonde à nouveau.
+// forgetTransientExecVerdict oublie un verdict passager : la prochaine commande sonde à nouveau, et la prochaine racine
+// d'écriture refait la sonde des capacités (stat et empreintes distants). L'avertissement déjà posé reste le seul de
+// la session.
 func (current *session) forgetTransientExecVerdict() {
 	if current.execVerdictTransient.CompareAndSwap(true, false) {
 		current.execStatus.Store(nil)
+		current.capabilities.Store(nil)
 	}
 }
 

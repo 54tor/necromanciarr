@@ -69,8 +69,11 @@ type session struct {
 	capabilities atomic.Pointer[fsys.Capabilities]
 	// execStatus : verdict de ProbeExec sur cette session, nil tant qu'aucune sonde de l'exécution distante n'a abouti.
 	execStatus atomic.Pointer[ExecStatus]
-	// execVerdictTransient : execStatus vient d'une sonde hors délai ; ResetForStage l'oublie.
+	// execVerdictTransient : execStatus vient d'une sonde hors délai ; ResetForStage l'oublie, avec les capacités
+	// sondées, pour que la prochaine racine d'écriture sonde à nouveau.
 	execVerdictTransient atomic.Bool
+	// remoteStatDevice : périphérique validé par la sonde de stat distant ; nil tant que RemoteStat n'est pas prouvé.
+	remoteStatDevice atomic.Pointer[uint64]
 }
 
 func newSession(sshClient *ssh.Client, client *sftp.Client) *session {
@@ -111,8 +114,6 @@ type Volume struct {
 	reconnectUsed bool
 	closed        bool
 	warnings      []Warning
-	// identities : identités distantes lues pendant l'étape (FileIDs), oubliées à ResetForStage.
-	identities identityCache
 }
 
 // Dial ouvre la session du fournisseur. Échecs : ErrHostKeyUnknown, ErrHostKeyMismatch, ErrAuthRefused, erreurs
@@ -177,7 +178,6 @@ func (volume *Volume) ResetForStage() {
 	volume.mutex.Lock()
 	defer volume.mutex.Unlock()
 	volume.reconnectUsed = false
-	volume.identities.reset()
 	if volume.current != nil {
 		volume.current.forgetTransientExecVerdict()
 	}

@@ -58,6 +58,7 @@ func (probe *capabilityProbe) remoteExec() error {
 		}
 	}
 	if reason == "" {
+		probe.root.current.remoteStatDevice.Store(&probe.validatedDevice)
 		probe.capabilities.RemoteStat, probe.capabilities.RemoteHash = true, slices.Clone(status.Hashes)
 		delete(probe.capabilities.Reasons, reasonKeyFileIdentity)
 		return nil
@@ -114,7 +115,11 @@ func (probe *capabilityProbe) verifyRemoteStat() error {
 	if err := probe.checkAgainstSFTP(results); err != nil {
 		return err
 	}
-	return checkIdentities(results, probe.linkedPartner != "")
+	if err := checkIdentities(results, probe.linkedPartner != ""); err != nil {
+		return err
+	}
+	probe.validatedDevice = results[0].Device
+	return nil
 }
 
 // checkAgainstSFTP exige pour chaque chemin un résultat sans erreur (taille déjà comparée par Exec) et une date à une

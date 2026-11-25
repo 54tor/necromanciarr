@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // fixtureDirectoryMode : dossiers parents des fichiers de test, privés à leur propriétaire.
@@ -41,4 +42,31 @@ func RemoveFile(path string) error {
 		return err
 	}
 	return nil
+}
+
+// SetModTime fixe la date de modification d'un fichier servi (chemin du disque hôte).
+func SetModTime(t testing.TB, path string, modTime time.Time) {
+	t.Helper()
+	if err := os.Chtimes(path, modTime, modTime); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Rename renomme un fichier servi par-dessus newPath (chemins du disque hôte) : un autre inode prend le nom.
+func Rename(t testing.TB, oldPath, newPath string) {
+	t.Helper()
+	if err := os.Rename(oldPath, newPath); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Symlink remplace linkPath par un lien symbolique vers target (chemin du disque hôte).
+func Symlink(t testing.TB, target, linkPath string) {
+	t.Helper()
+	if err := RemoveFile(linkPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, linkPath); err != nil {
+		t.Fatal(err)
+	}
 }

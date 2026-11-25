@@ -288,6 +288,8 @@ type capabilityProbe struct {
 	// contentFile : fichier de sonde dont le contenu (probeContent) a été relu par SFTP ; linkedPartner : son lien
 	// dur, quand le lien dur est prouvé. Ils servent à vérifier l'exécution distante contre SFTP.
 	contentFile, linkedPartner string
+	// validatedDevice : périphérique des fichiers de sonde, seul où une identité distante est ensuite crue.
+	validatedDevice uint64
 }
 
 func (root *writeRoot) probeCapabilities(ctx context.Context) (capabilities fsys.Capabilities, err error) {
