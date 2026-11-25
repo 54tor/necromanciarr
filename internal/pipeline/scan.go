@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"necromanciarr/internal/arr"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/store"
 )
 
@@ -104,7 +104,7 @@ func removeVanishedFiles(ctx context.Context, deps Deps, result *Result, files [
 	removedIDs := map[int64]bool{}
 	for _, root := range deps.LibraryRoots {
 		underRoot := filesUnder(files, root)
-		vanished := vanishedFiles(underRoot)
+		vanished := vanishedFiles(registryOrLocal(deps.Registry), underRoot)
 		if len(vanished) == 0 {
 			continue
 		}
@@ -124,25 +124,47 @@ func removeVanishedFiles(ctx context.Context, deps Deps, result *Result, files [
 }
 
 func filesUnder(files []store.MediaFile, root string) []store.MediaFile {
-	rootPrefix := strings.TrimSuffix(filepath.Clean(root), string(filepath.Separator)) + string(filepath.Separator)
+	prefix := rootPrefix(root)
 	var underRoot []store.MediaFile
 	for _, file := range files {
-		if strings.HasPrefix(file.Path, rootPrefix) {
+		if strings.HasPrefix(file.Path, prefix) {
 			underRoot = append(underRoot, file)
 		}
 	}
 	return underRoot
 }
 
+// rootPrefix est le préfixe des chemins inventoriés sous root : « /racine/ » en local, « sftp://fournisseur/racine/ » à distance.
+func rootPrefix(root string) string {
+	location, err := fsys.ParseLocation(root)
+	if err != nil || location.Volume == "" {
+		return strings.TrimSuffix(filepath.Clean(root), string(filepath.Separator)) + string(filepath.Separator)
+	}
+	return strings.TrimSuffix(location.String(), "/") + "/"
+}
+
 // vanishedFiles ne retient que les fichiers dont l'absence est certaine ; toute autre erreur de lecture les garde.
-func vanishedFiles(files []store.MediaFile) []store.MediaFile {
+func vanishedFiles(registry *fsys.Registry, files []store.MediaFile) []store.MediaFile {
 	var vanished []store.MediaFile
 	for _, file := range files {
-		if _, err := os.Lstat(file.Path); errors.Is(err, fs.ErrNotExist) {
+		if isCertainlyAbsent(registry, file.Path) {
 			vanished = append(vanished, file)
 		}
 	}
 	return vanished
+}
+
+func isCertainlyAbsent(registry *fsys.Registry, storedPath string) bool {
+	location, err := locationOfStoredPath(storedPath)
+	if err != nil {
+		return false
+	}
+	readFS, path, err := registry.Read(location)
+	if err != nil {
+		return false
+	}
+	_, err = readFS.Lstat(path)
+	return errors.Is(err, fs.ErrNotExist)
 }
 
 // collectArrIDs indexe les identifiants des instances par chemin, traduit de la vue de l'instance vers la nôtre ; deux

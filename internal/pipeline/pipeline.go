@@ -13,6 +13,7 @@ import (
 
 	"necromanciarr/internal/arr"
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/library"
 	"necromanciarr/internal/libraryprovider"
@@ -140,16 +141,24 @@ type TorrentClient interface {
 // RootScanner inventorie une racine de bibliothèque dans le store.
 type RootScanner func(ctx context.Context, root string) error
 
-// LibraryScanner adapte library.Scan au pipeline.
-func LibraryScanner(mediaStore *store.Store) RootScanner {
-	return func(ctx context.Context, root string) error { return library.Scan(ctx, root, mediaStore) }
+// LibraryScanner adapte library.Scan au pipeline : la racine (chemin local absolu ou sftp://…) est lue par le
+// registre ; nil prend le registre du disque local.
+func LibraryScanner(mediaStore *store.Store, registry *fsys.Registry) RootScanner {
+	return func(ctx context.Context, root string) error {
+		location, err := fsys.ParseLocation(root)
+		if err != nil {
+			return fmt.Errorf("scan %s: %w", root, err)
+		}
+		return library.Scan(ctx, location, registryOrLocal(registry), mediaStore)
+	}
 }
 
 // Deps regroupe les dépendances des étapes. LibraryRoots sont vus par ce processus ; Mapper nil signifie que les
 // services externes voient les mêmes chemins ; Now nil vaut time.Now ; LockTTL 0 vaut deux minutes.
 //
 // Pour Verify : ReadLimiter plafonne le débit de lecture locale (nil = sans plafond), ReadBudget les octets lus pour
-// départager des fichiers de même taille (0 = sans limite) ; OpenLocal nil ouvre en lecture seule avec os.Open ;
+// départager des fichiers de même taille (0 = sans limite) ; OpenLocal nil ouvre en lecture seule par Registry (nil :
+// le disque local), le limiteur restant appliqué par le vérificateur à tout lecteur ;
 // CrossSeed vient de crossseed.ResolveMode ; l'avancement est enregistré toutes les ProgressEvery pièces (0 = 64) ou
 // toutes les ProgressInterval (0 = 5 s).
 //
@@ -172,6 +181,7 @@ type Deps struct {
 	ReadLimiter      torrentcheck.Limiter
 	ReadBudget       int64
 	OpenLocal        func(path string) (LocalFile, error)
+	Registry         *fsys.Registry
 	CrossSeed        crossseed.Behavior
 	ProgressEvery    int
 	ProgressInterval time.Duration

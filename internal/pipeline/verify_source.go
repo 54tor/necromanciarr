@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"os"
 	"path"
 	"strings"
+	"sync"
 
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/matcher"
 	"necromanciarr/internal/store"
@@ -26,13 +28,56 @@ type LocalFile interface {
 	io.Closer
 }
 
-// openReadOnly ouvre un fichier de la bibliothèque sans jamais pouvoir y écrire (os.Open = O_RDONLY).
-func openReadOnly(filePath string) (LocalFile, error) {
-	file, err := os.Open(filePath) // #nosec G304 -- chemin venant de l'inventaire de la bibliothèque
+// openReadOnly ouvre un fichier de la bibliothèque sans jamais pouvoir y écrire : fsys.ReadFS n'offre que la
+// lecture. Un chemin sftp://<fournisseur>/… va au volume distant, tout autre chemin au disque local.
+func openReadOnly(registry *fsys.Registry, name string) (LocalFile, error) {
+	location, err := locationOfStoredPath(name)
+	if err != nil {
+		return nil, err
+	}
+	readFS, path, err := registry.Read(location)
+	if err != nil {
+		return nil, err
+	}
+	file, err := readFS.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	return file, nil
+}
+
+// locationOfStoredPath relit un chemin de l'inventaire : brut en local (même un nom à caractère de contrôle, que
+// ParseLocation refuserait), Location.String à distance.
+func locationOfStoredPath(name string) (fsys.Location, error) {
+	if strings.HasPrefix(name, "sftp://") {
+		return fsys.ParseLocation(name)
+	}
+	return fsys.Location{Path: name}, nil
+}
+
+// localRegistry est le registre du seul disque local, pris quand Deps.Registry est nil.
+var localRegistry = sync.OnceValue(func() *fsys.Registry {
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"": local.New()}, nil)
+	if err != nil {
+		panic(err) // un registre à un seul volume local ne peut pas être refusé
+	}
+	return registry
+})
+
+func registryOrLocal(registry *fsys.Registry) *fsys.Registry {
+	if registry == nil {
+		return localRegistry()
+	}
+	return registry
+}
+
+// openFile est l'ouverture des fichiers de la bibliothèque : OpenLocal (tests) ou le registre.
+func (deps Deps) openFile() func(path string) (LocalFile, error) {
+	if deps.OpenLocal != nil {
+		return deps.OpenLocal
+	}
+	registry := registryOrLocal(deps.Registry)
+	return func(name string) (LocalFile, error) { return openReadOnly(registry, name) }
 }
 
 // fileOpener ouvre chaque fichier local une seule fois pour l'association et la vérification, puis les ferme.
@@ -42,9 +87,6 @@ type fileOpener struct {
 }
 
 func newFileOpener(open func(path string) (LocalFile, error)) *fileOpener {
-	if open == nil {
-		open = openReadOnly
-	}
 	return &fileOpener{open: open, files: map[string]LocalFile{}}
 }
 

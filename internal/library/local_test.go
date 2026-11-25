@@ -6,8 +6,16 @@ import (
 	"path/filepath"
 	"testing"
 
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/fsystest"
 	"necromanciarr/internal/store"
 )
+
+// scanLocal parcourt un chemin local par le registre du disque local, comme le fait la production.
+func scanLocal(t *testing.T, ctx context.Context, root string, mediaStore *store.Store) error {
+	t.Helper()
+	return Scan(ctx, fsys.Location{Path: root}, fsystest.LocalRegistry(t), mediaStore)
+}
 
 func openTestStore(t *testing.T) *store.Store {
 	t.Helper()
@@ -36,7 +44,7 @@ func TestScan_recordsSizeAndPath(t *testing.T) {
 	writeFile(t, filepath.Join(root, "Movies", "Film (2020)", "Film.nfo"), "x")
 	testStore := openTestStore(t)
 
-	if err := Scan(context.Background(), root, testStore); err != nil {
+	if err := scanLocal(t, context.Background(), root, testStore); err != nil {
 		t.Fatal(err)
 	}
 
@@ -63,7 +71,7 @@ func TestScan_doesNotFollowSymlinkLoops(t *testing.T) {
 	}
 	testStore := openTestStore(t)
 
-	if err := Scan(context.Background(), root, testStore); err != nil {
+	if err := scanLocal(t, context.Background(), root, testStore); err != nil {
 		t.Fatal(err)
 	}
 
@@ -78,12 +86,12 @@ func TestScan_isIdempotent(t *testing.T) {
 	movieFilePath := filepath.Join(root, "Film.mkv")
 	writeFile(t, movieFilePath, "1")
 	testStore := openTestStore(t)
-	if err := Scan(context.Background(), root, testStore); err != nil {
+	if err := scanLocal(t, context.Background(), root, testStore); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, movieFilePath, "123")
 
-	if err := Scan(context.Background(), root, testStore); err != nil {
+	if err := scanLocal(t, context.Background(), root, testStore); err != nil {
 		t.Fatal(err)
 	}
 
@@ -99,7 +107,7 @@ func TestScan_stopsOnCancelledContext(t *testing.T) {
 	cancelledContext, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if err := Scan(cancelledContext, root, openTestStore(t)); err == nil {
+	if err := scanLocal(t, cancelledContext, root, openTestStore(t)); err == nil {
 		t.Fatal("expectedValue a context error")
 	}
 }
@@ -113,7 +121,7 @@ func TestScan_followsSymlinkedRootAndKeepsRootPrefix(t *testing.T) {
 	}
 	testStore := openTestStore(t)
 
-	if err := Scan(context.Background(), linkRoot, testStore); err != nil {
+	if err := scanLocal(t, context.Background(), linkRoot, testStore); err != nil {
 		t.Fatal(err)
 	}
 
@@ -124,5 +132,28 @@ func TestScan_followsSymlinkedRootAndKeepsRootPrefix(t *testing.T) {
 	expectedPath := filepath.Join(linkRoot, "Film.mkv")
 	if len(gotFiles) != 1 || gotFiles[0].Path != expectedPath {
 		t.Fatalf("expectedValue one file at %s, gotValue %+v", expectedPath, gotFiles)
+	}
+}
+
+func TestScan_doesNotFollowSymlinksOutOfTheLibrary(t *testing.T) {
+	outside := t.TempDir()
+	writeFile(t, filepath.Join(outside, "Elsewhere.mkv"), "1")
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "Inside.mkv"), "1")
+	if err := os.Symlink(outside, filepath.Join(root, "dir-link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "Elsewhere.mkv"), filepath.Join(root, "file-link.mkv")); err != nil {
+		t.Fatal(err)
+	}
+	testStore := openTestStore(t)
+
+	if err := scanLocal(t, context.Background(), root, testStore); err != nil {
+		t.Fatal(err)
+	}
+
+	gotFiles, _ := testStore.ListMediaFiles(context.Background())
+	if len(gotFiles) != 1 || gotFiles[0].Path != filepath.Join(root, "Inside.mkv") {
+		t.Fatalf("valeurAttendue only Inside.mkv, valeurObtenue %+v", gotFiles)
 	}
 }

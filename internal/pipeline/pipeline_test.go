@@ -35,7 +35,7 @@ func writeMediaFile(t *testing.T, root, name string, size int) string {
 
 func scanDeps(mediaStore *store.Store, root string, sources ...ItemsSource) Deps {
 	return Deps{
-		Store: mediaStore, ScanRoot: LibraryScanner(mediaStore), LibraryRoots: []string{root}, ArrSources: sources,
+		Store: mediaStore, ScanRoot: LibraryScanner(mediaStore, nil), LibraryRoots: []string{root}, ArrSources: sources,
 		Now: func() time.Time { return fixedNow },
 	}
 }
@@ -123,7 +123,7 @@ func TestScan_unchangedMetadataIsNotRewritten(t *testing.T) {
 	item := arr.Item{Path: moviePath, TMDBID: 603, Title: "Film", Year: 1999}
 	deps := scanDeps(nil, root, fakeArr{items: []arr.Item{item}})
 	deps.Store = counting
-	deps.ScanRoot = LibraryScanner(counting.Store)
+	deps.ScanRoot = LibraryScanner(counting.Store, nil)
 
 	for range 2 {
 		if _, err := Run(context.Background(), StageScan, deps); err != nil {

@@ -13,6 +13,8 @@ import (
 	"necromanciarr/internal/arr"
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/httpsafe"
 	"necromanciarr/internal/i18n"
@@ -59,8 +61,13 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 	if err != nil {
 		return Deps{}, err
 	}
+	registry, err := newFilesystemRegistry(settings)
+	if err != nil {
+		return Deps{}, err
+	}
 	stages := pipeline.Deps{
-		Store: openedStore, ScanRoot: pipeline.LibraryScanner(openedStore), LibraryRoots: settings.LibraryRoots,
+		Store: openedStore, ScanRoot: pipeline.LibraryScanner(openedStore, registry), LibraryRoots: settings.LibraryRoots,
+		Registry:   registry,
 		ArrSources: arrSources(settings), Mapper: mapper, ClientMapper: mapper,
 		ReadLimiter: rate.NewLimiter(rate.Limit(settings.ReadBytesPerSecond), readBurstBytes),
 		ReadBudget:  settings.TieBreakReadBytes, PartialMaxMissingPercent: &settings.PartialMaxMissingPercent,
@@ -82,11 +89,11 @@ func buildDeps(ctx context.Context, settings config.Config, openedStore *store.S
 	if err := wireCrossSeed(ctx, settings, &stages, &deps); err != nil {
 		return Deps{}, err
 	}
-	registry, err := hashsource.NewFromConfig(settings.FSProviders, hashsource.Deps{HTTPClient: httpsafe.NewClient(hashSourceTimeout)})
+	hashSources, err := hashsource.NewFromConfig(settings.FSProviders, hashsource.Deps{HTTPClient: httpsafe.NewClient(hashSourceTimeout)})
 	if err != nil {
 		return Deps{}, fmt.Errorf("app: fs providers: %w", err)
 	}
-	deps.Stages, deps.HashSources = stages, registry
+	deps.Stages, deps.HashSources = stages, hashSources
 	deps.DoctorDeps.SealedProbe = openStoreProbe{store: openedStore}
 	return deps, nil
 }
@@ -262,4 +269,23 @@ func wireCrossSeed(ctx context.Context, settings config.Config, stages *pipeline
 	stages.CrossSeed, stages.CrossSeedWarnings, stages.Notifier = initial.Behavior, initial.Warnings, initial.Notifier
 	deps.CrossSeed, deps.CrossSeedWarnings, deps.ResolveCrossSeed = initial.Behavior, initial.Warnings, resolver.resolve
 	return nil
+}
+
+// newFilesystemRegistry déclare le volume du disque local et les racines de bibliothèque de la configuration ; les
+// volumes distants s'y ajoutent avec leurs fournisseurs. Aucun accès disque : les racines sont canonicalisées au
+// premier usage de leur volume.
+func newFilesystemRegistry(settings config.Config) (*fsys.Registry, error) {
+	libraryRoots := make([]fsys.Location, 0, len(settings.LibraryRoots))
+	for rootIndex, root := range settings.LibraryRoots {
+		location, err := fsys.ParseLocation(root)
+		if err != nil {
+			return nil, fmt.Errorf("app: libraryRoots[%d]: %w", rootIndex, err)
+		}
+		libraryRoots = append(libraryRoots, location)
+	}
+	registry, err := fsys.NewRegistry(map[string]fsys.Volume{"": local.New()}, libraryRoots)
+	if err != nil {
+		return nil, fmt.Errorf("app: filesystem registry: %w", err)
+	}
+	return registry, nil
 }

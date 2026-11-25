@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/fsystest"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/library"
@@ -679,7 +681,7 @@ func TestChecks_libraryRootsAgreeWithScanOnMediaExtensions(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = scanStore.Close() })
-		if err := library.Scan(context.Background(), root, scanStore); err != nil {
+		if err := library.Scan(context.Background(), fsys.Location{Path: root}, fsystest.LocalRegistry(t), scanStore); err != nil {
 			t.Fatal(err)
 		}
 		scannedFiles, err := scanStore.ListMediaFiles(context.Background())

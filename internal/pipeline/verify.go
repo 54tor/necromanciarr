@@ -109,7 +109,7 @@ func (run candidateRun) verify(ctx context.Context, candidate store.Candidate) e
 	if err != nil || failure != "" {
 		return run.failOrStop(ctx, candidate, failure, err)
 	}
-	opener := newFileOpener(run.deps.OpenLocal)
+	opener := newFileOpener(run.deps.openFile())
 	defer opener.closeAll()
 	assignment, proceed, err := run.assign(ctx, candidate, torrent, local, opener)
 	if err != nil || !proceed {

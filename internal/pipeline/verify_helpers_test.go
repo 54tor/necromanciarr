@@ -19,6 +19,7 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
@@ -187,6 +188,8 @@ type verifyFixture struct {
 	partialCap *float64
 	// productionOpener laisse Deps.OpenLocal nil : l'étape ouvre alors avec openReadOnly.
 	productionOpener bool
+	// registry est Deps.Registry (nil : registre du disque local construit par défaut).
+	registry *fsys.Registry
 	// trackers est la section trackers vue par les étapes (testTrackers par défaut) ; sealer déscelle les .torrent
 	// d'indexeur (nil : aucune clé).
 	trackers []config.Tracker
@@ -335,7 +338,7 @@ func (fixture *verifyFixture) deps() Deps {
 		Store: fixture.store, Sources: chain, OpenLocal: fixture.opener.open, CrossSeed: fixture.crossSeed,
 		ReadLimiter: fixture.limiter, ReadBudget: fixture.readBudget, ProgressEvery: 1,
 		PartialMaxMissingPercent: fixture.partialCap, Now: func() time.Time { return fixedNow },
-		Announces: sources.NewResolver(fixture.trackers), Sealer: fixture.sealer,
+		Announces: sources.NewResolver(fixture.trackers), Sealer: fixture.sealer, Registry: fixture.registry,
 	}
 	if fixture.productionOpener {
 		deps.OpenLocal = nil
