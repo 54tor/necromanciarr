@@ -169,10 +169,13 @@ type Deps struct {
 	CrossSeed         crossseed.Behavior
 	CrossSeedWarnings []i18n.Message
 	HashSources       hashsource.Registry
-	Config            config.Config
-	DoctorDeps        doctor.Deps
-	Maintenance       MaintenanceClient
-	Now               func() time.Time
+	// RemoteHashes calcule les empreintes sur l'hôte des volumes sftp dont la sonde annonce RemoteHash (sftp-exec) ;
+	// nil : aucune, un fichier distant est relu.
+	RemoteHashes hashsource.HashSource
+	Config       config.Config
+	DoctorDeps   doctor.Deps
+	Maintenance  MaintenanceClient
+	Now          func() time.Time
 	// Translator rend les textes dans la langue configurée (vide : français, sans masquage).
 	Translator i18n.Translator
 	// ResolveCrossSeed, s'il est posé, redonne le mode cross-seed au début de chaque étape, acceptation et Status

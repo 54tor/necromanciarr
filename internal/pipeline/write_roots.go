@@ -77,6 +77,8 @@ func writeRootRefusalReason(err error) string {
 	switch {
 	case isRemoteUnavailable(err):
 		return ReasonRemoteUnavailable
+	case errors.Is(err, fsys.ErrRemoteExecRequired):
+		return ReasonRemoteExecRequired
 	case errors.Is(err, fsys.ErrCannotCanonicalize), errors.Is(err, fsys.ErrNoLibraryRoots):
 		return ReasonLibraryRootUnavailable
 	case errors.Is(err, fsys.ErrWriteInLibrary):

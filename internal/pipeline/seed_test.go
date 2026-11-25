@@ -285,6 +285,30 @@ func TestSeed_remoteLinkForcesClientRecheck(t *testing.T) {
 	}
 }
 
+func TestSeed_remoteLinkForcesClientRecheckEvenWithRemoteStat(t *testing.T) {
+	fixture, volume := newRemoteApplyFixture(t)
+	volume.FileIDKnown.Store(true)
+	volume.RemoteStat.Store(true)
+	fixture.skipRecheck = true
+	fixture.mapper = remoteClientMapper()
+	candidate, _ := fixture.linkedProposal(movieOnly(), store.ProposalFull)
+	fixture.client.guardResults[candidate.Infohash] = qbit.RecheckResult{Progress: 1, Complete: true}
+
+	result := fixture.mustRunStage(StageSeed)
+
+	added, present := fixture.client.added[candidate.Infohash]
+	isRechecked := present && !added.options.SkipChecking && !added.options.Start && len(fixture.client.guardCalls) == 1
+	if !isRechecked || result.Reasons[ReasonIdentityUnproven] != 1 {
+		t.Fatalf("valeurObtenue %+v guard=%v reasons %v, valeurAttendue un ajout en pause sans skip_checking, revérifié par le "+
+			"client, même avec stat distant (I4)", added, fixture.client.guardCalls, result.Reasons)
+	}
+	for _, link := range fixture.linksOf() {
+		if !link.IdentityUnproven() || link.InodeReliable {
+			t.Fatalf("valeurObtenue %+v, valeurAttendue un lien distant jamais prouvé, inode jamais fiable", link)
+		}
+	}
+}
+
 func TestSeed_refusesUnmappedRemoteLinkDir(t *testing.T) {
 	cases := map[string]ClientPathMapper{
 		"no mapper":                   nil,

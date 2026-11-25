@@ -43,6 +43,8 @@ type DedupeDetails struct {
 	LibraryDevice      uint64    `json:"library_device,omitempty"`
 	LibraryInode       uint64    `json:"library_inode,omitempty"`
 	InodeReliable      bool      `json:"inode_reliable"`
+	// RemoteHashBytes : octets que l'hôte distant lira pour ses empreintes (sftp-exec), hors réseau.
+	RemoteHashBytes int64 `json:"remote_hash_bytes,omitempty"`
 }
 
 // Motifs stables d'une proposition dedupe sans remplacement possible (DedupeDetails.Reason, jamais traduits).
@@ -63,12 +65,22 @@ const (
 	// DedupeReasonNoAtomicReplace : le volume du dossier torrent ne remplace pas un fichier de façon atomique (SFTP
 	// sans posix-rename) ; aucun repli sur un renommage ou une suppression puis création.
 	DedupeReasonNoAtomicReplace = "no_atomic_replace"
+	// DedupeReasonRemoteExecRequired : le volume du dossier torrent est réglé exec required et son exécution
+	// distante n'est pas utilisable.
+	DedupeReasonRemoteExecRequired = "remote_exec_required"
 )
+
+// hashBackend choisit la source d'empreintes par volume : montages rclone en local, sftp-exec sur un volume sftp.
+func (deps Deps) hashBackend() hashsource.HashSource {
+	return hashsource.ByVolume(deps.HashSources, deps.RemoteHashes)
+}
 
 // dedupeReasonCode ramène la cause d'un plan sans remplacement à un motif stable : l'ordre est celui de la précision
 // (remplacement atomique, empreinte, configuration, volume, prise en charge), tout le reste est un échec de sonde.
 func dedupeReasonCode(cause error) string {
 	switch {
+	case errors.Is(cause, fsys.ErrRemoteExecRequired):
+		return DedupeReasonRemoteExecRequired
 	case errors.Is(cause, fsys.ErrNoAtomicReplace):
 		return DedupeReasonNoAtomicReplace
 	case errors.Is(cause, dedupe.ErrHashUnavailable):
@@ -127,6 +139,7 @@ func dedupeDetailsOf(replacement dedupe.Replacement) DedupeDetails {
 		LibraryFingerprint: replacement.LibraryFingerprint, TorrentModTime: replacement.TorrentModTime,
 		LibraryModTime: replacement.LibraryModTime, LibraryDevice: replacement.LibraryDevice,
 		LibraryInode: replacement.LibraryInode, InodeReliable: replacement.InodeReliable,
+		RemoteHashBytes: replacement.RemoteHashBytes,
 	}
 	if replacement.Kind != 0 {
 		details.Kind = replacement.Kind.String()
@@ -144,7 +157,7 @@ func (details DedupeDetails) replacement() dedupe.Replacement {
 		Method: dedupe.Method(details.Method), HashAlgorithm: hashsource.Algorithm(details.HashAlgorithm),
 		Fingerprint: details.Fingerprint, LibraryFingerprint: details.LibraryFingerprint, TorrentModTime: details.TorrentModTime,
 		LibraryModTime: details.LibraryModTime, LibraryDevice: details.LibraryDevice, LibraryInode: details.LibraryInode,
-		InodeReliable: details.InodeReliable,
+		InodeReliable: details.InodeReliable, RemoteHashBytes: details.RemoteHashBytes,
 	}
 }
 
@@ -243,7 +256,7 @@ func (svc *service) dedupeOptions(ctx context.Context) dedupe.Options {
 		Kinds: kinds, RelativeSymlinks: settings.RelativeSymlinks, MinFileAge: settings.MinFileAge,
 		RecheckAfter: settings.RecheckAfter, Verify: dedupe.Verification(settings.Verify), TorrentRoots: settings.TorrentRoots,
 		Limiter: svc.deps.Stages.ReadLimiter, Fingerprints: svc.deps.Store, Recorder: svc.deps.Store,
-		Backend: svc.deps.HashSources, HashAlgorithms: algorithms, Registry: svc.deps.Stages.Registry,
+		Backend: svc.deps.hashBackend(), HashAlgorithms: algorithms, Registry: svc.deps.Stages.Registry,
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/fsys/sftpfs"
 	"necromanciarr/internal/fsys/sftpfs/sftptest"
+	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
@@ -441,9 +442,10 @@ func (world *sftpWorld) force(t *testing.T) (Result, error) {
 func (world *sftpWorld) planDedupe(t *testing.T, dryRun bool) ([]dedupe.Replacement, dedupe.Options, error) {
 	t.Helper()
 	library := []store.MediaFile{{Path: sftpStored(sftpLibraryDir + "/duplicate.mkv"), Size: movieSize, ModTime: agedLibraryTime}}
+	remoteHashes := hashsource.NewSFTPExec(map[string]*sftpfs.Volume{sftpVolumeName: world.volume})
 	options := dedupe.Options{
 		Kinds: []linker.Kind{linker.Hardlink}, TorrentRoots: []string{sftpStored(sftpTorrentDir)}, Recorder: world.store,
-		Registry: world.registry, DryRun: dryRun,
+		Registry: world.registry, DryRun: dryRun, Backend: hashsource.ByVolume(nil, remoteHashes),
 	}
 	replacements, err := dedupe.Plan(t.Context(), options.TorrentRoots, library, options)
 	return replacements, options, err
@@ -522,12 +524,34 @@ func TestSFTPRequestClasses_coverEverySftptestMethodOnce(t *testing.T) {
 }
 
 func TestSFTP_noWriteRequestUnderLibraryRoot_endToEnd(t *testing.T) {
-	world := newSFTPWorld(t)
+	world := newSFTPWorld(t, sftptest.WithGNUExec())
 	before := snapshotTree(t, world.localLibrary)
 
 	world.runEveryPhase(t)
 
 	world.assertLibraryUntouched(t, before)
+	world.assertOnlyTableCommands(t)
+}
+
+// assertOnlyTableCommands : l'exécution distante a servi (stat et empreintes en lots), chaque ligne reçue est une
+// ligne constante de la table et aucune ne porte d'octet d'un chemin de la bibliothèque (ils passent par stdin).
+func (world *sftpWorld) assertOnlyTableCommands(t *testing.T) {
+	t.Helper()
+	capabilities, err := world.volume.Capabilities(t.Context())
+	if err != nil || !capabilities.RemoteStat || len(capabilities.RemoteHash) == 0 {
+		t.Fatalf("valeurObtenue %+v (%v), valeurAttendue stat et empreintes distants prouvés par la sonde", capabilities, err)
+	}
+	hashedLibraryFile := false
+	for _, session := range world.server.ExecSessions() {
+		if !slices.Contains(sftpfs.GuardLines(), session.Command) || strings.Contains(session.Command, sftpLibraryDir) {
+			t.Errorf("valeurObtenue %q, valeurAttendue une ligne constante de la table, sans chemin", session.Command)
+		}
+		isHashBatch := strings.Contains(session.Command, "sum' '-z'")
+		hashedLibraryFile = hashedLibraryFile || (isHashBatch && strings.Contains(string(session.Stdin), sftpLibraryDir+"/"))
+	}
+	if !hashedLibraryFile {
+		t.Fatal("valeurAttendue l'empreinte du doublon de la bibliothèque calculée par l'hôte (dedupe), valeurObtenue aucune")
+	}
 }
 
 // Link par lien symbolique d'abord : la garde d'ordre des arguments passe par Link ; le texte de la cible désigne la

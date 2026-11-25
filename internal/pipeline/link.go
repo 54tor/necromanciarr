@@ -45,6 +45,9 @@ const (
 	// ReasonSymlinkOrderUnverified : le serveur SFTP n'a pas prouvé l'ordre des arguments d'un lien symbolique ; les
 	// liens symboliques y sont refusés, la proposition reste acceptée.
 	ReasonSymlinkOrderUnverified = "symlink_order_unverified"
+	// ReasonRemoteExecRequired : le volume du dossier de liens est réglé exec required et son exécution distante n'est
+	// pas utilisable ; la proposition reste acceptée, reprise à la relance.
+	ReasonRemoteExecRequired = "remote_exec_required"
 )
 
 // ReasonLibraryRootUnavailable : une racine de bibliothèque ne se résout pas (absente, non montée), le registre refuse
@@ -153,9 +156,9 @@ func (run linkRun) linkProposal(ctx context.Context, proposal store.Proposal, ca
 	switch {
 	case err != nil:
 		return err
-	case reason == ReasonRemoteUnavailable:
+	case reason == ReasonRemoteUnavailable, reason == ReasonRemoteExecRequired:
 		run.result.Skipped++
-		run.result.count(ReasonRemoteUnavailable, 1)
+		run.result.count(reason, 1)
 		return nil
 	case reason == ReasonChangedFile:
 		run.result.Skipped++

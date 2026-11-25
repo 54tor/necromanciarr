@@ -42,6 +42,13 @@ func TestClientPathUnmapped_reusesTheSeedReasonCode(t *testing.T) {
 	}
 }
 
+func TestDedupeReasonCode_remoteExecRequired(t *testing.T) {
+	refusal := fmt.Errorf("dedupe: probe sftp://seedbox/torrents: %w", fsys.ErrRemoteExecRequired)
+	if gotValue := dedupeReasonCode(refusal); gotValue != DedupeReasonRemoteExecRequired {
+		t.Fatalf("gotValue %q, expectedValue %q", gotValue, DedupeReasonRemoteExecRequired)
+	}
+}
+
 func TestDedupeReasonCode_noAtomicReplace(t *testing.T) {
 	if gotValue := dedupeReasonCode(fmt.Errorf("plan: %w", fsys.ErrNoAtomicReplace)); gotValue != DedupeReasonNoAtomicReplace {
 		t.Fatalf("gotValue %q, expectedValue %q", gotValue, DedupeReasonNoAtomicReplace)

@@ -122,7 +122,7 @@ func (svc *service) scanRepairs(ctx context.Context, directory string) ([]Repair
 	}
 	options := repair.Options{
 		LibraryRoots: settings.LibraryRoots, ScanDirectories: scanDirectories, Limiter: svc.deps.Stages.ReadLimiter,
-		FingerprintCache: svc.deps.Store, HashConfirmer: hashsource.NewConfirmer(svc.deps.HashSources), Store: svc.deps.Store,
+		FingerprintCache: svc.deps.Store, HashConfirmer: hashsource.NewConfirmer(svc.deps.hashBackend()), Store: svc.deps.Store,
 		Registry: svc.deps.Stages.Registry,
 	}
 	if svc.deps.Maintenance != nil {
