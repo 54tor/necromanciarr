@@ -9,6 +9,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - `sources list`, `sources test <name>`, `proposals list --source`, and the Sources view.
 - An indexer title that carries a passkey is never stored: the candidate takes the torrent name instead, and a torrent whose name or file path carries a passkey is refused (`invalid_torrent`).
 - SFTP providers that share an address share their library roots, so a link folder cannot reach the library through a second provider name; a library root that is not a real directory once resolved blocks every write on that volume.
+- Third-party licence notices ship in the image under `/usr/share/doc/necromanciarr/`.
 - `doctor` warns when an SFTP provider points at this machine while local library roots exist (`volume_alias_risk`), and when the kernel cannot detect bind mounts under a local link folder (`mount_root_undetected`).
 - Indexer search answers are cached (6 h, 24 h when empty; no download link, key or magnet is ever stored), a search that ran to the end is not repeated for 7 days, and a `.torrent` whose infohash is already a candidate is never downloaded again; the Match result gains `cache_hits` per indexer.
 - Indexer request budgets (per run and per day over a sliding 24 h window, kept across restarts, one indexer at a time, minimum interval and `Retry-After` honoured); reaching one gives the reason `indexer_budget_exhausted`, which is not a failure.
