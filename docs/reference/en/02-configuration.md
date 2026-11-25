@@ -251,10 +251,11 @@ printf %s 'a'\''b\' '!x'
 
 #### Getting the `known_hosts` line
 
-The tool never trusts an unknown host key and never writes to `knownHosts`. To fill the file safely:
+The tool never trusts an unknown host key on its own: only the `sftp trust <name> --yes` command, run by the operator, adds a line to `knownHosts` ([04-cli-and-web.md](04-cli-and-web.md)). To fill the file safely:
 
 1. On the server, through an access you already trust (console, existing session), print the fingerprint: `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
-2. From the tool's machine: `ssh-keyscan -H -p 22 seedbox.example.com >> /data/ssh/known_hosts`, then `ssh-keygen -lf /data/ssh/known_hosts`. Compare with the fingerprint from step 1; if they differ, remove the line: the connection may be intercepted.
+2. With the tool: `necromanciarr sftp trust seedbox` prints the presented fingerprint without writing anything; if it equals the one from step 1, run it again with `--yes`. In Docker, run the command inside the container, with the `knownHosts` folder mounted writable for the time of this addition ([05-docker-and-volumes.md](05-docker-and-volumes.md)).
+3. Or without the tool, from its machine: `ssh-keyscan -H -p 22 seedbox.example.com >> /data/ssh/known_hosts`, then `ssh-keygen -lf /data/ssh/known_hosts`. Compare with the fingerprint from step 1; if they differ, remove the line: the connection may be intercepted.
 
 Hashed entries (`-H`) are supported. Only the key types present for the host are asked of the server first: a server that also has a key of another type is not wrongly refused. The file is reread on every connection.
 

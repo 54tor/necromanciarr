@@ -251,10 +251,11 @@ printf %s 'a'\''b\' '!x'
 
 #### Obtenir la ligne `known_hosts`
 
-L'outil ne fait jamais confiance à une clé d'hôte inconnue et n'écrit jamais dans `knownHosts`. Pour remplir le fichier sans risque :
+L'outil ne fait jamais confiance de lui-même à une clé d'hôte inconnue : seule la commande `sftp trust <name> --yes`, lancée par l'opérateur, ajoute une ligne à `knownHosts` ([04-cli-and-web.md](04-cli-and-web.md)). Pour remplir le fichier sans risque :
 
 1. Sur le serveur, par un accès déjà sûr (console, session existante), afficher l'empreinte : `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
-2. Depuis la machine de l'outil : `ssh-keyscan -H -p 22 seedbox.example.com >> /data/ssh/known_hosts`, puis `ssh-keygen -lf /data/ssh/known_hosts`. Comparer avec l'empreinte de l'étape 1 ; si elles diffèrent, retirer la ligne : la connexion est peut-être interceptée.
+2. Avec l'outil : `necromanciarr sftp trust seedbox` affiche l'empreinte présentée sans rien écrire ; si elle égale celle de l'étape 1, relancer avec `--yes`. Dans Docker, lancer la commande dans le conteneur, avec le dossier de `knownHosts` monté en écriture le temps de cet ajout ([05-docker-and-volumes.md](05-docker-and-volumes.md)).
+3. Ou sans l'outil, depuis sa machine : `ssh-keyscan -H -p 22 seedbox.example.com >> /data/ssh/known_hosts`, puis `ssh-keygen -lf /data/ssh/known_hosts`. Comparer avec l'empreinte de l'étape 1 ; si elles diffèrent, retirer la ligne : la connexion est peut-être interceptée.
 
 Les entrées hachées (`-H`) sont prises en charge. Seuls les types de clé présents pour l'hôte sont demandés au serveur en premier : un serveur qui a aussi une clé d'un autre type n'est pas refusé à tort. Le fichier est relu à chaque connexion.
 

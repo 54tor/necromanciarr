@@ -239,10 +239,12 @@ Codes stables d'une connexion à un fournisseur `sftp`, identiques dans les deux
 
 | Code | Gravité | Cause et action |
 |---|---|---|
-| `host_key_unknown` | refus | l'hôte n'a aucune entrée dans `knownHosts` : ajoutez la clé avec `ssh-keyscan -H seedbox.example.com >> known_hosts` (votre hôte), après avoir vérifié l'empreinte par un autre canal (voir « Obtenir la ligne `known_hosts` » dans la configuration) |
+| `host_key_unknown` | refus | l'hôte n'a aucune entrée dans `knownHosts` : ajoutez la clé avec `sftp trust <name> --yes` ou `ssh-keyscan -H seedbox.example.com >> known_hosts` (votre hôte), après avoir vérifié l'empreinte par un autre canal (voir « Obtenir la ligne `known_hosts` » dans la configuration) |
 | `host_key_mismatch` | refus | la clé présentée diffère de celle épinglée, ou elle est révoquée : connexion peut-être interceptée. Ne rien remplacer avant d'avoir vérifié la nouvelle empreinte sur le serveur par un autre canal ; ensuite seulement, remplacer la ligne |
 | `auth_refused` | refus | le serveur a refusé toutes les méthodes configurées (`agent`, `identityFile`, `password`), ou aucune n'était utilisable : vérifier `user`, la clé autorisée côté serveur (`authorized_keys`), la variable du mot de passe |
 | `known_hosts_unreadable` | refus | `knownHosts` absent, illisible ou sans aucune entrée valide : vérifier le chemin (vu par le processus ou le conteneur), les droits de lecture et le format OpenSSH |
+| `known_hosts_not_writable` | refus | `sftp trust --yes` n'écrit pas : `knownHosts` est un lien symbolique ou un fichier spécial, son dossier n'existe pas, ou le fichier n'est pas modifiable (Docker : dossier monté en `:ro`). Rien n'est écrit |
+| `no_link_dir` | refus | `volumes probe` : aucun dossier de `linkDirs` sur ce volume, la sonde n'a nulle part où écrire ; ajouter un dossier de liens `sftp://<name>/…`. Rien n'est écrit |
 | `identity_key_too_weak` | refus | `identityFile` est une clé RSA de moins de 3072 bits : générer une clé ed25519 (`ssh-keygen -t ed25519`) et l'autoriser sur le serveur |
 | `identity_file_unusable` | refus | `identityFile` n'est pas une clé privée utilisable, ou `identityPassphrase` manque ou est fausse |
 | `remote_windows_unsupported` | refus | le serveur SFTP est un serveur Windows (`RealPath("/")` rend `/C:/…`) : non pris en charge, servir la bibliothèque depuis un hôte POSIX |
