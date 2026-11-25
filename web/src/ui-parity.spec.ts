@@ -18,6 +18,7 @@ import OnboardingView from '@/views/OnboardingView.vue'
 import ProposalsView from '@/views/ProposalsView.vue'
 import SourcesView from '@/views/SourcesView.vue'
 import StagesView from '@/views/StagesView.vue'
+import VolumesView from '@/views/VolumesView.vue'
 
 vi.mock('vue-sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
@@ -28,6 +29,7 @@ const VIEWS: Record<string, Component> = {
   LinksView,
   StagesView,
   SourcesView,
+  VolumesView,
 }
 
 async function actionsRenderedBy(view: Component): Promise<Set<string>> {
@@ -46,6 +48,16 @@ async function actionsRenderedBy(view: Component): Promise<Set<string>> {
         downloads: { used: 0, cap: 50 },
         last_error: '',
         caps_cached: false,
+      },
+    ],
+    'GET /api/volumes': [
+      {
+        volume: 'seedbox',
+        type: 'sftp',
+        address: 'seedbox.example.com:22',
+        state: 'ok',
+        capabilities: null,
+        probed_at: null,
       },
     ],
     'GET /api/proposals': (call) => {

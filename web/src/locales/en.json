@@ -74,7 +74,18 @@
       "indexer_access_denied": "The indexer denies access (API key)",
       "indexer_hostile_response": "Indexer response refused (hostile or unreadable)",
       "indexer_budget_exhausted": "Indexer daily quota reached",
-      "foreign_download_host": "Download link outside the indexer's host"
+      "foreign_download_host": "Download link outside the indexer's host",
+      "host_key_unknown": "the host has no entry in knownHosts",
+      "host_key_mismatch": "the host key differs from the one pinned in knownHosts",
+      "auth_refused": "the server refused the authentication",
+      "identity_key_too_weak": "identityFile is an rsa key under 3072 bits",
+      "known_hosts_unreadable": "knownHosts is missing, unreadable or has no valid entry",
+      "known_hosts_not_writable": "knownHosts is not a regular writable file",
+      "remote_unavailable": "the remote volume is unreachable",
+      "remote_exec_required": "exec required, but remote commands do not work",
+      "link_dir_overlaps_library": "the link folder overlaps a library root",
+      "probe_failed": "the probe failed",
+      "no_link_dir": "no link folder on this volume"
     },
     "decision": {
       "pending": "Pending",
@@ -612,5 +623,66 @@
   },
   "jobs": {
     "done": "Task done."
+  },
+  "volumes": {
+    "caption": "Declared volumes: local disk and sftp providers",
+    "empty": "No volume declared.",
+    "loadFailed": "Could not load the volumes.",
+    "refresh": "Refresh",
+    "choose": "Volume to probe",
+    "probe": "Probe",
+    "probeRow": "Probe",
+    "probeRowOf": "Probe {volume}",
+    "probing": "Probing {volume}…",
+    "passed": "Probe passed: {volume}",
+    "failed": "Probe failed: {volume}, {reason}",
+    "local": "local",
+    "never": "Never",
+    "notProbed": "Not probed",
+    "commandsRow": "Commands",
+    "commandsRowOf": "Allowed commands of {volume}",
+    "commandsTitle": "Allowed commands: {volume}",
+    "commandsHint": "Lines the remote guard must allow as they are, tabs included. Shipped script: {script}",
+    "copy": "Copy the lines",
+    "copied": "Lines copied.",
+    "columns": {
+      "volume": "Volume",
+      "type": "Type",
+      "address": "Address",
+      "state": "State",
+      "capabilities": "Capabilities",
+      "probedAt": "Probed at"
+    },
+    "types": {
+      "local": "Local",
+      "sftp": "SFTP"
+    },
+    "state": {
+      "ok": "Working",
+      "broken": "Broken",
+      "unknown": "Unknown"
+    },
+    "capability": {
+      "symlink": {
+        "yes": "Symlink: yes",
+        "no": "Symlink: no"
+      },
+      "hardlink": {
+        "yes": "Hardlink: yes",
+        "no": "Hardlink: no"
+      },
+      "atomic_replace": {
+        "yes": "Atomic replace: yes",
+        "no": "Atomic replace: no"
+      },
+      "server_copy": {
+        "yes": "Server-side copy: yes",
+        "no": "Server-side copy: no"
+      },
+      "identity": {
+        "yes": "Remote identity: yes",
+        "no": "Remote identity: no"
+      }
+    }
   }
 }

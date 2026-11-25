@@ -121,8 +121,8 @@ export interface LinkItem {
   reason?: string
   /** Libellé traduit de `reason`. */
   label?: string
-  /** Volume du lien : le serveur ne l'envoie pas encore (phase C). */
-  volume?: string
+  /** Fournisseur sftp du lien ; vide pour le disque local. */
+  volume: string
   /** Faux quand rien n'a été comparé (reflink ou copie sans taille enregistrée). */
   compared: boolean
 }
@@ -181,6 +181,8 @@ export interface Status {
   warnings?: Warning[]
   /** Torrents vérifiés non proposés (verdict mis de côté), avec la raison. */
   held?: HeldCandidate[]
+  /** Volumes sftp sans session (état `broken`) ; absent d'un serveur plus ancien. */
+  volumes_broken?: number
 }
 
 interface HeldCandidate {
@@ -292,4 +294,43 @@ export interface SourceTestResult {
   source: string
   result: 'ok' | 'failed'
   error?: string
+}
+
+export type VolumeState = 'ok' | 'broken' | 'unknown'
+
+/** Dernière sonde d'un volume : `identity` est l'identité distante des fichiers ; `reasons` des codes. */
+export interface VolumeCapabilities {
+  symlink: boolean
+  hardlink: boolean
+  atomic_replace: boolean
+  server_copy: boolean
+  identity: boolean
+  hashes: string[]
+  reasons: Record<string, string>
+}
+
+/** Ligne de `GET /api/volumes` : `volume` vide pour le disque local ; `address` hôte:port seul. */
+export interface VolumeRow {
+  volume: string
+  type: 'local' | 'sftp'
+  address: string
+  state: VolumeState
+  capabilities: VolumeCapabilities | null
+  probed_at: string | null
+}
+
+/** Résultat de `POST /api/volumes/{name}/probe` : `error` est un code de raison stable. */
+export interface VolumeProbeResult {
+  volume: string
+  result: 'ok' | 'failed'
+  error?: string
+  capabilities?: VolumeCapabilities
+  probed_at?: string
+}
+
+/** Réponse de `GET /api/volumes/{name}/commands` : lignes exactes, tabulations comprises. */
+export interface VolumeCommands {
+  volume: string
+  lines: string[]
+  guard_script: string
 }

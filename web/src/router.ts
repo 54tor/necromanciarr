@@ -6,7 +6,7 @@ export interface AppRoute {
   navKey: string
 }
 
-/** Pages de l'application, dans l'ordre d'affichage ; `/volumes` n'est affichée que lorsqu'une vue la porte (App.vue). */
+/** Pages de l'application, dans l'ordre d'affichage. */
 export const ROUTES: readonly AppRoute[] = [
   { path: '/demarrage', navKey: 'demarrage' },
   { path: '/propositions', navKey: 'propositions' },

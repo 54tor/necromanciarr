@@ -46,6 +46,14 @@ export const API_ROUTES: readonly ApiRoute[] = [
   { method: 'POST', path: '/api/doctor/checks/{checkId}', action: 'doctor', mutating: true },
   { method: 'GET', path: '/api/sources', action: 'sources list', mutating: false },
   { method: 'POST', path: '/api/sources/{name}/test', action: 'sources test', mutating: true },
+  { method: 'GET', path: '/api/volumes', action: 'volumes list', mutating: false },
+  { method: 'POST', path: '/api/volumes/{name}/probe', action: 'volumes probe', mutating: true },
+  {
+    method: 'GET',
+    path: '/api/volumes/{name}/commands',
+    action: 'volumes commands',
+    mutating: false,
+  },
   { method: 'GET', path: '/api/jobs', action: '', mutating: false },
   { method: 'GET', path: '/api/jobs/{id}', action: '', mutating: false },
 ]
@@ -76,6 +84,9 @@ export const UI_TRIGGERS: Readonly<Record<string, string>> = {
   doctor: 'OnboardingView',
   'sources list': 'SourcesView',
   'sources test': 'SourcesView',
+  'volumes list': 'VolumesView',
+  'volumes probe': 'VolumesView',
+  'volumes commands': 'VolumesView',
 }
 
 /** Actions dont le déclencheur existe en version par ligne. */
@@ -89,4 +100,5 @@ export const ROW_SCOPED_ACTIONS: readonly string[] = [
   'repair apply',
   'doctor',
   'sources test',
+  'volumes probe',
 ]

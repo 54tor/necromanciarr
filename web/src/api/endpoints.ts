@@ -11,6 +11,9 @@ import type {
   ProposalFilters,
   SourceRow,
   SourceTestResult,
+  VolumeCommands,
+  VolumeProbeResult,
+  VolumeRow,
   StageName,
   Status,
 } from './types'
@@ -72,6 +75,11 @@ export const api = {
   listSources: () => request<SourceRow[]>('GET', '/api/sources'),
   testSource: (name: string) =>
     post<SourceTestResult>(`/api/sources/${encodeURIComponent(name)}/test`, {}),
+  listVolumes: () => request<VolumeRow[]>('GET', '/api/volumes'),
+  probeVolume: (name: string) =>
+    post<VolumeProbeResult>(`/api/volumes/${encodeURIComponent(name)}/probe`, {}),
+  volumeCommands: (name: string) =>
+    request<VolumeCommands>('GET', `/api/volumes/${encodeURIComponent(name)}/commands`),
   listJobs: () => request<Job[]>('GET', '/api/jobs'),
   getJob: (jobId: number) => request<Job>('GET', `/api/jobs/${jobId}`),
 }

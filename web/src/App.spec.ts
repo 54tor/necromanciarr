@@ -23,7 +23,7 @@ describe('App', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders the product name and the six tabs', async () => {
+  it('renders the product name and the seven tabs', async () => {
     installFakeApi({
       'POST /api/doctor/run': okReport,
       'GET /api/status': busyStatus,
@@ -42,6 +42,7 @@ describe('App', () => {
       'Liens',
       'Étapes',
       'Sources',
+      'Volumes',
     ])
   })
 
@@ -63,13 +64,14 @@ describe('App', () => {
       'Links',
       'Stages',
       'Sources',
+      'Volumes',
     ])
   })
 
-  it('App_showsPendingProposalsAndFailedChecksAsBadges', async () => {
+  it('App_showsPendingProposalsFailedChecksAndBrokenVolumesAsBadges', async () => {
     installFakeApi({
       'POST /api/doctor/run': { checks: [{ ...okReport.checks[0], status: 'fail' }] },
-      'GET /api/status': { ...busyStatus, proposals: { pending: 4 } },
+      'GET /api/status': { ...busyStatus, proposals: { pending: 4 }, volumes_broken: 2 },
       'GET /api/proposals': [],
     })
     window.location.hash = '#/etapes'
@@ -78,20 +80,7 @@ describe('App', () => {
 
     const gotBadges = wrapper.findAll('[data-testid="nav-badge"]').map((badge) => badge.text())
 
-    expect(gotBadges).toEqual(['1', '4'])
-  })
-
-  it('App_leavesAPageWithoutViewForTheDefaultOne', async () => {
-    installFakeApi({
-      'POST /api/doctor/run': okReport,
-      'GET /api/status': busyStatus,
-      'GET /api/proposals': [],
-    })
-    window.location.hash = '#/volumes'
-    mount(App)
-    await flushPromises()
-
-    expect(window.location.hash).toBe('#/propositions')
+    expect(gotBadges).toEqual(['1', '4', '2'])
   })
 
   it('marks the current tab with aria-current', async () => {

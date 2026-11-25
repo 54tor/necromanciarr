@@ -192,27 +192,28 @@ describe('LinksView', () => {
       expect(wrapper.find('h2').exists()).toBe(false)
     })
 
-    it('shows the six columns of the links table, without Volume until it exists', async () => {
+    it('shows the seven columns of the links table', async () => {
       const { wrapper } = await mountView()
 
       const gotHeaders = wrapper
         .findAll('[data-testid="links-panel"] thead th')
         .map((th) => th.text())
 
-      for (const expectedValue of ['Lien', 'Sorte', 'Cible', 'État', 'Comparé', 'Taille'])
+      for (const expectedValue of ['Lien', 'Sorte', 'Cible', 'Volume', 'État', 'Comparé', 'Taille'])
         expect(gotHeaders).toContain(expectedValue)
-      expect(gotHeaders).not.toContain('Volume')
     })
 
-    it('shows a Volume column once the server sends a volume', async () => {
+    it('shows the real volume of each link, local when it has none', async () => {
       const { wrapper } = await mountView({
-        links: () => linkPage([linkItem(1, { volume: 'seedbox' })]),
+        links: () => linkPage([linkItem(1, { volume: 'seedbox' }), linkItem(2)]),
       })
 
-      expect(
-        wrapper.findAll('[data-testid="links-panel"] thead th').map((th) => th.text()),
-      ).toContain('Volume')
-      expect(rowOf(wrapper, 1).text()).toContain('seedbox')
+      const volumeColumn = wrapper
+        .findAll('[data-testid="links-panel"] thead th')
+        .findIndex((th) => th.text() === 'Volume')
+      const gotValue = [1, 2].map((id) => rowOf(wrapper, id).findAll('td')[volumeColumn]?.text())
+
+      expect(gotValue).toEqual(['seedbox', 'local'])
     })
 
     it('shows state labels with an icon and the label of a reason, never the raw code', async () => {

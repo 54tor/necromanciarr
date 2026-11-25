@@ -15,6 +15,7 @@ import OnboardingView from '@/views/OnboardingView.vue'
 import ProposalsView from '@/views/ProposalsView.vue'
 import SourcesView from '@/views/SourcesView.vue'
 import StagesView from '@/views/StagesView.vue'
+import VolumesView from '@/views/VolumesView.vue'
 
 const VIEWS: Record<string, Component> = {
   '/demarrage': OnboardingView,
@@ -23,6 +24,7 @@ const VIEWS: Record<string, Component> = {
   '/liens': LinksView,
   '/etapes': StagesView,
   '/sources': SourcesView,
+  '/volumes': VolumesView,
 }
 
 const NAV_ICONS: Record<string, Component> = {
@@ -40,13 +42,14 @@ const { needsOnboarding, loadAll, checks, status } = useOnboarding()
 const currentView = computed(() => VIEWS[currentPath.value])
 const currentRoute = computed(() => ROUTES.find((route) => route.path === currentPath.value))
 
-// Compte de la pastille : propositions en attente, contrôles en échec ; les volumes `broken` viendront avec la vue Volumes.
+// Compte de la pastille : propositions en attente, contrôles en échec, volumes sftp coupés.
 const BADGES = computed<Record<string, number>>(() => ({
   '/propositions': status.value?.proposals.pending ?? 0,
+  '/volumes': status.value?.volumes_broken ?? 0,
   '/demarrage': checks.value.filter((check) => check.status === 'fail').length,
 }))
 const navItems = computed<NavItem[]>(() =>
-  ROUTES.filter((route) => VIEWS[route.path]).map((route) => ({
+  ROUTES.map((route) => ({
     fragment: route.path,
     labelKey: `nav.${route.navKey}`,
     icon: NAV_ICONS[route.path] ?? Rocket,
@@ -62,7 +65,6 @@ const REDIRECTED_PATHS = ['/propositions', '/deduplication', '/liens']
 watch(
   [currentPath, needsOnboarding],
   () => {
-    if (!VIEWS[currentPath.value]) navigate('/propositions')
     if (needsOnboarding.value && REDIRECTED_PATHS.includes(currentPath.value))
       navigate('/demarrage')
   },

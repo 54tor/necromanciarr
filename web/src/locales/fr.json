@@ -74,7 +74,18 @@
       "indexer_access_denied": "L'indexeur refuse l'accès (clé d'API)",
       "indexer_hostile_response": "Réponse de l'indexeur refusée (hostile ou illisible)",
       "indexer_budget_exhausted": "Quota du jour de l'indexeur atteint",
-      "foreign_download_host": "Lien de téléchargement hors de l'hôte de l'indexeur"
+      "foreign_download_host": "Lien de téléchargement hors de l'hôte de l'indexeur",
+      "host_key_unknown": "l'hôte n'a aucune entrée dans knownHosts",
+      "host_key_mismatch": "la clé d'hôte diffère de celle épinglée dans knownHosts",
+      "auth_refused": "le serveur a refusé l'authentification",
+      "identity_key_too_weak": "identityFile est une clé RSA de moins de 3072 bits",
+      "known_hosts_unreadable": "knownHosts est absent, illisible ou sans entrée valide",
+      "known_hosts_not_writable": "knownHosts n'est pas un fichier ordinaire modifiable",
+      "remote_unavailable": "le volume distant est injoignable",
+      "remote_exec_required": "exec required, mais les commandes distantes ne passent pas",
+      "link_dir_overlaps_library": "le dossier de liens recouvre une racine de bibliothèque",
+      "probe_failed": "la sonde a échoué",
+      "no_link_dir": "aucun dossier de liens sur ce volume"
     },
     "decision": {
       "pending": "En attente",
@@ -612,5 +623,66 @@
   },
   "jobs": {
     "done": "Tâche terminée."
+  },
+  "volumes": {
+    "caption": "Volumes déclarés : disque local et fournisseurs sftp",
+    "empty": "Aucun volume déclaré.",
+    "loadFailed": "Impossible de charger les volumes.",
+    "refresh": "Actualiser",
+    "choose": "Volume à sonder",
+    "probe": "Sonder",
+    "probeRow": "Sonder",
+    "probeRowOf": "Sonder {volume}",
+    "probing": "Sonde de {volume} en cours…",
+    "passed": "Sonde réussie : {volume}",
+    "failed": "Sonde en échec : {volume}, {reason}",
+    "local": "local",
+    "never": "Jamais",
+    "notProbed": "Non sondé",
+    "commandsRow": "Commandes",
+    "commandsRowOf": "Commandes autorisées de {volume}",
+    "commandsTitle": "Commandes autorisées : {volume}",
+    "commandsHint": "Lignes à admettre à l'identique dans la garde distante, tabulations comprises. Script livré : {script}",
+    "copy": "Copier les lignes",
+    "copied": "Lignes copiées.",
+    "columns": {
+      "volume": "Volume",
+      "type": "Type",
+      "address": "Adresse",
+      "state": "État",
+      "capabilities": "Capacités",
+      "probedAt": "Sondé le"
+    },
+    "types": {
+      "local": "Local",
+      "sftp": "SFTP"
+    },
+    "state": {
+      "ok": "Opérationnel",
+      "broken": "Coupé",
+      "unknown": "Inconnu"
+    },
+    "capability": {
+      "symlink": {
+        "yes": "Lien symbolique : oui",
+        "no": "Lien symbolique : non"
+      },
+      "hardlink": {
+        "yes": "Lien physique : oui",
+        "no": "Lien physique : non"
+      },
+      "atomic_replace": {
+        "yes": "Remplacement atomique : oui",
+        "no": "Remplacement atomique : non"
+      },
+      "server_copy": {
+        "yes": "Copie côté serveur : oui",
+        "no": "Copie côté serveur : non"
+      },
+      "identity": {
+        "yes": "Identité distante : oui",
+        "no": "Identité distante : non"
+      }
+    }
   }
 }
