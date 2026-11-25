@@ -68,7 +68,8 @@ var expectedForbidRules = []forbidRule{
 	{Pattern: `^(syscall|unix)\.(Unlink|Unlinkat|Rename|Renameat|Renameat2|Link|Linkat|Symlink|Symlinkat|Mkdir|Mkdirat|Rmdir|Chmod|Fchmod|Fchmodat|Chown|Fchown|Truncate|Ftruncate|Utimes|UtimesNano|UtimesNanoAt|Creat)$`, Pkg: `^(syscall|golang\.org/x/sys/unix)$`, Msg: messageSyscalls},
 	{Pattern: `^exec\.(Command|CommandContext)$`, Pkg: `^os/exec$`, Msg: messageExec},
 	{Pattern: `^ssh\.InsecureIgnoreHostKey$`, Pkg: `^golang\.org/x/crypto/ssh$`, Msg: "host keys are always checked against knownHosts"},
-	{Pattern: `^ssh\.Session\.(Run|Start|Output|CombinedOutput)$`, Pkg: `^golang\.org/x/crypto/ssh$`, Msg: messageSession},
+	{Pattern: `^ssh\.Session\.(Run|Start|Output|CombinedOutput|Shell|RequestSubsystem)$`, Pkg: `^golang\.org/x/crypto/ssh$`, Msg: messageSession},
+	{Pattern: `^ssh\.(Client\.)?NewSession$`, Pkg: `^golang\.org/x/crypto/ssh$`, Msg: messageSession},
 }
 
 var forbidigoOnly = []string{"forbidigo"}

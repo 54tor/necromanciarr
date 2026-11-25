@@ -48,7 +48,11 @@ linters:
           msg: host keys are always checked against knownHosts
         # Les commandes distantes (liste fermée, en lecture seule) ne partent que de internal/fsys/sftpfs/exec.go ;
         # la règle prend effet dès que ce fichier et le paquet x/crypto/ssh sont utilisés (tâches SFTP).
-        - pattern: '^ssh\.Session\.(Run|Start|Output|CombinedOutput)$'
+        - pattern: '^ssh\.Session\.(Run|Start|Output|CombinedOutput|Shell|RequestSubsystem)$'
+          pkg: '^golang\.org/x/crypto/ssh$'
+          msg: remote commands run only from internal/fsys/sftpfs/exec.go
+        # Ouvrir une session SSH est déjà le premier pas d'une commande distante.
+        - pattern: '^ssh\.(Client\.)?NewSession$'
           pkg: '^golang\.org/x/crypto/ssh$'
           msg: remote commands run only from internal/fsys/sftpfs/exec.go
   exclusions:

@@ -601,22 +601,16 @@ func sshString(value string) []byte {
 // tout de même la journaliser, sous Extended:<nom>.
 func TestServer_recordsAnUnknownExtendedRequest(t *testing.T) {
 	server := sftptest.Start(t)
-	session, err := connectSSH(t, server).NewSession()
+	channel, requests, err := connectSSH(t, server).OpenChannel("session", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = session.Close() })
-	stdin, err := session.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
+	t.Cleanup(func() { _ = channel.Close() })
+	go ssh.DiscardRequests(requests)
+	if accepted, err := channel.SendRequest("subsystem", true, ssh.Marshal(struct{ Value string }{"sftp"})); err != nil || !accepted {
+		t.Fatalf("subsystem: accepted %v, err %v", accepted, err)
 	}
-	stdout, err := session.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := session.RequestSubsystem("sftp"); err != nil {
-		t.Fatal(err)
-	}
+	stdin, stdout := io.Writer(channel), io.Reader(channel)
 	extended := slices.Concat(binary.BigEndian.AppendUint32(nil, 1), sshString("fsync@openssh.com"), sshString("handle"))
 	for _, packet := range [][]byte{sftpPacket(1, binary.BigEndian.AppendUint32(nil, 3)), sftpPacket(200, extended)} {
 		if _, err := stdin.Write(packet); err != nil {
