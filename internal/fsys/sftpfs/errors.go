@@ -20,6 +20,14 @@ const (
 	CodeKnownHostsUnreadable    = "known_hosts_unreadable"
 	// CodeLinkDirWorldWritable : un dossier créé dans un dossier de liens est modifiable par le groupe ou les autres.
 	CodeLinkDirWorldWritable = "link_dir_world_writable"
+	// CodeRemoteExecUnavailable : exec auto, mais l'exécution distante est refusée, absente, pas GNU ou incohérente
+	// avec SFTP ; lecture SFTP seule (Path : le nom du volume, un seul avertissement par session).
+	CodeRemoteExecUnavailable = "remote_exec_unavailable"
+	// CodeRemoteExecFailed : une commande a échoué après une sonde réussie ; l'élément est relu par SFTP (Count : le
+	// nombre d'éléments).
+	CodeRemoteExecFailed = "remote_exec_failed"
+	// CodeRemoteExecRequired : exec required et la sonde a échoué ; les étapes qui écrivent sur le volume sont refusées.
+	CodeRemoteExecRequired = "remote_exec_required"
 )
 
 // Erreurs de connexion, à tester avec errors.Is. Leurs messages ne citent que l'adresse et les chemins configurés,

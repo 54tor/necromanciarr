@@ -111,6 +111,8 @@ type Volume struct {
 	reconnectUsed bool
 	closed        bool
 	warnings      []Warning
+	// identities : identités distantes lues pendant l'étape (FileIDs), oubliées à ResetForStage.
+	identities identityCache
 }
 
 // Dial ouvre la session du fournisseur. Échecs : ErrHostKeyUnknown, ErrHostKeyMismatch, ErrAuthRefused, erreurs
@@ -175,6 +177,7 @@ func (volume *Volume) ResetForStage() {
 	volume.mutex.Lock()
 	defer volume.mutex.Unlock()
 	volume.reconnectUsed = false
+	volume.identities.reset()
 	if volume.current != nil {
 		volume.current.forgetTransientExecVerdict()
 	}

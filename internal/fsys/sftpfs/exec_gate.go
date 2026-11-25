@@ -227,9 +227,10 @@ func (volume *Volume) withExecReason(current *session, capabilities fsys.Capabil
 	return capabilities
 }
 
-// guardLines rend, dans l'ordre d'envoi, chaque ligne constante qu'une garde de commande distante doit autoriser
-// (« volumes commands ») : sonde du shell, sondes de version, lignes en lots, lignes d'empreinte préfixées.
-func guardLines() []string {
+// GuardLines rend, dans l'ordre d'envoi, chaque ligne constante qu'une garde de commande distante doit autoriser
+// (« volumes commands », script de garde) : sonde du shell, sondes de version, lignes en lots, lignes d'empreinte
+// préfixées. Les lignes « un fichier par commande » (hôte sans xargs GNU) n'y sont pas : elles portent un chemin.
+func GuardLines() []string {
 	lines := []string{shellquote.ShellSemanticsProbe}
 	for _, probe := range versionProbes {
 		lines = append(lines, probe.line)

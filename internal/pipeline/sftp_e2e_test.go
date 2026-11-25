@@ -52,8 +52,8 @@ const sftpLibraryFileCount = 5
 // modifie : la cible d'un lien dur seulement (sa source, lue, est le côté permis d'un hardlink, §4.C.6), le lien créé
 // d'un lien symbolique (le texte de sa cible désigne légitimement un fichier de la bibliothèque : lien symlink, lien
 // réparé ; tel qu'appliqué par le serveur, donc même avec des arguments inversés), les deux chemins d'un renommage.
-// Setstat couvre aussi Fsetstat (chmod à la création) et la troncature. Exec n'a pas de chemin : toute commande est
-// refusée (sftpForbiddenMethods).
+// Setstat couvre aussi Fsetstat (chmod à la création) et la troncature. Exec porte une ligne de commande : seules
+// les lignes constantes de la table (sftpfs.GuardLines) sont admises, toute autre est une violation.
 var (
 	sftpReadMethods  = []string{"Get", "Stat", "Lstat", "List", "Readlink", "RealPath", "StatVFS"}
 	sftpWrittenPaths = map[string]func(sftptest.Request) []string{
@@ -68,7 +68,8 @@ var (
 		"Link":        func(request sftptest.Request) []string { return []string{request.Target} },
 		"Symlink":     pathOnly,
 	}
-	sftpForbiddenMethods = []string{"Exec"}
+	sftpForbiddenMethods = []string{}
+	sftpCommandMethods   = []string{"Exec"}
 )
 
 func pathOnly(request sftptest.Request) []string  { return []string{request.Path} }
@@ -89,6 +90,10 @@ func requestViolations(requests []sftptest.Request, libraryRoot string) []string
 		switch {
 		case slices.Contains(sftpForbiddenMethods, request.Method):
 			violations = append(violations, fmt.Sprintf("forbidden %+v", request))
+		case slices.Contains(sftpCommandMethods, request.Method):
+			if !slices.Contains(sftpfs.GuardLines(), request.Path) {
+				violations = append(violations, fmt.Sprintf("command outside the table %+v", request))
+			}
 		case isWrite && slices.ContainsFunc(writtenPaths(request), func(name string) bool { return isUnderRoot(name, libraryRoot) }):
 			violations = append(violations, fmt.Sprintf("write %+v", request))
 		case request.Method == "Get" && isUnderRoot(request.Path, libraryRoot) && request.Flags != sftptest.FlagRead:
@@ -506,7 +511,7 @@ func (world *sftpWorld) doctor(t *testing.T) (Result, error) {
 }
 
 func TestSFTPRequestClasses_coverEverySftptestMethodOnce(t *testing.T) {
-	classified := slices.Concat(sftpReadMethods, slices.Collect(maps.Keys(sftpWrittenPaths)), sftpForbiddenMethods)
+	classified := slices.Concat(sftpReadMethods, slices.Collect(maps.Keys(sftpWrittenPaths)), sftpForbiddenMethods, sftpCommandMethods)
 	slices.Sort(classified)
 	valeurAttendue := slices.Clone(sftptest.Methods)
 	slices.Sort(valeurAttendue)

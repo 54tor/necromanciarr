@@ -85,6 +85,3 @@ func SetStatExecTimeout(t testing.TB, timeout time.Duration) {
 	statExecTimeout = timeout
 	t.Cleanup(func() { statExecTimeout = previous })
 }
-
-// GuardLines rend les lignes exactes qu'une garde de commande distante doit autoriser.
-func GuardLines() []string { return guardLines() }

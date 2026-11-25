@@ -103,7 +103,11 @@ func (volume *Volume) statWith(operation, name string, statFn func(*sftp.Client,
 	if err != nil {
 		return nil, mapError(operation, name, err)
 	}
-	return checkInfo(operation, name, info)
+	checked, err := checkInfo(operation, name, info)
+	if err != nil {
+		return nil, err
+	}
+	return namedInfo{FileInfo: checked, name: name, followed: operation == "stat"}, nil
 }
 
 // ReadDir rend les entrées de name triées par nom ; les noms dangereux (vide, « . », « .. », « / », NUL, plus de
@@ -179,9 +183,6 @@ func (volume *Volume) VolumeID(name string) (string, bool, error) {
 	}
 	return fmt.Sprintf("fsid:%016x", reply.Fsid), true, nil
 }
-
-// FileID rend toujours known=false : SFTP ne donne pas d'inode (ssh exec stat le donnera).
-func (volume *Volume) FileID(fs.FileInfo) (fsys.FileID, bool) { return fsys.FileID{}, false }
 
 // FreeSpace rend f_bavail × f_frsize de statvfs@openssh.com. Sans l'extension : errors.ErrUnsupported, que linker
 // range en ErrFreeSpaceUnknown (free_space_unknown) ; valeurs impossibles : ErrHostileResponse.

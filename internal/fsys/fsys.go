@@ -29,6 +29,9 @@ var (
 	// le serveur lit les arguments dans l'ordre d'OpenSSH : un serveur à l'ordre inverse poserait le lien à la place
 	// de la cible, bibliothèque comprise.
 	ErrSymlinkOrderUnverified = errors.New("fsys: symlink argument order not verified on this session")
+	// ErrRemoteExecRequired refuse une racine d'un volume distant réglé exec required dont l'exécution distante n'est
+	// pas utilisable (sonde en échec) : raison remote_exec_required.
+	ErrRemoteExecRequired = errors.New("fsys: remote commands required but unavailable")
 	// ErrRemoteUnavailable signale un volume distant injoignable ou cassé.
 	ErrRemoteUnavailable = errors.New("fsys: remote volume unavailable")
 	// ErrUnknownVolume signale une Location dont le volume n'est pas déclaré.

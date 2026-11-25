@@ -285,6 +285,9 @@ type capabilityProbe struct {
 	created       []string
 	handle        *sftp.File
 	capabilities  fsys.Capabilities
+	// contentFile : fichier de sonde dont le contenu (probeContent) a été relu par SFTP ; linkedPartner : son lien
+	// dur, quand le lien dur est prouvé. Ils servent à vérifier l'exécution distante contre SFTP.
+	contentFile, linkedPartner string
 }
 
 func (root *writeRoot) probeCapabilities(ctx context.Context) (capabilities fsys.Capabilities, err error) {
@@ -318,7 +321,7 @@ func (root *writeRoot) probeCapabilities(ctx context.Context) (capabilities fsys
 // est rendue, un refus du serveur ne fait que désactiver la fonction essayée. Le balayage qui précède a vérifié que
 // root se résout en lui-même ; la dernière requête le revérifie.
 func (probe *capabilityProbe) run() error {
-	for _, step := range []func() error{probe.symlink, probe.hardlinkAndReplace, probe.statVFS} {
+	for _, step := range []func() error{probe.symlink, probe.hardlinkAndReplace, probe.statVFS, probe.remoteExec} {
 		if err := step(); err != nil {
 			return err
 		}
@@ -411,10 +414,36 @@ func (probe *capabilityProbe) hardlinkAndReplace() error {
 			return err
 		}
 	}
-	if replaceOffered {
-		return probe.outcome(reasonKeyAtomicReplace, &probe.capabilities.AtomicReplace, probe.replace(source))
+	if probe.capabilities.Hardlink {
+		probe.contentFile, probe.linkedPartner = probe.base+probeLinkTail, source
 	}
+	if !replaceOffered {
+		return nil
+	}
+	if err := probe.outcome(reasonKeyAtomicReplace, &probe.capabilities.AtomicReplace, probe.replace(source)); err != nil {
+		return err
+	}
+	probe.followReplace(source)
 	return nil
+}
+
+// followReplace : après le remplacement, le contenu de source vit sous le nom b ; un remplacement fait mais non
+// vérifié laisse le lien dur sans partenaire connu.
+func (probe *capabilityProbe) followReplace(source string) {
+	sourceMoved := !slices.Contains(probe.created, source)
+	if !probe.capabilities.AtomicReplace {
+		if sourceMoved && probe.linkedPartner == source {
+			probe.linkedPartner = ""
+		}
+		return
+	}
+	replaced := probe.base + probeReplacedTail
+	if probe.linkedPartner == source {
+		probe.linkedPartner = replaced
+	}
+	if probe.contentFile == "" {
+		probe.contentFile = replaced
+	}
 }
 
 // failBoth désactive les fonctions en jeu après un essai commun refusé (création, écriture).

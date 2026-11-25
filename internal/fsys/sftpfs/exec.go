@@ -94,7 +94,7 @@ var (
 	// pourquoi) ; l'appelant lit en SFTP seul.
 	ErrExecDisabled = errors.New("sftpfs: remote commands disabled")
 	// ErrExecRequiredUnavailable : exec vaut required et la sonde n'a pas rendu l'exécution distante utilisable.
-	ErrExecRequiredUnavailable = errors.New("sftpfs: remote commands required but unavailable")
+	ErrExecRequiredUnavailable = fmt.Errorf("sftpfs: %w", fsys.ErrRemoteExecRequired)
 	// ErrExecPathOutsideRoots : un chemin n'est pas absolu, canonique, sans NUL, d'au plus 4096 octets, ou n'est sous
 	// aucune racine de bibliothèque, dossier de liens ou racine torrent du volume ; rien n'a été envoyé.
 	ErrExecPathOutsideRoots = errors.New("sftpfs: exec path is not a canonical path under a root of this volume")

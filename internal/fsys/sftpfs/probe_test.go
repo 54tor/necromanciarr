@@ -69,6 +69,12 @@ func TestCapabilities_probesOnlyInLinkDir(t *testing.T) {
 		t.Errorf("valeurObtenue %+v, valeurAttendue symlink, hardlink, atomic replace and statvfs proven", capabilities)
 	}
 	for _, request := range server.Requests()[before:] {
+		if request.Method == "Exec" {
+			if !slices.Contains(sftpfs.GuardLines(), request.Path) {
+				t.Errorf("valeurObtenue %+v, valeurAttendue seulement les lignes constantes de la table", request)
+			}
+			continue
+		}
 		for _, requestPath := range []string{request.Path, request.Target} {
 			if requestPath == "" {
 				continue
@@ -281,8 +287,10 @@ func TestCapabilities_staysCheap(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Les lignes exec (sonde du shell, ici refusée) ne sont pas des requêtes SFTP.
+	sftpRequests := slices.DeleteFunc(server.Requests()[before:], func(request sftptest.Request) bool { return request.Method == "Exec" })
 	const maxProbeRequests = 12
-	if valeurObtenue := len(server.Requests()[before:]); valeurObtenue > maxProbeRequests {
+	if valeurObtenue := len(sftpRequests); valeurObtenue > maxProbeRequests {
 		t.Errorf("valeurObtenue %d requests %+v, valeurAttendue at most %d", valeurObtenue, server.Requests()[before:], maxProbeRequests)
 	}
 }
