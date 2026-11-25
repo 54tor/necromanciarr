@@ -9,7 +9,6 @@ import {
   decisionRank,
   groupTargets,
   hasNoAnnounce,
-  hasSourceField,
   isSelectable,
 } from './proposalRules'
 
@@ -106,11 +105,6 @@ describe('proposalRules', () => {
   it('ranks the decisions that wait for an action first', () => {
     expect(decisionRank('pending')).toBeLessThan(decisionRank('accepted'))
     expect(decisionRank('accepted')).toBeLessThan(decisionRank('superseded'))
-  })
-
-  it('detects the source field only when a row carries it', () => {
-    expect(hasSourceField([proposal()])).toBe(false)
-    expect(hasSourceField([proposal(), proposal({ source: 'library' })])).toBe(true)
   })
 
   it('marks no announce only when the server says the source is none', () => {

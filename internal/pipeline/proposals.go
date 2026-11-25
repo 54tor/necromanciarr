@@ -16,7 +16,8 @@ import (
 // ProposalDetails est le contenu de Proposal.Details pour les propositions créées par Verify. MissingPieces compte les
 // pièces non vérifiées ; Candidates liste chaque torrent d'un groupe en litige, sans en choisir aucun. Seedable et
 // AnnounceSource (config, indexer ou none, jamais une URL) sont calculés à chaque lecture (WithAnnounce), jamais stockés,
-// et absents pour une nature sans torrent (litige, dedupe, repair).
+// et absents pour une nature sans torrent (litige, dedupe, repair). Source est la source du candidat (provider ou
+// torznab:<nom>, jamais une URL), posée à la lecture depuis le candidat.
 type ProposalDetails struct {
 	Percent           float64         `json:"percent"`
 	VerifiedPieces    int             `json:"verified_pieces"`
@@ -28,6 +29,7 @@ type ProposalDetails struct {
 	Candidates        []GroupMember   `json:"candidates,omitempty"`
 	Seedable          *bool           `json:"seedable,omitempty"`
 	AnnounceSource    string          `json:"announce_source,omitempty"`
+	Source            string          `json:"source"`
 }
 
 // ExclusionAnnexHashFailed : un fichier annexe de la bibliothèque, de même taille, a une pièce au SHA1 faux ; il n'est

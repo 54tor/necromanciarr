@@ -31,6 +31,7 @@ const (
 	flagCheck            = "check"
 	flagLimit            = "limit"
 	flagOffset           = "offset"
+	flagSource           = "source"
 )
 
 // Noms des actions du registre appelées par chaque sous-commande (parité CLI et web).
@@ -49,6 +50,8 @@ const (
 	actionRepairApply     = "repair apply"
 	actionDoctor          = "doctor"
 	actionLinksList       = "links list"
+	actionSourcesList     = "sources list"
+	actionSourcesTest     = "sources test"
 	exampleProposalID     = "1"
 )
 
@@ -88,7 +91,7 @@ func buildCommands() []command {
 		{path: []string{"status"}, summaryKey: i18n.KeyCLISummaryStatus, actions: []string{actionStatus}, execute: runStatus},
 		{
 			path: []string{"proposals", "list"}, summaryKey: i18n.KeyCLISummaryProposalsList,
-			actions: []string{actionProposalsList}, boolFlags: []string{flagCurrentOnly}, valueFlags: []string{flagKind, flagState, flagGroup},
+			actions: []string{actionProposalsList}, boolFlags: []string{flagCurrentOnly}, valueFlags: []string{flagKind, flagState, flagGroup, flagSource},
 			execute: runProposalsList,
 		},
 		{
@@ -128,6 +131,14 @@ func buildCommands() []command {
 		{
 			path: []string{"links", "list"}, summaryKey: i18n.KeyCLISummaryLinksList,
 			actions: []string{actionLinksList}, valueFlags: []string{flagState, flagLimit, flagOffset}, execute: runLinksList,
+		},
+		{
+			path: []string{"sources", "list"}, summaryKey: i18n.KeyCLISummarySourcesList, actions: []string{actionSourcesList},
+			execute: runSourcesList,
+		},
+		{
+			path: []string{"sources", "test"}, summaryKey: i18n.KeyCLISummarySourcesTest, actions: []string{actionSourcesTest},
+			arguments: []string{app.ArgumentSourceName}, execute: runSourcesTest,
 		},
 		{
 			path: []string{"doctor"}, summaryKey: i18n.KeyCLISummaryDoctor, actions: []string{actionDoctor},
@@ -189,7 +200,7 @@ var (
 func proposalFilter(call *invocation) (app.ProposalFilter, error) {
 	filter := app.ProposalFilter{
 		Kind: store.ProposalKind(call.value(flagKind)), Decision: store.ProposalDecision(call.value(flagState)),
-		CurrentOnly: call.has(flagCurrentOnly),
+		CurrentOnly: call.has(flagCurrentOnly), Source: call.value(flagSource),
 	}
 	if filter.Kind != "" && !slices.Contains(knownKinds, filter.Kind) {
 		return filter, fmt.Errorf("%w: unknown kind %q (valid: %v)", config.ErrUsage, filter.Kind, knownKinds)
@@ -443,6 +454,28 @@ func runLinksList(ctx context.Context, call *invocation) (output, error) {
 		warnings = []string{call.translator.Text(i18n.KeyCLILinksTruncated, nil)}
 	}
 	return output{jsonValue: page, warnings: warnings, text: func(writer io.Writer) { writeLinks(writer, call.translator, page, filter.Offset) }}, nil
+}
+
+func runSourcesList(ctx context.Context, call *invocation) (output, error) {
+	rows, err := call.service.ListSources(ctx)
+	if err != nil {
+		return output{}, err
+	}
+	rows = nonNil(rows)
+	return output{jsonValue: rows, text: func(writer io.Writer) { writeSources(writer, call.translator, rows) }}, nil
+}
+
+// runSourcesTest : un test en échec n'est pas une erreur de la commande, mais sort avec le code 1.
+func runSourcesTest(ctx context.Context, call *invocation) (output, error) {
+	result, err := call.service.TestSource(ctx, call.arguments[app.ArgumentSourceName])
+	if err != nil {
+		return output{}, err
+	}
+	exitCode := successExitCode
+	if result.Result != app.SourceTestOK {
+		exitCode = failureExitCode
+	}
+	return output{jsonValue: result, exitCode: exitCode, text: func(writer io.Writer) { writeSourceTest(writer, call.translator, result) }}, nil
 }
 
 // optionalCount lit un entier positif ou nul ; absent vaut 0 (le Service applique alors sa valeur par défaut).

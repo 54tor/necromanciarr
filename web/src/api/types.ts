@@ -40,6 +40,8 @@ interface ProposalDetails {
   /** Calculés à chaque lecture depuis la section `trackers` ; absents d'un serveur plus ancien. */
   seedable?: boolean
   announce_source?: AnnounceSource
+  /** Source du candidat : `provider` ou `torznab:<nom>`, jamais une URL ; absente d'un serveur plus ancien. */
+  source?: string
 }
 
 /** Origine de l'annonce injectée au seed : configuration, `.torrent` d'indexeur, ou aucune (`no_announce`). */
@@ -61,8 +63,6 @@ export interface Proposal {
   warnings: Warning[]
   /** Dernière activité de la proposition (RFC 3339 UTC) ; vide si inconnue. */
   updated_at: string
-  /** Origine du torrent (fournisseur ou indexeur) ; absent tant que le serveur ne l'envoie pas (tâche B14). */
-  source?: string
   details: ProposalDetails
   maintenance?: DedupeDetails | RepairDetails
 }
@@ -262,4 +262,32 @@ export interface ProposalFilters {
   kind?: ProposalKind
   group?: number
   current_only?: boolean
+  source?: string
+}
+
+/** Usage d'un indexeur sur 24 h face à son plafond du jour. */
+export interface SourceUsage {
+  used: number
+  cap: number
+}
+
+export type SourceState = 'ok' | 'blocked' | 'exhausted' | 'disabled'
+
+/** Ligne de `GET /api/sources` : `order` 0 = hors chaîne ; usage `null` pour le fournisseur ; `last_error` est un code. */
+export interface SourceRow {
+  order: number
+  source: string
+  type: 'provider' | 'torznab'
+  tracker: string
+  state: SourceState
+  queries: SourceUsage | null
+  downloads: SourceUsage | null
+  last_error: string
+}
+
+/** Résultat de `POST /api/sources/{name}/test` : `error` est un code de raison stable. */
+export interface SourceTestResult {
+  source: string
+  result: 'ok' | 'failed'
+  error?: string
 }

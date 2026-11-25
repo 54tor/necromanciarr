@@ -53,6 +53,16 @@ const (
 	KeyCLIHeaderTorrentFile      Key = "cli.header.torrent_file"
 	KeyCLIHeaderStatus           Key = "cli.header.status"
 	KeyCLIHeaderState            Key = "cli.header.state"
+	KeyCLIHeaderOrder            Key = "cli.header.order"
+	KeyCLIHeaderSource           Key = "cli.header.source"
+	KeyCLIHeaderType             Key = "cli.header.type"
+	KeyCLIHeaderQueries          Key = "cli.header.queries"
+	KeyCLIHeaderDownloads        Key = "cli.header.downloads"
+	KeyCLIHeaderTracker          Key = "cli.header.tracker"
+	KeyCLISourcesNotApplicable   Key = "cli.sources.not_applicable"
+	KeyCLISourcesLastError       Key = "cli.sources.last_error"
+	KeyCLISourceTestOK           Key = "cli.sources.test_ok"
+	KeyCLISourceTestFailed       Key = "cli.sources.test_failed"
 	KeyCLIProposalsNone          Key = "cli.proposals.none"
 	KeyCLIStalePrefix            Key = "cli.proposals.stale_prefix"
 	KeyCLIDedupeNone             Key = "cli.dedupe.none"
@@ -87,6 +97,8 @@ const (
 	KeyCLISummaryRepairScan      Key = "cli.summary.repair_scan"
 	KeyCLISummaryLinksList       Key = "cli.summary.links_list"
 	KeyCLISummaryDoctor          Key = "cli.summary.doctor"
+	KeyCLISummarySourcesList     Key = "cli.summary.sources_list"
+	KeyCLISummarySourcesTest     Key = "cli.summary.sources_test"
 	KeyCLIUsageHeader            Key = "cli.usage.header"
 	KeyCLIUsageServe             Key = "cli.usage.serve"
 	KeyCLIUsageHealthcheck       Key = "cli.usage.healthcheck"
@@ -109,7 +121,9 @@ var cliKeys = []Key{
 	KeyCLIStatusCrossSeedMode, KeyCLIStatusHeld,
 	KeyCLIHeaderID, KeyCLIHeaderKind, KeyCLIHeaderDecision, KeyCLIHeaderStep, KeyCLIHeaderGroup, KeyCLIHeaderName,
 	KeyCLIHeaderLink, KeyCLIHeaderSaves, KeyCLIHeaderReads, KeyCLIHeaderMethod, KeyCLIHeaderTorrentFile,
-	KeyCLIHeaderStatus, KeyCLIHeaderState,
+	KeyCLIHeaderStatus, KeyCLIHeaderState, KeyCLIHeaderOrder, KeyCLIHeaderSource, KeyCLIHeaderType, KeyCLIHeaderQueries,
+	KeyCLIHeaderDownloads, KeyCLIHeaderTracker,
+	KeyCLISourcesNotApplicable, KeyCLISourcesLastError, KeyCLISourceTestOK, KeyCLISourceTestFailed,
 	KeyCLIProposalsNone, KeyCLIStalePrefix, KeyCLIDedupeNone, KeyCLIDedupeTotalRead, KeyCLIRepairNone, KeyCLIRepairNotActionable,
 	KeyCLILinksNone, KeyCLILinksShowing, KeyCLILinksNextPage, KeyCLILinksTruncated,
 	KeyCLIMaintenanceNone, KeyCLIMaintenanceFailed, KeyCLIMaintenanceDryRun, KeyCLIMaintenanceApplied,
@@ -117,7 +131,7 @@ var cliKeys = []Key{
 	KeyCLIForceReplaced, KeyCLIForceDone, KeyCLIForceWarning,
 	KeyCLISummaryStage, KeyCLISummaryStatus, KeyCLISummaryProposalsList, KeyCLISummaryAccept, KeyCLISummaryAcceptGroup,
 	KeyCLISummaryReject, KeyCLISummaryChoose, KeyCLISummaryForce, KeyCLISummaryDedupePlan, KeyCLISummaryApply,
-	KeyCLISummaryRepairScan, KeyCLISummaryLinksList, KeyCLISummaryDoctor,
+	KeyCLISummaryRepairScan, KeyCLISummaryLinksList, KeyCLISummaryDoctor, KeyCLISummarySourcesList, KeyCLISummarySourcesTest,
 	KeyCLIUsageHeader, KeyCLIUsageServe, KeyCLIUsageHealthcheck, KeyCLIUsageAPIKey,
 	KeyCLIUsageConfigCheck, KeyCLIUsageExitCodes, KeyCLIUsageAllAccepted, KeyCLIHealthcheckOK,
 }

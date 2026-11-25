@@ -102,6 +102,8 @@ func TestJSONOutput_onlyTextFieldsDifferBetweenLanguages(t *testing.T) {
 		}, []string{"dedupe", "apply", "5"}},
 		{"proposals list", func() *fakeService { return &fakeService{proposals: proposals} }, []string{"proposals", "list"}},
 		{"doctor", func() *fakeService { return &fakeService{} }, []string{"doctor"}},
+		{"sources list", func() *fakeService { return &fakeService{sourceRows: sampleSourceRows()} }, []string{"sources", "list"}},
+		{"sources test failed", func() *fakeService { return &fakeService{sourceTest: &failedSourceTest} }, []string{"sources", "test", "a"}},
 		{"doctor with findings", func() *fakeService { return &fakeService{doctorReport: &doctorFindingsReport} }, []string{"doctor"}},
 		{"stage", func() *fakeService { return &fakeService{} }, []string{"scan"}},
 		{"refused", func() *fakeService { return &fakeService{err: app.ErrConflictNeedsChoose} }, []string{"proposals", "accept", "999"}},

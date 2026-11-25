@@ -86,9 +86,15 @@ func (fixture *decisionFixture) verifiedCandidate(infohash string) store.Candida
 // verifiedCandidateOn est verifiedCandidate pour un candidat de ce tracker.
 func (fixture *decisionFixture) verifiedCandidateOn(infohash, tracker string) store.Candidate {
 	fixture.t.Helper()
+	return fixture.verifiedCandidateFrom(infohash, tracker, "")
+}
+
+// verifiedCandidateFrom est verifiedCandidateOn pour un candidat fourni par cette source (vide : le fournisseur).
+func (fixture *decisionFixture) verifiedCandidateFrom(infohash, tracker, source string) store.Candidate {
+	fixture.t.Helper()
 	ctx := context.Background()
 	file := store.CandidateFile{FileIndex: 0, Path: "Movie/movie.mkv", Size: 40, MediaFileID: fixture.media.ID, MediaSize: 40, MediaModTime: fixture.media.ModTime}
-	candidate := store.Candidate{Infohash: infohash, Tracker: tracker, Name: "Movie " + infohash, TotalSize: 40}
+	candidate := store.Candidate{Infohash: infohash, Tracker: tracker, Name: "Movie " + infohash, TotalSize: 40, Source: source}
 	candidateID, _, err := fixture.store.SaveCandidate(ctx, candidate, []store.CandidateFile{file}, fixedNow)
 	if err != nil {
 		fixture.t.Fatal(err)

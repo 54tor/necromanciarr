@@ -16,10 +16,13 @@ const (
 	KeyActionRepairApply        Key = "action.repair.apply"
 	KeyActionLinksList          Key = "action.links.list"
 	KeyActionDoctor             Key = "action.doctor"
+	KeyActionSourcesList        Key = "action.sources.list"
+	KeyActionSourcesTest        Key = "action.sources.test"
 )
 
 var actionKeys = []Key{
 	KeyActionRun, KeyActionStatus, KeyActionProposalsList, KeyActionProposalsAccept, KeyActionProposalsReject,
 	KeyActionProposalsChoose, KeyActionProposalsForce, KeyActionProposalsAcceptGrp, KeyActionDedupePlan, KeyActionDedupeApply,
 	KeyActionRepairScan, KeyActionRepairApply, KeyActionLinksList, KeyActionDoctor,
+	KeyActionSourcesList, KeyActionSourcesTest,
 }

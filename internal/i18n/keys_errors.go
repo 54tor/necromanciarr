@@ -38,6 +38,8 @@ const (
 	KeyErrorNotConfigured            Key = "error.not_configured"
 	KeyErrorStageRunning             Key = "error.stage_running"
 	KeyErrorInspectionBusy           Key = "error.inspection_busy"
+	KeyErrorSourceNotFound           Key = "error.source_not_found"
+	KeyErrorSourceNotTestable        Key = "error.source_not_testable"
 
 	KeyErrorWebUnknownHost         Key = "error.web.unknown_host"
 	KeyErrorWebCrossSite           Key = "error.web.cross_site"
@@ -67,7 +69,7 @@ var errorKeys = []Key{
 	KeyErrorNotActionable, KeyErrorWrongProposalKind, KeyErrorDirectoryInLibrary, KeyErrorRecheckUnavailable,
 	KeyErrorInvalidTransition, KeyErrorGroupInconsistent, KeyErrorClientReadOnly, KeyErrorPlacementChanged,
 	KeyErrorTorrentRootOverlaps, KeyErrorOutsideRoots, KeyErrorProposalNotFound, KeyErrorGroupNotFound, KeyErrorNotConfigured,
-	KeyErrorStageRunning, KeyErrorInspectionBusy,
+	KeyErrorStageRunning, KeyErrorInspectionBusy, KeyErrorSourceNotFound, KeyErrorSourceNotTestable,
 	KeyErrorWebUnknownHost, KeyErrorWebCrossSite, KeyErrorWebBearerToken, KeyErrorWebContentType, KeyErrorWebUnknownRoute,
 	KeyErrorWebBodyTooLarge, KeyErrorWebInvalidJSON, KeyErrorWebPositiveInteger, KeyErrorWebNonNegativeInteger,
 	KeyErrorWebUnknownQuery, KeyErrorWebBoolean, KeyErrorWebCandidateNotInGroup, KeyErrorWebConfirmRequired,

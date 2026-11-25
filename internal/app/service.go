@@ -86,6 +86,11 @@ type Service interface {
 	RepairAccept(ctx context.Context, proposalID int64, options ...DecisionOption) (MaintenanceResult, error)
 	// ListLinks liste les liens enregistrés avec leur état courant, lu sur le disque sans rien écrire, par page bornée.
 	ListLinks(ctx context.Context, filter LinkFilter) (LinkPage, error)
+	// ListSources décrit la chaîne de sources dans son ordre : sorte, tracker, état, usage du jour et dernière erreur
+	// (code stable), sans requête réseau.
+	ListSources(ctx context.Context) ([]SourceRow, error)
+	// TestSource envoie t=caps et une recherche vide à un indexeur, au quota du jour ; l'échec est un code stable.
+	TestSource(ctx context.Context, name string) (SourceTestResult, error)
 	// Actions renvoie le registre des actions (parité CLI et web), descriptions dans la langue du Service.
 	Actions() []Action
 	// Translator donne le traducteur de la langue configurée, que la CLI et le web utilisent pour tout texte rendu.
@@ -136,6 +141,7 @@ type Store interface {
 	RecordFingerprint(ctx context.Context, entry store.CachedFingerprint) error
 	LoadMountCapabilities(ctx context.Context, mountPath string) (store.MountCapabilities, bool, error)
 	SaveMountCapabilities(ctx context.Context, capabilities store.MountCapabilities) error
+	CountIndexerUsage(ctx context.Context, indexer, kind string, since time.Time) (int, error)
 	SealedClearer
 }
 

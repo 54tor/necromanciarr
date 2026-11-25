@@ -45,13 +45,38 @@ type UsageStore interface {
 var _ UsageStore = (*store.Store)(nil)
 
 // retryBoard garde, pour la vie du processus, jusqu'à quand chaque indexeur est écarté par un Retry-After : il est
-// partagé par tous les budgets d'une chaîne, sinon le Verify qui suit un Match limité reprendrait aussitôt.
+// partagé par tous les budgets d'une chaîne, sinon le Verify qui suit un Match limité reprendrait aussitôt. Il garde
+// aussi l'erreur de la dernière requête de chaque indexeur (sources list).
 type retryBoard struct {
-	mutex sync.Mutex
-	until map[ID]time.Time
+	mutex     sync.Mutex
+	until     map[ID]time.Time
+	lastError map[ID]error
 }
 
-func newRetryBoard() *retryBoard { return &retryBoard{until: map[ID]time.Time{}} }
+func newRetryBoard() *retryBoard {
+	return &retryBoard{until: map[ID]time.Time{}, lastError: map[ID]error{}}
+}
+
+// recordOutcome retient l'erreur d'une requête, ou l'efface après une réussite ; un appel annulé par l'appelant ne
+// dit rien de l'indexeur et ne change rien.
+func (board *retryBoard) recordOutcome(ctx context.Context, indexer ID, err error) {
+	if ctx.Err() != nil {
+		return
+	}
+	board.mutex.Lock()
+	defer board.mutex.Unlock()
+	if err == nil {
+		delete(board.lastError, indexer)
+		return
+	}
+	board.lastError[indexer] = err
+}
+
+func (board *retryBoard) lastErrorOf(indexer ID) error {
+	board.mutex.Lock()
+	defer board.mutex.Unlock()
+	return board.lastError[indexer]
+}
 
 func (board *retryBoard) block(indexer ID, until time.Time) {
 	board.mutex.Lock()

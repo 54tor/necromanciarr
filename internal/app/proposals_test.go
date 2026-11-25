@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/sources"
 	"necromanciarr/internal/store"
@@ -191,5 +192,28 @@ func TestProposals_readsDespiteABusyDatabaseWhenClearingSealed(t *testing.T) {
 	}
 	if text := logged.String(); !strings.Contains(text, "code="+LogCodeSealedClearFailed) || strings.Contains(text, fakeAuthToken) {
 		t.Fatalf("gotValue log %q, expectedValue a coded, redacted line", text)
+	}
+}
+
+func TestProposalDetails_includeSource(t *testing.T) {
+	fixture := newDecisionFixture(t)
+	fixture.proposal(fixture.verifiedCandidateFrom("aa", "tracker-a", ""), store.ProposalFull)
+	fixture.proposal(fixture.verifiedCandidateFrom("bb", "tracker-b", "torznab:b"), store.ProposalFull)
+	service := fixture.service(crossseed.Disabled)
+
+	all, allErr := service.ListProposals(t.Context(), ProposalFilter{})
+	fromIndexer, filterErr := service.ListProposals(t.Context(), ProposalFilter{Source: "torznab:b"})
+	_, invalidErr := service.ListProposals(t.Context(), ProposalFilter{Source: "https://indexer.example.com"})
+
+	isExpected := allErr == nil && filterErr == nil && len(all) == 2 && all[0].Details.Source == "provider" &&
+		all[1].Details.Source == "torznab:b" && len(fromIndexer) == 1 && fromIndexer[0].CandidateName == "Movie bb" &&
+		errors.Is(invalidErr, config.ErrUsage)
+	if !isExpected {
+		t.Fatalf("valeurObtenue %+v %v / %+v %v / %v, valeurAttendue sources provider and torznab:b, filter keeping one, usage error",
+			all, allErr, fromIndexer, filterErr, invalidErr)
+	}
+	encoded, _ := json.Marshal(all[1].Details)
+	if !strings.Contains(string(encoded), `"source":"torznab:b"`) {
+		t.Fatalf("valeurObtenue %s, valeurAttendue the source field in details", encoded)
 	}
 }

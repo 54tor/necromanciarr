@@ -29,7 +29,7 @@ var refusals = []error{
 	ErrOneTorrentPerFile, ErrNotFull, ErrNotForceable, ErrNoPrimary, ErrForceNotAllowed, ErrForceIsolationImpossible, ErrCrossSeedNotNative,
 	ErrNotAccepted, ErrNotActionable, ErrWrongProposalKind, ErrDirectoryInLibrary, ErrRecheckUnavailable,
 	store.ErrInvalidTransition, pipeline.ErrGroupInconsistent, pipeline.ErrClientReadOnly, pipeline.ErrPlacementChanged,
-	dedupe.ErrTorrentRootOverlapsLibrary, repair.ErrOutsideRoots,
+	dedupe.ErrTorrentRootOverlapsLibrary, repair.ErrOutsideRoots, ErrSourceNotTestable,
 }
 
 // classes associe chaque code aux erreurs typées qu'il couvre, dans l'ordre de priorité du classement.
@@ -40,7 +40,7 @@ var classes = []struct {
 	{ErrorCodeUsage, []error{config.ErrUsage, ErrUnknownCheck}},
 	{ErrorCodeStale, []error{ErrStaleProposal}},
 	{ErrorCodeRefused, refusals},
-	{ErrorCodeNotFound, []error{store.ErrProposalNotFound, ErrGroupNotFound}},
+	{ErrorCodeNotFound, []error{store.ErrProposalNotFound, ErrGroupNotFound, ErrSourceNotFound}},
 	{ErrorCodeNotConfigured, []error{ErrNotConfigured}},
 	{ErrorCodeStageRunning, []error{pipeline.ErrStageRunning}},
 	{ErrorCodeInspectionBusy, []error{ErrInspectionBusy}},
@@ -76,6 +76,7 @@ var messageKeys = map[error]i18n.Key{
 	repair.ErrOutsideRoots: i18n.KeyErrorOutsideRoots, store.ErrProposalNotFound: i18n.KeyErrorProposalNotFound,
 	ErrGroupNotFound: i18n.KeyErrorGroupNotFound, ErrNotConfigured: i18n.KeyErrorNotConfigured,
 	pipeline.ErrStageRunning: i18n.KeyErrorStageRunning, ErrInspectionBusy: i18n.KeyErrorInspectionBusy,
+	ErrSourceNotFound: i18n.KeyErrorSourceNotFound, ErrSourceNotTestable: i18n.KeyErrorSourceNotTestable,
 }
 
 // MessageOf donne le message à rendre pour err : la clé de l'erreur typée reconnue, sinon error.internal. Le texte brut

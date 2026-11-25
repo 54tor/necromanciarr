@@ -69,7 +69,12 @@
       "repairable": "Repairable",
       "ambiguous": "Ambiguous",
       "lost": "Not found",
-      "missing_pieces_above_cap": "above the partialMaxMissingPercent cap"
+      "missing_pieces_above_cap": "above the partialMaxMissingPercent cap",
+      "indexer_unavailable": "Indexer unavailable or rate limited",
+      "indexer_access_denied": "The indexer denies access (API key)",
+      "indexer_hostile_response": "Indexer response refused (hostile or unreadable)",
+      "indexer_budget_exhausted": "Indexer daily quota reached",
+      "foreign_download_host": "Download link outside the indexer's host"
     },
     "decision": {
       "pending": "Pending",
@@ -539,6 +544,42 @@
         "confirmDry": "Run the dry run",
         "confirmReal": "Apply for real"
       }
+    }
+  },
+  "sources": {
+    "caption": "Chain sources, in query order",
+    "empty": "No source configured.",
+    "loadFailed": "Could not load the sources.",
+    "refresh": "Refresh",
+    "choose": "Source to test",
+    "test": "Test a source",
+    "testRow": "Test",
+    "testRowOf": "Test {source}",
+    "testing": "Testing {source}…",
+    "passed": "Test passed: {source}",
+    "failed": "Test failed: {source}, {reason}",
+    "outsideChain": "outside the chain",
+    "usage": "{used} / {cap}",
+    "notApplicable": "n/a",
+    "columns": {
+      "order": "Order",
+      "source": "Source",
+      "type": "Type",
+      "tracker": "Tracker",
+      "state": "State",
+      "queries": "Queries 24 h / cap",
+      "downloads": "Downloads 24 h / cap",
+      "lastError": "Last error"
+    },
+    "types": {
+      "provider": "Provider",
+      "torznab": "Torznab"
+    },
+    "state": {
+      "ok": "Operational",
+      "blocked": "Set aside (Retry-After)",
+      "exhausted": "Daily quota reached",
+      "disabled": "Outside the chain"
     }
   },
   "jobs": {

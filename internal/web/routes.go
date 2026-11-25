@@ -42,6 +42,8 @@ var apiRoutes = []route{
 	{http.MethodGet, "/api/links", "links list", "", listLinks},
 	{http.MethodPost, "/api/doctor/run", "doctor", "", runDoctor},
 	{http.MethodPost, "/api/doctor/checks/{checkId}", "doctor", "", runDoctorCheck},
+	{http.MethodGet, "/api/sources", "sources list", "", listSources},
+	{http.MethodPost, "/api/sources/{name}/test", "sources test", "", testSource},
 	{http.MethodGet, "/api/jobs", "", "follow the long actions started by the action routes", listJobs},
 	{http.MethodGet, "/api/jobs/{id}", "", "follow one long action started by an action route", getJob},
 }
@@ -52,6 +54,7 @@ const (
 	queryKind        = "kind"
 	queryGroup       = "group"
 	queryCurrentOnly = "current_only"
+	querySource      = "source"
 	queryState       = "state"
 	queryLimit       = "limit"
 	queryOffset      = "offset"
@@ -82,7 +85,7 @@ func getStatus(handler *Handler, request *http.Request) (any, int, error) {
 
 func listProposals(handler *Handler, request *http.Request) (any, int, error) {
 	query := request.URL.Query()
-	if err := requireKnownQuery(query, queryDecision, queryKind, queryGroup, queryCurrentOnly); err != nil {
+	if err := requireKnownQuery(query, queryDecision, queryKind, queryGroup, queryCurrentOnly, querySource); err != nil {
 		return nil, 0, err
 	}
 	var groupID int64
@@ -97,7 +100,7 @@ func listProposals(handler *Handler, request *http.Request) (any, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	filter := app.NewProposalFilter(query.Get(queryDecision), query.Get(queryKind), groupID, currentOnly)
+	filter := app.NewProposalFilter(query.Get(queryDecision), query.Get(queryKind), groupID, currentOnly, query.Get(querySource))
 	proposals, err := handler.service.ListProposals(request.Context(), filter)
 	if proposals == nil {
 		proposals = []app.Proposal{}
@@ -378,6 +381,27 @@ func runDoctorCheck(handler *Handler, request *http.Request) (any, int, error) {
 	options := app.DoctorOptions{CheckIDs: []string{request.PathValue("checkId")}}
 	report, err := handler.service.Doctor(request.Context(), options)
 	return renderedDoctor(handler, report), http.StatusOK, err
+}
+
+func listSources(handler *Handler, request *http.Request) (any, int, error) {
+	if err := requireKnownQuery(request.URL.Query()); err != nil {
+		return nil, 0, err
+	}
+	rows, err := handler.service.ListSources(request.Context())
+	if rows == nil {
+		rows = []app.SourceRow{}
+	}
+	return rows, http.StatusOK, err
+}
+
+// testSource est synchrone comme le diagnostic : deux requêtes bornées par le délai de l'indexeur. C'est un POST : le
+// test dépense le quota du jour.
+func testSource(handler *Handler, request *http.Request) (any, int, error) {
+	if err := decodeBody(request, &struct{}{}); err != nil {
+		return nil, 0, err
+	}
+	result, err := handler.service.TestSource(request.Context(), request.PathValue("name"))
+	return result, http.StatusOK, err
 }
 
 // renderedDoctor rend le rapport dans la langue du service ; les codes et les états ne sont jamais traduits.

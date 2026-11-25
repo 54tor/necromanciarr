@@ -9,6 +9,8 @@ import type {
   LinkPage,
   Proposal,
   ProposalFilters,
+  SourceRow,
+  SourceTestResult,
   StageName,
   Status,
 } from './types'
@@ -21,6 +23,7 @@ function queryOf(filters: ProposalFilters): string {
   if (filters.kind) query.set('kind', filters.kind)
   if (filters.group) query.set('group', String(filters.group))
   if (filters.current_only) query.set('current_only', 'true')
+  if (filters.source) query.set('source', filters.source)
   const text = query.toString()
   return text ? `?${text}` : ''
 }
@@ -66,6 +69,9 @@ export const api = {
   doctor: () => post<DoctorReport>('/api/doctor/run', {}),
   doctorCheck: (checkId: string) =>
     post<DoctorReport>(`/api/doctor/checks/${encodeURIComponent(checkId)}`, {}),
+  listSources: () => request<SourceRow[]>('GET', '/api/sources'),
+  testSource: (name: string) =>
+    post<SourceTestResult>(`/api/sources/${encodeURIComponent(name)}/test`, {}),
   listJobs: () => request<Job[]>('GET', '/api/jobs'),
   getJob: (jobId: number) => request<Job>('GET', `/api/jobs/${jobId}`),
 }

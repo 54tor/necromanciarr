@@ -13,6 +13,7 @@ import DedupeView from '@/views/DedupeView.vue'
 import LinksView from '@/views/LinksView.vue'
 import OnboardingView from '@/views/OnboardingView.vue'
 import ProposalsView from '@/views/ProposalsView.vue'
+import SourcesView from '@/views/SourcesView.vue'
 import StagesView from '@/views/StagesView.vue'
 
 const VIEWS: Record<string, Component> = {
@@ -21,6 +22,7 @@ const VIEWS: Record<string, Component> = {
   '/deduplication': DedupeView,
   '/liens': LinksView,
   '/etapes': StagesView,
+  '/sources': SourcesView,
 }
 
 const NAV_ICONS: Record<string, Component> = {

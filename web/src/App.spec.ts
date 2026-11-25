@@ -23,7 +23,7 @@ describe('App', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders the product name and the five tabs', async () => {
+  it('renders the product name and the six tabs', async () => {
     installFakeApi({
       'POST /api/doctor/run': okReport,
       'GET /api/status': busyStatus,
@@ -35,7 +35,14 @@ describe('App', () => {
     const gotTabs = wrapper.findAll('nav [data-testid="nav-label"]').map((label) => label.text())
 
     expect(wrapper.get('aside img').attributes('alt')).toContain('Necromanciarr')
-    expect(gotTabs).toEqual(['Démarrage', 'Propositions', 'Déduplication', 'Liens', 'Étapes'])
+    expect(gotTabs).toEqual([
+      'Démarrage',
+      'Propositions',
+      'Déduplication',
+      'Liens',
+      'Étapes',
+      'Sources',
+    ])
   })
 
   it('App_switchesToTheServerLanguageAtTheFirstStatus', async () => {
@@ -49,7 +56,14 @@ describe('App', () => {
 
     const gotTabs = wrapper.findAll('nav [data-testid="nav-label"]').map((label) => label.text())
 
-    expect(gotTabs).toEqual(['Getting started', 'Proposals', 'Deduplication', 'Links', 'Stages'])
+    expect(gotTabs).toEqual([
+      'Getting started',
+      'Proposals',
+      'Deduplication',
+      'Links',
+      'Stages',
+      'Sources',
+    ])
   })
 
   it('App_showsPendingProposalsAndFailedChecksAsBadges', async () => {
@@ -73,7 +87,7 @@ describe('App', () => {
       'GET /api/status': busyStatus,
       'GET /api/proposals': [],
     })
-    window.location.hash = '#/sources'
+    window.location.hash = '#/volumes'
     mount(App)
     await flushPromises()
 

@@ -36,7 +36,6 @@ import {
   decisionRank,
   groupTargets,
   hasNoAnnounce,
-  hasSourceField,
   isSelectable,
   KIND_CODES,
   REVIEW_KINDS,
@@ -66,18 +65,21 @@ function allOf(filterKey: string): string {
 
 const TOOLBAR_FIELD_CLASS = cn(FIELD_CLASS, 'w-auto')
 
-// Le champ Source n'existe pas encore côté serveur (tâche B14) : colonne et filtre restent masqués.
-const hasSource = computed(() => hasSourceField(proposals.value))
-const sources = computed(() => [
-  ...new Set(proposals.value.map((row) => row.source).filter((source) => source !== undefined)),
-])
+// Le filtre Source est appliqué par le serveur : ses choix cumulent les sources vues, sinon le choix courant
+// effacerait les autres.
+const knownSources = ref<string[]>([])
+const sources = computed(() => [...knownSources.value].sort())
+
+function rememberSources(list: Proposal[]): void {
+  const seen = new Set(knownSources.value)
+  for (const row of list) if (row.details.source) seen.add(row.details.source)
+  knownSources.value = [...seen]
+}
 
 const visibleRows = computed(() => {
   const needle = filters.search.trim().toLowerCase()
   return proposals.value.filter(
-    (row) =>
-      (needle === '' || row.candidate_name.toLowerCase().includes(needle)) &&
-      (filters.source === '' || row.source === filters.source),
+    (row) => needle === '' || row.candidate_name.toLowerCase().includes(needle),
   )
 })
 
@@ -138,16 +140,14 @@ const columns = computed<DataColumn<Proposal>[]>(() => {
       },
     },
   ]
-  if (hasSource.value) {
-    list.push({
-      id: 'source',
-      meta: { className: 'w-[8%] whitespace-normal' },
-      header: t('proposals.columns.source'),
-      accessorFn: (row) => row.source ?? '',
-      sortFn: 'text',
-    })
-  }
   list.push(
+    {
+      id: 'source',
+      meta: { className: 'w-[8%] whitespace-normal [overflow-wrap:anywhere]' },
+      header: t('proposals.columns.source'),
+      accessorFn: (row) => row.details.source || EMPTY_CELL,
+      sortFn: 'text',
+    },
     {
       id: 'verified',
       meta: { className: 'w-[8%] whitespace-normal' },
@@ -236,12 +236,16 @@ async function load(): Promise<void> {
       decision: filters.decision || undefined,
       group: groupId > 0 ? groupId : undefined,
       current_only: filters.currentOnly || undefined,
+      source: filters.source || undefined,
     }),
   )
   isLoading.value = false
   loadFailed.value = list === undefined
   // La déduplication et la réparation ont leurs propres vues.
-  if (list) proposals.value = list.filter((row) => REVIEW_KINDS.includes(row.kind))
+  if (list) {
+    proposals.value = list.filter((row) => REVIEW_KINDS.includes(row.kind))
+    rememberSources(proposals.value)
+  }
 }
 
 async function act(task: () => Promise<unknown>, success: string): Promise<void> {
@@ -250,7 +254,10 @@ async function act(task: () => Promise<unknown>, success: string): Promise<void>
 }
 
 // Un filtre serveur modifié relance la requête ; le groupe, saisi au clavier, n'est lu qu'à la validation (v-model.lazy).
-watch(() => [filters.kind, filters.decision, filters.group, filters.currentOnly], load)
+watch(
+  () => [filters.kind, filters.decision, filters.group, filters.currentOnly, filters.source],
+  load,
+)
 
 const selectedKeys = ref<string[]>([])
 // Remonter le tableau remet sa sélection à zéro après un rejet groupé.
@@ -404,7 +411,6 @@ onMounted(load)
           </option>
         </select>
         <select
-          v-if="hasSource"
           v-model="filters.source"
           :class="TOOLBAR_FIELD_CLASS"
           :aria-label="t('proposals.filters.source')"
@@ -484,10 +490,8 @@ onMounted(load)
               :aria-description="t('proposals.noAnnounce.linkRefused')"
             />
           </dd>
-          <dt v-if="row.source" class="text-muted-foreground">
-            {{ t('proposals.columns.source') }}
-          </dt>
-          <dd v-if="row.source">{{ row.source }}</dd>
+          <dt class="text-muted-foreground">{{ t('proposals.columns.source') }}</dt>
+          <dd class="[overflow-wrap:anywhere]">{{ row.details.source || EMPTY_CELL }}</dd>
           <dt class="text-muted-foreground">{{ t('proposals.columns.verified') }}</dt>
           <dd>{{ formatPercent(row.details.percent) }}</dd>
           <dt class="text-muted-foreground">{{ t('proposals.columns.missing') }}</dt>

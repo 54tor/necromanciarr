@@ -69,7 +69,12 @@
       "repairable": "Réparable",
       "ambiguous": "Ambigu",
       "lost": "Introuvable",
-      "missing_pieces_above_cap": "au-delà du plafond partialMaxMissingPercent"
+      "missing_pieces_above_cap": "au-delà du plafond partialMaxMissingPercent",
+      "indexer_unavailable": "Indexeur indisponible ou limité",
+      "indexer_access_denied": "L'indexeur refuse l'accès (clé d'API)",
+      "indexer_hostile_response": "Réponse de l'indexeur refusée (hostile ou illisible)",
+      "indexer_budget_exhausted": "Quota du jour de l'indexeur atteint",
+      "foreign_download_host": "Lien de téléchargement hors de l'hôte de l'indexeur"
     },
     "decision": {
       "pending": "En attente",
@@ -539,6 +544,42 @@
         "confirmDry": "Lancer la simulation",
         "confirmReal": "Appliquer pour de bon"
       }
+    }
+  },
+  "sources": {
+    "caption": "Sources de la chaîne, dans l'ordre d'interrogation",
+    "empty": "Aucune source configurée.",
+    "loadFailed": "Impossible de charger les sources.",
+    "refresh": "Actualiser",
+    "choose": "Source à tester",
+    "test": "Tester une source",
+    "testRow": "Tester",
+    "testRowOf": "Tester {source}",
+    "testing": "Test de {source} en cours…",
+    "passed": "Test réussi : {source}",
+    "failed": "Test en échec : {source}, {reason}",
+    "outsideChain": "hors chaîne",
+    "usage": "{used} / {cap}",
+    "notApplicable": "s.o.",
+    "columns": {
+      "order": "Ordre",
+      "source": "Source",
+      "type": "Type",
+      "tracker": "Tracker",
+      "state": "État",
+      "queries": "Requêtes 24 h / plafond",
+      "downloads": "Téléchargements 24 h / plafond",
+      "lastError": "Dernière erreur"
+    },
+    "types": {
+      "provider": "Fournisseur",
+      "torznab": "Torznab"
+    },
+    "state": {
+      "ok": "Opérationnelle",
+      "blocked": "Écartée (Retry-After)",
+      "exhausted": "Quota du jour atteint",
+      "disabled": "Hors chaîne"
     }
   },
   "jobs": {

@@ -142,7 +142,7 @@ func headerCells(translator i18n.Translator, keys ...i18n.Key) []string {
 	return cells
 }
 
-var proposalColumns = []int{6, 13, 10, 24, 6}
+var proposalColumns = []int{6, 13, 10, 24, 6, 10}
 
 func writeProposals(writer io.Writer, translator i18n.Translator, proposals []app.Proposal) {
 	if len(proposals) == 0 {
@@ -150,7 +150,7 @@ func writeProposals(writer io.Writer, translator i18n.Translator, proposals []ap
 		return
 	}
 	writeRow(writer, proposalColumns, headerCells(translator, i18n.KeyCLIHeaderID, i18n.KeyCLIHeaderKind, i18n.KeyCLIHeaderDecision,
-		i18n.KeyCLIHeaderStep, i18n.KeyCLIHeaderGroup, i18n.KeyCLIHeaderName)...)
+		i18n.KeyCLIHeaderStep, i18n.KeyCLIHeaderGroup, i18n.KeyCLIHeaderSource, i18n.KeyCLIHeaderName)...)
 	for _, proposal := range proposals {
 		group := "-"
 		if proposal.GroupID != 0 {
@@ -160,8 +160,12 @@ func writeProposals(writer io.Writer, translator i18n.Translator, proposals []ap
 		if step == "" {
 			step = "-"
 		}
+		source := proposal.Details.Source
+		if source == "" {
+			source = "-"
+		}
 		writeRow(writer, proposalColumns, fmt.Sprint(proposal.ID), string(proposal.Kind), string(proposal.Decision), step, group,
-			proposalName(translator, proposal))
+			source, proposalName(translator, proposal))
 	}
 }
 
@@ -260,6 +264,48 @@ func writeLinks(writer io.Writer, translator i18n.Translator, page app.LinkPage,
 	if page.Next > 0 {
 		_, _ = fmt.Fprintln(writer, translator.Text(i18n.KeyCLILinksNextPage, textParams("offset", strconv.Itoa(page.Next))))
 	}
+}
+
+var sourceColumns = []int{5, 16, 8, 9, 11, 9}
+
+// writeSources écrit une ligne par source dans l'ordre de la chaîne, puis la dernière erreur traduite en retrait.
+func writeSources(writer io.Writer, translator i18n.Translator, rows []app.SourceRow) {
+	writeRow(writer, sourceColumns, headerCells(translator, i18n.KeyCLIHeaderOrder, i18n.KeyCLIHeaderSource, i18n.KeyCLIHeaderType,
+		i18n.KeyCLIHeaderState, i18n.KeyCLIHeaderQueries, i18n.KeyCLIHeaderDownloads, i18n.KeyCLIHeaderTracker)...)
+	for _, row := range rows {
+		order := "-"
+		if row.Order > 0 {
+			order = strconv.Itoa(row.Order)
+		}
+		tracker := row.Tracker
+		if tracker == "" {
+			tracker = "-"
+		}
+		writeRow(writer, sourceColumns, order, row.Source, row.Type, row.State, usageCell(translator, row.Queries),
+			usageCell(translator, row.Downloads), tracker)
+		if row.LastError != "" {
+			lastError := translator.Text(i18n.KeyCLISourcesLastError, textParams("code", row.LastError, "label", translator.ReasonLabel(row.LastError)))
+			// Le libellé traduit n'est pas tronqué : c'est la seule explication de l'erreur.
+			_, _ = fmt.Fprintln(writer, "      "+lastError)
+		}
+	}
+}
+
+// usageCell rend « utilisé/plafond », ou « n/a » pour une source sans quota (le fournisseur).
+func usageCell(translator i18n.Translator, usage *app.SourceUsage) string {
+	if usage == nil {
+		return translator.Text(i18n.KeyCLISourcesNotApplicable, nil)
+	}
+	return strconv.Itoa(usage.Used) + "/" + strconv.Itoa(usage.Cap)
+}
+
+func writeSourceTest(writer io.Writer, translator i18n.Translator, result app.SourceTestResult) {
+	if result.Result == app.SourceTestOK {
+		_, _ = fmt.Fprintln(writer, translator.Text(i18n.KeyCLISourceTestOK, textParams("source", result.Source)))
+		return
+	}
+	_, _ = fmt.Fprintln(writer, translator.Text(i18n.KeyCLISourceTestFailed, textParams(
+		"source", result.Source, "code", result.Error, "label", translator.ReasonLabel(result.Error))))
 }
 
 func writeMaintenanceResults(writer io.Writer, translator i18n.Translator, items []applyItem) {

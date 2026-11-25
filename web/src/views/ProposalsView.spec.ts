@@ -583,24 +583,38 @@ describe('ProposalsView', () => {
     expect(calls).toHaveLength(listCalls)
   })
 
-  it('hides the Source filter and column while the server sends no source', async () => {
-    const { wrapper } = await mountView()
+  it('shows the Source column and filters by source on the server', async () => {
+    const fromProvider = proposal({
+      id: 20,
+      candidate_name: 'From.Provider',
+      details: { ...proposal().details, source: 'provider' },
+    })
+    const fromIndexer = proposal({
+      id: 21,
+      candidate_name: 'From.Indexer',
+      details: { ...proposal().details, source: 'torznab:a' },
+    })
+    const { wrapper, calls } = await mountView([fromProvider, fromIndexer], {
+      'GET /api/proposals': (call: FakeCall) =>
+        call.query.get('source') === 'torznab:a' ? [fromIndexer] : [fromProvider, fromIndexer],
+    })
 
-    expect(wrapper.find('[data-testid="filter-source"]').exists()).toBe(false)
-    expect(wrapper.findAll('th').map((header) => header.text())).not.toContain('Source')
-  })
+    const headers = wrapper.findAll('th').map((header) => header.text())
+    expect(headers).toContain('Source')
+    const sourceColumn = headers.indexOf('Source')
+    expect(
+      wrapper.findAll('tbody tr').map((row) => row.findAll('td')[sourceColumn]?.text()),
+    ).toEqual(['provider', 'torznab:a'])
 
-  it('shows the Source filter and column once the server sends a source', async () => {
-    const withSource = [
-      proposal({ id: 20, candidate_name: 'From.Library', source: 'library' }),
-      proposal({ id: 21, candidate_name: 'From.Indexer', source: 'indexer' }),
-    ]
-    const { wrapper } = await mountView(withSource)
+    await wrapper.get('[data-testid="filter-source"]').setValue('torznab:a')
+    await flushPromises()
 
-    expect(wrapper.findAll('th').map((header) => header.text())).toContain('Source')
-    await wrapper.get('[data-testid="filter-source"]').setValue('indexer')
-
+    expect(calls.at(-1)?.query.get('source')).toBe('torznab:a')
     expect(wrapper.findAll('tbody tr').map((row) => row.attributes('data-row-key'))).toEqual(['21'])
+    const options = wrapper
+      .findAll('[data-testid="filter-source"] option')
+      .map((option) => option.text())
+    expect(options).toContain('provider')
   })
 
   it('shows a translated toast for a stale proposal error', async () => {

@@ -91,6 +91,18 @@
   },
   {
     "method": "GET",
+    "path": "/api/sources",
+    "action": "sources list",
+    "mutating": false
+  },
+  {
+    "method": "POST",
+    "path": "/api/sources/{name}/test",
+    "action": "sources test",
+    "mutating": true
+  },
+  {
+    "method": "GET",
     "path": "/api/jobs",
     "action": "",
     "mutating": false

@@ -35,6 +35,9 @@ type fakeService struct {
 	repairScan          []app.RepairProposal
 	linkPage            app.LinkPage
 	doctorReport        *doctor.Report
+	lastFilter          app.ProposalFilter
+	sourceRows          []app.SourceRow
+	sourceTest          *app.SourceTestResult
 }
 
 func (fake *fakeService) record(method string, arguments ...any) {
@@ -57,11 +60,13 @@ func (fake *fakeService) Status(context.Context) (app.Status, error) {
 
 func (fake *fakeService) ListProposals(_ context.Context, filter app.ProposalFilter) ([]app.Proposal, error) {
 	fake.record("ListProposals")
+	fake.lastFilter = filter
 	var kept []app.Proposal
 	for _, proposal := range fake.proposals {
 		keptByKind := filter.Kind == "" || proposal.Kind == filter.Kind
 		keptByDecision := filter.Decision == "" || proposal.Decision == filter.Decision
-		if keptByKind && keptByDecision {
+		keptBySource := filter.Source == "" || proposal.Details.Source == filter.Source
+		if keptByKind && keptByDecision && keptBySource {
 			kept = append(kept, proposal)
 		}
 	}
@@ -136,6 +141,19 @@ func (fake *fakeService) RepairAccept(_ context.Context, proposalID int64, optio
 func (fake *fakeService) ListLinks(_ context.Context, filter app.LinkFilter) (app.LinkPage, error) {
 	fake.record("ListLinks", filter)
 	return fake.linkPage, fake.err
+}
+
+func (fake *fakeService) ListSources(context.Context) ([]app.SourceRow, error) {
+	fake.record("ListSources")
+	return fake.sourceRows, fake.err
+}
+
+func (fake *fakeService) TestSource(_ context.Context, name string) (app.SourceTestResult, error) {
+	fake.record("TestSource", name)
+	if fake.sourceTest != nil {
+		return *fake.sourceTest, fake.err
+	}
+	return app.SourceTestResult{Source: "torznab:" + name, Result: app.SourceTestOK}, fake.err
 }
 
 func (*fakeService) Actions() []app.Action { return app.Actions(i18n.New(i18n.English, nil)) }

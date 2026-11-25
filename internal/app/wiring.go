@@ -165,20 +165,26 @@ func wireSources(settings config.Config, stages *pipeline.Deps, usage sources.Us
 	return nil
 }
 
-// indexerSources construit les clients Torznab cités par sourceOrder (vide : fournisseur puis tous les indexeurs, dans
-// l'ordre de la configuration) avec leurs limites.
-func indexerSources(settings config.Config) ([]sources.ID, map[sources.ID]sources.IndexerSource, map[sources.ID]sources.Limits, error) {
+// sourceOrderOf rend l'ordre de la chaîne : sourceOrder, ou à défaut le fournisseur puis tous les indexeurs dans
+// l'ordre de la configuration.
+func sourceOrderOf(settings config.Config) []sources.ID {
 	order := []sources.ID{sources.ProviderID}
 	if len(settings.SourceOrder) == 0 {
 		for _, indexer := range settings.Torznab {
-			order = append(order, sources.ID(config.SourceTorznabPrefix+indexer.Name))
+			order = append(order, indexerID(indexer))
 		}
-	} else {
-		order = order[:0]
-		for _, name := range settings.SourceOrder {
-			order = append(order, sources.ID(name))
-		}
+		return order
 	}
+	order = order[:0]
+	for _, name := range settings.SourceOrder {
+		order = append(order, sources.ID(name))
+	}
+	return order
+}
+
+// indexerSources construit les clients Torznab cités par l'ordre de la chaîne (sourceOrderOf) avec leurs limites.
+func indexerSources(settings config.Config) ([]sources.ID, map[sources.ID]sources.IndexerSource, map[sources.ID]sources.Limits, error) {
+	order := sourceOrderOf(settings)
 	indexers, limits := map[sources.ID]sources.IndexerSource{}, map[sources.ID]sources.Limits{}
 	for _, indexer := range settings.Torznab {
 		identifier := sources.ID(config.SourceTorznabPrefix + indexer.Name)

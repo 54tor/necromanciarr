@@ -44,6 +44,8 @@ export const API_ROUTES: readonly ApiRoute[] = [
   { method: 'GET', path: '/api/links', action: 'links list', mutating: false },
   { method: 'POST', path: '/api/doctor/run', action: 'doctor', mutating: true },
   { method: 'POST', path: '/api/doctor/checks/{checkId}', action: 'doctor', mutating: true },
+  { method: 'GET', path: '/api/sources', action: 'sources list', mutating: false },
+  { method: 'POST', path: '/api/sources/{name}/test', action: 'sources test', mutating: true },
   { method: 'GET', path: '/api/jobs', action: '', mutating: false },
   { method: 'GET', path: '/api/jobs/{id}', action: '', mutating: false },
 ]
@@ -72,6 +74,8 @@ export const UI_TRIGGERS: Readonly<Record<string, string>> = {
   'repair apply': 'LinksView',
   'links list': 'LinksView',
   doctor: 'OnboardingView',
+  'sources list': 'SourcesView',
+  'sources test': 'SourcesView',
 }
 
 /** Actions dont le déclencheur existe en version par ligne. */
@@ -84,4 +88,5 @@ export const ROW_SCOPED_ACTIONS: readonly string[] = [
   'dedupe apply',
   'repair apply',
   'doctor',
+  'sources test',
 ]

@@ -98,11 +98,6 @@ export function groupTargets(members: Proposal[], isNative: boolean): Proposal[]
   return targets
 }
 
-/** La colonne et le filtre Source n'existent que si le serveur envoie le champ (ajouté par la tâche B14). */
-export function hasSourceField(proposals: Proposal[]): boolean {
-  return proposals.some((proposal) => proposal.source !== undefined)
-}
-
 /** Natures offertes par le filtre de la vue Propositions. */
 export const KIND_CODES: readonly ProposalKind[] = [
   'full',

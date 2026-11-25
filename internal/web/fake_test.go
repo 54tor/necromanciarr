@@ -49,6 +49,7 @@ type fakeService struct {
 	lastFilter  app.ProposalFilter
 	lastLinks   app.LinkFilter
 	linkPage    app.LinkPage
+	sourceRows  []app.SourceRow
 	// language est la langue du Translator (anglais si vide), pour comparer fr et en.
 	language i18n.Language
 	// panicValue fait paniquer RunStage avec cette valeur (job qui plante).
@@ -152,6 +153,15 @@ func (fake *fakeService) ListLinks(_ context.Context, filter app.LinkFilter) (ap
 	fake.lastLinks = filter
 	fake.mutex.Unlock()
 	return fake.linkPage, err
+}
+
+func (fake *fakeService) ListSources(context.Context) ([]app.SourceRow, error) {
+	return fake.sourceRows, fake.record("ListSources")
+}
+
+func (fake *fakeService) TestSource(_ context.Context, name string) (app.SourceTestResult, error) {
+	err := fake.record("TestSource", name)
+	return app.SourceTestResult{Source: "torznab:" + name, Result: app.SourceTestFailed, Error: "indexer_access_denied"}, err
 }
 
 func (fake *fakeService) Actions() []app.Action { return app.Actions(fake.Translator()) }

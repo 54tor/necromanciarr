@@ -10,7 +10,7 @@ Syntaxe : `necromanciarr <command> [arguments] [options]`. Les arguments positio
 |---|---|---|
 | `scan`, `match`, `verify`, `link`, `seed` | lance une étape ([01-pipeline.md](01-pipeline.md)) | |
 | `status` | candidats par état, propositions par décision, étapes d'application, mode cross-seed effectif, torrents vérifiés non proposés (`held`, une ligne `held:` par torrent avec la raison) | |
-| `proposals list` | liste les propositions | `--kind K`, `--state S`, `--group G`, `--current-only` |
+| `proposals list` | liste les propositions | `--kind K`, `--state S`, `--group G`, `--source S`, `--current-only` |
 | `proposals accept <id>` | accepte une proposition de torrent | `--allow-partial-pack` |
 | `proposals accept-group <groupe>` | accepte la principale du groupe (et les `cross_seed` en mode `native`) | |
 | `proposals reject <id>` | rejette (depuis `pending` seulement) | |
@@ -22,12 +22,20 @@ Syntaxe : `necromanciarr <command> [arguments] [options]`. Les arguments positio
 | `repair apply <id>` ou `--all-accepted` | idem `dedupe apply` | `--dry-run`, `--all-accepted` |
 | `links list` | liste les liens enregistrés avec leur état courant, en lecture seule | `--state S`, `--limit N`, `--offset N` |
 | `doctor` | diagnostic ([02-configuration.md](02-configuration.md)) | `--check ID` (répétable) |
+| `sources list` | la chaîne de sources dans son ordre, sans requête réseau | |
+| `sources test <nom>` | teste un indexeur : `t=caps` et une recherche vide, au quota du jour | |
 | `serve` | sert l'interface et l'API jusqu'à SIGINT ou SIGTERM | |
 | `healthcheck` | sonde `/healthz` sur la boucle locale | |
 | `api-key` | affiche un jeton aléatoire neuf ; `--secret` : une clé de scellement | |
 | `config check` | affiche la configuration effective, secrets masqués | |
 
-Valeurs : `--kind` parmi `full partial_annex partial_pack cross_seed conflict dedupe repair` ; `--state` d'une proposition parmi `pending accepted rejected applied failed superseded` ; `--state` d'un lien parmi `ok diverged lost unreadable` ; `--limit` vaut 200 par défaut et 1000 au plus, `--offset` part de 0. Une valeur inconnue est un défaut d'usage (exit 2), jamais une liste vide.
+Valeurs : `--kind` parmi `full partial_annex partial_pack cross_seed conflict dedupe repair` ; `--state` d'une proposition parmi `pending accepted rejected applied failed superseded` ; `--state` d'un lien parmi `ok diverged lost unreadable` ; `--limit` vaut 200 par défaut et 1000 au plus, `--offset` part de 0 ; `--source` vaut `provider` ou `torznab:<nom>`. Une valeur inconnue est un défaut d'usage (exit 2), jamais une liste vide.
+
+Chaque proposition porte `details.source`, la source qui a fourni son candidat (`provider` ou `torznab:<nom>`, jamais une URL) ; `--source` (paramètre `source` du web) ne garde que les propositions de cette source.
+
+`sources list` rend une ligne par source dans l'ordre de la chaîne (`sourceOrder`, le fournisseur toujours premier), puis les indexeurs configurés hors de `sourceOrder` (`order` 0) : `order`, `source`, `type` (`provider` ou `torznab`), `tracker` (le `torznab[].tracker` déclaré ; une valeur en forme d'URL n'est rendue que `scheme://hôte/***`), `state`, `queries` et `downloads` (`{"used", "cap"}` : usage sur 24 h glissantes face à `maxQueriesPerDay` et `maxDownloadsPerDay` ; `null` pour le fournisseur, sans quota) et `last_error`. `state` vaut `ok`, `blocked` (un `Retry-After` reçu écarte l'indexeur), `exhausted` (un plafond du jour est atteint) ou `disabled` (hors de la chaîne : sans `libraryApi`, ou absent de `sourceOrder`). `last_error` est le code de la dernière requête en échec de l'indexeur, vide après une réussite : `indexer_unavailable` (injoignable, délai dépassé, statut d'erreur), `indexer_access_denied`, `indexer_hostile_response` (réponse hostile ou illisible), `indexer_budget_exhausted`, `foreign_download_host` ; jamais le texte de l'erreur ni une URL. La CLI affiche le libellé traduit entre parenthèses. L'état `blocked` et `last_error` vivent dans le processus qui a fait les requêtes (le serveur pour l'interface) ; une commande CLI, processus neuf, ne voit que l'usage et les plafonds, lus en base.
+
+`sources test <nom>` accepte `torznab:<nom>` ou le seul nom de l'indexeur. Il passe par le budget comme Match : chaque requête est comptée au quota du jour, un indexeur écarté ou à son plafond n'est pas joint. Des capacités encore en cache dans le processus (24 h) ne sont pas redemandées. Résultat : `{"source", "result": "ok"|"failed", "error"}`, `error` portant un des codes de `last_error` ; un échec du test sort en code 1. Le fournisseur ne se teste pas ici (`refused`, voir `doctor --check library-api`), un nom inconnu est un `not_found`, un indexeur hors de la chaîne un `not_configured`.
 
 `dedupe apply <id>` et `repair apply <id>` exigent la bonne nature (`wrong proposal kind`) et une proposition applicable (`ambiguous` et `lost` ne le sont pas). Sans `--dry-run`, une proposition en attente est acceptée puis appliquée ; avec `--dry-run`, tous les contrôles tournent sans rien créer. `--all-accepted` n'applique que les propositions déjà acceptées de la nature, continue après un échec et se combine avec `--dry-run`.
 
@@ -80,7 +88,7 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 | Méthode | Chemin | Action | Corps / paramètres | Réponse |
 |---|---|---|---|---|
 | GET | `/api/status` | `status` | | 200 |
-| GET | `/api/proposals` | `proposals list` | `decision`, `kind`, `group`, `current_only` | 200, tableau ; chaque proposition porte `updated_at` (RFC 3339 UTC : le plus récent de sa création, de sa décision et de sa dernière étape d'application ; vide si inconnu) |
+| GET | `/api/proposals` | `proposals list` | `decision`, `kind`, `group`, `current_only`, `source` | 200, tableau ; chaque proposition porte `updated_at` (RFC 3339 UTC : le plus récent de sa création, de sa décision et de sa dernière étape d'application ; vide si inconnu) |
 | POST | `/api/proposals/{id}/accept` | `proposals accept` | `{"allow_partial_pack": bool}` | 200 |
 | POST | `/api/proposals/{id}/reject` | `proposals reject` | | 200 |
 | POST | `/api/proposals/{id}/choose` | `proposals choose` | `{"candidate_id": n}` (le candidat de la proposition ou un membre de son litige) | 200 |
@@ -94,6 +102,8 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 | GET | `/api/links` | `links list` | `state`, `limit`, `offset` | 200, page |
 | POST | `/api/doctor/run` | `doctor` | `{"checks": ["config", …]}` (vide : tous) | 200, rapport |
 | POST | `/api/doctor/checks/{checkId}` | `doctor` | `{}` | 200, rapport |
+| GET | `/api/sources` | `sources list` | | 200, tableau |
+| POST | `/api/sources/{name}/test` | `sources test` | `{}` | 200, résultat du test |
 | GET | `/api/jobs`, `/api/jobs/{id}` | suivi des jobs (hors registre) | | 200 |
 | GET | `/healthz` | sonde | | 200 ou 503 |
 
@@ -134,9 +144,11 @@ Application Vue embarquée dans le binaire, un seul thème sombre anthracite, ro
 | Déduplication | `#/deduplication` | `dedupe plan/apply` |
 | Liens | `#/liens` | `links list`, `repair scan/apply` |
 | Étapes | `#/etapes` | `scan match verify link seed`, suivi des jobs |
+| Sources | `#/sources` | `sources list/test` |
 
 - Mise en page : barre latérale à gauche (icônes seules de 768 à 1023 px, tiroir en dessous), barre d'outils par page, tableaux denses et triables, pastilles d'état (icône et texte, jamais la couleur seule). Sous 768 px chaque ligne devient une carte empilée, sans défilement horizontal.
 - Liens : deux onglets. « Liens enregistrés » est paginé par le serveur (200 par page, `links list` avec `--limit` et `--offset`), filtrable par état, sans tri (ordre du serveur : `links list` n'a pas de paramètre de tri, et trier la seule page reçue donnerait un ordre trompeur, donc pas de tri par état par défaut) ; « Non comparé » marque un lien dont rien n'a été comparé, et un examen interrompu (`truncated`) est annoncé. « Réparations » liste les propositions `repair` ; l'application réelle d'une ligne exige de saisir `APPLIQUER` (`APPLY` en anglais), la simulation part directement ; les lignes ambiguës, perdues ou en attente d'un recontrôle du client sont listées mais non applicables.
+- Sources : une ligne par source dans l'ordre de la chaîne (ordre, source, type, tracker, état, requêtes et téléchargements sur 24 h face au plafond, dernière erreur traduite), sans tri. « Tester une source » teste l'indexeur choisi dans la barre d'outils, le bouton de ligne celui de la ligne ; les tests sont désactivés pendant qu'un test tourne, dont le résultat traduit s'affiche ensuite. Le fournisseur n'a pas de bouton de test. Propositions : la colonne Source et le filtre Source (appliqué par le serveur) sont toujours affichés.
 - Une boîte demande le jeton sur un 401 ; il vit en mémoire de l'onglet, jamais dans le stockage du navigateur. Un jeton refusé l'efface.
 - L'interface redirige vers « Démarrage » au premier lancement (ni candidat ni proposition) ou tant que le diagnostic a un `fail`, sauf choix « Passer ».
 - Force n'est actif que pour un `partial_annex` à l'étape `seeded_paused_incomplete`, avec confirmation ; accepter un `partial_pack` passe par une confirmation. `dedupe` et `repair` ont une case « simulation » (dry-run), cochée par défaut, et une confirmation avant d'appliquer pour de bon toutes les propositions acceptées (hors simulation). La page Déduplication va plus loin : « Appliquer les acceptées » ouvre toujours une fenêtre qui liste les propositions (le mode, simulation ou réel, est figé à l'ouverture) ; un remplacement réel, de masse ou d'une seule ligne, n'est envoyé qu'après la saisie du mot `APPLIQUER` (`APPLY` en anglais) ; une simulation d'une ligne part sans confirmation. Les octets à lire sont affichés avant toute acceptation, les lignes non applicables (ambiguë, copie isolée…) restent listées avec un bouton désactivé et leur motif.

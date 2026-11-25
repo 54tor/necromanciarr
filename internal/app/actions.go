@@ -26,10 +26,12 @@ const (
 	ArgumentStage            = "stage"
 	ArgumentProposalID       = "proposal-id"
 	ArgumentGroupID          = "group-id"
+	ArgumentSourceName       = "name"
 	OptionAllowPartialPack   = "allow-partial-pack"
 	OptionDecision           = "decision"
 	OptionKind               = "kind"
 	OptionGroup              = "group"
+	OptionSource             = "source"
 	OptionCurrentOnly        = "current-only"
 	OptionDryRun             = "dry-run"
 	OptionAcceptPending      = "accept-pending"
@@ -49,7 +51,7 @@ var registry = []Action{
 	{Name: "status", Method: "Status", DescriptionKey: i18n.KeyActionStatus},
 	{
 		Name: actionNameProposalPrefix + "list", Method: "ListProposals", DescriptionKey: i18n.KeyActionProposalsList,
-		Options: []string{OptionDecision, OptionKind, OptionGroup, OptionCurrentOnly},
+		Options: []string{OptionDecision, OptionKind, OptionGroup, OptionCurrentOnly, OptionSource},
 	},
 	{
 		Name: actionNameProposalPrefix + "accept", Method: "Accept", DescriptionKey: i18n.KeyActionProposalsAccept,
@@ -95,6 +97,12 @@ var registry = []Action{
 	{
 		Name: "doctor", Method: "Doctor", DescriptionKey: i18n.KeyActionDoctor,
 		Mutating: true, Options: []string{OptionCheck},
+	},
+	{Name: "sources list", Method: "ListSources", DescriptionKey: i18n.KeyActionSourcesList},
+	// sources test dépense le quota du jour de l'indexeur et le joint : mutante, comme doctor.
+	{
+		Name: "sources test", Method: "TestSource", DescriptionKey: i18n.KeyActionSourcesTest,
+		Mutating: true, Arguments: []string{ArgumentSourceName},
 	},
 }
 

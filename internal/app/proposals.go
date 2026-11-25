@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
@@ -41,19 +42,31 @@ type Proposal struct {
 	Maintenance json.RawMessage `json:"maintenance,omitempty"`
 }
 
-// ProposalFilter restreint ListProposals : valeurs vides = pas de filtre ; CurrentOnly écarte les générations périmées.
+// ProposalFilter restreint ListProposals : valeurs vides = pas de filtre ; CurrentOnly écarte les générations périmées ;
+// Source garde les propositions dont le candidat vient de cette source (provider ou torznab:<nom>).
 type ProposalFilter struct {
 	Decision    store.ProposalDecision
 	Kind        store.ProposalKind
 	GroupID     int64
 	CurrentOnly bool
+	Source      string
 }
 
 // NewProposalFilter construit un filtre depuis des valeurs textuelles (requête web) sans dépendre du store.
-func NewProposalFilter(decision, kind string, groupID int64, currentOnly bool) ProposalFilter {
+func NewProposalFilter(decision, kind string, groupID int64, currentOnly bool, source string) ProposalFilter {
 	return ProposalFilter{
 		Decision: store.ProposalDecision(decision), Kind: store.ProposalKind(kind), GroupID: groupID, CurrentOnly: currentOnly,
+		Source: source,
 	}
+}
+
+// checkSource refuse un filtre de source qui ne peut nommer aucune source : une faute de frappe ne doit pas donner une
+// liste vide.
+func (filter ProposalFilter) checkSource() error {
+	if filter.Source == "" || isSourceID(filter.Source) {
+		return nil
+	}
+	return fmt.Errorf("%w: unknown source %q (valid: provider or torznab:<name>)", config.ErrUsage, filter.Source)
 }
 
 func (filter ProposalFilter) keeps(view Proposal) bool {
@@ -61,7 +74,8 @@ func (filter ProposalFilter) keeps(view Proposal) bool {
 	rejectedByKind := filter.Kind != "" && view.Kind != filter.Kind
 	rejectedByGroup := filter.GroupID != 0 && view.GroupID != filter.GroupID
 	rejectedAsStale := filter.CurrentOnly && !view.Current
-	return !rejectedByDecision && !rejectedByKind && !rejectedByGroup && !rejectedAsStale
+	rejectedBySource := filter.Source != "" && view.Details.Source != filter.Source
+	return !rejectedByDecision && !rejectedByKind && !rejectedByGroup && !rejectedAsStale && !rejectedBySource
 }
 
 // snapshot est l'état lu une fois par action : propositions, chaque candidat (tout état), étapes d'application et
@@ -135,6 +149,7 @@ func (state snapshot) view(translator i18n.Translator, proposal store.Proposal) 
 		return view
 	}
 	_ = json.Unmarshal(proposal.Details, &view.Details)
+	view.Details.Source = candidate.Source
 	for position := range view.Details.ExcludedFiles {
 		view.Details.ExcludedFiles[position].Label = translator.ReasonLabel(view.Details.ExcludedFiles[position].Reason)
 	}
@@ -168,6 +183,9 @@ func labelledMaintenance(translator i18n.Translator, proposal store.Proposal) js
 }
 
 func (svc *service) ListProposals(ctx context.Context, filter ProposalFilter) ([]Proposal, error) {
+	if err := filter.checkSource(); err != nil {
+		return nil, err
+	}
 	state, err := svc.loadSnapshot(ctx)
 	if err != nil {
 		return nil, err

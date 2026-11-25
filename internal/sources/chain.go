@@ -89,7 +89,7 @@ func (chain *Chain) NewBudget() *Budget {
 }
 
 // Call est le seul chemin vers un indexeur : il dépense le quota (TakeQuery ou TakeDownload selon kind), exécute la
-// requête, puis rend l'erreur à Observe (Retry-After, refus d'accès) ; une recherche à la réponse hostile ou illisible
+// requête, puis rend l'erreur à Observe (Retry-After, refus d'accès) et la retient pour Health ; une recherche à la réponse hostile ou illisible
 // écarte aussi l'indexeur pour l'exécution. La requête ne s'exécute pas si le budget refuse ;
 // l'erreur du budget ou de la requête est rendue telle quelle. budget doit venir de NewBudget.
 func (chain *Chain) Call(ctx context.Context, budget *Budget, indexer ID, kind string, request func(ctx context.Context) error) error {
@@ -106,9 +106,11 @@ func (chain *Chain) Call(ctx context.Context, budget *Budget, indexer ID, kind s
 		return fmt.Errorf("sources: unknown request kind %q", kind)
 	}
 	if err := spend(ctx, indexer); err != nil {
+		chain.board.recordOutcome(ctx, indexer, err)
 		return err
 	}
 	err := request(ctx)
+	chain.board.recordOutcome(ctx, indexer, err)
 	budget.Observe(indexer, err)
 	if kind == KindQuery {
 		budget.blockAfterUnusableAnswer(ctx, indexer, err)

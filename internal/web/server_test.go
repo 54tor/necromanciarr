@@ -154,7 +154,7 @@ func TestProposals_listIncludesPercentVerifiedAndMissingPieces(t *testing.T) {
 			t.Fatalf("gotValue %q, expectedValue the field %s", body, field)
 		}
 	}
-	expectedFilter := app.NewProposalFilter("pending", "partial_annex", 9, true)
+	expectedFilter := app.NewProposalFilter("pending", "partial_annex", 9, true, "")
 	if fake.lastFilter != expectedFilter {
 		t.Fatalf("gotValue filter %+v, expectedValue %+v", fake.lastFilter, expectedFilter)
 	}
@@ -781,5 +781,48 @@ func TestRedact_trackerVariableValueEverywhere(t *testing.T) {
 	}
 	for label, output := range map[string]string{"status": statusBody, "error body": errorBody, "jobs": jobsBody, "log": logged.String(), "panic log": panicLog.String()} {
 		expectNoWebPasskey(t, label, output)
+	}
+}
+
+func TestWeb_sourcesListIsAReadAndTestIsAGuardedPost(t *testing.T) {
+	rows := []app.SourceRow{{Order: 1, Source: "provider", Type: app.SourceTypeProvider, State: app.SourceStateOK}}
+	fake := &fakeService{sourceRows: rows}
+	handler := newTestHandler(t, fake, loopbackSettings())
+
+	listed := serve(handler, apiRequest(http.MethodGet, "/api/sources", ""))
+	tested := serve(handler, apiRequest(http.MethodPost, "/api/sources/torznab:a/test", `{}`))
+	crossSite := apiRequest(http.MethodPost, "/api/sources/torznab:a/test", `{}`)
+	crossSite.Header.Del("X-Requested-With")
+	refused := serve(handler, crossSite)
+	byGet := serve(handler, apiRequest(http.MethodGet, "/api/sources/torznab:a/test", ""))
+
+	var gotRows []app.SourceRow
+	var gotTest app.SourceTestResult
+	listErr := json.Unmarshal([]byte(readBody(t, listed)), &gotRows)
+	testErr := json.Unmarshal([]byte(readBody(t, tested)), &gotTest)
+	isExpected := listed.Code == http.StatusOK && listErr == nil && reflect.DeepEqual(gotRows, rows) &&
+		tested.Code == http.StatusOK && testErr == nil && gotTest.Error == "indexer_access_denied" &&
+		refused.Code == http.StatusForbidden && byGet.Code == http.StatusMethodNotAllowed && fake.called("TestSource torznab:a")
+	if !isExpected {
+		t.Fatalf("valeurObtenue %d %v / %d %+v %v / cross-site %d / GET %d, calls %v", listed.Code, gotRows, tested.Code, gotTest, testErr,
+			refused.Code, byGet.Code, fake.calls)
+	}
+	if strings.Count(strings.Join(fake.calls, "|"), "TestSource") != 1 {
+		t.Fatalf("valeurObtenue calls %v, valeurAttendue one TestSource (the cross-site post refused)", fake.calls)
+	}
+	empty := serve(newTestHandler(t, &fakeService{}, loopbackSettings()), apiRequest(http.MethodGet, "/api/sources", ""))
+	if body := strings.TrimSpace(readBody(t, empty)); body != "[]" {
+		t.Fatalf("valeurObtenue %q, valeurAttendue an empty JSON array", body)
+	}
+}
+
+func TestWeb_proposalsSourceQueryReachesTheFilter(t *testing.T) {
+	fake := &fakeService{}
+	handler := newTestHandler(t, fake, loopbackSettings())
+
+	response := serve(handler, apiRequest(http.MethodGet, "/api/proposals?source=torznab:a", ""))
+
+	if response.Code != http.StatusOK || fake.lastFilter.Source != "torznab:a" {
+		t.Fatalf("valeurObtenue %d, filter %+v, valeurAttendue the source filter passed on", response.Code, fake.lastFilter)
 	}
 }

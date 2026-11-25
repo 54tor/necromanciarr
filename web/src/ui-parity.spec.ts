@@ -16,6 +16,7 @@ import DedupeView from '@/views/DedupeView.vue'
 import LinksView from '@/views/LinksView.vue'
 import OnboardingView from '@/views/OnboardingView.vue'
 import ProposalsView from '@/views/ProposalsView.vue'
+import SourcesView from '@/views/SourcesView.vue'
 import StagesView from '@/views/StagesView.vue'
 
 vi.mock('vue-sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
@@ -26,6 +27,7 @@ const VIEWS: Record<string, Component> = {
   DedupeView,
   LinksView,
   StagesView,
+  SourcesView,
 }
 
 async function actionsRenderedBy(view: Component): Promise<Set<string>> {
@@ -33,6 +35,18 @@ async function actionsRenderedBy(view: Component): Promise<Set<string>> {
     'POST /api/doctor/run': doctorReport,
     'GET /api/status': busyStatus,
     'GET /api/jobs': [],
+    'GET /api/sources': [
+      {
+        order: 2,
+        source: 'torznab:a',
+        type: 'torznab',
+        tracker: '',
+        state: 'ok',
+        queries: { used: 0, cap: 200 },
+        downloads: { used: 0, cap: 50 },
+        last_error: '',
+      },
+    ],
     'GET /api/proposals': (call) => {
       const kind = call.query.get('kind')
       if (kind === 'dedupe') return [maintenanceProposal(1, dedupeDetails)]
