@@ -1,12 +1,17 @@
 package local
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 
 	"necromanciarr/internal/fsys"
 )
+
+// errNotRegularFile refuse une FIFO, un périphérique, un dossier ou un fichier remplacé pendant l'ouverture :
+// errors.Is(err, fs.ErrInvalid) le reconnaît.
+var errNotRegularFile = fmt.Errorf("%w: local: not a regular file, or replaced while opening", fs.ErrInvalid)
 
 // localInfo marque une information de fichier venue de ce volume, avec la fiabilité de son inode : seul FileID
 // la lit. os.SameFile ne la reconnaît pas ; comparer par FileID.
@@ -47,9 +52,10 @@ func (readOnly readOnlyFile) Stat() (fs.FileInfo, error) {
 	return tagInfo(info, readOnly.name), nil
 }
 
-// Open ouvre name en lecture seule (O_RDONLY) ; le fichier rendu n'expose que la lecture.
+// Open ouvre name en lecture seule (O_RDONLY) ; le fichier rendu n'expose que la lecture. Tout ce qui n'est pas
+// un fichier ordinaire (FIFO, périphérique, dossier) est refusé sans bloquer (fs.ErrInvalid).
 func (volume) Open(name string) (fsys.File, error) {
-	file, err := os.Open(name) // #nosec G304 -- lecture seule d'un chemin choisi par l'appelant
+	file, _, err := openRegularReadOnly(name)
 	if err != nil {
 		return nil, err
 	}

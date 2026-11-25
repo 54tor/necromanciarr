@@ -22,10 +22,8 @@ const copyBufferBytes = 1 << 20
 // exclusiveCreateFlags : jamais d'entrée existante tronquée ni suivie (O_EXCL refuse aussi un lien symbolique).
 const exclusiveCreateFlags = os.O_WRONLY | os.O_CREATE | os.O_EXCL
 
-var (
-	errInvalidCopySource = errors.New("local: copy source is not a regular file")
-	errSourceChanged     = errors.New("local: copy source changed size during the copy")
-)
+// errSourceChanged : la source a grandi pendant la copie ; la copie partielle est retirée.
+var errSourceChanged = errors.New("local: copy source changed size during the copy")
 
 // writeRoot est un dossier ouvert par handle (os.Root) ; il n'expose ni Volume() ni volume imbriqué.
 type writeRoot struct {
@@ -78,14 +76,15 @@ func (root *writeRoot) Hardlink(source fsys.Location, relative string) error {
 	return ClassifyLinkError(linkInto(destination, source.Path))
 }
 
-// CreateExclusive crée relative en O_WRONLY|O_CREATE|O_EXCL ; une entrée existante rend fs.ErrExist.
+// CreateExclusive crée relative en O_WRONLY|O_CREATE|O_EXCL ; une entrée existante rend fs.ErrExist. Seuls les
+// droits 0o777 de perm sont gardés : jamais de setuid, setgid ni sticky dans un dossier de liens.
 func (root *writeRoot) CreateExclusive(relative string, perm fs.FileMode) (io.WriteCloser, error) {
 	destination, err := root.resolve(relative)
 	if err != nil {
 		return nil, err
 	}
 	defer destination.close()
-	return destination.parent.OpenFile(destination.name, exclusiveCreateFlags, perm)
+	return destination.parent.OpenFile(destination.name, exclusiveCreateFlags, perm&fs.ModePerm)
 }
 
 // CopyFrom copie source vers relative : reflink si le système le permet, sinon flux borné à la taille de la
@@ -184,16 +183,8 @@ func checkSource(source fsys.Location) error {
 }
 
 func openCopySource(sourcePath string) (*os.File, int64, error) {
-	sourceFile, err := os.Open(sourcePath) // #nosec G304 -- source contrôlée par checkSource, lecture seule
+	sourceFile, info, err := openRegularReadOnly(sourcePath)
 	if err != nil {
-		return nil, 0, err
-	}
-	info, err := sourceFile.Stat()
-	if err == nil && !info.Mode().IsRegular() {
-		err = errInvalidCopySource
-	}
-	if err != nil {
-		_ = sourceFile.Close()
 		return nil, 0, err
 	}
 	return sourceFile, info.Size(), nil
