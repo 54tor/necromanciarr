@@ -28,7 +28,7 @@ After a successful resume, the step is `seeded`. In `delegate` mode, cross-seed 
 
 `skipRecheck` (default `true`, importable from cross-seed) never overrides the principle of clean verification: it only applies to a torrent whose pieces are all verified by us. Why verify again before the add: with `skip_checking`, libtorrent checks lazily; a source modified in the meantime would make the client download into the linked inode.
 
-A remote link folder (`linkDirs` as `sftp://<provider>/<absolute path>`, with the filesystem providers to come) never gets `skip_checking`: SFTP returns no inode, and even an identity returned by the server does not prove that the client reads that file. The link is recorded with its volume (`volume` column of `links`), so it stays unproven from one run to the next; with `skipRecheck` and a complete verification, Seed counts `identity_unproven`, adds the torrent paused without `skip_checking`, and `RecheckAndGuard` resumes it only at 100%. Force keeps the same rules (`partial_annex` paused, `partial_pack` never); on a remote volume it has neither reflink nor known free space, so it refuses the isolation.
+A remote link folder (`linkDirs` as `sftp://<provider>/<absolute path>`, with the filesystem providers to come) never gets `skip_checking`: SFTP returns no inode, and even an identity returned by the server does not prove that the client reads that file. The link is recorded with its volume (`volume` column of `links`), so it stays unproven from one run to the next; with `skipRecheck` and a complete verification, Seed counts `identity_unproven`, adds the torrent paused without `skip_checking`, and `RecheckAndGuard` resumes it only at 100%. Force keeps the same rules (`partial_annex` paused, `partial_pack` never); on a remote volume it refuses the isolation (see "Force on an SFTP volume" below).
 
 ### 4: verification before the add
 
@@ -37,7 +37,7 @@ Just before the add, Seed:
 1. reloads the proven association and compares size and date (to the nanosecond) of each source file; a changed source makes the candidate `stale`, nothing is added, warning `not seeded: a library file changed since it was linked, verify again`;
 2. checks each link of the torrent folder (same file as its source, or same size and same start-end fingerprint for a reflink) and each annex (size and SHA-256); damage deletes the step and makes the proposal fail (`link_changed`, `annex_changed`): re-accepting then rerunning Link rebuilds the folder;
 3. refuses an invalid client path (`client_path_invalid`, for example a character forbidden by Windows in a drive path); for a remote link folder, requires a `pathMappings` rule whose `from` is an `sftp://` location of the same provider, otherwise refuses (`client_path_unmapped`): "same path" makes no sense between two machines;
-4. a remote volume that does not answer (`remote_unavailable`) leaves the proposal linked, with no failure and no step cleared: the rerun picks it up. Link does the same: the proposal stays accepted.
+4. a remote volume that does not answer (`remote_unavailable`) leaves the proposal linked, with no failure and no step cleared: the rerun picks it up. Link does the same: the proposal stays accepted. So does Verify: the candidate is never marked `stale` because its files could not be read.
 
 ### 5: partial_annex and Force
 
@@ -60,6 +60,8 @@ Before resuming the torrent, Force isolates the exposed media files:
 4. the folder is verified again (links, copies, annexes), then the client is resumed and the step becomes `forced`. The response lists the replaced files (`replaced`).
 
 If a media file can be neither cloned nor copied (copy refused, insufficient space, free space unreadable on the platform), Force refuses with `force refused, a straddling media file cannot be copied out of the library` (code `refused`): no copy remains, no link is replaced, the torrent stays paused. A folder damaged in the meantime gives `the torrent link folder no longer matches its proven content`. The library is never written, neither by the tool nor by the client. Force holds the stage lock: a second Force, or any stage, dedupe or repair, waits for it to finish and fails until then with `stage_running`, so that two copies never count on the same free space.
+
+Force on an SFTP volume: when an exposed media file would have to be copied into a remote link folder, Force is refused before any write with `server_copy_unavailable` ("Force is not available on seedbox: the server offers no server-side copy (copy-data)", code `refused`): the SFTP client does not send `copy-data`, and a stream copy would carry the whole media file through this host, twice across the network, and could leave a half-copied file. No copy is attempted, nothing is written, the proposal and its step do not change. Unreadable free space (a server without `statvfs`) gives `free_space_unknown`. What to do: run Necromanciarr on the seedbox itself, with a link folder local to the server, or keep this torrent paused until `copy-data` is supported. A Force with no media file to copy (no exposed link) is not affected.
 
 Accepting a `partial_pack` already requires an explicit act (`--allow-partial-pack`, or `{"allow_partial_pack": true}`); it is added paused like a `partial_annex` and can never be started by Necromanciarr.
 
