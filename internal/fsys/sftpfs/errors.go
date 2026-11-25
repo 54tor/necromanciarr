@@ -12,6 +12,8 @@ const (
 	CodeAuthRefused             = "auth_refused"
 	CodeIdentityFilePermissions = "identity_file_permissions"
 	CodeAgentUnavailable        = "agent_unavailable"
+	CodeIdentityKeyTooWeak      = "identity_key_too_weak"
+	CodeKnownHostsUnreadable    = "known_hosts_unreadable"
 )
 
 // Erreurs de connexion, à tester avec errors.Is. Leurs messages ne citent que l'adresse et les chemins configurés,
@@ -27,6 +29,10 @@ var (
 	ErrIdentityPassphraseMissing = errors.New("sftpfs: identityFile is passphrase-protected and identityPassphrase is empty")
 	// ErrIdentityUnreadable : identityFile n'est pas une clé privée lisible, ou la passphrase ne la déchiffre pas.
 	ErrIdentityUnreadable = errors.New("sftpfs: identityFile is not a usable private key, or identityPassphrase does not decrypt it")
+	// ErrIdentityKeyTooWeak : identityFile est une clé RSA de moins de 3072 bits.
+	ErrIdentityKeyTooWeak = errors.New("sftpfs: identityFile is an rsa key under 3072 bits")
+	// ErrKnownHostsUnreadable : knownHosts est absent, illisible ou sans aucune entrée valide.
+	ErrKnownHostsUnreadable = errors.New("sftpfs: knownHosts is missing, unreadable or has no valid entry")
 	// ErrOperationTimeout : une opération a dépassé timeout ; la connexion a été fermée.
 	ErrOperationTimeout = errors.New("sftpfs: operation timed out")
 )
@@ -38,9 +44,12 @@ var errorCodes = []struct {
 	{ErrHostKeyUnknown, CodeHostKeyUnknown},
 	{ErrHostKeyMismatch, CodeHostKeyMismatch},
 	{ErrAuthRefused, CodeAuthRefused},
+	{ErrIdentityKeyTooWeak, CodeIdentityKeyTooWeak},
+	{ErrKnownHostsUnreadable, CodeKnownHostsUnreadable},
 }
 
-// Code rend le code stable d'une erreur de connexion (host_key_unknown, host_key_mismatch, auth_refused), vide sinon.
+// Code rend le code stable d'une erreur de connexion (host_key_unknown, host_key_mismatch, auth_refused,
+// identity_key_too_weak, known_hosts_unreadable), vide sinon.
 func Code(err error) string {
 	for _, known := range errorCodes {
 		if errors.Is(err, known.sentinel) {

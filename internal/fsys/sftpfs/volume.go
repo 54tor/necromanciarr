@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -56,6 +57,7 @@ type session struct {
 	client    *sftp.Client
 	done      chan struct{}
 	closeOnce sync.Once
+	closed    atomic.Bool
 }
 
 func newSession(sshClient *ssh.Client, client *sftp.Client) *session {
@@ -65,6 +67,7 @@ func newSession(sshClient *ssh.Client, client *sftp.Client) *session {
 // close ferme la connexion SSH avant le client SFTP : c'est elle qui débloque les requêtes en vol.
 func (current *session) close() {
 	current.closeOnce.Do(func() {
+		current.closed.Store(true)
 		_ = current.sshClient.Close()
 		_ = current.client.Close()
 	})
@@ -170,12 +173,13 @@ func (volume *Volume) call(ctx context.Context, operation string, fn func(client
 	}
 }
 
-// operationError rend l'erreur de fn ; une connexion perdue devient fsys.ErrRemoteUnavailable et casse le volume.
+// operationError rend l'erreur de fn ; une connexion perdue ou fermée (Close, délai) devient fsys.ErrRemoteUnavailable
+// et casse le volume.
 func (volume *Volume) operationError(current *session, operation string, err error) error {
 	if err == nil {
 		return nil
 	}
-	connectionLost := errors.Is(err, sftp.ErrSSHFxConnectionLost)
+	connectionLost := errors.Is(err, sftp.ErrSSHFxConnectionLost) || current.closed.Load()
 	select {
 	case <-current.done:
 		connectionLost = true

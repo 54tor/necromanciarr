@@ -680,3 +680,46 @@ func TestCode_namesEachConnectionError(t *testing.T) {
 		}
 	}
 }
+
+func TestConnect_unreadableKnownHostsHasAStableCode(t *testing.T) {
+	server := sftptest.Start(t)
+	invalid := filepath.Join(t.TempDir(), "known_hosts")
+	sftptest.WriteFile(t, invalid, []byte("not a known_hosts line\n"), 0o600)
+
+	for label, knownHosts := range map[string]string{
+		"missing": filepath.Join(t.TempDir(), "absent"), "invalid": invalid,
+	} {
+		_, err := sftpfs.Dial(context.Background(), providerFor(server, knownHosts), testDeps())
+
+		if !errors.Is(err, sftpfs.ErrKnownHostsUnreadable) || sftpfs.Code(err) != "known_hosts_unreadable" {
+			t.Fatalf("%s: valeurObtenue %v (code %q), valeurAttendue known_hosts_unreadable", label, err, sftpfs.Code(err))
+		}
+		if errors.Is(err, fsys.ErrRemoteUnavailable) {
+			t.Fatalf("%s: valeurObtenue %v, valeurAttendue a configuration refusal, not an unavailable volume", label, err)
+		}
+	}
+	if valeurObtenue := server.Connections(); valeurObtenue != 0 {
+		t.Fatalf("connections: valeurObtenue %d, valeurAttendue 0", valeurObtenue)
+	}
+}
+
+func TestVolume_operationCutOffByCloseIsRemoteUnavailable(t *testing.T) {
+	server := sftptest.Start(t, sftptest.StallMethod("Stat"))
+	volume := dialVolume(t, pinnedProvider(t, server), testDeps())
+	returned := make(chan error, 1)
+	go func() { returned <- volume.Probe(context.Background()) }()
+	time.Sleep(100 * time.Millisecond)
+
+	if err := volume.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-returned:
+		if !errors.Is(err, fsys.ErrRemoteUnavailable) {
+			t.Fatalf("valeurObtenue %v, valeurAttendue ErrRemoteUnavailable", err)
+		}
+	case <-time.After(settleTimeout):
+		t.Fatal("valeurAttendue the operation released by Close")
+	}
+}

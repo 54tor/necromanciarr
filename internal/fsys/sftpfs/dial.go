@@ -63,7 +63,7 @@ func (verdict *hostKeyVerdict) result() error {
 func connect(ctx context.Context, provider config.FSProvider, deps Deps) (*session, []Warning, error) {
 	hostKeyCallback, err := knownhosts.New(provider.KnownHosts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("sftpfs: %s: knownHosts: %w", provider.Address, err)
+		return nil, nil, fmt.Errorf("%w: %s: %w", ErrKnownHostsUnreadable, provider.Address, err)
 	}
 	auth, err := newAuthentication(provider, deps)
 	if err != nil {
@@ -76,16 +76,16 @@ func connect(ctx context.Context, provider config.FSProvider, deps Deps) (*sessi
 		HostKeyCallback:   verdict.check(hostKeyCallback),
 		HostKeyAlgorithms: pinnedHostKeyAlgorithms(hostKeyCallback, provider.Address),
 	}
-	current, err := dialBounded(ctx, provider, clientConfig)
+	current, err := dialBounded(ctx, provider, clientConfig, auth.close)
 	if err != nil {
 		return nil, nil, classifyDialError(provider.Address, err, verdict.result())
 	}
 	return current, auth.warnings, nil
 }
 
-// dialBounded ouvre TCP, SSH et SFTP en timeout au plus ; une annulation de ctx ferme la connexion, ce qui débloque
-// la poignée de main sans laisser de goroutine en attente.
-func dialBounded(ctx context.Context, provider config.FSProvider, clientConfig *ssh.ClientConfig) (*session, error) {
+// dialBounded ouvre TCP, SSH et SFTP en timeout au plus ; à l'expiration ou à l'annulation de ctx, la connexion et
+// closeAgent sont fermés, ce qui débloque la poignée de main (agent figé compris) sans laisser de goroutine en attente.
+func dialBounded(ctx context.Context, provider config.FSProvider, clientConfig *ssh.ClientConfig, closeAgent func()) (*session, error) {
 	dialContext, cancel := context.WithTimeout(ctx, provider.Timeout)
 	defer cancel()
 	var dialer net.Dialer
@@ -93,7 +93,10 @@ func dialBounded(ctx context.Context, provider config.FSProvider, clientConfig *
 	if err != nil {
 		return nil, err
 	}
-	stopWatching := context.AfterFunc(dialContext, func() { _ = connection.Close() })
+	stopWatching := context.AfterFunc(dialContext, func() {
+		_ = connection.Close()
+		closeAgent()
+	})
 	current, err := handshake(connection, provider, clientConfig)
 	if !stopWatching() {
 		if current != nil {
