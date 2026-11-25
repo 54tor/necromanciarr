@@ -1,4 +1,5 @@
 // Génère THIRD_PARTY_NOTICES.md : nom, version, licence SPDX et texte complet de chaque module Go lié dans le binaire
+// d'au moins une plateforme livrée (CROSS_PLATFORMS du Makefile)
 // et de chaque dépendance npm de production embarquée par Vite. Sans dépendance : go list, le cache de modules, node:fs.
 // Usage : node scripts/third-party-notices.mjs [--check]. --check n'écrit rien et sort 1 si le fichier versionné est périmé.
 // Prérequis : web/node_modules installé (make ui-deps). Sort 1 si une licence Go sort de la liste d'autorisation.
@@ -44,11 +45,24 @@ function fichiersOuMetadonnees(dossier) {
   return [{ nom: 'package.json', texte }]
 }
 
-function modulesGo() {
+// Plateformes livrées, lues dans CROSS_PLATFORMS du Makefile : une seule liste, celle de make cross-build.
+function plateformesLivrees() {
+  const declaration = readFileSync(path.join(RACINE, 'Makefile'), 'utf8').match(/^CROSS_PLATFORMS\s*=\s*(.+)$/m)
+  if (!declaration) throw new Error('third-party-notices: CROSS_PLATFORMS not found in the Makefile')
+  return declaration[1].trim().split(/\s+/).map((plateforme) => plateforme.split('/'))
+}
+
+// Modules liés sur une plateforme, dans les conditions de make cross-build (CGO_ENABLED=0).
+function lignesDeModules([goos, goarch]) {
   const sortie = lancer('go', ['list', '-deps', '-f', '{{if not .Standard}}{{with .Module}}{{if not .Main}}{{.Path}}\t{{.Version}}\t{{.Dir}}{{end}}{{end}}{{end}}', './cmd/necromanciarr'], {
-    env: { ...process.env, CGO_ENABLED: '0', GOFLAGS: '-mod=readonly' },
+    env: { ...process.env, CGO_ENABLED: '0', GOOS: goos, GOARCH: goarch, GOFLAGS: '-mod=readonly' },
   })
-  const uniques = new Map(sortie.split('\n').filter(Boolean).map((ligne) => ligne.split('\t')).map(([chemin, version, dossier]) => [chemin, { nom: chemin, version, dossier }]))
+  return sortie.split('\n').filter(Boolean)
+}
+
+function modulesGo() {
+  const lignes = plateformesLivrees().flatMap(lignesDeModules)
+  const uniques = new Map(lignes.map((ligne) => ligne.split('\t')).map(([chemin, version, dossier]) => [chemin, { nom: chemin, version, dossier }]))
   const erreurs = []
   const entrees = [...uniques.values()].sort((a, b) => a.nom.localeCompare(b.nom, 'en')).map((module) => {
     const fichiers = fichiersDeLicence(module.dossier)
