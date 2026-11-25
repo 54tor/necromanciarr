@@ -101,8 +101,8 @@ func TestGroupSearched_markIsIdempotentAndExpires(t *testing.T) {
 	if err := openedStore.database.QueryRow(`SELECT count(*) FROM indexer_searched`).Scan(&rows); err != nil || rows != 1 {
 		t.Fatalf("valeurObtenue %d rows (%v), valeurAttendue 1", rows, err)
 	}
-	searched, err := openedStore.GroupSearched(ctx, "g1", "torznab:a")
-	other, otherErr := openedStore.GroupSearched(ctx, "g1", "torznab:b")
+	searched, err := openedStore.GroupSearchedSince(ctx, "g1", "torznab:a", time.Time{})
+	other, otherErr := openedStore.GroupSearchedSince(ctx, "g1", "torznab:b", time.Time{})
 	if err != nil || otherErr != nil || !searched || other {
 		t.Fatalf("valeurObtenue %t %t, valeurAttendue true false", searched, other)
 	}
@@ -114,7 +114,7 @@ func TestGroupSearched_markIsIdempotentAndExpires(t *testing.T) {
 	if err := openedStore.MarkGroupSearched(ctx, "g2", "torznab:a", cacheNow.Add(IndexerSearchedTTL+time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if searched, _ := openedStore.GroupSearched(ctx, "g1", "torznab:a"); searched {
+	if searched, _ := openedStore.GroupSearchedSince(ctx, "g1", "torznab:a", time.Time{}); searched {
 		t.Fatal("valeurObtenue the 7 day old mark kept, valeurAttendue purged by the next write")
 	}
 }
@@ -158,22 +158,38 @@ func TestKnownCandidate_ignoresStaleRowsOnly(t *testing.T) {
 	}
 }
 
-func TestGroupSearched_aCandidateGoingStaleClearsTheMarks(t *testing.T) {
+func staleWithSource(t *testing.T, source string) bool {
+	t.Helper()
 	openedStore := openTestStore(t)
 	ctx := context.Background()
 	candidateID, _, err := openedStore.SaveCandidate(ctx, Candidate{Infohash: "aa", Tracker: "tracker-a", Name: "n", TotalSize: 1}, nil, cacheNow)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := openedStore.database.Exec(`UPDATE torrent_candidates SET source = ?`, source); err != nil {
+		t.Fatal(err)
+	}
 	if err := openedStore.MarkGroupSearched(ctx, "g1", "torznab:a", cacheNow); err != nil {
 		t.Fatal(err)
 	}
-
 	if err := openedStore.SetCandidateState(ctx, candidateID, CandidateStale, cacheNow); err != nil {
 		t.Fatal(err)
 	}
+	searched, err := openedStore.GroupSearchedSince(ctx, "g1", "torznab:a", time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return searched
+}
 
-	if searched, _ := openedStore.GroupSearched(ctx, "g1", "torznab:a"); searched {
-		t.Fatal("valeurObtenue the mark kept, valeurAttendue cleared so the stale candidate can be found again")
+func TestGroupSearched_anIndexerCandidateGoingStaleClearsTheMarks(t *testing.T) {
+	if staleWithSource(t, "torznab:a") {
+		t.Fatal("valeurObtenue the mark kept, valeurAttendue cleared so the stale indexer candidate can be found again")
+	}
+}
+
+func TestGroupSearched_aProviderCandidateGoingStaleKeepsTheMarks(t *testing.T) {
+	if !staleWithSource(t, SourceProvider) {
+		t.Fatal("valeurObtenue the marks wiped, valeurAttendue kept for a provider-only stale event")
 	}
 }

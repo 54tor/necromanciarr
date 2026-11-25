@@ -166,6 +166,12 @@ func markStale(ctx context.Context, transaction *sql.Tx, selection string, now t
 	if err := supersedeProposals(ctx, transaction, nonTerminalDecisions, selection, now, arguments...); err != nil {
 		return 0, err
 	}
+	var indexerRows int
+	// #nosec G202 -- sélection constante du paquet
+	if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM torrent_candidates WHERE state != ? AND source LIKE 'torznab:%' AND id IN (`+selection+`)`,
+		append([]any{string(CandidateStale)}, arguments...)...).Scan(&indexerRows); err != nil {
+		return 0, err
+	}
 	updateArguments := append([]any{string(CandidateStale), now.UnixNano(), string(CandidateStale)}, arguments...)
 	// #nosec G202 -- sélection constante du paquet
 	result, err := transaction.ExecContext(ctx, `UPDATE torrent_candidates SET state = ?, updated_at = ?, group_id = NULL,
@@ -174,10 +180,10 @@ func markStale(ctx context.Context, transaction *sql.Tx, selection string, now t
 		return 0, err
 	}
 	affected, err := result.RowsAffected()
-	if err != nil || affected == 0 {
-		return 0, err
+	if err != nil || indexerRows == 0 {
+		return int(affected), err
 	}
-	// Un candidat périmé se reprend par une nouvelle recherche : les marques « groupe cherché » n'ont plus cours.
+	// Un candidat d'indexeur périmé se reprend par une nouvelle recherche : les marques « groupe cherché » n'ont plus cours.
 	_, err = transaction.ExecContext(ctx, `DELETE FROM indexer_searched`)
 	return int(affected), err
 }

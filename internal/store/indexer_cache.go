@@ -85,11 +85,6 @@ func (openedStore *Store) MarkGroupSearched(ctx context.Context, groupKey, index
 	return nil
 }
 
-// GroupSearched dit si une marque existe pour le groupe chez l'indexeur, sans regard à son âge.
-func (openedStore *Store) GroupSearched(ctx context.Context, groupKey, indexer string) (bool, error) {
-	return openedStore.GroupSearchedSince(ctx, groupKey, indexer, time.Time{})
-}
-
 // GroupSearchedSince dit si le groupe a été cherché chez l'indexeur après notBefore (now − IndexerSearchedTTL pour
 // la reprise d'une recherche).
 func (openedStore *Store) GroupSearchedSince(ctx context.Context, groupKey, indexer string, notBefore time.Time) (bool, error) {

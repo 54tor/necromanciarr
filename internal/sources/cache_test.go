@@ -287,7 +287,7 @@ func TestSearch_marksAnAnsweredGroupEvenWhenEmptyAndSkipsItNextTime(t *testing.T
 
 	_, _, err := chain.SearchCandidates(context.Background(), media, chain.NewBudget())
 
-	marked, _ := setup.usage.GroupSearched(context.Background(), "group-1", string(indexerA))
+	marked, _ := setup.usage.GroupSearchedSince(context.Background(), "group-1", string(indexerA), time.Time{})
 	if err != nil || !marked || len(indexer.queries) != queriesAfterFirst {
 		t.Fatalf("valeurObtenue marked %t queries %d->%d err %v, valeurAttendue a mark and no request on the second run", marked, queriesAfterFirst, len(indexer.queries), err)
 	}
@@ -309,7 +309,7 @@ func TestSearch_doesNotMarkAGroupInterruptedByBudgetOrError(t *testing.T) {
 
 			_, _, _ = chain.SearchCandidates(context.Background(), media, chain.NewBudget())
 
-			if marked, _ := setup.usage.GroupSearched(context.Background(), "group-1", string(indexerA)); marked {
+			if marked, _ := setup.usage.GroupSearchedSince(context.Background(), "group-1", string(indexerA), time.Time{}); marked {
 				t.Fatal("valeurObtenue a mark after an interruption, valeurAttendue none")
 			}
 		})
