@@ -206,7 +206,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `remote_unavailable` | Verify, Link, Seed | the remote volume does not answer: candidate and proposal kept as is (never `stale` nor `failed`, no read counted as different), rerun the stage once the volume is back |
 | `symlink_order_unverified` | Link | the SFTP server did not prove the symlink argument order (reversed probe, or no verdict): symbolic links refused on this volume, proposal failed. Choose `hardlink` in `linkKinds`, or fix the server (OpenSSH reads the expected order), then accept again |
 | `server_copy_unavailable` | Force | link folder on an SFTP volume without server-side copy (`copy-data`): nothing is copied or changed, the torrent stays paused. Run the tool on the seedbox with a local link folder, or wait for `copy-data` support ([03-seed-safety.md](03-seed-safety.md)) |
-| `free_space_unknown` | Force | the free space of the remote link folder is unreadable (server without `statvfs`): nothing is copied or changed; enable the server's `statvfs` extension |
+| `free_space_unknown` | Force | the free space of the remote link folder is unreadable (server without `statvfs`): nothing is copied or changed; enable the server's `statvfs` extension (only once `copy-data` is supported) |
 | `crossseed_notify_failed` | Seed | daemon refuses or unreachable: warning only |
 | `no_announce` | Verify, Link, Seed | neither a `trackers` entry nor a sealed indexer `.torrent`: add the `trackers` entry, then accept again (no re-verification) |
 | `sealed_torrent_unreadable`, `secret_key_missing` | Seed | sealed `.torrent` unreadable (key changed) or key missing: restore `NECROMANCIARR_SECRET_KEY`, or run Verify again on the candidate |

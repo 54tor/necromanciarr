@@ -3,13 +3,17 @@ package sftpfs_test
 import (
 	"context"
 	"errors"
+	"path"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/pkg/sftp"
 
 	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/fsystest"
 	"necromanciarr/internal/fsys/sftpfs"
 	"necromanciarr/internal/fsys/sftpfs/sftptest"
 )
@@ -26,6 +30,7 @@ const (
 	codeNotProbed          = "not_probed"
 	codeServerCopyByClient = "server_copy_unsupported_by_client"
 	probeEntryName         = ".necromanciarr-probe-0123456789abcdef0123456789abcdef"
+	cancelSettleDelay      = 50 * time.Millisecond
 )
 
 func probeLinks(t *testing.T, volume *sftpfs.Volume) (fsys.Capabilities, error) {
@@ -348,6 +353,90 @@ func TestSweepProbes_removesOnlyProbeEntries(t *testing.T) {
 	}
 	if valeurObtenue := servedEntries(t, server, linksDir+"/sub"); len(valeurObtenue) != 1 {
 		t.Errorf("valeurObtenue %q, valeurAttendue the nested entry untouched (no recursion)", valeurObtenue)
+	}
+	if valeurObtenue := servedContent(t, server, libraryDir+"/movie.mkv"); valeurObtenue != fsystest.FixtureMovieContent {
+		t.Errorf("valeurObtenue %q, valeurAttendue the library target of the removed link intact", valeurObtenue)
+	}
+}
+
+func TestSweepProbes_refusesARootSwappedForALinkAndRemovesNothing(t *testing.T) {
+	skipWithoutSymlinks(t)
+	server, volume := writeVolume(t)
+	sftptest.WriteFile(t, localPathOf(server, outsideDir+"/"+probeEntryName), []byte("x"), 0o600)
+	root := openLinksRoot(t, volume)
+	sftptest.ReplaceWithSymlink(t, localPathOf(server, linksDir), outsideDir)
+
+	_, err := sftpfs.SweepProbes(root)
+
+	if !errors.Is(err, fsys.ErrUnconfined) {
+		t.Errorf("valeurObtenue %v, valeurAttendue ErrUnconfined", err)
+	}
+	if valeurObtenue := outsideEntries(t, server); !slices.Equal(valeurObtenue, []string{probeEntryName}) {
+		t.Errorf("valeurObtenue %q, valeurAttendue the outside entry untouched", valeurObtenue)
+	}
+}
+
+func TestCapabilities_rootSwappedDuringTheProbeIsRefusedAndNotCached(t *testing.T) {
+	skipWithoutSymlinks(t)
+	var server *sftptest.Server
+	var planted []string
+	// Juste avant statvfs, des entrées aux noms de la sonde sont posées dehors, puis le dossier de liens devient un lien
+	// vers elles : un nettoyage par chemin les retirerait.
+	hook := func(sftptest.Request) {
+		if planted != nil {
+			return
+		}
+		for _, request := range server.Requests() {
+			if request.Method == "Put" && strings.HasSuffix(request.Path, "-a") {
+				base := path.Base(strings.TrimSuffix(request.Path, "-a"))
+				planted = []string{base + "-b", base + "-h"}
+			}
+		}
+		for _, name := range planted {
+			sftptest.WriteFile(t, localPathOf(server, outsideDir+"/"+name), []byte("pre-existing"), 0o600)
+		}
+		sftptest.ReplaceWithSymlink(t, localPathOf(server, linksDir), outsideDir)
+	}
+	server, volume := writeVolume(t, sftptest.OnRequest("StatVFS", hook))
+	root := openLinksRoot(t, volume)
+
+	_, err := volume.ProbeCapabilities(t.Context(), root)
+
+	if !errors.Is(err, fsys.ErrUnconfined) {
+		t.Errorf("valeurObtenue %v, valeurAttendue ErrUnconfined after the swap", err)
+	}
+	if valeurObtenue := outsideEntries(t, server); len(planted) != 2 || !slices.Equal(valeurObtenue, planted) {
+		t.Errorf("valeurObtenue %q, valeurAttendue the outside entries %q untouched", valeurObtenue, planted)
+	}
+	if valeurObtenue, err := volume.Capabilities(t.Context()); err != nil || valeurObtenue.Reasons[reasonKeyHardlink] != codeNotProbed {
+		t.Errorf("valeurObtenue %+v (err %v), valeurAttendue nothing cached", valeurObtenue, err)
+	}
+}
+
+func TestCapabilities_cancelDuringTheSweepKeepsTheSession(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// L'annulation arrive pendant que la suppression est servie : sans contexte détaché, run coupe la session.
+	var armed atomic.Bool
+	server, volume := writeVolume(t, sftptest.OnRequest("Remove", func(sftptest.Request) {
+		if armed.Load() {
+			cancel()
+			time.Sleep(cancelSettleDelay)
+		}
+	}))
+	for _, tail := range []string{"", "-a"} {
+		sftptest.WriteFile(t, localPathOf(server, linksDir+"/"+probeEntryName+tail), []byte("x"), 0o600)
+	}
+	root := openLinksRoot(t, volume)
+	armed.Store(true)
+
+	_, err := volume.ProbeCapabilities(ctx, root)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("valeurObtenue %v, valeurAttendue context.Canceled", err)
+	}
+	if valeurObtenue := volume.State(); valeurObtenue != sftpfs.StateOK {
+		t.Errorf("valeurObtenue %s, valeurAttendue the session kept", valeurObtenue)
 	}
 }
 

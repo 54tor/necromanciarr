@@ -132,10 +132,11 @@ func cloneCapabilities(capabilities fsys.Capabilities) fsys.Capabilities {
 // session), lien dur (le lien voit l'octet écrit ensuite dans sa source), posix-rename (b vide remplacé par a),
 // statvfs (valeurs plausibles). copy-data n'est jamais disponible (pkg/sftp ne l'envoie pas). Les fichiers de sonde
 // portent un nom imprévisible « .necromanciarr-probe-… », sont créés directement dans root sur sa session et retirés
-// par elle dans tous les cas (succès, échec, annulation de ctx, panique) ; les restes d'une sonde interrompue sont
-// d'abord balayés (SweepProbes). Le résultat est gardé pour la session ; Capabilities le rend ensuite. ctx est lu
-// entre deux requêtes, chacune bornée par timeout : une annulation ne coupe pas la session et laisse le nettoyage se
-// faire. Erreurs : ErrNoProbeDir (root nil ou d'un autre volume), fsys.ErrWriteInLibrary (root dans
+// par elle (succès, échec, annulation de ctx, panique), sauf si root ne se résout plus en lui-même au début ou à la
+// fin de la sonde : fsys.ErrUnconfined, rien n'est gardé ni retiré par chemin. Les restes d'une sonde interrompue
+// sont d'abord balayés (SweepProbes). Le résultat est gardé pour la session ; Capabilities le rend ensuite. Balayage,
+// essais et nettoyage partent sous un contexte détaché, chaque requête bornée par timeout ; ctx n'est lu qu'entre deux
+// requêtes : une annulation ne coupe jamais la session et laisse le nettoyage se faire. Erreurs : ErrNoProbeDir (root nil ou d'un autre volume), fsys.ErrWriteInLibrary (root dans
 // Deps.LibraryRoots), fs.ErrClosed, fsys.ErrRemoteUnavailable, fsys.ErrUnconfined, l'erreur de ctx.
 func (volume *Volume) ProbeCapabilities(ctx context.Context, root fsys.WriteRoot) (fsys.Capabilities, error) {
 	confined, err := volume.probeRoot(root)
@@ -159,8 +160,9 @@ func (volume *Volume) ProbeCapabilities(ctx context.Context, root fsys.WriteRoot
 }
 
 // SweepProbes retire de root, sans descendre dans ses dossiers, les fichiers et liens symboliques dont le nom est
-// exactement celui d'une sonde (probeNamePattern), restes d'une sonde interrompue ; rien d'autre n'est touché. Rend
-// le nombre d'entrées retirées.
+// exactement celui d'une sonde (probeNamePattern), restes d'une sonde interrompue ; rien d'autre n'est touché. Une
+// racine qui ne se résout plus en elle-même rend fsys.ErrUnconfined sans rien retirer. Rend le nombre d'entrées
+// retirées.
 func SweepProbes(root fsys.WriteRoot) (int, error) {
 	confined, err := sweepRoot(root)
 	if err != nil {
@@ -207,9 +209,19 @@ func isWithin(child, parent string) bool {
 	return child == parent || parent == "/" || strings.HasPrefix(child, parent+"/")
 }
 
+// sweepProbes revérifie d'abord que root.dir se résout en lui-même (un dossier détourné : fsys.ErrUnconfined, rien
+// n'est listé ni retiré). Chaque requête part sous un contexte détaché ; ctx n'est lu qu'entre deux requêtes, pour
+// qu'une annulation ne coupe jamais la session.
 func (root *writeRoot) sweepProbes(ctx context.Context) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	requests := context.WithoutCancel(ctx)
 	var infos []fs.FileInfo
-	err := root.volume.callOn(ctx, root.current, "sweep", func(current *session) error {
+	err := root.volume.callOn(requests, root.current, "sweep", func(current *session) error {
+		if err := checkResolvesTo(current.client, root.dir); err != nil {
+			return err
+		}
 		var listErr error
 		infos, listErr = current.client.ReadDir(root.dir)
 		return listErr
@@ -227,7 +239,10 @@ func (root *writeRoot) sweepProbes(ctx context.Context) (int, error) {
 		if !isProbeEntry {
 			continue
 		}
-		if err := root.removeProbeEntry(ctx, path.Join(root.dir, entry.Name())); err != nil {
+		if err := ctx.Err(); err != nil {
+			return removed, err
+		}
+		if err := root.removeProbeEntry(requests, path.Join(root.dir, entry.Name())); err != nil {
 			return removed, err
 		}
 		removed++
@@ -276,7 +291,14 @@ func (root *writeRoot) probeCapabilities(ctx context.Context) (capabilities fsys
 			reasonKeyServerCopy:   reasonServerCopyByClient,
 		}},
 	}
-	defer func() { err = errors.Join(err, probe.cleanup()) }()
+	defer func() {
+		if errors.Is(err, fsys.ErrUnconfined) {
+			// Racine détournée : aucun retrait par chemin, qui suivrait ce lien posé ; seul le handle est fermé.
+			err = errors.Join(err, probe.closeHandle())
+			return
+		}
+		err = errors.Join(err, probe.cleanup())
+	}()
 	if err := probe.run(); err != nil {
 		return fsys.Capabilities{}, err
 	}
@@ -284,17 +306,16 @@ func (root *writeRoot) probeCapabilities(ctx context.Context) (capabilities fsys
 }
 
 // run enchaîne les essais ; seule une erreur qui empêche toute conclusion (session perdue, racine détournée, ctx)
-// est rendue, un refus du serveur ne fait que désactiver la fonction essayée.
+// est rendue, un refus du serveur ne fait que désactiver la fonction essayée. Le balayage qui précède a vérifié que
+// root se résout en lui-même ; la dernière requête le revérifie.
 func (probe *capabilityProbe) run() error {
-	if err := probe.do(func(client *sftp.Client) error { return checkResolvesTo(client, probe.root.dir) }); err != nil {
-		return err
-	}
 	for _, step := range []func() error{probe.symlink, probe.hardlinkAndReplace, probe.statVFS} {
 		if err := step(); err != nil {
 			return err
 		}
 	}
-	return nil
+	// Une racine détournée pendant la sonde rend ses essais sans valeur : rien n'est gardé ni retiré.
+	return probe.do(func(client *sftp.Client) error { return checkResolvesTo(client, probe.root.dir) })
 }
 
 // do envoie une requête de la sonde, après avoir relu ctx.
