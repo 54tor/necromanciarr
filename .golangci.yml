@@ -78,6 +78,10 @@ linters:
       - path: '^internal/hashsource/rclone\.go$'
         linters: [forbidigo]
         text: run external programs only from
+      # Tests de shellquote : aller-retour par /bin/sh local, sans donnée externe.
+      - path: '^internal/fsys/sftpfs/shellquote/[^/]+_test\.go$'
+        linters: [forbidigo]
+        text: run external programs only from
       # Seul point d'envoi des commandes distantes.
       - path: '^internal/fsys/sftpfs/exec\.go$'
         linters: [forbidigo]
