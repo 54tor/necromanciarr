@@ -60,6 +60,11 @@ CREATE TABLE IF NOT EXISTS mount_capabilities (
 	symlinks INTEGER NOT NULL,
 	probed_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS volume_capabilities (
+	volume TEXT PRIMARY KEY,
+	capabilities_json TEXT NOT NULL,
+	probed_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS indexer_usage (
 	indexer TEXT NOT NULL,
 	at INTEGER NOT NULL,
