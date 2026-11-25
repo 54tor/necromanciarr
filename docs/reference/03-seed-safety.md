@@ -28,7 +28,7 @@ Après une reprise réussie, l'étape est `seeded`. En mode `delegate`, cross-se
 
 `skipRecheck` (défaut `true`, importable de cross-seed) ne l'emporte jamais sur le principe de vérification propre : il ne s'applique qu'à un torrent dont toutes les pièces sont vérifiées par nous. Pourquoi revérifier avant l'ajout : avec `skip_checking`, libtorrent vérifie paresseusement ; une source modifiée entre-temps ferait télécharger dans l'inode lié.
 
-Un dossier de liens distant (`linkDirs` en `sftp://<provider>/<absolute path>`, avec les fournisseurs de système de fichiers à venir) ne donne jamais `skip_checking` : SFTP ne rend pas d'inode, et même une identité rendue par le serveur ne prouve pas que le client lit ce fichier. Le lien est enregistré avec son volume (colonne `volume` de `links`), donc reste non prouvé d'une exécution à l'autre ; avec `skipRecheck` et une vérification complète, Seed compte `identity_unproven`, ajoute le torrent en pause sans `skip_checking`, et `RecheckAndGuard` ne le reprend qu'à 100 %. Force reste soumis aux mêmes règles (`partial_annex` en pause, `partial_pack` jamais) ; sur un volume distant, il refuse l'isolation (voir « Force sur un volume SFTP » ci-dessous).
+Un dossier de liens distant (`linkDirs` en `sftp://<provider>/<absolute path>`) ne donne jamais `skip_checking` : SFTP ne rend pas d'inode, et même une identité rendue par le serveur ne prouve pas que le client lit ce fichier. Le lien est enregistré avec son volume (colonne `volume` de `links`), donc reste non prouvé d'une exécution à l'autre ; avec `skipRecheck` et une vérification complète, Seed compte `identity_unproven`, ajoute le torrent en pause sans `skip_checking`, et `RecheckAndGuard` ne le reprend qu'à 100 %. Force reste soumis aux mêmes règles (`partial_annex` en pause, `partial_pack` jamais) ; sur un volume distant, il refuse l'isolation (voir « Force sur un volume SFTP » ci-dessous).
 
 ### 4 : revérification avant l'ajout
 
@@ -81,6 +81,14 @@ Un torrent qui n'est pas le nôtre n'est jamais pausé, supprimé ni déplacé. 
 - La base SQLite refuse de vivre dans la bibliothèque (`doctor`, `config-dir`).
 - `dedupe` remplace des fichiers **côté torrent** ; `repair apply` ne touche que des liens sous `linkDirs`, `dedupe.torrentRoots` ou le dossier du scan.
 - Un hardlink partage l'inode du fichier de la bibliothèque : tout écrivain du client sur ce lien écrit dans le fichier. C'est pourquoi l'invariant 5 existe.
+
+Sur un volume SFTP (`sftp://`) :
+
+- La bibliothèque n'est lue que par des ouvertures en lecture seule (`SSH_FXF_READ`). Toute requête d'écriture (création, `Setstat`, renommage, suppression, dossier, lien) vise un dossier de liens, une racine torrent ou le dossier d'un scan de repair.
+- Trois gardes l'imposent. Le registre refuse une racine d'écriture qui recouvre une racine de bibliothèque, chemins résolus par le serveur (`RealPath`). Le volume refuse lui-même, avant toute requête, un dossier qui recouvre les racines de bibliothèque de son fournisseur. Chaque racine d'écriture est sondée dans ce même dossier (lien symbolique, lien dur, remplacement atomique, `statvfs`) avant d'être rendue à une étape : un échec de la sonde refuse la racine, rien n'est écrit.
+- Un lien dur garde sa source dans la bibliothèque : seuls son nombre de liens et son ctime changent, comme en local. Un lien symbolique (lien `symlink`, lien réparé) désigne un fichier de la bibliothèque sans l'écrire.
+- Preuve : un test de bout en bout fait passer scan, Match, Verify, Link, Seed, Force, dedupe (essai puis réel), repair et `doctor` par un serveur SFTP en processus. Il exige du journal du serveur zéro requête d'écriture sous la racine de bibliothèque telle que le serveur la résout, et un arbre de bibliothèque identique (contenu, droits, date, inode). Chaque étape doit prouver qu'elle a travaillé, et un écrivain malveillant planté dans le test est vu par les deux contrôles.
+- Risque accepté : SFTP n'a pas d'`openat`. Entre le contrôle d'un dossier parent et l'écriture, un acteur qui écrit déjà dans le dossier de liens distant peut remplacer ce parent par un lien vers la bibliothèque. Défense recommandée : un compte SFTP sans droit d'écriture sur la bibliothèque (ACL, groupe, montage en lecture seule côté serveur).
 
 ## Passkeys des `.torrent` d'indexeur
 

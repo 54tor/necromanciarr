@@ -49,7 +49,7 @@
 ### Scope
 
 - Only qBittorrent (and qui through its proxy) is supported; only the first client of `torrentClients` receives torrents. The `necromanciarr` tag is fixed; the category is `linkCategory`.
-- Match only queries files that have a TMDB or TVDB identifier from Radarr or Sonarr. SFTP is not supported; Torznab and Prowlarr can be configured and `doctor` checks them, but Match does not query them yet.
+- Match only queries files that have a TMDB or TVDB identifier from Radarr or Sonarr. An `sftp://` library needs a `pathMappings` rule whose `from` is its location, so that Radarr and Sonarr paths reach it. Torznab and Prowlarr can be configured and `doctor` checks them, but Match does not query them yet.
 - An accepted proposal cannot be cancelled; a rejected proposal is not reopened in the same generation. A `failed` candidate has no manual retry: it goes back to `matched` only if its associations change.
 - Web jobs are not persisted; the web's `dedupe apply` and `repair apply` apply one at a time.
 - The titles, details and hints of `doctor` follow `language`; its codes never change. The server's failure reasons stay in English until translated, and `doctor` shows absolute paths to the authenticated operator.
@@ -203,7 +203,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `client_path_unmapped` | Seed, `dedupe apply`, `repair apply` | remote link folder with no `pathMappings` rule whose `from` is an `sftp://` location of the same provider: add the rule to the client's view, re-accept then rerun. dedupe and repair refuse before any write when a client recheck is planned |
 | `no_atomic_replace` | `dedupe plan` | the torrent folder's volume cannot replace a file atomically (SFTP without `posix-rename`): proposal not applicable, nothing is written |
 | `identity_unproven` | Seed | remote link: identity never proven, `skip_checking` refused, the client rechecks and the torrent stays paused until 100% (no action) |
-| `remote_unavailable` | Verify, Link, Seed | the remote volume does not answer: candidate and proposal kept as is (never `stale` nor `failed`, no read counted as different), rerun the stage once the volume is back |
+| `remote_unavailable` | Scan, Verify, Link, Seed | the remote volume does not answer: remote library root left as is by Scan, candidate and proposal kept as is (never `stale` nor `failed`, no read counted as different), rerun the stage once the volume is back |
 | `symlink_order_unverified` | Link | the SFTP server did not prove the symlink argument order (reversed probe, or no verdict): symbolic links refused on this volume, proposal failed. Choose `hardlink` in `linkKinds`, or fix the server (OpenSSH reads the expected order), then accept again |
 | `server_copy_unavailable` | Force | link folder on an SFTP volume without server-side copy (`copy-data`): nothing is copied or changed, the torrent stays paused. Run the tool on the seedbox with a local link folder, or wait for `copy-data` support ([03-seed-safety.md](03-seed-safety.md)) |
 | `free_space_unknown` | Force | the free space of the remote link folder is unreadable (server without `statvfs`): nothing is copied or changed; enable the server's `statvfs` extension (only once `copy-data` is supported) |

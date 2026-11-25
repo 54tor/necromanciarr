@@ -49,7 +49,7 @@
 ### Périmètre
 
 - Seul qBittorrent (et qui par son proxy) est pris en charge ; seul le premier client de `torrentClients` reçoit des torrents. Le tag `necromanciarr` est fixe ; la catégorie est `linkCategory`.
-- Match n'interroge que les fichiers qui ont un identifiant TMDB ou TVDB de Radarr ou Sonarr. SFTP n'est pas pris en charge ; Torznab et Prowlarr se configurent et `doctor` les vérifie, mais Match ne les interroge pas encore.
+- Match n'interroge que les fichiers qui ont un identifiant TMDB ou TVDB de Radarr ou Sonarr. Une bibliothèque `sftp://` a besoin d'une règle `pathMappings` dont `from` est son adresse, pour que les chemins de Radarr et Sonarr la rejoignent. Torznab et Prowlarr se configurent et `doctor` les vérifie, mais Match ne les interroge pas encore.
 - Une proposition acceptée ne s'annule pas ; une proposition rejetée ne se rouvre pas dans la même génération. Un candidat `failed` n'a pas de relance manuelle : il revient à `matched` seulement si ses associations changent.
 - Les jobs web ne sont pas persistés ; `dedupe apply` et `repair apply` du web s'appliquent un par un.
 - Les titres, détails et conseils de `doctor` suivent `language` ; ses codes ne changent jamais. Les motifs d'échec du serveur restent en anglais jusqu'à leur traduction, et `doctor` affiche des chemins absolus à l'opérateur authentifié.
@@ -203,7 +203,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `client_path_unmapped` | Seed, `dedupe apply`, `repair apply` | dossier de liens distant sans règle `pathMappings` dont `from` est une adresse `sftp://` du même fournisseur : ajouter la règle vers la vue du client, réaccepter puis relancer. dedupe et repair refusent avant toute écriture quand un recontrôle du client est prévu |
 | `no_atomic_replace` | `dedupe plan` | le volume du dossier torrent ne remplace pas un fichier de façon atomique (SFTP sans `posix-rename`) : proposition non applicable, rien n'est écrit |
 | `identity_unproven` | Seed | lien distant : identité jamais prouvée, `skip_checking` refusé, le client recontrôle et le torrent reste en pause jusqu'à 100 % (aucune action) |
-| `remote_unavailable` | Verify, Link, Seed | le volume distant ne répond pas : candidat et proposition gardés tels quels (jamais `stale` ni `failed`, aucune lecture comptée comme différente), relancer l'étape une fois le volume revenu |
+| `remote_unavailable` | Scan, Verify, Link, Seed | le volume distant ne répond pas : racine de bibliothèque distante laissée telle quelle par Scan, candidat et proposition gardés tels quels (jamais `stale` ni `failed`, aucune lecture comptée comme différente), relancer l'étape une fois le volume revenu |
 | `symlink_order_unverified` | Link | le serveur SFTP n'a pas prouvé l'ordre des arguments d'un lien symbolique (sonde inversée ou sans verdict) : liens symboliques refusés sur ce volume, proposition en échec. Choisir `hardlink` dans `linkKinds`, ou corriger le serveur (OpenSSH lit l'ordre attendu), puis réaccepter |
 | `server_copy_unavailable` | Force | dossier de liens sur un volume SFTP sans copie côté serveur (`copy-data`) : rien n'est copié ni changé, le torrent reste en pause. Lancer l'outil sur la seedbox avec un dossier de liens local, ou attendre la prise en charge de `copy-data` ([03-seed-safety.md](03-seed-safety.md)) |
 | `free_space_unknown` | Force | la place libre du dossier de liens distant est illisible (serveur sans `statvfs`) : rien n'est copié ni changé ; activer l'extension `statvfs` du serveur (seulement une fois `copy-data` pris en charge) |

@@ -28,7 +28,7 @@ After a successful resume, the step is `seeded`. In `delegate` mode, cross-seed 
 
 `skipRecheck` (default `true`, importable from cross-seed) never overrides the principle of clean verification: it only applies to a torrent whose pieces are all verified by us. Why verify again before the add: with `skip_checking`, libtorrent checks lazily; a source modified in the meantime would make the client download into the linked inode.
 
-A remote link folder (`linkDirs` as `sftp://<provider>/<absolute path>`, with the filesystem providers to come) never gets `skip_checking`: SFTP returns no inode, and even an identity returned by the server does not prove that the client reads that file. The link is recorded with its volume (`volume` column of `links`), so it stays unproven from one run to the next; with `skipRecheck` and a complete verification, Seed counts `identity_unproven`, adds the torrent paused without `skip_checking`, and `RecheckAndGuard` resumes it only at 100%. Force keeps the same rules (`partial_annex` paused, `partial_pack` never); on a remote volume it refuses the isolation (see "Force on an SFTP volume" below).
+A remote link folder (`linkDirs` as `sftp://<provider>/<absolute path>`) never gets `skip_checking`: SFTP returns no inode, and even an identity returned by the server does not prove that the client reads that file. The link is recorded with its volume (`volume` column of `links`), so it stays unproven from one run to the next; with `skipRecheck` and a complete verification, Seed counts `identity_unproven`, adds the torrent paused without `skip_checking`, and `RecheckAndGuard` resumes it only at 100%. Force keeps the same rules (`partial_annex` paused, `partial_pack` never); on a remote volume it refuses the isolation (see "Force on an SFTP volume" below).
 
 ### 4: verification before the add
 
@@ -81,6 +81,14 @@ A torrent that is not ours is never paused, deleted or moved. A single candidate
 - The SQLite database refuses to live in the library (`doctor`, `config-dir`).
 - `dedupe` replaces files **on the torrent side**; `repair apply` only touches links under `linkDirs`, `dedupe.torrentRoots` or the scan folder.
 - A hardlink shares the inode of the library file: any client writer on that link writes into the file. That is why invariant 5 exists.
+
+On an SFTP volume (`sftp://`):
+
+- The library is only read, through read-only opens (`SSH_FXF_READ`). Every write request (creation, `Setstat`, rename, removal, folder, link) targets a link folder, a torrent root or the folder of a repair scan.
+- Three guards enforce it. The registry refuses a write root that overlaps a library root, with paths resolved by the server (`RealPath`). The volume itself refuses, before any request, a folder that overlaps the library roots of its provider. Every write root is probed in that same folder (symlink, hardlink, atomic replace, `statvfs`) before a stage gets it: a failed probe refuses the root, and nothing is written.
+- A hardlink keeps its source in the library: only its link count and ctime change, as on a local disk. A symbolic link (a `symlink` link, a repaired link) names a library file without writing it.
+- Proof: an end-to-end test runs scan, Match, Verify, Link, Seed, Force, dedupe (dry run, then real), repair and `doctor` through an in-process SFTP server. It requires zero write requests in the server log under the library root as the server resolves it, and an identical library tree (content, mode, date, inode). Each stage must prove it did work, and a malicious writer planted in the test is seen by both checks.
+- Accepted risk: SFTP has no `openat`. Between the check of a parent folder and the write, someone who already writes into the remote link folder can replace that parent with a link to the library. Recommended defence: an SFTP account with no write access to the library (ACL, group, read-only mount on the server).
 
 ## Passkeys of indexer torrents
 
