@@ -29,6 +29,8 @@ type Chain struct {
 	usage    UsageStore
 	sealer   *Sealer
 	now      func() time.Time
+	// board : les Retry-After reçus, communs à tous les budgets du processus.
+	board *retryBoard
 }
 
 // NewChain vérifie l'ordre (fournisseur en tête, une fois, chaque indexeur cité présent avec ses limites) et refuse
@@ -43,7 +45,7 @@ func NewChain(provider ProviderSource, indexers map[ID]IndexerSource, order []ID
 	if len(order) == 0 || order[0] != ProviderID {
 		return nil, errors.New("sources: the provider must be the first source of the chain")
 	}
-	cited := map[ID]IndexerSource{}
+	cited, citedLimits := map[ID]IndexerSource{}, map[ID]Limits{}
 	for position, identifier := range order[1:] {
 		if identifier == ProviderID || slices.Contains(order[1:position+1], identifier) {
 			return nil, fmt.Errorf("sources: source %q is listed twice", identifier)
@@ -52,10 +54,11 @@ func NewChain(provider ProviderSource, indexers map[ID]IndexerSource, order []ID
 		if !known || indexer == nil {
 			return nil, fmt.Errorf("sources: source %q has no indexer", identifier)
 		}
-		if _, hasLimits := limits[identifier]; !hasLimits {
+		indexerLimits, hasLimits := limits[identifier]
+		if !hasLimits {
 			return nil, fmt.Errorf("sources: source %q has no limits", identifier)
 		}
-		cited[identifier] = indexer
+		cited[identifier], citedLimits[identifier] = indexer, indexerLimits
 	}
 	if len(cited) > 0 && usage == nil {
 		return nil, errors.New("sources: indexers need a usage store for their daily quotas")
@@ -63,7 +66,7 @@ func NewChain(provider ProviderSource, indexers map[ID]IndexerSource, order []ID
 	if now == nil {
 		now = time.Now
 	}
-	return &Chain{provider: provider, indexers: cited, order: slices.Clone(order), limits: limits, usage: usage, sealer: sealer, now: now}, nil
+	return &Chain{provider: provider, indexers: cited, order: slices.Clone(order), limits: citedLimits, usage: usage, sealer: sealer, now: now, board: newRetryBoard()}, nil
 }
 
 // Order renvoie l'ordre des sources, fournisseur en tête.
@@ -71,7 +74,31 @@ func (chain *Chain) Order() []ID { return slices.Clone(chain.order) }
 
 // NewBudget ouvre les décomptes d'une exécution ; les quotas par jour viennent du store, partagés entre exécutions.
 func (chain *Chain) NewBudget() *Budget {
-	return newBudget(chain.limits, chain.usage, chain.now, sleepContext)
+	return newBudget(chain.limits, chain.usage, chain.now, sleepContext, chain.board)
+}
+
+// Call est le seul chemin vers un indexeur : il dépense le quota (TakeQuery ou TakeDownload selon kind), exécute la
+// requête, puis rend l'erreur à Observe (Retry-After, refus d'accès). La requête ne s'exécute pas si le budget refuse ;
+// l'erreur du budget ou de la requête est rendue telle quelle. budget doit venir de NewBudget.
+func (chain *Chain) Call(ctx context.Context, budget *Budget, indexer ID, kind string, request func(ctx context.Context) error) error {
+	if budget == nil {
+		return errors.New("sources: an indexer call needs a budget")
+	}
+	var spend func(context.Context, ID) error
+	switch kind {
+	case KindQuery:
+		spend = budget.TakeQuery
+	case KindDownload:
+		spend = budget.TakeDownload
+	default:
+		return fmt.Errorf("sources: unknown request kind %q", kind)
+	}
+	if err := spend(ctx, indexer); err != nil {
+		return err
+	}
+	err := request(ctx)
+	budget.Observe(indexer, err)
+	return err
 }
 
 // Search cherche chez le fournisseur.

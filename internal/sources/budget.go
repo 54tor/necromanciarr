@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	kindQuery    = "query"
-	kindDownload = "download"
+	// KindQuery et KindDownload sont les deux sortes de requête décomptées.
+	KindQuery    = "query"
+	KindDownload = "download"
 	// maxRetryAfter plafonne un Retry-After reçu, comme httpsafe.
 	maxRetryAfter = time.Hour
 )
@@ -33,163 +34,174 @@ type Limits struct {
 }
 
 // UsageStore persiste l'usage des indexeurs pour la fenêtre glissante d'un jour ; *store.Store l'implémente.
+// TakeIndexerUsage est la seule écriture du Budget : le test du plafond et l'ajout y sont atomiques, sûrs entre
+// processus.
 type UsageStore interface {
 	CountIndexerUsage(ctx context.Context, indexer, kind string, since time.Time) (int, error)
 	RecordIndexerUsage(ctx context.Context, indexer, kind string, at time.Time) error
-}
-
-// atomicUsageStore ajoute la prise atomique : le test du plafond et l'écriture sont une seule instruction, sûre
-// entre processus. Sans elle, Budget compte puis écrit sous son verrou, sûr dans ce seul processus.
-type atomicUsageStore interface {
-	UsageStore
 	TakeIndexerUsage(ctx context.Context, indexer, kind string, at, since time.Time, limit int) (bool, error)
 }
 
-var _ atomicUsageStore = (*store.Store)(nil)
+var _ UsageStore = (*store.Store)(nil)
+
+// retryBoard garde, pour la vie du processus, jusqu'à quand chaque indexeur est écarté par un Retry-After : il est
+// partagé par tous les budgets d'une chaîne, sinon le Verify qui suit un Match limité reprendrait aussitôt.
+type retryBoard struct {
+	mutex sync.Mutex
+	until map[ID]time.Time
+}
+
+func newRetryBoard() *retryBoard { return &retryBoard{until: map[ID]time.Time{}} }
+
+func (board *retryBoard) block(indexer ID, until time.Time) {
+	board.mutex.Lock()
+	defer board.mutex.Unlock()
+	if until.After(board.until[indexer]) {
+		board.until[indexer] = until
+	}
+}
+
+func (board *retryBoard) remaining(indexer ID, now time.Time) time.Duration {
+	board.mutex.Lock()
+	defer board.mutex.Unlock()
+	return board.until[indexer].Sub(now)
+}
 
 // indexerRun est l'état en mémoire d'un indexeur pendant une exécution.
 type indexerRun struct {
-	report        IndexerReport
-	lastRequest   time.Time
-	blockedErr    error
-	blockedUntil  time.Time
-	blockedForRun bool
+	report      IndexerReport
+	lastRequest time.Time
+	// blockedErr écarte l'indexeur pour le reste de l'exécution (refus d'accès, indisponible sans délai).
+	blockedErr error
 }
 
 // Budget compte ce qu'une exécution demande aux indexeurs. Les décomptes par exécution sont en mémoire, ceux par jour
 // viennent du store (une relance ne remet pas la journée à zéro). Le quota est dépensé AVANT la requête, qu'elle
-// réussisse ou non. Un verrou unique couvre toutes les prises : « un seul indexeur sollicité à la fois » (spec
-// 4.B.5), les requêtes suivant chaque prise une à une dans l'appelant séquentiel.
+// réussisse ou non. Un seul verrou (gate) couvre toutes les prises : « un seul indexeur sollicité à la fois » (spec
+// 4.B.5), les requêtes suivant chaque prise une à une dans l'appelant séquentiel. Passer par Chain.Call.
 type Budget struct {
-	gate   sync.Mutex
+	gate   chan struct{}
 	limits map[ID]Limits
 	usage  UsageStore
 	now    func() time.Time
 	sleep  func(ctx context.Context, duration time.Duration) error
-	runs   map[ID]*indexerRun
+	board  *retryBoard
+	// stateMutex protège runs : il n'est tenu que le temps d'une lecture ou d'une écriture, jamais pendant une attente.
+	stateMutex sync.Mutex
+	runs       map[ID]*indexerRun
 }
 
-func newBudget(limits map[ID]Limits, usage UsageStore, now func() time.Time, sleep func(context.Context, time.Duration) error) *Budget {
-	return &Budget{limits: limits, usage: usage, now: now, sleep: sleep, runs: map[ID]*indexerRun{}}
+func newBudget(limits map[ID]Limits, usage UsageStore, now func() time.Time, sleep func(context.Context, time.Duration) error, board *retryBoard) *Budget {
+	return &Budget{gate: make(chan struct{}, 1), limits: limits, usage: usage, now: now, sleep: sleep, board: board, runs: map[ID]*indexerRun{}}
 }
 
 // TakeQuery dépense une recherche chez l'indexeur, après avoir attendu MinInterval depuis sa dernière requête.
 func (budget *Budget) TakeQuery(ctx context.Context, indexer ID) error {
-	return budget.take(ctx, indexer, kindQuery)
+	return budget.take(ctx, indexer, KindQuery)
 }
 
 // TakeDownload dépense un téléchargement de .torrent chez l'indexeur.
 func (budget *Budget) TakeDownload(ctx context.Context, indexer ID) error {
-	return budget.take(ctx, indexer, kindDownload)
+	return budget.take(ctx, indexer, KindDownload)
 }
 
 func (budget *Budget) take(ctx context.Context, indexer ID, kind string) error {
-	budget.gate.Lock()
-	defer budget.gate.Unlock()
+	select {
+	case budget.gate <- struct{}{}:
+		defer func() { <-budget.gate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	limits, known := budget.limits[indexer]
 	if !known {
 		return fmt.Errorf("%w: %s", ErrUnknownIndexer, indexer)
 	}
-	run := budget.runOf(indexer)
-	if err := budget.checkBlocked(run); err != nil {
-		return err
-	}
-	runLimit, dayLimit := limits.perRun(kind), limits.perDay(kind)
-	if run.count(kind) >= runLimit {
-		run.report.BudgetExhausted = true
-		return fmt.Errorf("%w: %s per-run limit", ErrBudgetExhausted, indexer)
-	}
-	if err := budget.waitInterval(ctx, run, limits.MinInterval); err != nil {
-		return err
-	}
-	taken, err := budget.spendDay(ctx, indexer, kind, dayLimit)
+	lastRequest, err := budget.admit(indexer, kind, limits.perRun(kind))
 	if err != nil {
 		return err
 	}
+	if err := budget.waitInterval(ctx, lastRequest, limits.MinInterval); err != nil {
+		return err
+	}
+	at := budget.now()
+	taken, err := budget.usage.TakeIndexerUsage(ctx, string(indexer), kind, at, at.Add(-store.IndexerUsageWindow), limits.perDay(kind))
+	if err != nil {
+		return err
+	}
+	budget.stateMutex.Lock()
+	defer budget.stateMutex.Unlock()
+	run := budget.runOf(indexer)
 	if !taken {
 		run.report.BudgetExhausted = true
 		return fmt.Errorf("%w: %s daily limit", ErrBudgetExhausted, indexer)
 	}
-	run.lastRequest = budget.now()
+	run.lastRequest = at
 	run.add(kind)
 	return nil
 }
 
-// spendDay écrit la ligne d'usage si le plafond du jour le permet.
-func (budget *Budget) spendDay(ctx context.Context, indexer ID, kind string, dayLimit int) (bool, error) {
-	at := budget.now()
-	since := at.Add(-store.IndexerUsageWindow)
-	if atomic, isAtomic := budget.usage.(atomicUsageStore); isAtomic {
-		return atomic.TakeIndexerUsage(ctx, string(indexer), kind, at, since, dayLimit)
+// admit refuse sans dépenser de quota un indexeur écarté ou arrivé à son plafond par exécution ; il rend l'heure de
+// sa dernière requête.
+func (budget *Budget) admit(indexer ID, kind string, runLimit int) (time.Time, error) {
+	budget.stateMutex.Lock()
+	defer budget.stateMutex.Unlock()
+	run := budget.runOf(indexer)
+	if run.blockedErr != nil {
+		return time.Time{}, run.blockedErr
 	}
-	used, err := budget.usage.CountIndexerUsage(ctx, string(indexer), kind, since)
-	if err != nil {
-		return false, err
+	if remaining := budget.board.remaining(indexer, budget.now()); remaining > 0 {
+		return time.Time{}, fmt.Errorf("%w: retry in %s", torznab.ErrUnavailable, remaining.Round(time.Second))
 	}
-	if used >= dayLimit {
-		return false, nil
+	if run.count(kind) >= runLimit {
+		run.report.BudgetExhausted = true
+		return time.Time{}, fmt.Errorf("%w: %s per-run limit", ErrBudgetExhausted, indexer)
 	}
-	return true, budget.usage.RecordIndexerUsage(ctx, string(indexer), kind, at)
+	return run.lastRequest, nil
 }
 
 // waitInterval attend la fin de MinInterval depuis la dernière requête à ce même indexeur.
-func (budget *Budget) waitInterval(ctx context.Context, run *indexerRun, interval time.Duration) error {
-	if run.lastRequest.IsZero() {
+func (budget *Budget) waitInterval(ctx context.Context, lastRequest time.Time, interval time.Duration) error {
+	if lastRequest.IsZero() {
 		return nil
 	}
-	remaining := interval - budget.now().Sub(run.lastRequest)
+	remaining := interval - budget.now().Sub(lastRequest)
 	if remaining <= 0 {
 		return nil
 	}
 	return budget.sleep(ctx, remaining)
 }
 
-// checkBlocked refuse sans dépenser de quota tant qu'un Retry-After court ou que l'indexeur est écarté pour l'exécution.
-func (budget *Budget) checkBlocked(run *indexerRun) error {
-	if run.blockedErr == nil {
-		return nil
-	}
-	if run.blockedForRun {
-		return run.blockedErr
-	}
-	remaining := run.blockedUntil.Sub(budget.now())
-	if remaining <= 0 {
-		run.blockedErr = nil
-		return nil
-	}
-	return fmt.Errorf("%w: retry in %s", torznab.ErrUnavailable, remaining.Round(time.Second))
-}
-
 // Observe tire parti de l'erreur d'une requête : un Retry-After reçu (torznab.UnavailableError, plafonné à une heure)
-// écarte l'indexeur jusqu'à son terme ; sans délai, ou après un refus d'accès, jusqu'à la fin de l'exécution. Les
-// autres erreurs n'ont aucun effet. Le limiteur du client ne lit pas Retry-After : c'est ici qu'il est honoré.
+// écarte l'indexeur jusqu'à son terme pour tout le processus (retryBoard) ; sans délai, ou après un refus d'accès,
+// jusqu'à la fin de cette exécution. Les autres erreurs n'ont aucun effet. Le limiteur du client ne lit pas
+// Retry-After : c'est ici qu'il est honoré.
 func (budget *Budget) Observe(indexer ID, err error) {
 	var unavailable *torznab.UnavailableError
 	isUnavailable, isDenied := errors.As(err, &unavailable), errors.Is(err, torznab.ErrAccessDenied)
 	if !isUnavailable && !isDenied {
 		return
 	}
-	budget.gate.Lock()
-	defer budget.gate.Unlock()
-	run := budget.runOf(indexer)
-	if run.blockedForRun {
+	if isUnavailable && !isDenied && unavailable.RetryAfter > 0 {
+		budget.board.block(indexer, budget.now().Add(min(unavailable.RetryAfter, maxRetryAfter)))
 		return
 	}
-	switch {
-	case isDenied:
-		run.blockedErr, run.blockedForRun = fmt.Errorf("%w: indexer refused the request earlier in this run", torznab.ErrAccessDenied), true
-	case unavailable.RetryAfter > 0:
-		run.blockedErr, run.blockedForRun = torznab.ErrUnavailable, false
-		run.blockedUntil = budget.now().Add(min(unavailable.RetryAfter, maxRetryAfter))
-	default:
-		run.blockedErr, run.blockedForRun = fmt.Errorf("%w: indexer unavailable earlier in this run", torznab.ErrUnavailable), true
+	budget.stateMutex.Lock()
+	defer budget.stateMutex.Unlock()
+	run := budget.runOf(indexer)
+	if run.blockedErr != nil {
+		return
 	}
+	if isDenied {
+		run.blockedErr = fmt.Errorf("%w: indexer refused the request earlier in this run", torznab.ErrAccessDenied)
+		return
+	}
+	run.blockedErr = fmt.Errorf("%w: indexer unavailable earlier in this run", torznab.ErrUnavailable)
 }
 
 // CountMagnetOnly ajoute des résultats sans lien .torrent (magnet seul) au résumé de l'indexeur.
 func (budget *Budget) CountMagnetOnly(indexer ID, count int) {
-	budget.gate.Lock()
-	defer budget.gate.Unlock()
+	budget.stateMutex.Lock()
+	defer budget.stateMutex.Unlock()
 	budget.runOf(indexer).report.MagnetOnly += count
 }
 
@@ -199,8 +211,8 @@ func (budget *Budget) Report() Report {
 	if budget == nil {
 		return report
 	}
-	budget.gate.Lock()
-	defer budget.gate.Unlock()
+	budget.stateMutex.Lock()
+	defer budget.stateMutex.Unlock()
 	for indexer, run := range budget.runs {
 		report[indexer] = run.report
 	}
@@ -217,14 +229,14 @@ func (budget *Budget) runOf(indexer ID) *indexerRun {
 }
 
 func (run *indexerRun) count(kind string) int {
-	if kind == kindQuery {
+	if kind == KindQuery {
 		return run.report.Queries
 	}
 	return run.report.Downloads
 }
 
 func (run *indexerRun) add(kind string) {
-	if kind == kindQuery {
+	if kind == KindQuery {
 		run.report.Queries++
 		return
 	}
@@ -232,14 +244,14 @@ func (run *indexerRun) add(kind string) {
 }
 
 func (limits Limits) perRun(kind string) int {
-	if kind == kindQuery {
+	if kind == KindQuery {
 		return limits.MaxQueriesPerRun
 	}
 	return limits.MaxDownloadsPerRun
 }
 
 func (limits Limits) perDay(kind string) int {
-	if kind == kindQuery {
+	if kind == KindQuery {
 		return limits.MaxQueriesPerDay
 	}
 	return limits.MaxDownloadsPerDay

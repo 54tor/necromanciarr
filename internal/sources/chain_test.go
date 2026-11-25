@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/torznab"
@@ -213,5 +214,96 @@ func TestChain_newBudgetUsesTheConfiguredLimits(t *testing.T) {
 	}
 	if again := chain.NewBudget().TakeQuery(context.Background(), indexerA); again != nil {
 		t.Fatalf("valeurObtenue %v, valeurAttendue per-run counters to restart with a new budget", again)
+	}
+}
+
+func newClockChain(t *testing.T, clock *fakeClock) *Chain {
+	t.Helper()
+	limits := testLimits()
+	limits.MinInterval = 0
+	chain, err := NewChain(&fakeProvider{log: &callLog{}}, map[ID]IndexerSource{indexerA: &fakeIndexer{log: &callLog{}}},
+		[]ID{ProviderID, indexerA}, map[ID]Limits{indexerA: limits}, realUsage(t), nil, clock.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return chain
+}
+
+// Un Retry-After reçu pendant Match vaut aussi pour le Verify qui suit : il vit sur la chaîne, pas sur le budget.
+func TestChain_retryAfterCarriesAcrossBudgetsOfTheSameProcess(t *testing.T) {
+	clock := &fakeClock{now: budgetNow}
+	chain := newClockChain(t, clock)
+	rateLimited := &torznab.UnavailableError{RetryAfter: 30 * time.Minute}
+	if err := chain.Call(context.Background(), chain.NewBudget(), indexerA, KindQuery, func(context.Context) error { return rateLimited }); !errors.Is(err, torznab.ErrUnavailable) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue the request error returned", err)
+	}
+	clock.Advance(time.Minute)
+
+	requested := false
+	err := chain.Call(context.Background(), chain.NewBudget(), indexerA, KindDownload, func(context.Context) error { requested = true; return nil })
+
+	if !errors.Is(err, torznab.ErrUnavailable) || requested {
+		t.Fatalf("valeurObtenue err %v requested %v, valeurAttendue a new budget refused during Retry-After", err, requested)
+	}
+	clock.Advance(30 * time.Minute)
+	if err := chain.Call(context.Background(), chain.NewBudget(), indexerA, KindDownload, func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("valeurObtenue %v, valeurAttendue the indexer back once Retry-After has passed", err)
+	}
+}
+
+func TestChain_callSpendsBeforeTheRequestAndObservesItsError(t *testing.T) {
+	clock := &fakeClock{now: budgetNow}
+	chain := newClockChain(t, clock)
+	budget := chain.NewBudget()
+	failure := errors.New("request failed")
+
+	err := chain.Call(context.Background(), budget, indexerA, KindQuery, func(context.Context) error {
+		if budget.Report()[indexerA].Queries != 1 {
+			t.Error("valeurAttendue the quota spent before the request runs")
+		}
+		return failure
+	})
+
+	if !errors.Is(err, failure) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue the request error unchanged", err)
+	}
+	if err := chain.Call(context.Background(), budget, indexerA, KindQuery, func(context.Context) error { return nil }); err != nil {
+		t.Fatalf("valeurObtenue %v, valeurAttendue an ordinary error not to block the indexer", err)
+	}
+}
+
+func TestChain_callDoesNotRunTheRequestWhenTheBudgetRefuses(t *testing.T) {
+	clock := &fakeClock{now: budgetNow}
+	chain := newClockChain(t, clock)
+	budget := chain.NewBudget()
+	chain.Call(context.Background(), budget, indexerA, KindQuery, func(context.Context) error { return torznab.ErrAccessDenied }) //nolint:errcheck // l'erreur est observée plus bas
+
+	requested := false
+	err := chain.Call(context.Background(), budget, indexerA, KindQuery, func(context.Context) error { requested = true; return nil })
+
+	if !errors.Is(err, torznab.ErrAccessDenied) || requested {
+		t.Fatalf("valeurObtenue err %v requested %v, valeurAttendue refusal without a request", err, requested)
+	}
+	if err := chain.Call(context.Background(), nil, indexerA, KindQuery, func(context.Context) error { return nil }); err == nil {
+		t.Fatal("valeurAttendue an error for a nil budget")
+	}
+}
+
+func TestNewChain_keepsLimitsOfCitedIndexersOnly(t *testing.T) {
+	limits := map[ID]Limits{indexerA: testLimits(), indexerB: testLimits()}
+	chain, err := NewChain(&fakeProvider{log: &callLog{}}, map[ID]IndexerSource{indexerA: &fakeIndexer{log: &callLog{}}},
+		[]ID{ProviderID, indexerA}, limits, realUsage(t), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits[indexerA] = Limits{}
+
+	budget := chain.NewBudget()
+
+	if err := budget.TakeQuery(context.Background(), indexerB); !errors.Is(err, ErrUnknownIndexer) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue ErrUnknownIndexer for a non-cited indexer", err)
+	}
+	if err := budget.TakeQuery(context.Background(), indexerA); err != nil {
+		t.Fatalf("valeurObtenue %v, valeurAttendue the limits copied at construction", err)
 	}
 }

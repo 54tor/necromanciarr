@@ -64,7 +64,7 @@ func openUsageStore(t *testing.T, path string) *store.Store {
 func newTestBudget(t *testing.T, usage UsageStore, limits Limits) (*Budget, *fakeClock) {
 	t.Helper()
 	clock := &fakeClock{now: budgetNow}
-	budget := newBudget(map[ID]Limits{indexerA: limits, indexerB: limits}, usage, clock.Now, clock.Sleep)
+	budget := newBudget(map[ID]Limits{indexerA: limits, indexerB: limits}, usage, clock.Now, clock.Sleep, newRetryBoard())
 	return budget, clock
 }
 
@@ -119,7 +119,7 @@ func TestBudget_slidingDayWindow(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			usage := realUsage(t)
 			for range 200 {
-				if err := usage.RecordIndexerUsage(context.Background(), string(indexerA), kindQuery, budgetNow.Add(-testCase.age)); err != nil {
+				if err := usage.RecordIndexerUsage(context.Background(), string(indexerA), KindQuery, budgetNow.Add(-testCase.age)); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -169,7 +169,7 @@ func TestBudget_spendsTheQuotaBeforeTheRequest(t *testing.T) {
 	}
 
 	// Aucune requête n'a encore été faite, ni réussie : la ligne d'usage existe déjà.
-	valeurObtenue, err := usage.CountIndexerUsage(context.Background(), string(indexerA), kindDownload, budgetNow.Add(-time.Hour))
+	valeurObtenue, err := usage.CountIndexerUsage(context.Background(), string(indexerA), KindDownload, budgetNow.Add(-time.Hour))
 	if err != nil || valeurObtenue != 1 {
 		t.Fatalf("valeurObtenue %d rows (err %v), valeurAttendue 1 recorded at take time", valeurObtenue, err)
 	}
@@ -218,13 +218,16 @@ func (usage *blockingUsage) enter() func() {
 }
 
 func (usage *blockingUsage) CountIndexerUsage(context.Context, string, string, time.Time) (int, error) {
-	defer usage.enter()()
 	return 0, nil
 }
 
 func (usage *blockingUsage) RecordIndexerUsage(context.Context, string, string, time.Time) error {
-	defer usage.enter()()
 	return nil
+}
+
+func (usage *blockingUsage) TakeIndexerUsage(context.Context, string, string, time.Time, time.Time, int) (bool, error) {
+	defer usage.enter()()
+	return true, nil
 }
 
 // Spec 4.B.5 : « un seul indexeur sollicité à la fois » : deux indexeurs différents ne se chevauchent pas.
@@ -271,7 +274,7 @@ func TestBudget_waitsMinIntervalBetweenRequestsToTheSameIndexer(t *testing.T) {
 func TestBudget_waitIsCancelledByTheContext(t *testing.T) {
 	clock := &fakeClock{now: budgetNow}
 	budget := newBudget(map[ID]Limits{indexerA: testLimits()}, realUsage(t), clock.Now,
-		func(ctx context.Context, _ time.Duration) error { return ctx.Err() })
+		func(ctx context.Context, _ time.Duration) error { return ctx.Err() }, newRetryBoard())
 	if err := budget.TakeQuery(context.Background(), indexerA); err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +301,7 @@ func TestBudget_retryAfterBlocksTheIndexerWithoutSpendingQuota(t *testing.T) {
 	if !errors.Is(blocked, torznab.ErrUnavailable) || errors.Is(blocked, ErrBudgetExhausted) {
 		t.Fatalf("valeurObtenue %v, valeurAttendue ErrUnavailable while Retry-After runs", blocked)
 	}
-	rows, err := usage.CountIndexerUsage(context.Background(), string(indexerA), kindQuery, budgetNow.Add(-time.Hour))
+	rows, err := usage.CountIndexerUsage(context.Background(), string(indexerA), KindQuery, budgetNow.Add(-time.Hour))
 	if err != nil || rows != 0 || budget.Report()[indexerA].Queries != 0 {
 		t.Fatalf("valeurObtenue %d rows (err %v), valeurAttendue no quota spent while blocked", rows, err)
 	}
@@ -364,8 +367,8 @@ type failingUsage struct{ blockingUsage }
 
 var errUsageStore = errors.New("usage store down")
 
-func (*failingUsage) RecordIndexerUsage(context.Context, string, string, time.Time) error {
-	return errUsageStore
+func (*failingUsage) TakeIndexerUsage(context.Context, string, string, time.Time, time.Time, int) (bool, error) {
+	return false, errUsageStore
 }
 
 func TestBudget_storeFailureIsNeitherExhaustionNorCounted(t *testing.T) {
@@ -403,5 +406,44 @@ func TestBudget_reportCarriesOnlyCountsAndIDs(t *testing.T) {
 	valeurObtenue[indexerA] = IndexerReport{Queries: 99}
 	if budget.Report()[indexerA].Queries != 1 {
 		t.Fatal("Report must return a copy")
+	}
+}
+
+// holdingUsage garde une prise ouverte jusqu'à release : le verrou de prises reste tenu.
+type holdingUsage struct {
+	blockingUsage
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (usage *holdingUsage) TakeIndexerUsage(context.Context, string, string, time.Time, time.Time, int) (bool, error) {
+	close(usage.entered)
+	<-usage.release
+	return true, nil
+}
+
+func TestBudget_waitingForTheGateHonoursTheContext(t *testing.T) {
+	usage := &holdingUsage{entered: make(chan struct{}), release: make(chan struct{})}
+	limits := testLimits()
+	limits.MinInterval = 0
+	budget, _ := newTestBudget(t, usage, limits)
+	holder := make(chan error, 1)
+	go func() { holder <- budget.TakeQuery(context.Background(), indexerA) }()
+	<-usage.entered
+	cancelled, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	valeurObtenue := budget.TakeQuery(cancelled, indexerB)
+
+	if !errors.Is(valeurObtenue, context.DeadlineExceeded) || time.Since(started) > 2*time.Second {
+		t.Fatalf("valeurObtenue %v after %s, valeurAttendue the context error while another take holds the gate", valeurObtenue, time.Since(started))
+	}
+	close(usage.release)
+	if err := <-holder; err != nil {
+		t.Fatal(err)
+	}
+	if budget.Report()[indexerB].Queries != 0 {
+		t.Fatal("valeurAttendue no quota spent by the cancelled caller")
 	}
 }
