@@ -86,9 +86,6 @@ func (deps Deps) withDefaults() Deps {
 	if deps.Reachable == nil {
 		deps.Reachable = func(ctx context.Context, baseURL string) bool { return crossseed.Reachable(ctx, baseURL, 0) }
 	}
-	if deps.Probe == nil {
-		deps.Probe = linker.Probe
-	}
 	if deps.FilesystemKind == nil {
 		deps.FilesystemKind = linker.FilesystemKindOf
 	}

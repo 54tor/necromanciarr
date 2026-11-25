@@ -155,7 +155,7 @@ func TestLink_refusesNoAnnounceProposal(t *testing.T) {
 	probed := 0
 	fixture.probe = func(directory string) (linker.Capabilities, error) {
 		probed++
-		return linker.Probe(directory)
+		return fixture.applyDeps().probeLinkDir(directory)
 	}
 	candidate := fixture.addCandidate("Movie.2020", uncoveredTracker, movieOnly())
 	proposal := fixture.verifiedProposal(candidate, store.ProposalFull)
@@ -185,7 +185,7 @@ func probedLinkDir(fixture *applyFixture) *int {
 	probed := 0
 	fixture.probe = func(directory string) (linker.Capabilities, error) {
 		probed++
-		return linker.Probe(directory)
+		return fixture.applyDeps().probeLinkDir(directory)
 	}
 	return &probed
 }

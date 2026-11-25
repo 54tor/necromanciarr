@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
@@ -78,6 +79,9 @@ type Options struct {
 	// interrogé sur les chemins locaux des deux fichiers. HashAlgorithms vide : MD5 seul.
 	Backend        hashsource.HashSource
 	HashAlgorithms []hashsource.Algorithm
+	// Registry ouvre les racines d'écriture (sonde des dossiers torrent, liens) ; nil : registre du disque local
+	// dont la bibliothèque est faite des fichiers de l'appel.
+	Registry *fsys.Registry
 
 	probe          func(directory string) (linker.Capabilities, error)
 	filesystemKind func(path string) (linker.FilesystemKind, error)
@@ -137,6 +141,13 @@ type probeOutcome struct {
 // (en cours d'écriture) sont ignorés ; une racine qui recouvre un dossier de library est refusée. Rien n'est modifié,
 // hors les entrées d'essai de la sonde de liens, créées puis supprimées dans les dossiers torrent.
 func Plan(ctx context.Context, torrentRoots []string, library []store.MediaFile, options Options) ([]Replacement, error) {
+	libraryPaths := make([]string, 0, len(library))
+	for _, mediaFile := range library {
+		libraryPaths = append(libraryPaths, mediaFile.Path)
+	}
+	if options.probe == nil {
+		options.probe = registryProbe(options.Registry, libraryPaths)
+	}
 	run, err := newPlanRun(ctx, options)
 	if err != nil {
 		return nil, err
@@ -144,10 +155,6 @@ func Plan(ctx context.Context, torrentRoots []string, library []store.MediaFile,
 	resolvedRoots, err := resolveRoots(torrentRoots)
 	if err != nil {
 		return nil, err
-	}
-	libraryPaths := make([]string, 0, len(library))
-	for _, mediaFile := range library {
-		libraryPaths = append(libraryPaths, mediaFile.Path)
 	}
 	if err := checkNoOverlap(resolvedRoots, libraryPaths); err != nil {
 		return nil, err
@@ -192,9 +199,6 @@ func newPlanRun(ctx context.Context, options Options) (*planRun, error) {
 		return nil, err
 	}
 	options.Verify = verification
-	if options.probe == nil {
-		options.probe = linker.Probe
-	}
 	if options.filesystemKind == nil {
 		options.filesystemKind = linker.FilesystemKindOf
 	}

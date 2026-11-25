@@ -15,6 +15,8 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
@@ -239,14 +241,19 @@ func TestApp_forceRefusesWithoutChangeWhenNoCopyIsPossible(t *testing.T) {
 func TestApp_twoConcurrentForcesCannotBothIsolate(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
+	var fixture *forceFixture
 	slowCopy := func(source, destination, root string) (linker.PreparedCopy, error) {
 		if calls.Add(1) == 1 {
 			close(entered)
 			<-release
 		}
-		return linker.PrepareCopy(source, destination, root)
+		registry, err := local.NewRegistry(fixture.libraryDir)
+		if err != nil {
+			return linker.PreparedCopy{}, err
+		}
+		return linker.PrepareCopyUnder(registry, fsys.Location{Path: source}, fsys.Location{Path: destination}, fsys.Location{Path: root})
 	}
-	fixture := newForceFixture(t, slowCopy)
+	fixture = newForceFixture(t, slowCopy)
 	ctx := context.Background()
 	firstDone := make(chan error, 1)
 	go func() {

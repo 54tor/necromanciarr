@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"necromanciarr/internal/dedupe"
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
 )
@@ -43,6 +45,9 @@ type ApplyOptions struct {
 	DryRun    bool
 	Store     LinkUpdater
 	Rechecker dedupe.Rechecker
+	// Registry ouvre les racines d'écriture des liens ; nil : registre du disque local dont la bibliothèque est la
+	// nouvelle cible de chaque réparation.
+	Registry *fsys.Registry
 
 	renameFile func(temporaryPath, linkPath string) error
 }
@@ -192,10 +197,14 @@ func linkText(repair Repair) (string, error) {
 
 func replaceLink(repair Repair, options ApplyOptions, root, text string) error {
 	temporaryPath := repair.LinkPath + dedupe.TemporaryMarker + rand.Text()
-	if err := linker.CreateLinkInRoot(linker.Symlink, text, temporaryPath, root); err != nil {
+	registry, err := linkRegistry(options.Registry, repair.NewTarget)
+	if err != nil {
 		return err
 	}
-	err := checkNewTarget(repair)
+	if err := linker.CreateLinkUnder(registry, linker.Symlink, text, fsys.Location{Path: temporaryPath}, fsys.Location{Path: root}); err != nil {
+		return err
+	}
+	err = checkNewTarget(repair)
 	if err == nil {
 		// Relu juste avant le renommage : un lien remplacé entre-temps par quelqu'un d'autre ne doit pas être écrasé.
 		err = checkLinkUnchanged(repair)
@@ -210,6 +219,15 @@ func replaceLink(repair Repair, options ApplyOptions, root, text string) error {
 		return errors.Join(err, removeTemporary(temporaryPath))
 	}
 	return nil
+}
+
+// linkRegistry rend le registre des racines d'écriture ; sans lui, la nouvelle cible tient lieu de bibliothèque :
+// une racine qui la contient est refusée.
+func linkRegistry(registry *fsys.Registry, newTarget string) (*fsys.Registry, error) {
+	if registry != nil {
+		return registry, nil
+	}
+	return local.NewRegistry(newTarget)
 }
 
 func checkTemporaryResolves(temporaryPath string, size int64) error {

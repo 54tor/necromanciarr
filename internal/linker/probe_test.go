@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"slices"
 	"testing"
+
+	"necromanciarr/internal/fsys"
 )
 
 func directoryEntries(t *testing.T, directory string) []string {
@@ -78,11 +80,11 @@ func TestProbe_reportsUnsupportedSymlinkWithReason(t *testing.T) {
 	directory := t.TempDir()
 	refusingApplier := applier{linkers: map[Kind]linkFunc{
 		Hardlink: hardlink,
-		Reflink:  func(_, _ string) error { return ErrUnsupported },
-		Symlink:  func(_, _ string) error { return ErrLinkRefused },
+		Reflink:  func(fsys.WriteRoot, fsys.Location, string) error { return ErrUnsupported },
+		Symlink:  func(fsys.WriteRoot, fsys.Location, string) error { return ErrLinkRefused },
 	}}
 
-	capabilities, err := refusingApplier.probeBetween(directory, directory)
+	capabilities, err := refusingApplier.probe(openRoot(t, directory))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +104,7 @@ func TestProbe_leavesNoFileBehind(t *testing.T) {
 	existingPath := filepath.Join(directory, "existing.mkv")
 	writeFile(t, existingPath, []byte("keep"))
 
-	capabilities, err := Probe(directory)
+	capabilities, err := Probe(openRoot(t, directory))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,11 +123,11 @@ func TestProbe_leavesNoFileBehind(t *testing.T) {
 func TestProbe_cleansUpWhenALinkFails(t *testing.T) {
 	directory := t.TempDir()
 	failingApplier := applier{linkers: map[Kind]linkFunc{
-		Hardlink: func(_, _ string) error { return errors.New("boom") },
+		Hardlink: func(fsys.WriteRoot, fsys.Location, string) error { return errors.New("boom") },
 		Symlink:  symlink,
 	}}
 
-	if _, err := failingApplier.probeBetween(directory, directory); err != nil {
+	if _, err := failingApplier.probe(openRoot(t, directory)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -136,10 +138,11 @@ func TestProbe_cleansUpWhenALinkFails(t *testing.T) {
 
 func TestProbe_isSafeConcurrently(t *testing.T) {
 	directory := t.TempDir()
+	root := openRoot(t, directory)
 	failures := make(chan error, 8)
 	for range 8 {
 		go func() {
-			_, err := Probe(directory)
+			_, err := Probe(root)
 			failures <- err
 		}()
 	}
@@ -156,7 +159,7 @@ func TestProbe_isSafeConcurrently(t *testing.T) {
 func TestProbeBetween_reportsProbedDirectories(t *testing.T) {
 	sourceDir, destDir := t.TempDir(), t.TempDir()
 
-	capabilities, err := ProbeBetween(sourceDir, destDir)
+	capabilities, err := ProbeBetween(localSource(t), sourceDir, openRoot(t, destDir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +174,10 @@ func TestProbeBetween_reportsProbedDirectories(t *testing.T) {
 }
 
 func TestProbe_refusesMissingDirectory(t *testing.T) {
-	_, err := Probe(filepath.Join(t.TempDir(), "missing"))
+	root, err := testRegistry(t).WriteRoot(localLocation(filepath.Join(t.TempDir(), "missing")))
+	if err == nil {
+		_, err = Probe(root)
+	}
 
 	if err == nil {
 		t.Fatal("expected an error for a missing directory")
@@ -187,7 +193,7 @@ func TestCreateLinkInRoot_createsRelativeSymlinkUnderRoot(t *testing.T) {
 	}
 	expectedValue := filepath.FromSlash("../library/film.mkv")
 
-	if err := CreateLinkInRoot(Symlink, expectedValue, destination, root); err != nil {
+	if err := CreateLinkInRoot(openRoot(t, root), Symlink, expectedValue, relativeTo(t, root, destination)); err != nil {
 		t.Fatal(err)
 	}
 	gotValue, err := os.Readlink(destination)
@@ -202,7 +208,8 @@ func TestCreateLinkInRoot_refusesSymlinkedComponent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := CreateLinkInRoot(Symlink, fixture.operation.Source, fixture.operation.Destination, fixture.operation.Root)
+	err := CreateLinkInRoot(openRoot(t, fixture.operation.Root), Symlink, fixture.operation.Source,
+		relativeTo(t, fixture.operation.Root, fixture.operation.Destination))
 
 	if !errors.Is(err, ErrDestinationEscapesRoot) {
 		t.Fatalf("expected ErrDestinationEscapesRoot, got %v", err)
@@ -215,7 +222,7 @@ func TestCreateLinkInRoot_neverReplacesAnExistingEntry(t *testing.T) {
 	destination := filepath.Join(root, "taken.mkv")
 	writeFile(t, destination, []byte("mine"))
 
-	err := CreateLinkInRoot(Symlink, "elsewhere.mkv", destination, root)
+	err := CreateLinkInRoot(openRoot(t, root), Symlink, "elsewhere.mkv", relativeTo(t, root, destination))
 
 	if !errors.Is(err, ErrDestinationExists) {
 		t.Fatalf("expected ErrDestinationExists, got %v", err)
@@ -226,21 +233,21 @@ func TestCreateLinkInRoot_neverReplacesAnExistingEntry(t *testing.T) {
 }
 
 func TestProbe_detectsRenameOverwriteBehaviour(t *testing.T) {
-	deleteDestinationFirst := func(oldPath, newPath string) error {
-		if err := os.Remove(newPath); err != nil {
+	deleteDestinationFirst := func(root fsys.WriteRoot, oldPath, newPath string) error {
+		if err := root.Remove(newPath); err != nil {
 			return err
 		}
-		return os.Rename(oldPath, newPath)
+		return root.Replace(oldPath, newPath)
 	}
-	deleteDestinationThenFail := func(_, newPath string) error {
-		if err := os.Remove(newPath); err != nil {
+	deleteDestinationThenFail := func(root fsys.WriteRoot, _, newPath string) error {
+		if err := root.Remove(newPath); err != nil {
 			return err
 		}
 		return errors.New("transfer interrupted")
 	}
 	cases := []struct {
 		name          string
-		rename        func(oldPath, newPath string) error
+		rename        func(root fsys.WriteRoot, oldPath, newPath string) error
 		expectedValue bool
 	}{
 		{"system rename", nil, true},
@@ -254,7 +261,7 @@ func TestProbe_detectsRenameOverwriteBehaviour(t *testing.T) {
 			probingApplier := systemApplier()
 			probingApplier.rename = testCase.rename
 
-			capabilities, err := probingApplier.probeBetween(directory, directory)
+			capabilities, err := probingApplier.probe(openRoot(t, directory))
 			if err != nil {
 				t.Fatal(err)
 			}

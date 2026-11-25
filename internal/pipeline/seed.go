@@ -9,6 +9,7 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/qbit"
@@ -187,7 +188,7 @@ func (run seedRun) markSourcesChanged(ctx context.Context, proposalID, candidate
 // chaque annexe (taille et sha256). certain est faux dès qu'un lien n'est prouvé que par l'empreinte début-fin : le
 // client doit alors recontrôler.
 func (run seedRun) checkPlacement(ctx context.Context, proven provenTorrent, linkRoot string) (certain bool, damage string, err error) {
-	ops, planErr := linker.Plan(proven.torrent, proven.assignment, linkRoot)
+	ops, planErr := linker.Plan(proven.torrent, proven.assignment, linkRoot, fsys.LocalPaths())
 	planned := planErr == nil
 	if !planned {
 		return false, ReasonLinkChanged, nil

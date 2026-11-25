@@ -1,15 +1,17 @@
 package linker
 
 import (
-	"bytes"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
+	"path"
 	"path/filepath"
+	"slices"
+	"strings"
 
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/torrentcheck"
 )
 
@@ -23,87 +25,76 @@ func writeAll(writer io.Writer, data []byte) error {
 	return err
 }
 
-// WriteVerifiedFile écrit sous root, au chemin relatif relativePath (séparateur « / »), une annexe dont le contenu a été
-// prouvé par les pièces. Mêmes garde-fous qu'Apply : aucun composant symbolique, aucune sortie de root, dossiers créés
-// un à un. Création exclusive : un fichier déjà présent au contenu identique compte comme fait, tout autre contenu (ou
-// une entrée qui n'est pas un fichier ordinaire) donne ErrDestinationExists. En cas d'échec, seul ce que l'appel a créé
-// est retiré.
-func WriteVerifiedFile(root, relativePath string, data []byte) error {
+// WriteVerifiedFile écrit dans root, au chemin relatif relativePath (séparateur « / »), une annexe dont le contenu a
+// été prouvé par les pièces. Mêmes garde-fous qu'Apply : aucun composant symbolique, aucune sortie de root, dossiers
+// créés un à un. Création exclusive : un fichier déjà présent au contenu identique compte comme fait, tout autre
+// contenu (ou une entrée qui n'est pas un fichier ordinaire) donne ErrDestinationExists. En cas d'échec, seul ce que
+// l'appel a créé est retiré.
+func WriteVerifiedFile(root fsys.WriteRoot, relativePath string, data []byte) error {
 	return writeVerifiedFile(root, relativePath, data, writeAll)
 }
 
-func writeVerifiedFile(root, relativePath string, data []byte, write dataWriter) error {
-	localPath := filepath.FromSlash(relativePath)
-	if !filepath.IsLocal(localPath) {
+func writeVerifiedFile(root fsys.WriteRoot, relativePath string, data []byte, write dataWriter) error {
+	if !isPlainRelative(relativePath) {
 		return fmt.Errorf("%w: %q", ErrDestinationEscapesRoot, relativePath)
 	}
-	run := &transaction{resolvedRoots: map[string]string{}}
-	resolvedRoot, relative, err := run.confine(Op{Destination: filepath.Join(root, localPath), Root: root})
-	if err != nil {
-		return err
-	}
-	destination := filepath.Join(resolvedRoot, relative)
-	err = run.ensureConfinedDir(resolvedRoot, filepath.Dir(relative))
+	maker := &directoryMaker{}
+	err := maker.ensure(root, path.Dir(relativePath))
 	if err == nil {
-		err = checkParentInRoot(resolvedRoot, destination)
-	}
-	if err == nil {
-		err = run.writeExclusive(destination, data, write)
+		err = writeExclusive(root, relativePath, data, write)
 	}
 	if err != nil {
-		return errors.Join(err, run.rollback())
+		return errors.Join(err, rollback(root, maker.created))
 	}
 	return nil
 }
 
-// writeExclusive écrit d'abord un fichier temporaire créé avec O_EXCL dans le même dossier, le synchronise puis le
+// isPlainRelative refuse le chemin vide, absolu et tout segment vide, « . » ou « .. ».
+func isPlainRelative(relativePath string) bool {
+	segments := strings.Split(relativePath, relativeSeparator)
+	isBadSegment := func(segment string) bool { return segment == "" || segment == "." || segment == ".." }
+	return relativePath != "" && !slices.ContainsFunc(segments, isBadSegment) && filepath.IsLocal(filepath.FromSlash(relativePath))
+}
+
+// writeExclusive écrit d'abord un fichier temporaire créé en exclusif dans le même dossier, le synchronise puis le
 // renomme : un arrêt en pleine écriture ne laisse jamais une annexe tronquée sous son vrai nom.
-func (run *transaction) writeExclusive(destination string, data []byte, write dataWriter) error {
-	if _, err := os.Lstat(destination); err == nil {
-		return checkSameContent(destination, data)
+func writeExclusive(root fsys.WriteRoot, destination string, data []byte, write dataWriter) error {
+	if _, err := root.Lstat(destination); err == nil {
+		return checkSameContent(root, destination, data)
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return err
+		return confined(err)
 	}
-	temporary := filepath.Join(filepath.Dir(destination), "."+filepath.Base(destination)+temporaryMarker+rand.Text())
-	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, verifiedFileMode) // #nosec G302 G304 -- nom aléatoire confiné sous la racine des liens
+	temporary := path.Join(path.Dir(destination), "."+path.Base(destination)+temporaryMarker+rand.Text())
+	writer, err := root.CreateExclusive(temporary, verifiedFileMode)
 	if err != nil {
-		return err
+		return confined(err)
 	}
-	err = errors.Join(write(file, data), file.Sync(), file.Close())
+	err = errors.Join(write(writer, data), syncWriter(writer), writer.Close())
 	if err == nil {
-		err = os.Rename(temporary, destination)
+		err = root.Replace(temporary, destination)
 	}
 	if err != nil {
-		return errors.Join(err, removeIfPresent(temporary))
+		return errors.Join(err, removeIfPresent(root, temporary))
 	}
-	run.created = append(run.created, destination)
+	return nil
+}
+
+// syncWriter force l'écriture sur disque quand le volume la propose (fichier local).
+func syncWriter(writer io.Writer) error {
+	if syncer, canSync := writer.(interface{ Sync() error }); canSync {
+		return syncer.Sync()
+	}
 	return nil
 }
 
 // temporaryMarker distingue les fichiers temporaires de cet outil.
 const temporaryMarker = ".necromanciarr-tmp-"
 
-func removeIfPresent(path string) error {
-	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	return nil
-}
-
-func checkSameContent(destination string, data []byte) error {
-	info, err := os.Lstat(destination)
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() || info.Size() != int64(len(data)) {
-		return fmt.Errorf("%w: %s", ErrDestinationExists, destination)
-	}
-	existing, err := os.ReadFile(destination) // #nosec G304 -- chemin confiné sous la racine des liens
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(existing, data) {
-		return fmt.Errorf("%w: %s", ErrDestinationExists, destination)
+// checkSameContent relit l'entrée par la vue du volume ; sans elle, le contenu ne peut être prouvé identique.
+func checkSameContent(root fsys.WriteRoot, destination string, data []byte) error {
+	view := readViewOf(root)
+	if view == nil || !holdsContent(root, view, destination, string(data)) {
+		return fmt.Errorf("%w: %s", ErrDestinationExists, absoluteIn(root, destination))
 	}
 	return nil
 }
@@ -114,7 +105,7 @@ func RelativeDestination(torrent *torrentcheck.Torrent, fileIndex int) (string, 
 	if fileIndex < 0 || fileIndex >= len(torrent.Files) {
 		return "", fmt.Errorf("linker: torrent has no file %d", fileIndex)
 	}
-	destination, err := destinationOf(torrent, torrent.Files[fileIndex], ".")
+	destination, err := destinationOf(torrent, torrent.Files[fileIndex], ".", fsys.LocalPaths())
 	if err != nil {
 		return "", err
 	}

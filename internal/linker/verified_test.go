@@ -16,7 +16,7 @@ var verifiedContent = []byte("verified nfo content\r\n")
 
 func TestWriteVerifiedFile_createsParentsAndWritesFileUnderRoot(t *testing.T) {
 	root := t.TempDir()
-	if err := WriteVerifiedFile(root, "Movie.2020/Movie.2020.nfo", verifiedContent); err != nil {
+	if err := WriteVerifiedFile(openRoot(t, root), "Movie.2020/Movie.2020.nfo", verifiedContent); err != nil {
 		t.Fatal(err)
 	}
 	written := filepath.Join(root, "Movie.2020", "Movie.2020.nfo")
@@ -41,7 +41,7 @@ func TestWriteVerifiedFile_refusesEscapeAttempts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, relativePath := range []string{"../outside.nfo", "a/../../outside.nfo", "/etc/outside.nfo", ""} {
-		err := WriteVerifiedFile(root, relativePath, verifiedContent)
+		err := WriteVerifiedFile(openRoot(t, root), relativePath, verifiedContent)
 		if !errors.Is(err, ErrDestinationEscapesRoot) {
 			t.Fatalf("%q: gotValue %v, expectedValue ErrDestinationEscapesRoot", relativePath, err)
 		}
@@ -55,7 +55,7 @@ func TestWriteVerifiedFile_refusesSymlinkedParent(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "Movie.2020")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	err := WriteVerifiedFile(root, "Movie.2020/Movie.2020.nfo", verifiedContent)
+	err := WriteVerifiedFile(openRoot(t, root), "Movie.2020/Movie.2020.nfo", verifiedContent)
 	if !errors.Is(err, ErrDestinationEscapesRoot) {
 		t.Fatalf("gotValue %v, expectedValue ErrDestinationEscapesRoot", err)
 	}
@@ -70,7 +70,7 @@ func TestWriteVerifiedFile_identicalExistingFileIsDone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteVerifiedFile(root, "Movie.2020/Movie.2020.nfo", verifiedContent); err != nil {
+	if err := WriteVerifiedFile(openRoot(t, root), "Movie.2020/Movie.2020.nfo", verifiedContent); err != nil {
 		t.Fatalf("gotValue %v, expectedValue nil", err)
 	}
 	after, err := os.Stat(existing)
@@ -87,7 +87,7 @@ func TestWriteVerifiedFile_refusesOverwriteOfDifferentContent(t *testing.T) {
 	existing := filepath.Join(root, "Movie.2020.nfo")
 	expectedValue := []byte("another content")
 	writeFile(t, existing, expectedValue)
-	err := WriteVerifiedFile(root, "Movie.2020.nfo", verifiedContent)
+	err := WriteVerifiedFile(openRoot(t, root), "Movie.2020.nfo", verifiedContent)
 	if !errors.Is(err, ErrDestinationExists) {
 		t.Fatalf("gotValue %v, expectedValue ErrDestinationExists", err)
 	}
@@ -103,7 +103,7 @@ func TestWriteVerifiedFile_refusesSymlinkAtDestination(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(root, "Movie.2020.nfo")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if err := WriteVerifiedFile(root, "Movie.2020.nfo", verifiedContent); !errors.Is(err, ErrDestinationExists) {
+	if err := WriteVerifiedFile(openRoot(t, root), "Movie.2020.nfo", verifiedContent); !errors.Is(err, ErrDestinationExists) {
 		t.Fatalf("gotValue %v, expectedValue ErrDestinationExists", err)
 	}
 }
@@ -122,7 +122,7 @@ func TestWriteVerifiedFile_partialWriteFailureRemovesOnlyWhatItCreated(t *testin
 		}
 		return errInjectedWrite
 	}
-	err := writeVerifiedFile(root, "Movie.2020/Extras/Movie.2020.nfo", verifiedContent, failAfterHalf)
+	err := writeVerifiedFile(openRoot(t, root), "Movie.2020/Extras/Movie.2020.nfo", verifiedContent, failAfterHalf)
 	if !errors.Is(err, errInjectedWrite) {
 		t.Fatalf("gotValue %v, expectedValue errInjectedWrite", err)
 	}
@@ -136,7 +136,7 @@ func TestWriteVerifiedFile_failureLeavesNoTemporaryNorTruncatedFile(t *testing.T
 		_, _ = writer.Write(data[:len(data)/2])
 		return errInjectedWrite
 	}
-	if err := writeVerifiedFile(root, "Movie.2020.nfo", verifiedContent, failAfterHalf); !errors.Is(err, errInjectedWrite) {
+	if err := writeVerifiedFile(openRoot(t, root), "Movie.2020.nfo", verifiedContent, failAfterHalf); !errors.Is(err, errInjectedWrite) {
 		t.Fatalf("gotValue %v, expectedValue errInjectedWrite", err)
 	}
 	entries, err := os.ReadDir(root)

@@ -4,11 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/fsys/local"
 )
 
@@ -62,69 +60,102 @@ type Result struct {
 	Used []Kind
 }
 
-type linkFunc func(source, destination string) error
+// linkFunc crée relative dans root ; pour un Symlink, source.Path est le texte de la cible.
+type linkFunc func(root fsys.WriteRoot, source fsys.Location, relative string) error
 
 type applier struct {
 	linkers map[Kind]linkFunc
-	rename  func(oldPath, newPath string) error
+	rename  func(root fsys.WriteRoot, oldRelative, newRelative string) error
 }
 
-// Apply crée les liens des ops en essayant les sortes dans l'ordre de preferred, sans jamais en utiliser une autre.
-// Une destination déjà liée à la même source compte comme faite ; toute autre destination existante est refusée.
-// En cas d'échec, seuls les liens et dossiers créés par cet appel sont retirés, en ordre inverse.
-func Apply(ops []Op, preferred []Kind) (Result, error) {
-	return systemApplier().apply(ops, preferred)
+func systemApplier() applier {
+	return applier{linkers: map[Kind]linkFunc{Hardlink: hardlink, Reflink: reflink, Symlink: symlink}}
 }
 
-// CreateLinkInRoot crée un seul lien de sorte kind à destination, sous root, avec le même confinement qu'Apply :
-// destination sous root, aucun composant symbolique sous root, jamais d'entrée existante remplacée. Pour un Symlink,
-// source est le texte de la cible (relatif accepté) ; les dossiers créés sont retirés en cas d'échec.
-func CreateLinkInRoot(kind Kind, source, destination, root string) error {
-	return systemApplier().createInRoot(kind, source, destination, root)
+func hardlink(root fsys.WriteRoot, source fsys.Location, relative string) error {
+	return root.Hardlink(source, relative)
 }
 
-func (linkApplier applier) createInRoot(kind Kind, source, destination, root string) error {
-	linker, known := linkApplier.linkers[kind]
-	if !known {
-		return fmt.Errorf("%w: %v", ErrUnsupported, kind)
+func symlink(root fsys.WriteRoot, source fsys.Location, relative string) error {
+	return root.Symlink(source.Path, relative)
+}
+
+// reflink n'emploie que le clonage du volume (fsys.Reflinker) : CopyFrom ferait une copie complète en silence.
+func reflink(root fsys.WriteRoot, source fsys.Location, relative string) error {
+	reflinker, supported := root.(fsys.Reflinker)
+	if !supported {
+		return fmt.Errorf("%w: reflink on this volume", ErrUnsupported)
 	}
-	run := &transaction{resolvedRoots: map[string]string{}}
-	resolvedRoot, relative, err := run.confine(Op{Destination: destination, Root: root})
+	err := reflinker.Reflink(source, relative)
+	if errors.Is(err, fs.ErrExist) && !errors.Is(err, ErrDestinationExists) {
+		return fmt.Errorf("%w: %w", ErrDestinationExists, err)
+	}
+	return err
+}
+
+// Apply crée dans root les liens des ops en essayant les sortes dans l'ordre de preferred, sans jamais en utiliser
+// une autre ; les sources sont lues par source, du même volume que root. Op.Root doit désigner root (son chemin
+// canonique), Op.Destination être dessous. Une destination déjà liée à la même source compte comme faite ; toute
+// autre destination existante est refusée. En cas d'échec, seuls les liens et dossiers créés par cet appel sont
+// retirés, en ordre inverse.
+func Apply(root fsys.WriteRoot, source fsys.ReadFS, ops []Op, preferred []Kind) (Result, error) {
+	return systemApplier().apply(root, source, ops, preferred)
+}
+
+// CreateLinkInRoot crée dans root un seul lien de sorte kind à relative, avec le même confinement qu'Apply : aucun
+// composant symbolique, jamais d'entrée existante remplacée. Pour un Symlink, source est le texte de la cible
+// (relatif accepté) ; sinon un chemin absolu du volume de root. Les dossiers créés sont retirés en cas d'échec.
+func CreateLinkInRoot(root fsys.WriteRoot, kind Kind, source, relative string) error {
+	return systemApplier().createInRoot(root, kind, source, relative)
+}
+
+// CreateLinkUnder ouvre la racine d'écriture root par registry (refus d'une racine qui recouvre la bibliothèque)
+// puis y crée le lien destination comme CreateLinkInRoot.
+func CreateLinkUnder(registry *fsys.Registry, kind Kind, source string, destination, root fsys.Location) error {
+	relative, err := relativeUnder(root, destination)
 	if err != nil {
 		return err
 	}
-	confinedDestination := filepath.Join(resolvedRoot, relative)
-	err = run.ensureConfinedDir(resolvedRoot, filepath.Dir(relative))
-	if err == nil {
-		err = checkParentInRoot(resolvedRoot, confinedDestination)
+	writeRoot, err := registry.WriteRoot(root)
+	if err != nil {
+		return err
 	}
+	defer func() { _ = writeRoot.Close() }()
+	return CreateLinkInRoot(writeRoot, kind, source, relative)
+}
+
+func (linkApplier applier) createInRoot(root fsys.WriteRoot, kind Kind, source, relative string) error {
+	relative = slashRelative(root.Root(), relative)
+	maker := &directoryMaker{}
+	err := maker.ensure(root, parentOf(relative))
 	if err == nil {
-		err = linker(source, confinedDestination)
+		err = linkApplier.create(root, kind, fsys.Location{Volume: root.Root().Volume, Path: source}, relative)
 	}
 	if err != nil {
-		return errors.Join(err, run.rollback())
+		return errors.Join(err, rollback(root, maker.created))
 	}
 	return nil
 }
 
-func hardlink(source, destination string) error {
-	return local.ClassifyLinkError(os.Link(source, destination))
+// create pose un seul lien ; la WriteRoot revérifie chaque parent au moment même de la création.
+func (linkApplier applier) create(root fsys.WriteRoot, kind Kind, source fsys.Location, relative string) error {
+	linker, known := linkApplier.linkers[kind]
+	if !known {
+		return fmt.Errorf("%w: %v", ErrUnsupported, kind)
+	}
+	return confined(linker(root, source, relative))
 }
 
-func symlink(source, destination string) error {
-	return local.ClassifyLinkError(os.Symlink(source, destination))
-}
-
-func (linkApplier applier) apply(ops []Op, preferred []Kind) (Result, error) {
+func (linkApplier applier) apply(root fsys.WriteRoot, source fsys.ReadFS, ops []Op, preferred []Kind) (Result, error) {
 	if len(preferred) == 0 {
 		return Result{}, ErrNoKind
 	}
-	run := &transaction{resolvedRoots: map[string]string{}}
+	run := &transaction{root: root, source: source, matchedRoots: map[string]bool{}}
 	result := Result{Used: make([]Kind, 0, len(ops))}
 	for _, operation := range ops {
 		usedKind, err := linkApplier.applyOne(run, operation, preferred)
 		if err != nil {
-			return Result{}, errors.Join(err, run.rollback())
+			return Result{}, errors.Join(err, rollback(root, run.created()))
 		}
 		result.Used = append(result.Used, usedKind)
 	}
@@ -132,40 +163,31 @@ func (linkApplier applier) apply(ops []Op, preferred []Kind) (Result, error) {
 }
 
 func (linkApplier applier) applyOne(run *transaction, operation Op, preferred []Kind) (Kind, error) {
-	source, sourceInfo, err := checkSource(operation)
+	sourceLocation, sourceInfo, err := run.checkSource(operation)
 	if err != nil {
 		return 0, err
 	}
-	resolvedRoot, relative, err := run.confine(operation)
+	relative, err := run.confine(operation)
 	if err != nil {
 		return 0, err
 	}
-	destination := filepath.Join(resolvedRoot, relative)
-	if err := run.ensureConfinedDir(resolvedRoot, filepath.Dir(relative)); err != nil {
+	if err := run.directories.ensure(run.root, parentOf(relative)); err != nil {
 		return 0, err
 	}
-	existingKind, alreadyLinked, err := existingLink(destination, source, sourceInfo, preferred)
+	existingKind, alreadyLinked, err := run.existingLink(relative, sourceLocation.Path, sourceInfo, preferred)
 	if err != nil || alreadyLinked {
 		return existingKind, err
 	}
-	// Re-vérifié juste avant le lien : un dossier remplacé par un symlink depuis la création serait suivi par os.Link.
-	if err := checkParentInRoot(resolvedRoot, destination); err != nil {
-		return 0, err
-	}
-	return linkApplier.link(run, source, destination, preferred)
+	return linkApplier.link(run, sourceLocation, relative, preferred)
 }
 
-func (linkApplier applier) link(run *transaction, source, destination string, preferred []Kind) (Kind, error) {
+func (linkApplier applier) link(run *transaction, source fsys.Location, relative string, preferred []Kind) (Kind, error) {
+	destination := absoluteIn(run.root, relative)
 	var refusals []error
 	for _, kind := range preferred {
-		linker, known := linkApplier.linkers[kind]
-		if !known {
-			refusals = append(refusals, fmt.Errorf("%w: %v", ErrUnsupported, kind))
-			continue
-		}
-		err := linker(source, destination)
+		err := linkApplier.create(run.root, kind, source, relative)
 		if err == nil {
-			run.created = append(run.created, destination)
+			run.links = append(run.links, relative)
 			return kind, nil
 		}
 		refusals = append(refusals, fmt.Errorf("%v %s: %w", kind, destination, err))
@@ -180,163 +202,102 @@ func isFallbackError(err error) bool {
 	return errors.Is(err, ErrCrossDevice) || errors.Is(err, ErrUnsupported) || errors.Is(err, ErrLinkRefused)
 }
 
+// parentOf rend le dossier d'un chemin relatif en « / » (« . » à la racine).
+func parentOf(relative string) string {
+	return fsys.RemotePaths().Dir(relative)
+}
+
+// transaction mémorise, dans l'ordre de création, les dossiers et liens créés par un appel d'Apply, et les Op.Root
+// déjà reconnus comme la racine d'écriture.
+type transaction struct {
+	root         fsys.WriteRoot
+	source       fsys.ReadFS
+	directories  directoryMaker
+	links        []string
+	matchedRoots map[string]bool
+}
+
+// created rend tout ce que l'appel a créé, dans l'ordre : un lien vient toujours après ses dossiers.
+func (run *transaction) created() []string {
+	return append(slices.Clone(run.directories.created), run.links...)
+}
+
 // checkSource résout les liens symboliques de la source : un lien dur vers un symlink relatif serait cassé.
-func checkSource(operation Op) (string, fs.FileInfo, error) {
-	absoluteSource, err := filepath.Abs(operation.Source)
-	if err != nil {
-		return "", nil, fmt.Errorf("%w: %s: %w", ErrInvalidSource, operation.Source, err)
+func (run *transaction) checkSource(operation Op) (fsys.Location, fs.FileInfo, error) {
+	if run.source.Volume() != run.root.Root().Volume {
+		return fsys.Location{}, nil, fmt.Errorf("%w: %s is on another volume", ErrInvalidSource, operation.Source)
 	}
-	resolvedSource, err := filepath.EvalSymlinks(absoluteSource)
+	resolvedSource, err := run.source.Canonical(operation.Source)
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: %s: %w", ErrInvalidSource, operation.Source, err)
+		return fsys.Location{}, nil, fmt.Errorf("%w: %s: %w", ErrInvalidSource, operation.Source, err)
 	}
-	sourceInfo, err := os.Stat(resolvedSource)
+	sourceInfo, err := run.source.Stat(resolvedSource)
 	if err != nil {
-		return "", nil, fmt.Errorf("%w: %s: %w", ErrInvalidSource, operation.Source, err)
+		return fsys.Location{}, nil, fmt.Errorf("%w: %s: %w", ErrInvalidSource, operation.Source, err)
 	}
 	if !sourceInfo.Mode().IsRegular() {
-		return "", nil, fmt.Errorf("%w: %s", ErrInvalidSource, operation.Source)
+		return fsys.Location{}, nil, fmt.Errorf("%w: %s", ErrInvalidSource, operation.Source)
 	}
 	// Un fichier local plus grand pourrait être tronqué par le client une fois lié en dur.
 	if sourceInfo.Size() != operation.Size {
-		return "", nil, fmt.Errorf("%w: %s is %d bytes, torrent expects %d", ErrSizeMismatch, operation.Source,
+		return fsys.Location{}, nil, fmt.Errorf("%w: %s is %d bytes, torrent expects %d", ErrSizeMismatch, operation.Source,
 			sourceInfo.Size(), operation.Size)
 	}
-	return resolvedSource, sourceInfo, nil
+	return fsys.Location{Volume: run.source.Volume(), Path: resolvedSource}, sourceInfo, nil
+}
+
+// confine exige qu'Op.Root désigne la racine d'écriture (une racine elle-même symbolique est légitime) et rend
+// le chemin de la destination relatif à Op.Root ; la WriteRoot refuse ensuite toute sortie.
+func (run *transaction) confine(operation Op) (string, error) {
+	if err := run.matchRoot(operation.Root); err != nil {
+		return "", err
+	}
+	rootLocation := fsys.Location{Volume: run.root.Root().Volume, Path: operation.Root}
+	relative, err := relativeUnder(rootLocation, fsys.Location{Volume: rootLocation.Volume, Path: operation.Destination})
+	if err != nil || relative == "." {
+		return "", fmt.Errorf("%w: %s", ErrDestinationEscapesRoot, operation.Destination)
+	}
+	return relative, nil
+}
+
+func (run *transaction) matchRoot(operationRoot string) error {
+	if run.matchedRoots[operationRoot] {
+		return nil
+	}
+	if operationRoot == "" {
+		return fmt.Errorf("%w: empty root", ErrDestinationEscapesRoot)
+	}
+	resolvedRoot, err := run.source.Canonical(operationRoot)
+	if err != nil {
+		return fmt.Errorf("linker: link root %s: %w", operationRoot, err)
+	}
+	if resolvedRoot != run.root.Root().Path {
+		return fmt.Errorf("%w: %s is not the write root", ErrDestinationEscapesRoot, operationRoot)
+	}
+	run.matchedRoots[operationRoot] = true
+	return nil
 }
 
 // existingLink reconnaît un lien déjà posé vers la source, d'une sorte demandée ; un reflink déjà là ne se distingue
 // pas d'une copie et reste donc refusé.
-func existingLink(destination, source string, sourceInfo fs.FileInfo, preferred []Kind) (Kind, bool, error) {
-	destinationInfo, err := os.Lstat(destination)
+func (run *transaction) existingLink(relative, source string, sourceInfo fs.FileInfo, preferred []Kind) (Kind, bool, error) {
+	destinationInfo, err := run.root.Lstat(relative)
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, false, nil
 	}
 	if err != nil {
-		return 0, false, err
+		return 0, false, confined(err)
 	}
+	destination := absoluteIn(run.root, relative)
 	isSymlink := destinationInfo.Mode()&fs.ModeSymlink != 0
 	if isSymlink && slices.Contains(preferred, Symlink) {
-		target, readErr := os.Readlink(destination)
+		target, readErr := run.source.Readlink(destination)
 		if readErr == nil && target == source {
 			return Symlink, true, nil
 		}
 	}
-	if !isSymlink && slices.Contains(preferred, Hardlink) && os.SameFile(sourceInfo, destinationInfo) {
+	if !isSymlink && slices.Contains(preferred, Hardlink) && sameFile(run.source, sourceInfo, destinationInfo) {
 		return Hardlink, true, nil
 	}
 	return 0, false, fmt.Errorf("%w: %s", ErrDestinationExists, destination)
-}
-
-// transaction mémorise, dans l'ordre de création, les liens et dossiers créés par un appel d'Apply, et les racines
-// déjà résolues.
-type transaction struct {
-	created       []string
-	resolvedRoots map[string]string
-}
-
-// confine renvoie la racine résolue (une racine elle-même symbolique est légitime) et le chemin relatif de la
-// destination sous cette racine.
-func (run *transaction) confine(operation Op) (string, string, error) {
-	resolvedRoot, err := run.resolveRoot(operation.Root)
-	if err != nil {
-		return "", "", err
-	}
-	absoluteRoot, rootErr := filepath.Abs(operation.Root)
-	absoluteDestination, destinationErr := filepath.Abs(operation.Destination)
-	if rootErr != nil || destinationErr != nil {
-		return "", "", fmt.Errorf("%w: %s", ErrDestinationEscapesRoot, operation.Destination)
-	}
-	relative, err := filepath.Rel(absoluteRoot, absoluteDestination)
-	if err != nil || relative == "." || !filepath.IsLocal(relative) {
-		return "", "", fmt.Errorf("%w: %s", ErrDestinationEscapesRoot, operation.Destination)
-	}
-	return resolvedRoot, relative, nil
-}
-
-func (run *transaction) resolveRoot(root string) (string, error) {
-	if resolvedRoot, found := run.resolvedRoots[root]; found {
-		return resolvedRoot, nil
-	}
-	if root == "" {
-		return "", fmt.Errorf("%w: empty root", ErrDestinationEscapesRoot)
-	}
-	absoluteRoot, err := filepath.Abs(root)
-	if err != nil {
-		return "", err
-	}
-	resolvedRoot, err := filepath.EvalSymlinks(absoluteRoot)
-	if err != nil {
-		return "", fmt.Errorf("linker: link root %s: %w", root, err)
-	}
-	run.resolvedRoots[root] = resolvedRoot
-	return resolvedRoot, nil
-}
-
-// ensureConfinedDir crée les dossiers manquants sous la racine en refusant tout composant symbolique, qui pourrait
-// mener hors de la racine.
-func (run *transaction) ensureConfinedDir(resolvedRoot, relativeDir string) error {
-	if relativeDir == "." {
-		return nil
-	}
-	current := resolvedRoot
-	for _, segment := range strings.Split(relativeDir, string(filepath.Separator)) {
-		current = filepath.Join(current, segment)
-		if err := run.ensureConfinedSegment(current); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (run *transaction) ensureConfinedSegment(directory string) error {
-	info, err := os.Lstat(directory)
-	if errors.Is(err, fs.ErrNotExist) {
-		mkdirErr := os.Mkdir(directory, dirMode) // #nosec G301 -- le client torrent doit pouvoir lire l'arborescence
-		if mkdirErr == nil {
-			run.created = append(run.created, directory)
-			return nil
-		}
-		if !errors.Is(mkdirErr, fs.ErrExist) {
-			return mkdirErr
-		}
-		info, err = os.Lstat(directory)
-	}
-	if err != nil {
-		return err
-	}
-	if info.Mode()&fs.ModeSymlink != 0 {
-		return fmt.Errorf("%w: %s is a symlink", ErrDestinationEscapesRoot, directory)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("linker: %s is not a directory", directory)
-	}
-	return nil
-}
-
-// checkParentInRoot ne ferme pas la course entre ce contrôle et la création du lien ; os.Root ne peut pas servir ici
-// car la source du lien est hors de la racine.
-func checkParentInRoot(resolvedRoot, destination string) error {
-	resolvedParent, err := filepath.EvalSymlinks(filepath.Dir(destination))
-	if err != nil {
-		return err
-	}
-	relative, err := filepath.Rel(resolvedRoot, resolvedParent)
-	if err != nil || !filepath.IsLocal(relative) {
-		return fmt.Errorf("%w: %s", ErrDestinationEscapesRoot, destination)
-	}
-	return nil
-}
-
-// rollback retire en ordre inverse ce que l'appel a créé ; os.Remove ne supprime qu'un nom de lien ou un dossier
-// vide, jamais le contenu d'un fichier de la bibliothèque.
-func (run *transaction) rollback() error {
-	var failures []error
-	for index := len(run.created) - 1; index >= 0; index-- {
-		err := os.Remove(run.created[index])
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			failures = append(failures, fmt.Errorf("linker: rollback: %w", err))
-		}
-	}
-	return errors.Join(failures...)
 }

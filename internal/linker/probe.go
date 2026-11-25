@@ -1,14 +1,14 @@
 package linker
 
 import (
+	"bytes"
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
-	"os"
-	"path/filepath"
 
-	"necromanciarr/internal/fsys/local"
+	"necromanciarr/internal/fsys"
 )
 
 // Capabilities dit quelles sortes de liens le volume accepte réellement ; Reasons donne l'erreur typée de chaque refus.
@@ -35,82 +35,197 @@ const (
 	errProbeWrongInode = "linker: probe link does not resolve to the probe file"
 )
 
-// Probe sonde directory en y créant puis supprimant des entrées « .necromanciarr-probe-<aléatoire> » ; aucun autre
-// fichier n'est touché. Un montage rclone ou FUSE refuse souvent symlink et hardlink : seule une vraie création le dit.
-func Probe(directory string) (Capabilities, error) {
-	return ProbeBetween(directory, directory)
+// errNoProbeSample : le dossier source ne montre aucun fichier ordinaire vers lequel essayer un lien dur ou un reflink.
+var errNoProbeSample = errors.New("linker: no regular file in the source directory to probe from")
+
+// Probe sonde root en y créant puis supprimant des entrées « .necromanciarr-probe-<aléatoire> » ; aucun autre
+// fichier n'est touché, rien n'est écrit hors de root. Un montage rclone ou FUSE refuse souvent symlink et hardlink :
+// seule une vraie création le dit.
+func Probe(root fsys.WriteRoot) (Capabilities, error) {
+	return systemApplier().probe(root)
 }
 
-// ProbeBetween sonde la création, dans destDir, de liens vers un fichier d'essai créé dans sourceDir ; hardlink et
-// reflink exigent alors le même système de fichiers.
-func ProbeBetween(sourceDir, destDir string) (Capabilities, error) {
-	return systemApplier().probeBetween(sourceDir, destDir)
-}
-
-func systemApplier() applier {
-	return applier{linkers: map[Kind]linkFunc{Hardlink: hardlink, Reflink: local.Reflink, Symlink: symlink}}
-}
-
-func (linkApplier applier) probeBetween(sourceDir, destDir string) (capabilities Capabilities, err error) {
-	resolvedSource, err := resolveProbeDirectory(sourceDir)
+// ProbeDirectory ouvre directory par registry (refus d'un dossier qui recouvre la bibliothèque) puis le sonde
+// comme Probe.
+func ProbeDirectory(registry *fsys.Registry, directory fsys.Location) (Capabilities, error) {
+	root, err := registry.WriteRoot(directory)
 	if err != nil {
 		return Capabilities{}, err
 	}
-	resolvedDest, err := resolveProbeDirectory(destDir)
+	defer func() { _ = root.Close() }()
+	return Probe(root)
+}
+
+// ProbeBetween sonde root comme Probe, puis la création dans root d'un lien dur et d'un reflink vers un fichier
+// déjà présent dans sourceDir, lu par source (le premier fichier ordinaire, par ordre de nom) : hardlink et
+// reflink exigent le même système de fichiers. Rien n'est écrit dans sourceDir.
+func ProbeBetween(source fsys.ReadFS, sourceDir string, root fsys.WriteRoot) (Capabilities, error) {
+	return systemApplier().probeBetween(source, sourceDir, root)
+}
+
+// probeSubject est le fichier que visent les liens d'essai ; view sert à suivre un lien et à comparer les
+// identités (nil : seul le Lstat de la racine est disponible).
+type probeSubject struct {
+	location      fsys.Location
+	info          fs.FileInfo
+	symlinkTarget string
+	view          fsys.ReadFS
+}
+
+func (linkApplier applier) probe(root fsys.WriteRoot) (capabilities Capabilities, err error) {
+	probeName, probeInfo, err := createProbeFile(root, "")
 	if err != nil {
 		return Capabilities{}, err
 	}
-	probePath, probeInfo, err := createProbeFile(resolvedSource, "")
-	if err != nil {
-		return Capabilities{}, err
+	defer func() { err = errors.Join(err, removeProbeEntry(root, probeName)) }()
+	subject := probeSubject{
+		location:      fsys.Location{Volume: root.Root().Volume, Path: absoluteIn(root, probeName)},
+		info:          probeInfo,
+		symlinkTarget: probeName,
+		view:          readViewOf(root),
 	}
-	defer func() { err = errors.Join(err, removeProbeEntry(probePath)) }()
-	probedKinds := []Kind{Hardlink, Reflink, Symlink}
-	capabilities = Capabilities{Reasons: make(map[Kind]error, len(probedKinds)), SourceDir: resolvedSource, DestDir: resolvedDest}
-	for _, kind := range probedKinds {
-		reason, cleanupErr := linkApplier.probeKind(kind, probePath, probeInfo, resolvedDest)
-		if cleanupErr != nil {
-			return Capabilities{}, cleanupErr
+	rootPath := root.Root().Path
+	capabilities = Capabilities{Reasons: map[Kind]error{}, SourceDir: rootPath, DestDir: rootPath}
+	for _, kind := range []Kind{Hardlink, Reflink, Symlink} {
+		if err := linkApplier.probeAndRecord(&capabilities, kind, root, subject); err != nil {
+			return Capabilities{}, err
 		}
-		capabilities.record(kind, reason)
 	}
-	capabilities.RenameReason, err = linkApplier.probeRenameOverwrite(resolvedDest)
+	capabilities.RenameReason, err = linkApplier.probeRenameOverwrite(root, subject.view)
 	capabilities.RenameOverwrite = capabilities.RenameReason == nil
 	return capabilities, err
 }
 
-// probeRenameOverwrite renomme un fichier d'essai A par-dessus un fichier d'essai B, puis exige que B porte le contenu
-// de A et que A ait disparu ; la raison du refus et l'échec du nettoyage sont renvoyés séparément.
-func (linkApplier applier) probeRenameOverwrite(directory string) (reason, cleanupErr error) {
-	rename := linkApplier.rename
-	if rename == nil {
-		rename = os.Rename
-	}
-	movedPath, _, err := createProbeFile(directory, probeRenameContent)
+func (linkApplier applier) probeBetween(source fsys.ReadFS, sourceDir string, root fsys.WriteRoot) (Capabilities, error) {
+	resolvedSource, err := probeDirectory(source, sourceDir)
 	if err != nil {
-		return nil, err
+		return Capabilities{}, err
 	}
-	defer func() { cleanupErr = errors.Join(cleanupErr, removeProbeEntry(movedPath)) }()
-	replacedPath, _, err := createProbeFile(directory, "")
+	capabilities, err := linkApplier.probe(root)
 	if err != nil {
-		return nil, err
+		return Capabilities{}, err
 	}
-	defer func() { cleanupErr = errors.Join(cleanupErr, removeProbeEntry(replacedPath)) }()
-	if err := rename(movedPath, replacedPath); err != nil {
-		return fmt.Errorf("%w: %w", ErrRenameOverwrite, err), nil
+	capabilities.SourceDir = resolvedSource
+	subject, err := sampleSubject(source, resolvedSource, root)
+	for _, kind := range []Kind{Hardlink, Reflink} {
+		capabilities.reset(kind)
+		if err != nil {
+			capabilities.record(kind, err)
+			continue
+		}
+		if probeErr := linkApplier.probeAndRecord(&capabilities, kind, root, subject); probeErr != nil {
+			return Capabilities{}, probeErr
+		}
 	}
-	return checkRenamed(movedPath, replacedPath), nil
+	return capabilities, nil
 }
 
-func checkRenamed(movedPath, replacedPath string) error {
-	content, err := os.ReadFile(replacedPath) // #nosec G304 -- entrée d'essai créée par la sonde
-	if err != nil || string(content) != probeRenameContent {
+// probeDirectory : un dossier lui-même symbolique est légitime, c'est sa cible qui est sondée.
+func probeDirectory(source fsys.ReadFS, directory string) (string, error) {
+	resolvedDirectory, err := source.Canonical(directory)
+	if err != nil {
+		return "", fmt.Errorf("linker: probe directory %s: %w", directory, err)
+	}
+	info, err := source.Stat(resolvedDirectory)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("linker: probe directory %s is not a directory", directory)
+	}
+	return resolvedDirectory, nil
+}
+
+// sampleSubject choisit le premier fichier ordinaire de directory ; un autre volume que root ne peut porter ni lien
+// dur ni reflink.
+func sampleSubject(source fsys.ReadFS, directory string, root fsys.WriteRoot) (probeSubject, error) {
+	if source.Volume() != root.Root().Volume {
+		return probeSubject{}, fmt.Errorf("%w: source directory on another volume", ErrCrossDevice)
+	}
+	entries, err := source.ReadDir(directory)
+	if err != nil {
+		return probeSubject{}, err
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			continue
+		}
+		samplePath := source.Paths().Join(directory, entry.Name())
+		info, err := source.Lstat(samplePath)
+		if err == nil && info.Mode().IsRegular() {
+			location := fsys.Location{Volume: source.Volume(), Path: samplePath}
+			return probeSubject{location: location, info: info, symlinkTarget: samplePath, view: source}, nil
+		}
+	}
+	return probeSubject{}, errNoProbeSample
+}
+
+// probeAndRecord note la raison d'un refus ; seul l'échec du nettoyage arrête la sonde.
+func (linkApplier applier) probeAndRecord(capabilities *Capabilities, kind Kind, root fsys.WriteRoot, subject probeSubject) error {
+	reason, cleanupErr := linkApplier.probeKind(kind, root, subject)
+	if cleanupErr != nil {
+		return cleanupErr
+	}
+	capabilities.record(kind, reason)
+	return nil
+}
+
+// probeRenameOverwrite renomme un fichier d'essai A par-dessus un fichier d'essai B, puis exige que B porte le contenu
+// de A et que A ait disparu ; la raison du refus et l'échec du nettoyage sont renvoyés séparément.
+func (linkApplier applier) probeRenameOverwrite(root fsys.WriteRoot, view fsys.ReadFS) (reason, cleanupErr error) {
+	rename := linkApplier.rename
+	if rename == nil {
+		rename = func(root fsys.WriteRoot, oldRelative, newRelative string) error {
+			return root.Replace(oldRelative, newRelative)
+		}
+	}
+	movedName, _, err := createProbeFile(root, probeRenameContent)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { cleanupErr = errors.Join(cleanupErr, removeProbeEntry(root, movedName)) }()
+	replacedName, _, err := createProbeFile(root, "")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { cleanupErr = errors.Join(cleanupErr, removeProbeEntry(root, replacedName)) }()
+	if err := rename(root, movedName, replacedName); err != nil {
+		return fmt.Errorf("%w: %w", ErrRenameOverwrite, err), nil
+	}
+	return checkRenamed(root, view, movedName, replacedName), nil
+}
+
+func checkRenamed(root fsys.WriteRoot, view fsys.ReadFS, movedName, replacedName string) error {
+	if !holdsContent(root, view, replacedName, probeRenameContent) {
 		return fmt.Errorf("%w: destination does not hold the renamed content", ErrRenameOverwrite)
 	}
-	if _, err := os.Lstat(movedPath); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := root.Lstat(movedName); !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("%w: source still present after rename", ErrRenameOverwrite)
 	}
 	return nil
+}
+
+// holdsContent relit le fichier quand la vue du volume est connue ; sinon sa taille seule est comparée.
+func holdsContent(root fsys.WriteRoot, view fsys.ReadFS, relative, content string) bool {
+	info, err := root.Lstat(relative)
+	if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(content)) {
+		return false
+	}
+	if view == nil {
+		return true
+	}
+	existing, err := readWhole(view, absoluteIn(root, relative), info.Size())
+	return err == nil && bytes.Equal(existing, []byte(content))
+}
+
+// readWhole lit au plus size+1 octets : un fichier qui a grandi depuis le Lstat ne passe pas pour identique.
+func readWhole(view fsys.ReadFS, name string, size int64) ([]byte, error) {
+	file, err := view.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	return io.ReadAll(io.NewSectionReader(file, 0, size+1))
 }
 
 func (capabilities *Capabilities) record(kind Kind, reason error) {
@@ -128,81 +243,93 @@ func (capabilities *Capabilities) record(kind Kind, reason error) {
 	}
 }
 
-// resolveProbeDirectory : un dossier lui-même symbolique est légitime, les entrées d'essai sont créées dans sa cible.
-func resolveProbeDirectory(directory string) (string, error) {
-	absoluteDirectory, err := filepath.Abs(directory)
-	if err != nil {
-		return "", err
+func (capabilities *Capabilities) reset(kind Kind) {
+	delete(capabilities.Reasons, kind)
+	switch kind {
+	case Hardlink:
+		capabilities.Hardlink = false
+	case Reflink:
+		capabilities.Reflink = false
 	}
-	resolvedDirectory, err := filepath.EvalSymlinks(absoluteDirectory)
-	if err != nil {
-		return "", fmt.Errorf("linker: probe directory %s: %w", directory, err)
-	}
-	info, err := os.Stat(resolvedDirectory)
-	if err != nil {
-		return "", err
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("linker: probe directory %s is not a directory", directory)
-	}
-	return resolvedDirectory, nil
 }
 
-func probeEntryPath(directory string) string {
-	return filepath.Join(directory, probePrefix+rand.Text())
+func probeEntryName() string {
+	return probePrefix + rand.Text()
 }
 
 // createProbeFile crée en exclusif : un nom déjà pris, même par un lien pendant, fait échouer au lieu d'être suivi.
-func createProbeFile(directory, content string) (string, fs.FileInfo, error) {
-	probePath := probeEntryPath(directory)
-	probeFile, err := os.OpenFile(probePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, probeFileMode) // #nosec G304 -- nom aléatoire sous le dossier sondé
+func createProbeFile(root fsys.WriteRoot, content string) (string, fs.FileInfo, error) {
+	probeName := probeEntryName()
+	writer, err := root.CreateExclusive(probeName, probeFileMode)
 	if err != nil {
-		return "", nil, fmt.Errorf("linker: create probe file: %w", err)
+		return "", nil, fmt.Errorf("linker: create probe file: %w", confined(err))
 	}
-	_, writeErr := probeFile.WriteString(content)
-	info, statErr := probeFile.Stat()
-	if closeErr := probeFile.Close(); writeErr != nil || statErr != nil || closeErr != nil {
-		return "", nil, errors.Join(writeErr, statErr, closeErr, removeProbeEntry(probePath))
+	_, writeErr := io.WriteString(writer, content)
+	closeErr := writer.Close()
+	info, statErr := root.Lstat(probeName)
+	if writeErr != nil || closeErr != nil || statErr != nil {
+		return "", nil, errors.Join(writeErr, closeErr, statErr, removeProbeEntry(root, probeName))
 	}
-	return probePath, info, nil
+	return probeName, info, nil
 }
 
 // probeKind renvoie la raison du refus de kind, et séparément l'échec du nettoyage, qui doit arrêter la sonde.
-func (linkApplier applier) probeKind(kind Kind, probePath string, probeInfo fs.FileInfo, destDir string) (reason, cleanupErr error) {
+func (linkApplier applier) probeKind(kind Kind, root fsys.WriteRoot, subject probeSubject) (reason, cleanupErr error) {
 	linker, known := linkApplier.linkers[kind]
 	if !known {
 		return fmt.Errorf("%w: %v", ErrUnsupported, kind), nil
 	}
-	linkPath := probeEntryPath(destDir)
-	source := probePath
+	linkName := probeEntryName()
+	source := subject.location
 	if kind == Symlink {
-		relativeSource, err := RelativeSymlinkTarget(linkPath, probePath)
-		if err != nil {
-			return err, nil
-		}
-		source = relativeSource
+		source = fsys.Location{Volume: source.Volume, Path: subject.symlinkTarget}
 	}
-	if err := linker(source, linkPath); err != nil {
-		return err, nil
+	if err := linker(root, source, linkName); err != nil {
+		return confined(err), nil
 	}
-	return checkProbeLink(kind, linkPath, probeInfo), removeProbeEntry(linkPath)
+	return checkProbeLink(kind, root, subject, linkName), removeProbeEntry(root, linkName)
 }
 
-func checkProbeLink(kind Kind, linkPath string, probeInfo fs.FileInfo) error {
-	linkInfo, err := os.Stat(linkPath)
+func checkProbeLink(kind Kind, root fsys.WriteRoot, subject probeSubject, linkName string) error {
+	linkInfo, err := root.Lstat(linkName)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrLinkRefused, err)
 	}
 	// Un reflink est un fichier distinct : seule son existence compte ; symlink et hardlink doivent mener au fichier d'essai.
-	if kind != Reflink && !os.SameFile(probeInfo, linkInfo) {
+	switch {
+	case kind == Reflink:
+		return nil
+	case kind == Symlink && subject.view == nil:
+		return checkIsSymlink(linkInfo)
+	case kind == Symlink:
+		linkInfo, err = subject.view.Stat(absoluteIn(root, linkName))
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrLinkRefused, err)
+		}
+	}
+	if !leadsToSubject(subject, linkInfo) {
 		return fmt.Errorf("%w: %s", ErrLinkRefused, errProbeWrongInode)
 	}
 	return nil
 }
 
-func removeProbeEntry(path string) error {
-	err := os.Remove(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+func checkIsSymlink(linkInfo fs.FileInfo) error {
+	if linkInfo.Mode()&fs.ModeSymlink == 0 {
+		return fmt.Errorf("%w: probe entry is not a symbolic link", ErrLinkRefused)
+	}
+	return nil
+}
+
+// leadsToSubject : sans vue du volume, un lien dur se juge à son type et à sa taille.
+func leadsToSubject(subject probeSubject, linkInfo fs.FileInfo) bool {
+	if subject.view == nil {
+		return linkInfo.Mode().IsRegular() && linkInfo.Size() == subject.info.Size()
+	}
+	return sameFile(subject.view, subject.info, linkInfo)
+}
+
+func removeProbeEntry(root fsys.WriteRoot, relative string) error {
+	if err := removeIfPresent(root, relative); err != nil {
 		return fmt.Errorf("linker: remove probe entry: %w", err)
 	}
 	return nil

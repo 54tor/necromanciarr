@@ -75,9 +75,6 @@ func Apply(ctx context.Context, replacements []Replacement, options Options) (Re
 	if options.Recorder == nil && !options.DryRun {
 		return Result{}, ErrNoRecorder
 	}
-	if options.createLink == nil {
-		options.createLink = linker.CreateLinkInRoot
-	}
 	verification, err := normalizeVerification(options.Verify)
 	if err != nil {
 		return Result{}, err
@@ -269,7 +266,11 @@ func linkTarget(replacement Replacement, relativeSymlinks bool) (string, bool, e
 
 func replaceWithLink(replacement Replacement, options Options, root, target string, libraryInfo fs.FileInfo) error {
 	temporaryPath := temporaryPathFor(replacement.TorrentPath, replacement.Size)
-	if err := options.createLink(replacement.Kind, target, temporaryPath, root); err != nil {
+	createLink := options.createLink
+	if createLink == nil {
+		createLink = registryLink(options.Registry, replacement.LibraryPath)
+	}
+	if err := createLink(replacement.Kind, target, temporaryPath, root); err != nil {
 		return err
 	}
 	err := checkTemporaryLink(replacement, temporaryPath, libraryInfo)

@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
 )
@@ -71,7 +72,7 @@ func IsolateStraddlingMedia(ctx context.Context, deps Deps, proposal store.Propo
 // straddlingLinks liste les liens du dossier qui désignent encore le fichier de la bibliothèque (lien dur ou
 // symbolique) et recouvrent une pièce que le client devra télécharger ; un reflink ou une copie est déjà indépendant.
 func straddlingLinks(proven provenTorrent, linkRoot string) ([]linker.Op, error) {
-	ops, err := linker.Plan(proven.torrent, proven.assignment, linkRoot)
+	ops, err := linker.Plan(proven.torrent, proven.assignment, linkRoot, fsys.LocalPaths())
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +139,7 @@ func sharesLibraryFile(operation linker.Op) (bool, error) {
 func prepareCopies(deps Deps, ops []linker.Op) ([]linker.PreparedCopy, error) {
 	prepare := deps.PrepareCopy
 	if prepare == nil {
-		prepare = linker.PrepareCopy
+		prepare = deps.prepareCopyUnder
 	}
 	prepared := make([]linker.PreparedCopy, 0, len(ops))
 	for _, operation := range ops {

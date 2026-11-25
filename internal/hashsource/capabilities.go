@@ -7,6 +7,8 @@ import (
 	"slices"
 	"time"
 
+	"necromanciarr/internal/fsys"
+	localfs "necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/store"
 )
@@ -29,7 +31,7 @@ func (capabilities Capabilities) Supports(algorithm Algorithm) bool {
 
 // ProbeCapabilities demande à source chaque algorithme de AllAlgorithms pour samplePath (un petit fichier réel du
 // montage), lit sa date de modification et, si writableDir n'est pas vide, essaie un symlink dans ce dossier
-// (linker.Probe y crée puis supprime des entrées d'essai).
+// (linker.ProbeDirectory y crée puis supprime des entrées d'essai, jamais dans un dossier qui contient samplePath).
 func ProbeCapabilities(ctx context.Context, source HashSource, samplePath, writableDir string) (Capabilities, error) {
 	if samplePath == "" {
 		return Capabilities{}, ErrNoSampleFile
@@ -48,7 +50,7 @@ func ProbeCapabilities(ctx context.Context, source HashSource, samplePath, writa
 		return Capabilities{}, err
 	}
 	if writableDir != "" {
-		probed, err := linker.Probe(writableDir)
+		probed, err := probeWritableDir(samplePath, writableDir)
 		if err != nil {
 			return Capabilities{}, err
 		}
@@ -59,6 +61,16 @@ func ProbeCapabilities(ctx context.Context, source HashSource, samplePath, writa
 		}
 	}
 	return capabilities, nil
+}
+
+// probeWritableDir ouvre writableDir par un registre dont la bibliothèque est le fichier d'essai du montage : un
+// dossier qui le contient est refusé, rien n'est écrit à côté de ce qu'on lit.
+func probeWritableDir(samplePath, writableDir string) (linker.Capabilities, error) {
+	registry, err := localfs.NewRegistry(samplePath)
+	if err != nil {
+		return linker.Capabilities{}, err
+	}
+	return linker.ProbeDirectory(registry, fsys.Location{Path: writableDir})
 }
 
 // CapabilityCache est la part de la base utilisée pour mémoriser les sondes ; implémenté par store.Store.

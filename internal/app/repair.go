@@ -214,7 +214,9 @@ func (svc *service) applyRepair(ctx context.Context, details RepairDetails, resu
 	if details.ScanDirectory != "" {
 		roots = append(roots, details.ScanDirectory)
 	}
-	applyOptions := repair.ApplyOptions{Roots: existingDirectories(roots), DryRun: result.DryRun, Store: svc.deps.Store}
+	applyOptions := repair.ApplyOptions{
+		Roots: existingDirectories(roots), DryRun: result.DryRun, Store: svc.deps.Store, Registry: svc.deps.Stages.Registry,
+	}
 	if svc.canRecheck() {
 		applyOptions.Rechecker = svc.clientView()
 	}

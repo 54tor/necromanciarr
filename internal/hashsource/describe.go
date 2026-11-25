@@ -59,7 +59,7 @@ func DescribeMount(ctx context.Context, mount Mount) MountReport {
 }
 
 // DescribeMountWith demande une empreinte d'essai pour chaque algorithme, lit la date du fichier d'essai et explique
-// en Advice ce qui manque. Rien n'est écrit, hors les entrées d'essai de linker.Probe dans WritableDir.
+// en Advice ce qui manque. Rien n'est écrit, hors les entrées d'essai de linker.ProbeDirectory dans WritableDir.
 func DescribeMountWith(ctx context.Context, mount Mount, options DescribeOptions) MountReport {
 	report := MountReport{Mount: mount, Mode: ModeNone}
 	source, err := NewRclone(RcloneOptions{RCURL: options.RCURL, Binary: options.Binary, Mounts: []Mount{mount}, Timeout: options.Timeout})

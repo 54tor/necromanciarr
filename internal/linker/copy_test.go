@@ -6,14 +6,22 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"necromanciarr/internal/fsys"
 )
 
 const plentyOfSpace = 1 << 40
 
-func refusingReflink(_, _ string) error { return ErrUnsupported }
+func refusingReflink(fsys.WriteRoot, fsys.Location, string) error { return ErrUnsupported }
 
-func fixedFreeBytes(available uint64) func(string) (uint64, error) {
-	return func(string) (uint64, error) { return available, nil }
+func fixedFreeBytes(available uint64) func(fsys.Location) (uint64, error) {
+	return func(fsys.Location) (uint64, error) { return available, nil }
+}
+
+// prepareIn appelle prepare avec les formes qu'attend PrepareCopy : racine ouverte, source en Location, chemin relatif.
+func (fileCopier copier) prepareIn(t *testing.T, source, destination, root string) (PreparedCopy, error) {
+	t.Helper()
+	return fileCopier.prepare(openRoot(t, root), localLocation(source), relativeTo(t, root, destination))
 }
 
 // hardlinkedDestination pose sous un dossier de liens un lien dur vers un fichier « de bibliothèque ».
@@ -38,7 +46,7 @@ func TestPrepareCopy_plainCopyReplacesHardlinkOnlyOnCommit(t *testing.T) {
 	expectedContent := readFile(t, source)
 	fileCopier := copier{reflink: refusingReflink, freeBytes: fixedFreeBytes(plentyOfSpace)}
 
-	prepared, err := fileCopier.prepare(source, destination, root)
+	prepared, err := fileCopier.prepareIn(t, source, destination, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,13 +70,18 @@ func TestPrepareCopy_plainCopyReplacesHardlinkOnlyOnCommit(t *testing.T) {
 func TestPrepareCopy_prefersReflinkWhenAvailable(t *testing.T) {
 	source, destination, root := hardlinkedDestination(t)
 	cloned := false
-	fakeReflink := func(from, to string) error {
+	fakeReflink := func(writeRoot fsys.WriteRoot, from fsys.Location, to string) error {
 		cloned = true
-		return os.WriteFile(to, readFile(t, from), 0o600)
+		writer, err := writeRoot.CreateExclusive(to, 0o600)
+		if err != nil {
+			return err
+		}
+		_, err = writer.Write(readFile(t, from.Path))
+		return errors.Join(err, writer.Close())
 	}
 	fileCopier := copier{reflink: fakeReflink, freeBytes: fixedFreeBytes(0)}
 
-	prepared, err := fileCopier.prepare(source, destination, root)
+	prepared, err := fileCopier.prepareIn(t, source, destination, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,16 +96,16 @@ func TestPrepareCopy_prefersReflinkWhenAvailable(t *testing.T) {
 func TestPrepareCopy_refusesWithoutEnoughFreeSpaceAndLeavesNothing(t *testing.T) {
 	source, destination, root := hardlinkedDestination(t)
 	testCases := map[string]struct {
-		freeBytes     func(string) (uint64, error)
+		freeBytes     func(fsys.Location) (uint64, error)
 		expectedError error
 	}{
 		"too little space": {freeBytes: fixedFreeBytes(1024), expectedError: ErrInsufficientSpace},
-		"unknown space":    {freeBytes: func(string) (uint64, error) { return 0, errors.ErrUnsupported }, expectedError: ErrFreeSpaceUnknown},
+		"unknown space":    {freeBytes: func(fsys.Location) (uint64, error) { return 0, errors.ErrUnsupported }, expectedError: ErrFreeSpaceUnknown},
 	}
 	for name, testCase := range testCases {
 		t.Run(name, func(t *testing.T) {
 			fileCopier := copier{reflink: refusingReflink, freeBytes: testCase.freeBytes}
-			_, gotErr := fileCopier.prepare(source, destination, root)
+			_, gotErr := fileCopier.prepareIn(t, source, destination, root)
 			if !errors.Is(gotErr, testCase.expectedError) {
 				t.Fatalf("expected %v, got %v", testCase.expectedError, gotErr)
 			}
@@ -108,7 +121,7 @@ func TestPrepareCopy_refusesDestinationOutsideRoot(t *testing.T) {
 	source, _, root := hardlinkedDestination(t)
 	fileCopier := copier{reflink: refusingReflink, freeBytes: fixedFreeBytes(plentyOfSpace)}
 
-	_, gotErr := fileCopier.prepare(source, filepath.Join(filepath.Dir(root), "elsewhere.mkv"), root)
+	_, gotErr := fileCopier.prepareIn(t, source, filepath.Join(filepath.Dir(root), "elsewhere.mkv"), root)
 	if !errors.Is(gotErr, ErrDestinationEscapesRoot) {
 		t.Fatalf("expected ErrDestinationEscapesRoot, got %v", gotErr)
 	}

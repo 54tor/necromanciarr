@@ -124,7 +124,7 @@ func TestIsolateStraddlingMedia_refusesAndChangesNothingWhenACopyIsImpossible(t 
 	fixture.prepareCopy = func(source, destination, root string) (linker.PreparedCopy, error) {
 		prepareCalls++
 		if prepareCalls == 1 {
-			return linker.PrepareCopy(source, destination, root)
+			return fixture.applyDeps().prepareCopyUnder(source, destination, root)
 		}
 		return linker.PreparedCopy{}, linker.ErrInsufficientSpace
 	}

@@ -52,6 +52,9 @@ func checkLinkFeasibility(settings config.Config, deps Deps) Result {
 		return Result{Status: Skipped, Code: CodeNoLinkDirectory, Detail: message(i18n.KeyDoctorLinksNone)}
 	}
 	kinds := allowedKinds(settings)
+	if deps.Probe == nil {
+		deps.Probe = registryProbe(settings.LibraryRoots)
+	}
 	var collected findings
 	for _, directory := range directories {
 		if _, resolveErr := filepath.EvalSymlinks(directory); resolveErr != nil {

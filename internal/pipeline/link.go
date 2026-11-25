@@ -12,6 +12,7 @@ import (
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/dedupe"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/matcher"
 	"necromanciarr/internal/store"
@@ -155,7 +156,7 @@ func (run linkRun) linkProposal(ctx context.Context, proposal store.Proposal, ca
 	if err != nil {
 		return failProposal(ctx, run.deps, run.result, proposal.ID, ReasonLinkRootUnusable)
 	}
-	ops, err := linker.Plan(proven.torrent, proven.assignment, destRoot)
+	ops, err := linker.Plan(proven.torrent, proven.assignment, destRoot, fsys.LocalPaths())
 	if err != nil {
 		return failProposal(ctx, run.deps, run.result, proposal.ID, ReasonLinkRootUnusable)
 	}
@@ -187,12 +188,17 @@ func (run linkRun) place(ctx context.Context, proposalID int64, proven provenTor
 	if err != nil || reason != "" {
 		return reason, err
 	}
-	applied, err := linker.Apply(reconciled.pending, kinds)
+	root, source, err := run.deps.openLinkRoot(placement.destRoot)
+	if err != nil {
+		return ReasonLinkRootUnusable, nil
+	}
+	defer func() { _ = root.Close() }()
+	applied, err := linker.Apply(root, source, reconciled.pending, kinds)
 	if err != nil {
 		return applyFailureReason(err), nil
 	}
 	placement.links = reconciled.pending
-	if reason := run.writeAnnexes(proven, placement); reason != "" {
+	if reason := run.writeAnnexes(root, proven, placement); reason != "" {
 		return reason, nil
 	}
 	for opIndex, operation := range reconciled.pending {
@@ -317,7 +323,7 @@ func applyFailureReason(err error) string {
 	}
 }
 
-func (run linkRun) writeAnnexes(proven provenTorrent, placement *linkPlacement) string {
+func (run linkRun) writeAnnexes(root fsys.WriteRoot, proven provenTorrent, placement *linkPlacement) string {
 	for _, annex := range proven.annexes {
 		relative, err := linker.RelativeDestination(proven.torrent, annex.FileIndex)
 		if err != nil {
@@ -325,7 +331,7 @@ func (run linkRun) writeAnnexes(proven provenTorrent, placement *linkPlacement) 
 		}
 		destination := filepath.Join(placement.destRoot, filepath.FromSlash(relative))
 		_, statErr := os.Lstat(destination)
-		err = linker.WriteVerifiedFile(placement.destRoot, relative, annex.Data)
+		err = linker.WriteVerifiedFile(root, relative, annex.Data)
 		if errors.Is(err, linker.ErrDestinationExists) {
 			return ReasonDestinationConflict
 		}
@@ -379,7 +385,8 @@ func (run linkRun) chooseLinkDir(source string) (string, []linker.Kind, string) 
 	if len(kinds) == 0 {
 		kinds = []linker.Kind{linker.Hardlink}
 	}
-	linkDir, err := linker.ChooseLinkDir(source, run.deps.LinkDirs)
+	chosen, err := linker.ChooseLinkDir(fsys.Location{Path: source}, localLocations(run.deps.LinkDirs), readRegistryOrLocal(run.deps.Registry))
+	linkDir := chosen.Path
 	if err != nil {
 		kinds = keepKinds(kinds, func(kind linker.Kind) bool { return kind == linker.Symlink })
 		if len(kinds) == 0 {
@@ -428,7 +435,7 @@ func (run linkRun) probe(linkDir string) (linker.Capabilities, error) {
 	}
 	probe := run.deps.ProbeLinks
 	if probe == nil {
-		probe = linker.Probe
+		probe = run.deps.probeLinkDir
 	}
 	capabilities, err := probe(linkDir)
 	if err != nil {

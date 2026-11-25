@@ -13,6 +13,7 @@ import (
 	"github.com/anacrolix/torrent/metainfo"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/fsys/fsystest"
 	"necromanciarr/internal/libraryprovider"
 	"necromanciarr/internal/linker"
 	"necromanciarr/internal/pipeline"
@@ -186,6 +187,7 @@ func TestApp_neverWritesLibraryFiles(t *testing.T) {
 	service := New(Deps{Store: openedStore, Client: client, Config: settings, Stages: pipeline.Deps{
 		Store: openedStore, Sources: singleTorrentChain{raw: raw}, LinkDirs: []string{linkDir},
 		LinkKinds: []linker.Kind{linker.Hardlink}, Client: client, SkipRecheck: true,
+		Registry: fsystest.LocalRegistry(t, libraryDir),
 	}})
 
 	guarded := func(step string, action func() error) {

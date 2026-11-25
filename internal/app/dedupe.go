@@ -237,7 +237,7 @@ func (svc *service) dedupeOptions(ctx context.Context) dedupe.Options {
 		Kinds: kinds, RelativeSymlinks: settings.RelativeSymlinks, MinFileAge: settings.MinFileAge,
 		RecheckAfter: settings.RecheckAfter, Verify: dedupe.Verification(settings.Verify), TorrentRoots: settings.TorrentRoots,
 		Limiter: svc.deps.Stages.ReadLimiter, Fingerprints: svc.deps.Store, Recorder: svc.deps.Store,
-		Backend: svc.deps.HashSources, HashAlgorithms: algorithms,
+		Backend: svc.deps.HashSources, HashAlgorithms: algorithms, Registry: svc.deps.Stages.Registry,
 	}
 }
 

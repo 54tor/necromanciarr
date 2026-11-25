@@ -163,9 +163,10 @@ func LibraryScanner(mediaStore *store.Store, registry *fsys.Registry) RootScanne
 // toutes les ProgressInterval (0 = 5 s).
 //
 // Pour Link : LinkDirs (vue de ce processus) et LinkKinds, ordre des sortes de liens autorisées (vide = hardlink) ;
-// ProbeLinks nil vaut linker.Probe ; PrepareCopy nil vaut linker.PrepareCopy (copie indépendante posée avant un
-// Force). Pour Seed : Client, ClientMapper (nil = même vue que le client), Category et Tags,
-// SkipRecheck (permis de sauter le recontrôle quand notre vérification couvre 100 %), RecheckTimeout (0 = une heure),
+// ProbeLinks nil sonde par linker.ProbeDirectory ; PrepareCopy nil vaut linker.PrepareCopyUnder (copie indépendante
+// posée avant un Force). Toute racine d'écriture vient de Registry (nil : registre local avec LibraryRoots).
+// Pour Seed : Client, ClientMapper (nil = même vue que le client), Category et Tags, SkipRecheck (permis de sauter
+// le recontrôle quand notre vérification couvre 100 %), RecheckTimeout (0 = une heure),
 // Notifier (nil = aucun) et CrossSeedWarnings, les avertissements de crossseed.ResolveMode recopiés dans le Result.
 //
 // Pour Verify, Link et Seed : Announces résout l'annonce de chaque candidat d'après la section trackers (valeur zéro :

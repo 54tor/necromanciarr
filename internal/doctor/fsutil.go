@@ -6,7 +6,8 @@ import (
 	"path/filepath"
 
 	"necromanciarr/internal/config"
-
+	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/fsys/local"
 	"necromanciarr/internal/linker"
 )
 
@@ -20,9 +21,14 @@ func isDirectory(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// sameVolume s'appuie sur linker.ChooseLinkDir, qui compare les périphériques sans rien créer.
+// sameVolume s'appuie sur linker.ChooseLinkDir, qui compare les périphériques sans rien créer (registre en lecture
+// seule, sans racine de bibliothèque).
 func sameVolume(firstPath, secondPath string) (bool, error) {
-	_, err := linker.ChooseLinkDir(firstPath, []string{secondPath})
+	readRegistry, err := local.NewRegistry()
+	if err != nil {
+		return false, err
+	}
+	_, err = linker.ChooseLinkDir(fsys.Location{Path: firstPath}, []fsys.Location{{Path: secondPath}}, readRegistry)
 	if err == nil {
 		return true, nil
 	}
@@ -36,6 +42,18 @@ func sameVolume(firstPath, secondPath string) (bool, error) {
 func isOnlyDifferentDevice(err error) bool {
 	joined, isJoined := err.(interface{ Unwrap() []error })
 	return errors.Is(err, linker.ErrNoLinkDirOnSameDevice) && isJoined && len(joined.Unwrap()) == 1
+}
+
+// registryProbe sonde un dossier de liens à travers la racine d'écriture du registre des racines de bibliothèque :
+// un dossier qui en recouvre une est refusé avant toute entrée d'essai.
+func registryProbe(libraryRoots []string) func(directory string) (linker.Capabilities, error) {
+	return func(directory string) (linker.Capabilities, error) {
+		registry, err := local.NewRegistry(libraryRoots...)
+		if err != nil {
+			return linker.Capabilities{}, err
+		}
+		return linker.ProbeDirectory(registry, fsys.Location{Path: directory})
+	}
 }
 
 // insideLibraryRoot résout les liens symboliques des deux côtés avant de comparer : un lien ou un montage ne doit pas
