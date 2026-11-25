@@ -223,7 +223,7 @@ func (search *candidateSearch) download(ctx context.Context, indexer ID, item to
 }
 
 // keep prouve la taille (un fichier de la taille exacte d'un fichier local encore sans candidat : un .torrent qui ne
-// couvre qu'un fichier déjà couvert n'est pas utile) avant tout le reste, assainit, contrôle
+// couvre qu'un fichier déjà couvert n'est pas utile) avant tout le reste, choisit le nom sans passkey (releaseName), assainit, contrôle
 // que l'assainissement n'a pas changé l'infohash calculé, puis scelle avec la liaison des valeurs qui seront
 // enregistrées sur la ligne du candidat (infohash calculé, tracker de l'indexeur, source) ; quand une entrée trackers
 // couvre ce tracker, rien n'est scellé.
@@ -239,6 +239,10 @@ func (search *candidateSearch) keep(indexer ID, item torznab.Item, raw []byte) (
 	if !hasLocalSize(fileSizes, slices.Collect(maps.Keys(search.uncovered))) {
 		return keptTorrent{}, ErrNoExactSize
 	}
+	name, err := releaseName(raw, item.Title, parsed)
+	if err != nil {
+		return keptTorrent{}, err
+	}
 	sanitized, err := Sanitize(raw)
 	if err != nil {
 		return keptTorrent{}, err
@@ -246,7 +250,7 @@ func (search *candidateSearch) keep(indexer ID, item torznab.Item, raw []byte) (
 	if err := requireInfohash(sanitized, parsed.InfoHash); err != nil {
 		return keptTorrent{}, err
 	}
-	release := Release{Infohash: parsed.InfoHash, Tracker: search.chain.searchTracker(indexer), Name: cmp.Or(fallbackQueryText(item.Title), parsed.Root)}
+	release := Release{Infohash: parsed.InfoHash, Tracker: search.chain.searchTracker(indexer), Name: name}
 	found := Found{Source: indexer, Release: release, TotalSize: sumSizes(fileSizes), Fetched: Fetched{Source: indexer, Sanitized: sanitized}}
 	if search.media.AnnounceConfigured != nil && search.media.AnnounceConfigured(release.Tracker) {
 		return keptTorrent{found: found, fileSizes: fileSizes}, nil

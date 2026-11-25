@@ -251,6 +251,10 @@ func base64URLWords(text string) []string {
 	return strings.FieldsFunc(text, func(character rune) bool { return !isBase64URLRune(character) })
 }
 
+// DecodePercent décode un texte comme le masquage le fait pour une URL (decodeRepeatedly) : un appelant compare ainsi
+// une passkey à sa forme encodée.
+func DecodePercent(text string) string { return decodeRepeatedly(text) }
+
 // decodeRepeatedly décode les séquences « %XX » jusqu'à maxDecodeRounds fois ; une séquence invalide reste telle
 // quelle au lieu d'arrêter le décodage (url.PathUnescape échouerait en entier et laisserait la passkey encodée).
 func decodeRepeatedly(text string) string {
