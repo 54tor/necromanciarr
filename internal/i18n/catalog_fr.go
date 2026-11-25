@@ -270,6 +270,8 @@ var french = map[Key]string{
 	KeyDoctorLinkDirInLibraryHint:          "choisir un dossier de liens hors de la bibliothèque : elle n'est jamais écrite",
 	KeyDoctorLinkProbeFailed:               "{dir} : les liens ne peuvent pas être sondés : {error}",
 	KeyDoctorLinkProbeFailedHint:           "vérifier que le dossier existe et est accessible en écriture",
+	KeyDoctorLibraryRootUnavailable:        "{dir} : non sondé : les racines de bibliothèque ne peuvent pas toutes être résolues",
+	KeyDoctorLibraryRootUnavailableHint:    "une racine de bibliothèque configurée est absente ou non montée (ou aucune n'est configurée) : la monter ou corriger libraryRoots ; d'ici là, aucun lien n'est créé",
 	KeyDoctorLinkKinds:                     "{dir} : hardlink {hardlink}, symlink {symlink}, reflink {reflink}",
 	KeyDoctorLinkVFSHint:                   "sur un montage rclone, relancer rclone avec --vfs-links pour autoriser les symlinks",
 	KeyDoctorVolumesNotComparable:          "{from} -> {to} : les volumes ne peuvent pas être comparés : {error}",

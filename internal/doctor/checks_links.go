@@ -2,12 +2,14 @@ package doctor
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
@@ -80,6 +82,10 @@ func checkLinkFeasibility(settings config.Config, deps Deps) Result {
 // probeDirectory crée puis supprime les entrées d'essai de linker.Probe dans directory, et nulle part ailleurs.
 func probeDirectory(directory string, kinds []linker.Kind, deps Deps) (Status, string, i18n.Message, i18n.Message) {
 	capabilities, err := deps.Probe(directory)
+	if isLibraryRootUnavailable(err) {
+		return Fail, CodeLibraryRootUnavailable, message(i18n.KeyDoctorLibraryRootUnavailable, "dir", directory),
+			message(i18n.KeyDoctorLibraryRootUnavailableHint)
+	}
 	if err != nil {
 		return Fail, CodeLinkProbeFailed, message(i18n.KeyDoctorLinkProbeFailed, "dir", directory, "error", err.Error()),
 			message(i18n.KeyDoctorLinkProbeFailedHint)
@@ -94,6 +100,12 @@ func probeDirectory(directory string, kinds []linker.Kind, deps Deps) (Status, s
 	}
 	status, code := statusForKinds(accepted, kinds)
 	return status, code, detail, hint
+}
+
+// isLibraryRootUnavailable : le registre refuse toute racine d'écriture tant qu'une racine de bibliothèque ne se
+// résout pas (absente, non montée) ou qu'aucune n'est déclarée ; le dossier de liens n'y est pour rien.
+func isLibraryRootUnavailable(err error) bool {
+	return errors.Is(err, fsys.ErrCannotCanonicalize) || errors.Is(err, fsys.ErrNoLibraryRoots)
 }
 
 // describeKind résume une sorte de lien par des signes, identiques dans toutes les langues ; le motif du refus est

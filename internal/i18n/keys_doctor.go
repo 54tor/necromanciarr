@@ -96,6 +96,8 @@ const (
 	KeyDoctorLinkDirInLibraryHint        Key = "doctor.links.dir_in_library.hint"
 	KeyDoctorLinkProbeFailed             Key = "doctor.links.probe_failed"
 	KeyDoctorLinkProbeFailedHint         Key = "doctor.links.probe_failed.hint"
+	KeyDoctorLibraryRootUnavailable      Key = "doctor.links.library_root_unavailable"
+	KeyDoctorLibraryRootUnavailableHint  Key = "doctor.links.library_root_unavailable.hint"
 	KeyDoctorLinkKinds                   Key = "doctor.links.kinds"
 	KeyDoctorLinkVFSHint                 Key = "doctor.links.vfs.hint"
 	KeyDoctorVolumesNotComparable        Key = "doctor.links.volumes_not_comparable"
@@ -193,7 +195,8 @@ var doctorKeys = []Key{
 	KeyDoctorQbitListFailed, KeyDoctorQbitOK, KeyDoctorQbitOKAtLeast, KeyDoctorQbitOKReadOnly,
 	KeyDoctorQbitOKAtLeastReadOnly, KeyDoctorQbitSeeds, KeyDoctorQbitUnsupported, KeyDoctorQbitUnsupportedHint,
 	KeyDoctorLinksNone, KeyDoctorLinkDirUnresolved, KeyDoctorLinkDirUnresolvedHint, KeyDoctorLinkDirInLibrary,
-	KeyDoctorLinkDirInLibraryHint, KeyDoctorLinkProbeFailed, KeyDoctorLinkProbeFailedHint, KeyDoctorLinkKinds,
+	KeyDoctorLinkDirInLibraryHint, KeyDoctorLinkProbeFailed, KeyDoctorLinkProbeFailedHint, KeyDoctorLibraryRootUnavailable,
+	KeyDoctorLibraryRootUnavailableHint, KeyDoctorLinkKinds,
 	KeyDoctorLinkVFSHint, KeyDoctorVolumesNotComparable, KeyDoctorVolumesNotComparableHint, KeyDoctorVolumesSame,
 	KeyDoctorVolumesDifferSymlink, KeyDoctorVolumesDiffer, KeyDoctorSameVolumeHint, KeyDoctorFSNone,
 	KeyDoctorFSBuildFailed, KeyDoctorFSBuildFailedHint, KeyDoctorFSMount, KeyDoctorFSModTimeHint,

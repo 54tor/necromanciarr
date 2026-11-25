@@ -138,6 +138,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `link-feasibility` | `link_dir_unresolved` | `fail` | link directory not found: no probe launched |
 | `link-feasibility` | `link_dir_in_library` | `fail` | link directory in the library: move `linkDirs` |
 | `link-feasibility` | `link_probe_failed` | `fail` | folder not writable |
+| `link-feasibility` | `library_root_unavailable` | `fail` | a library root is missing or not mounted (or none is configured): no write root is opened, neither probe nor link |
 | `link-feasibility` | `link_kinds_ok` | `ok` | wanted link kinds accepted (✓ accepted, ✗ refused, with the reason) |
 | `link-feasibility` | `link_kind_fallback` | `warn` | the preferred kind is refused, a following one is accepted; with `symlink` refused on an rclone mount: restart rclone with `--vfs-links` |
 | `link-feasibility` | `link_kinds_refused` | `fail` | no wanted kind is accepted |

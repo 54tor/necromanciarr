@@ -138,6 +138,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `link-feasibility` | `link_dir_unresolved` | `fail` | dossier de liens introuvable : aucune sonde lancée |
 | `link-feasibility` | `link_dir_in_library` | `fail` | dossier de liens dans la bibliothèque : déplacer `linkDirs` |
 | `link-feasibility` | `link_probe_failed` | `fail` | dossier non accessible en écriture |
+| `link-feasibility` | `library_root_unavailable` | `fail` | une racine de bibliothèque est absente ou non montée (ou aucune n'est configurée) : aucune racine d'écriture n'est ouverte, ni sonde ni lien |
 | `link-feasibility` | `link_kinds_ok` | `ok` | sortes de liens voulues acceptées (✓ accepté, ✗ refusé, avec le motif) |
 | `link-feasibility` | `link_kind_fallback` | `warn` | la sorte préférée est refusée, une suivante est acceptée ; avec `symlink` refusé sur un montage rclone : relancer rclone avec `--vfs-links` |
 | `link-feasibility` | `link_kinds_refused` | `fail` | aucune sorte voulue n'est acceptée |

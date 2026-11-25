@@ -57,6 +57,7 @@ const (
 	CodeLinkDirUnresolved      = "link_dir_unresolved"
 	CodeLinkDirInLibrary       = "link_dir_in_library"
 	CodeLinkProbeFailed        = "link_probe_failed"
+	CodeLibraryRootUnavailable = "library_root_unavailable"
 	CodeLinkKindsOK            = "link_kinds_ok"
 	CodeLinkKindFallback       = "link_kind_fallback"
 	CodeLinkKindsRefused       = "link_kinds_refused"

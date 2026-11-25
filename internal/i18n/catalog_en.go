@@ -270,6 +270,8 @@ var english = map[Key]string{
 	KeyDoctorLinkDirInLibraryHint:          "choose a link directory outside the library: it is never written",
 	KeyDoctorLinkProbeFailed:               "{dir}: cannot probe links: {error}",
 	KeyDoctorLinkProbeFailedHint:           "check that the directory exists and is writable",
+	KeyDoctorLibraryRootUnavailable:        "{dir}: not probed: the library roots cannot all be resolved",
+	KeyDoctorLibraryRootUnavailableHint:    "a configured library root is missing or not mounted (or none is configured): mount it or fix libraryRoots; until then no link is created",
 	KeyDoctorLinkKinds:                     "{dir}: hardlink {hardlink}, symlink {symlink}, reflink {reflink}",
 	KeyDoctorLinkVFSHint:                   "on an rclone mount, restart rclone with --vfs-links to allow symlinks",
 	KeyDoctorVolumesNotComparable:          "{from} -> {to}: volumes cannot be compared: {error}",
