@@ -148,7 +148,7 @@ func TestVolumes_unknownVolumeIsNotFound(t *testing.T) {
 
 func seedboxService(t *testing.T, settings config.Config) Service {
 	t.Helper()
-	service, closer, err := NewFromConfig(context.Background(), settings)
+	service, closer, err := NewFromConfig(context.Background(), settings, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

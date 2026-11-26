@@ -345,6 +345,9 @@ func TestApp_listProposalsReturnsDetailsForTheCliAndWeb(t *testing.T) {
 	}
 }
 
+// Exemption temporaire : la Task 8 enregistre ces actions (commandes et routes) et retire cette liste.
+var configEditMethodsAwaitingActions = []string{"ConfigView", "SetSetting", "UnsetSetting", "PutItem", "DeleteItem", "UnsetItem"}
+
 func TestApp_actionsRegistryListsEveryServiceMethod(t *testing.T) {
 	serviceType := reflect.TypeFor[Service]()
 	registered := map[string]bool{}
@@ -354,9 +357,15 @@ func TestApp_actionsRegistryListsEveryServiceMethod(t *testing.T) {
 		}
 		registered[action.Method] = true
 	}
+	for _, methodName := range configEditMethodsAwaitingActions {
+		if registered[methodName] {
+			t.Fatalf("gotValue %s registered, expectedValue its exemption removed", methodName)
+		}
+	}
 	for methodIndex := range serviceType.NumMethod() {
 		methodName := serviceType.Method(methodIndex).Name
-		if methodName != "Actions" && methodName != "Translator" && !registered[methodName] {
+		isExempt := slices.Contains(configEditMethodsAwaitingActions, methodName)
+		if methodName != "Actions" && methodName != "Translator" && !isExempt && !registered[methodName] {
 			t.Fatalf("gotValue no action for %s, expectedValue every Service method registered", methodName)
 		}
 	}
@@ -428,7 +437,7 @@ func TestNewFromConfig_wiresAMinimalConfigAndNamesTheMissingComponent(t *testing
 	settings := config.Config{
 		ConfigDir: t.TempDir(), DBPath: "necromanciarr.db", ReadBytesPerSecond: 1 << 20, LinkType: "hardlink", CrossSeedMode: "off",
 	}
-	service, closer, err := NewFromConfig(context.Background(), settings)
+	service, closer, err := NewFromConfig(context.Background(), settings, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +452,7 @@ func TestNewFromConfig_wiresAMinimalConfigAndNamesTheMissingComponent(t *testing
 	}
 
 	settings.LinkType = "bogus"
-	if _, _, err := NewFromConfig(context.Background(), settings); err == nil || !strings.Contains(err.Error(), "linkType") {
+	if _, _, err := NewFromConfig(context.Background(), settings, nil); err == nil || !strings.Contains(err.Error(), "linkType") {
 		t.Fatalf("gotValue %v, expectedValue an error naming linkType", err)
 	}
 }

@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -105,6 +106,18 @@ type Service interface {
 	ProbeVolume(ctx context.Context, name string) (VolumeProbeResult, error)
 	// VolumeCommands rend les lignes ssh exec exactes qu'une garde distante doit admettre pour ce volume.
 	VolumeCommands(ctx context.Context, name string) (VolumeCommands, error)
+	// ConfigView rend la configuration éditable (réglages, listes résolues, surcharges orphelines), sans secret.
+	ConfigView(ctx context.Context) (ConfigView, error)
+	// SetSetting enregistre un réglage (scellé s'il est secret) après validation de la configuration candidate.
+	SetSetting(ctx context.Context, key string, value json.RawMessage) error
+	// UnsetSetting retire un réglage de la base.
+	UnsetSetting(ctx context.Context, key string) error
+	// PutItem enregistre un élément de liste ; un secret absent ou null garde la valeur enregistrée.
+	PutItem(ctx context.Context, list, itemID string, element map[string]any) error
+	// DeleteItem masque un élément cross-seed ou supprime un élément ajouté.
+	DeleteItem(ctx context.Context, list, itemID string) error
+	// UnsetItem retire la surcharge d'un élément (retour à cross-seed).
+	UnsetItem(ctx context.Context, list, itemID string) error
 	// Actions renvoie le registre des actions (parité CLI et web), descriptions dans la langue du Service.
 	Actions() []Action
 	// Translator donne le traducteur de la langue configurée, que la CLI et le web utilisent pour tout texte rendu.
@@ -195,6 +208,9 @@ type Deps struct {
 	Volumes map[string]VolumeHandle
 	// Logger reçoit les lignes codées de la couche applicative (nil : slog.Default).
 	Logger *slog.Logger
+	// ConfigStore et LoadStoredConfig servent à l'édition de la configuration ; nil : édition indisponible.
+	ConfigStore      ConfigStore
+	LoadStoredConfig StoredConfigLoader
 }
 
 // inspect et inspectionBudget remplacent, dans les tests seulement, l'examen d'un lien et le budget de ListLinks ;
@@ -208,6 +224,9 @@ type service struct {
 	sourceTests sync.Map
 	// volumeProbes garde les volumes dont un volumes probe est en cours : une seconde sonde simultanée est refusée.
 	volumeProbes sync.Map
+	// configEdits sérialise les écritures de configuration ; restartRequired dit qu'une écriture attend un redémarrage.
+	configEdits     sync.Mutex
+	restartRequired atomic.Bool
 }
 
 // New construit le Service sur ses dépendances.

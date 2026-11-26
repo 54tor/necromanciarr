@@ -263,7 +263,7 @@ func TestNewFromConfig_unreachableSeedboxLetsTheAppStartAndLocalStagesRun(t *tes
 	}
 	settings.LibraryRoots = append([]string{localLibrary}, settings.LibraryRoots...)
 
-	service, closer, err := NewFromConfig(context.Background(), settings)
+	service, closer, err := NewFromConfig(context.Background(), settings, nil)
 	if err != nil {
 		t.Fatalf("valeurObtenue %v, valeurAttendue the service built without reaching the seedbox", err)
 	}
@@ -333,7 +333,7 @@ func sftpCheckIDs() []string {
 func TestDoctor_runsTheSFTPChecksPerProviderAndLeavesNoConnectionOpen(t *testing.T) {
 	server := startSeedbox(t)
 	settings := seedboxSettings(t, server.Provider(t, seedboxName))
-	service, closer, err := NewFromConfig(context.Background(), settings)
+	service, closer, err := NewFromConfig(context.Background(), settings, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +359,7 @@ func TestDoctor_unreachableSeedboxGivesRemoteUnavailableResultsNotACrash(t *test
 	server := startSeedbox(t)
 	provider := server.Provider(t, seedboxName)
 	provider.Address = closedAddress(t)
-	service, closer, err := NewFromConfig(context.Background(), seedboxSettings(t, provider))
+	service, closer, err := NewFromConfig(context.Background(), seedboxSettings(t, provider), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

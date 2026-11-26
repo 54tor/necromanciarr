@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -177,6 +178,30 @@ func (fake *fakeService) ProbeVolume(_ context.Context, name string) (app.Volume
 func (fake *fakeService) VolumeCommands(_ context.Context, name string) (app.VolumeCommands, error) {
 	err := fake.record("VolumeCommands", name)
 	return app.VolumeCommands{Volume: name, Lines: []string{"stat\t--version"}, GuardScript: app.GuardScriptPath}, err
+}
+
+func (fake *fakeService) ConfigView(context.Context) (app.ConfigView, error) {
+	return app.ConfigView{}, fake.record("ConfigView")
+}
+
+func (fake *fakeService) SetSetting(_ context.Context, key string, _ json.RawMessage) error {
+	return fake.record("SetSetting", key)
+}
+
+func (fake *fakeService) UnsetSetting(_ context.Context, key string) error {
+	return fake.record("UnsetSetting", key)
+}
+
+func (fake *fakeService) PutItem(_ context.Context, list, itemID string, _ map[string]any) error {
+	return fake.record("PutItem", list, itemID)
+}
+
+func (fake *fakeService) DeleteItem(_ context.Context, list, itemID string) error {
+	return fake.record("DeleteItem", list, itemID)
+}
+
+func (fake *fakeService) UnsetItem(_ context.Context, list, itemID string) error {
+	return fake.record("UnsetItem", list, itemID)
 }
 
 func (fake *fakeService) Actions() []app.Action { return app.Actions(fake.Translator()) }

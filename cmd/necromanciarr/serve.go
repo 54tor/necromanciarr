@@ -40,7 +40,7 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	if err := config.ValidateServe(settings); err != nil {
 		return out.failure(err)
 	}
-	service, closer, err := openService(ctx, settings)
+	service, closer, err := openService(ctx, settings, storedConfigLoader(args))
 	if err != nil {
 		return out.failure(err)
 	}

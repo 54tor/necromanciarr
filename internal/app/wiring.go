@@ -41,8 +41,9 @@ var warningMultipleClients = i18n.Message{Key: i18n.KeyWarningMultipleClients}
 // NewFromConfig construit le Service de production : store (config.ResolveDBPath), fournisseur de bibliothèque,
 // instances Radarr et Sonarr, premier client torrent, registre d'empreintes, mode et notificateur cross-seed, mapper
 // de chemins, limiteur de lecture et registre de fichiers. Le Closer ferme les volumes sftp puis le store et garde
-// sa sonde de santé (Ping). Une erreur nomme le composant, jamais un secret.
-func NewFromConfig(ctx context.Context, settings config.Config) (Service, io.Closer, error) {
+// sa sonde de santé (Ping). Une erreur nomme le composant, jamais un secret. loadStored valide les éditions de la
+// configuration (nil : édition indisponible).
+func NewFromConfig(ctx context.Context, settings config.Config, loadStored StoredConfigLoader) (Service, io.Closer, error) {
 	openedStore, err := store.Open(config.ResolveDBPath(settings))
 	if err != nil {
 		return nil, nil, fmt.Errorf("app: store: %w", err)
@@ -51,6 +52,7 @@ func NewFromConfig(ctx context.Context, settings config.Config) (Service, io.Clo
 	if err != nil {
 		return nil, nil, errors.Join(err, openedStore.Close())
 	}
+	deps.ConfigStore, deps.LoadStoredConfig = openedStore, loadStored
 	closer := serviceCloser{store: openedStore, volumes: volumes}
 	if err := clearSealedAtStart(ctx, openedStore, settings); err != nil {
 		return nil, nil, errors.Join(err, closer.Close())

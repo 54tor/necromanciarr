@@ -36,7 +36,7 @@ func useServeHarness(t *testing.T) *serveHarness {
 	t.Helper()
 	harness := &serveHarness{closer: &pingCloser{}, addresses: make(chan string, 1)}
 	previousService, previousListen := openService, listen
-	openService = func(context.Context, config.Config) (app.Service, io.Closer, error) {
+	openService = func(context.Context, config.Config, app.StoredConfigLoader) (app.Service, io.Closer, error) {
 		return &fakeService{}, harness.closer, nil
 	}
 	listen = func(string) (net.Listener, error) {

@@ -159,6 +159,36 @@ func (fake *fakeService) TestSource(_ context.Context, name string) (app.SourceT
 	return app.SourceTestResult{Source: "torznab:" + name, Result: app.SourceTestOK}, fake.err
 }
 
+func (fake *fakeService) ConfigView(context.Context) (app.ConfigView, error) {
+	fake.record("ConfigView")
+	return app.ConfigView{}, fake.err
+}
+
+func (fake *fakeService) SetSetting(_ context.Context, key string, _ json.RawMessage) error {
+	fake.record("SetSetting", key)
+	return fake.err
+}
+
+func (fake *fakeService) UnsetSetting(_ context.Context, key string) error {
+	fake.record("UnsetSetting", key)
+	return fake.err
+}
+
+func (fake *fakeService) PutItem(_ context.Context, list, itemID string, _ map[string]any) error {
+	fake.record("PutItem", list, itemID)
+	return fake.err
+}
+
+func (fake *fakeService) DeleteItem(_ context.Context, list, itemID string) error {
+	fake.record("DeleteItem", list, itemID)
+	return fake.err
+}
+
+func (fake *fakeService) UnsetItem(_ context.Context, list, itemID string) error {
+	fake.record("UnsetItem", list, itemID)
+	return fake.err
+}
+
 func (*fakeService) Actions() []app.Action { return app.Actions(i18n.New(i18n.English, nil)) }
 
 func (*fakeService) Translator() i18n.Translator { return i18n.New(i18n.English, nil) }
@@ -189,7 +219,9 @@ func (fake *fakeService) VolumeCommands(_ context.Context, name string) (app.Vol
 func useFakeService(t *testing.T, fake *fakeService) {
 	t.Helper()
 	previousService, previousDoctor := openService, openDoctorService
-	openService = func(context.Context, config.Config) (app.Service, io.Closer, error) { return fake, nopCloser{}, nil }
+	openService = func(context.Context, config.Config, app.StoredConfigLoader) (app.Service, io.Closer, error) {
+		return fake, nopCloser{}, nil
+	}
 	openDoctorService = func(config.Config) app.Service { return fake }
 	t.Cleanup(func() { openService, openDoctorService = previousService, previousDoctor })
 }

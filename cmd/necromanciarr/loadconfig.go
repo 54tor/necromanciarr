@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 
+	"necromanciarr/internal/app"
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/store"
 )
@@ -27,6 +28,16 @@ func (emptyStoredReader) ConfigOverrides(context.Context) ([]store.ConfigOverrid
 // loadConfig charge la configuration, base comprise (lue sans être créée).
 func loadConfig(args []string) (config.Config, error) {
 	return config.LoadWith(args, lookupEnv, defaultConfigDir(), openStoredReader)
+}
+
+// storedConfigLoader rejoue le chargeur du processus (mêmes options, même environnement) sur un contenu de base donné :
+// le Service valide ainsi chaque édition de la configuration avant de l'écrire.
+func storedConfigLoader(args []string) app.StoredConfigLoader {
+	return func(reader config.StoredReader) (config.Config, error) {
+		return config.LoadWith(args, lookupEnv, defaultConfigDir(), func(string) (config.StoredReader, io.Closer, error) {
+			return reader, nil, nil
+		})
+	}
 }
 
 // languageOrigin donne l'origine de la langue parmi celles des réglages (default, override, env ou flag).

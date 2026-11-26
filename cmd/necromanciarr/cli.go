@@ -319,7 +319,7 @@ func openFor(ctx context.Context, spec command, call *invocation) (func(), error
 		call.service = openDoctorService(call.settings)
 		return func() {}, nil
 	}
-	service, closer, err := openService(ctx, call.settings)
+	service, closer, err := openService(ctx, call.settings, storedConfigLoader(call.configArgs))
 	if err != nil {
 		return nil, err
 	}
