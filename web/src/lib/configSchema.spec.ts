@@ -2,38 +2,16 @@ import { describe, expect, it } from 'vitest'
 import en from '@/locales/en.json'
 import fr from '@/locales/fr.json'
 import { addFields, itemIdDeriver, nsToDuration } from '@/lib/configFields'
+import backendSecrets from '@/lib/backendSecrets.json'
 import { ELEMENT_SCHEMAS, SETTING_SCHEMAS, schemaFieldNames } from '@/lib/configSchema'
 
-// Même contenu que secretFieldsByList (internal/config/sealedfields.go) : un écart ferait afficher un secret en clair.
-const SECRET_FIELDS_OF_THE_BACKEND: Record<string, string[]> = {
-  radarr: ['apiKey', 'password', 'proxyKey'],
-  sonarr: ['apiKey', 'password', 'proxyKey'],
-  torrentClients: ['password', 'proxyKey'],
-  trackers: ['announce'],
-  torznab: ['apiKey'],
-  fsProviders: ['identityPassphrase', 'password', 'rc'],
+// Fixture vérifiée par TestBackendSecretsFixture (internal/config) : un écart ferait afficher un secret en clair.
+const BACKEND = backendSecrets as {
+  elements: Record<string, string[]>
+  settings: string[]
+  settingKeys: string[]
+  lists: string[]
 }
-const SECRET_SETTINGS_OF_THE_BACKEND = ['crossSeed', 'libraryApi', 'libraryToken', 'prowlarr']
-const SETTING_KEYS_OF_THE_BACKEND = [
-  'crossSeed',
-  'crossSeedMode',
-  'dedupe',
-  'language',
-  'libraryApi',
-  'libraryRoots',
-  'libraryToken',
-  'linkCategory',
-  'linkType',
-  'listen',
-  'partialMaxMissingPercent',
-  'pathMappings',
-  'prowlarr',
-  'readBytesPerSecond',
-  'seedTags',
-  'skipRecheck',
-  'sourceOrder',
-  'tieBreakReadBytes',
-]
 
 describe('schéma de configuration', () => {
   it('traduit chaque champ en français et en anglais', () => {
@@ -53,8 +31,12 @@ describe('schéma de configuration', () => {
     expect(en.config.help.fsProviderName).toContain('Lower-case')
   })
 
+  it('couvre chaque liste du serveur, sans liste inconnue', () => {
+    expect(Object.keys(ELEMENT_SCHEMAS).sort()).toEqual([...BACKEND.lists].sort())
+  })
+
   it('couvre chaque réglage du serveur, sans réglage inconnu', () => {
-    expect(Object.keys(SETTING_SCHEMAS).sort()).toEqual(SETTING_KEYS_OF_THE_BACKEND)
+    expect(Object.keys(SETTING_SCHEMAS).sort()).toEqual(BACKEND.settingKeys)
   })
 
   it('marque secrets exactement les champs scellés par le serveur', () => {
@@ -73,8 +55,8 @@ describe('schéma de configuration', () => {
       .sort()
 
     expect({ elements: secretsOfElements, settings: secretSettings }).toEqual({
-      elements: { ...SECRET_FIELDS_OF_THE_BACKEND, linkDirs: [] },
-      settings: SECRET_SETTINGS_OF_THE_BACKEND,
+      elements: { ...BACKEND.elements, linkDirs: [] },
+      settings: BACKEND.settings,
     })
   })
 })
