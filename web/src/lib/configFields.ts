@@ -69,7 +69,7 @@ const URL_AUTHORITY = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/([^/?#]*)/
  * endpointId rend l'identifiant que le serveur tire d'une URL (ElementID) : schéma en minuscules, `://`, hôte et port
  * tels que saisis, sans identifiants, chemin ni requête ; vide si l'URL n'a pas d'hôte.
  */
-export function endpointId(rawUrl: string): string {
+function endpointId(rawUrl: string): string {
   const parts = URL_AUTHORITY.exec(rawUrl.trim())
   if (!parts) return ''
   const [, scheme = '', authority = ''] = parts

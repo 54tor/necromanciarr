@@ -97,10 +97,10 @@ async function submit(): Promise<void> {
           <input
             v-model="itemId"
             data-testid="config-item-id"
-            @input="isItemIdEdited = true"
             type="text"
             autocomplete="off"
             :class="FIELD_CLASS"
+            @input="isItemIdEdited = true"
           />
           <span class="text-muted-foreground">{{ t(itemIdHintKey) }}</span>
         </label>
