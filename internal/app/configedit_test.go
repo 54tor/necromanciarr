@@ -487,7 +487,6 @@ func TestPutItem_editsALegacyStoredItemID(t *testing.T) {
 	}
 }
 
-
 const (
 	configEditProxyKey    = "fake-proxy-key-0000"
 	configEditPassword    = "fake-service-pass-0000"

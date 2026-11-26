@@ -166,12 +166,12 @@ func TestConfig_torznabRefusesDuplicateAndInvalidNames(t *testing.T) {
 
 func TestConfig_torznabRefusesExtraQueryParam(t *testing.T) {
 	scenarios := map[string]string{
-		"extra parameter":   "https://prowlarr.example.com/12/api?apikey=secret-k&t=search",
-		"userinfo":          "https://bob:secret-pass@prowlarr.example.com/12/api?apikey=secret-k",
-		"fragment":          "https://prowlarr.example.com/12/api?apikey=secret-k#top",
-		"other scheme":      "ftp://prowlarr.example.com/12/api?apikey=secret-k",
-		"missing key":       "https://prowlarr.example.com/12/api",
-		"no host":           "https:///12/api?apikey=secret-k",
+		"extra parameter": "https://prowlarr.example.com/12/api?apikey=secret-k&t=search",
+		"userinfo":        "https://bob:secret-pass@prowlarr.example.com/12/api?apikey=secret-k",
+		"fragment":        "https://prowlarr.example.com/12/api?apikey=secret-k#top",
+		"other scheme":    "ftp://prowlarr.example.com/12/api?apikey=secret-k",
+		"missing key":     "https://prowlarr.example.com/12/api",
+		"no host":         "https:///12/api?apikey=secret-k",
 	}
 	for name, rawURL := range scenarios {
 		t.Run(name, func(t *testing.T) {
