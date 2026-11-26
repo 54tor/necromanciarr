@@ -275,9 +275,9 @@ func passkeyForms(values []string) []string {
 	return slices.Compact(forms)
 }
 
-// plainWord reconnaît un mot ordinaire d'URL (« announce », « Announce », « ANNOUNCE.php »), casse ignorée :
-// jamais pris pour un secret.
-var plainWord = regexp.MustCompile(`^(?i)[a-z]+([._-][a-z]+)*$`)
+// plainWord reconnaît un mot ordinaire d'URL (« announce », « Announce », « ANNOUNCE.php ») : chaque morceau est en
+// minuscules, en capitales ou à capitale initiale ; une casse mélangée reste un secret possible.
+var plainWord = regexp.MustCompile(`^(?:[a-z]+|[A-Z]+|[A-Z][a-z]+)(?:[._-](?:[a-z]+|[A-Z]+|[A-Z][a-z]+))*$`)
 
 // announceValueSecrets retient chaque segment de chemin et chaque valeur de requête décodés d'une annonce stockée, hors
 // mots ordinaires : sans interpolation, la passkey n'a plus d'autre frontière connue.

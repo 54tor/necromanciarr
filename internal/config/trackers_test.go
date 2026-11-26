@@ -347,3 +347,14 @@ func TestAnnounceValueSecrets_ignoresAnOrdinaryWordWhateverItsCase(t *testing.T)
 		t.Fatalf("valeurObtenue %v, valeurAttendue la passkey parmi les secrets", secrets)
 	}
 }
+
+func TestAnnounceValueSecrets_keepsAMixedCaseLettersOnlyPasskey(t *testing.T) {
+	passkey := "AbCdEfGhIjKlMnOp"
+	announce := "https://tracker.example.com/" + passkey + "/announce"
+
+	valeurObtenue := slices.Contains(announceValueSecrets(announce), passkey)
+
+	if !valeurObtenue {
+		t.Fatalf("valeurObtenue %v, valeurAttendue une passkey en casse mélangée retenue comme secret", valeurObtenue)
+	}
+}
