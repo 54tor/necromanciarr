@@ -86,6 +86,18 @@ CREATE TABLE IF NOT EXISTS indexer_searched (
 	indexer TEXT NOT NULL,
 	searched_at INTEGER NOT NULL,
 	PRIMARY KEY (media_group_key, indexer)
+);
+CREATE TABLE IF NOT EXISTS settings (
+	key TEXT PRIMARY KEY,
+	value BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS list_overrides (
+	list TEXT NOT NULL,
+	item_id TEXT NOT NULL,
+	deleted INTEGER NOT NULL DEFAULT 0,
+	value BLOB,
+	upstream_fingerprint TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (list, item_id)
 );` + pipelineSchema
 
 // MediaFile est un fichier média de la bibliothèque, identifié par son chemin ; TMDBID et TVDBID valent 0 si inconnus.
