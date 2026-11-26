@@ -193,6 +193,36 @@ func TestPutItem_invalidElementWritesNothing(t *testing.T) {
 	}
 }
 
+func TestPutItem_refusesAVariableReferenceInEveryList(t *testing.T) {
+	const secretReference = "${NECROMANCIARR_SECRET_KEY}"
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	cases := []struct {
+		list      string
+		element   map[string]any
+		fieldName string
+	}{
+		{"fsProviders", map[string]any{
+			"type": "sftp", "name": "seedbox", "address": "seedbox.example.com:22", "user": "media",
+			"password": secretReference, "knownHosts": "/home/u/.ssh/known_hosts",
+		}, "fsProviders.password"},
+		{"torznab", map[string]any{"name": "indexer", "url": "https://indexer.example.com/api?apikey=" + secretReference}, "torznab.url"},
+		{"trackers", map[string]any{"key": "tracker-a", "announce": []any{"https://tracker-a.example.com/" + secretReference}}, "trackers.announce"},
+		{"sonarr", map[string]any{"url": "http://sonarr.example.com:8989", "apiKey": secretReference}, "sonarr.apiKey"},
+		{"torrentClients", map[string]any{"type": "qbittorrent", "url": "http://qbit.example.com:8080", "password": secretReference}, "torrentClients.password"},
+		{"linkDirs", map[string]any{"path": "/srv/" + secretReference}, "linkDirs.path"},
+	}
+	for _, testCase := range cases {
+		err := fixture.service.PutItem(context.Background(), testCase.list, "item", testCase.element)
+
+		if !errors.Is(err, config.ErrUsage) || !strings.Contains(err.Error(), testCase.fieldName) {
+			t.Fatalf("%s: valeurObtenue %v, valeurAttendue a usage error naming %q", testCase.list, err, testCase.fieldName)
+		}
+		if strings.Contains(err.Error(), configEditSecretKey) || len(fixture.overrides(t)) != 0 {
+			t.Fatalf("%s: valeurObtenue %v, valeurAttendue no key in the error and nothing written", testCase.list, err)
+		}
+	}
+}
+
 func TestDeleteItem_onUpstreamElementWritesADeletedMarker(t *testing.T) {
 	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), upstreamRadarrJS())
 

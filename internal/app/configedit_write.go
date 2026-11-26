@@ -15,9 +15,6 @@ import (
 
 const variableReferenceMark = "${"
 
-// uninterpolatedLists ne passent plus par l'interpolation : une référence ${VAR} y resterait littérale.
-var uninterpolatedLists = []string{"radarr", "sonarr", "torrentClients", "linkDirs"}
-
 // configWrite enregistre en base une écriture déjà validée ; nil : rien à écrire.
 type configWrite func(ctx context.Context, editStore ConfigStore) error
 
@@ -56,7 +53,7 @@ func (svc *service) PutItem(ctx context.Context, list, itemID string, element ma
 	if err := requireKnownList(list); err != nil {
 		return err
 	}
-	if err := rejectListReferences(list, element); err != nil {
+	if err := rejectElementReferences(list, element); err != nil {
 		return err
 	}
 	return svc.commitConfig(ctx, func(snapshot *storedSnapshot) (configWrite, error) {
@@ -232,10 +229,9 @@ func (svc *service) storedSettingValue(key string, value json.RawMessage) ([]byt
 	return json.Marshal(sealed)
 }
 
-func rejectListReferences(list string, element map[string]any) error {
-	if !slices.Contains(uninterpolatedLists, list) {
-		return nil
-	}
+// rejectElementReferences refuse une référence ${VAR} dans tout champ d'élément : une valeur stockée n'est jamais
+// interpolée.
+func rejectElementReferences(list string, element map[string]any) error {
 	for field, value := range element {
 		if err := rejectReferences(list+"."+field, value); err != nil {
 			return err
@@ -244,7 +240,7 @@ func rejectListReferences(list string, element map[string]any) error {
 	return nil
 }
 
-// rejectReferences refuse une référence ${VAR} dans une valeur qui n'est plus interpolée.
+// rejectReferences refuse une référence ${VAR} ; le message nomme le champ, jamais la variable.
 func rejectReferences(field string, value any) error {
 	switch typed := value.(type) {
 	case string:
