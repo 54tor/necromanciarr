@@ -812,6 +812,7 @@
       "path": "Chemin",
       "pathMappings": "Correspondances de chemins",
       "prowlarr": "API Prowlarr",
+      "proxyKey": "Clé de proxy",
       "rc": "URL rc",
       "readBytesPerSecond": "Débit de lecture (octets/s)",
       "readOnly": "Lecture seule",
@@ -849,7 +850,7 @@
       "sourceOrder": "Une source par ligne : provider, puis torznab:nom.",
       "target": "Remote rclone et sous-chemin : remote:chemin.",
       "timeout": "Durée : 500ms, 30s, 10m, 2h.",
-      "url": "Les identifiants éventuels de l’URL sont gardés scellés."
+      "url": "Adresse affichée en clair ; la clé va dans son propre champ. Le segment {'{'}proxyKey{'}'} marque, dans le chemin, la place de la clé de proxy (http://hôte:7476/proxy/{'{'}proxyKey{'}'}/radarr)."
     }
   }
 }

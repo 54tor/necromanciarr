@@ -812,6 +812,7 @@
       "path": "Path",
       "pathMappings": "Path mappings",
       "prowlarr": "Prowlarr API",
+      "proxyKey": "Proxy key",
       "rc": "rc URL",
       "readBytesPerSecond": "Read rate (bytes/s)",
       "readOnly": "Read-only",
@@ -849,7 +850,7 @@
       "sourceOrder": "One source per line: provider, then torznab:name.",
       "target": "rclone remote and sub-path: remote:path.",
       "timeout": "Duration: 500ms, 30s, 10m, 2h.",
-      "url": "Credentials in the URL are kept sealed."
+      "url": "Address shown in clear; the key goes in its own field. The {'{'}proxyKey{'}'} segment marks where the proxy key sits in the path (http://host:7476/proxy/{'{'}proxyKey{'}'}/radarr)."
     }
   }
 }

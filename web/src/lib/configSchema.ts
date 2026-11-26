@@ -44,10 +44,11 @@ const select = (name: string, options: readonly string[]): FieldSpec => ({
 })
 
 const ARR_FIELDS: readonly FieldSpec[] = [
-  text('url', true),
+  text('url'),
   text('apiKey', true),
   text('user'),
   text('password', true),
+  text('proxyKey', true),
 ]
 
 const rcloneOnly = { field: 'type', values: ['rclone'] }
@@ -64,15 +65,17 @@ export const ELEMENT_SCHEMAS: Readonly<Record<string, readonly FieldSpec[]>> = {
   torrentClients: [
     select('type', ['qbittorrent']),
     boolean('readOnly'),
-    text('url', true),
+    text('url'),
     text('user'),
     text('password', true),
+    text('proxyKey', true),
   ],
   linkDirs: [text('path')],
   trackers: [text('key'), lines('announce', true), lines('aliases')],
   torznab: [
     text('name'),
-    text('url', true),
+    text('url'),
+    text('apiKey', true),
     text('tracker'),
     { name: 'categories', kind: 'numbers' },
     text('minInterval'),

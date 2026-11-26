@@ -35,7 +35,7 @@ function configSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot
       radarr: [
         {
           itemId: RADARR_ID,
-          element: { user: 'films', url: null, apiKey: null },
+          element: { user: 'films', url: RADARR_ID, apiKey: null, password: null, proxyKey: null },
           origin: 'override',
           drift: true,
         },
@@ -130,6 +130,10 @@ describe('ConfigView', () => {
     expect(secretInput?.type).toBe('password')
     expect(secretInput?.value).toBe('')
     expect(bodyElement('config-field-apiKey-state')?.textContent).toContain('Défini')
+    const urlInput = bodyElement<HTMLInputElement>('config-field-url')
+    expect(urlInput?.type).toBe('text')
+    expect(urlInput?.value).toBe(RADARR_ID)
+    expect(bodyElement<HTMLInputElement>('config-field-proxyKey')?.type).toBe('password')
     const nameInput = bodyElement<HTMLInputElement>('config-field-user')!
     expect(nameInput.value).toBe('films')
     nameInput.value = 'films-4k'
@@ -139,7 +143,7 @@ describe('ConfigView', () => {
     const [written] = writeCalls(calls)
     expect(written?.method).toBe('PUT')
     expect(written?.path).toBe(`/api/config/lists/radarr/${ENCODED_RADARR_ID}`)
-    expect(written?.body).toEqual({ element: { user: 'films-4k' } })
+    expect(written?.body).toEqual({ element: { url: RADARR_ID, user: 'films-4k' } })
   })
 
   describe('annonces de tracker', () => {
@@ -575,6 +579,56 @@ describe('ConfigView', () => {
       expect(bodyElement('config-field-maxQueriesPerDay')).not.toBeNull()
       expect(document.body.querySelector('textarea')).toBeNull()
       expect(document.body.textContent).not.toContain('objet JSON')
+    })
+  })
+
+  it("ConfigView affiche l'URL d'un élément en clair dans la liste", async () => {
+    const { wrapper } = await mountView({ 'GET /api/config': configSnapshot() })
+
+    const valeurObtenue = wrapper.get(`tr[data-row-key="radarr:${RADARR_ID}"]`).text()
+
+    expect(valeurObtenue).toContain(RADARR_ID)
+  })
+
+  it("ConfigView explique le segment {proxyKey} dans l'aide de l'URL", async () => {
+    const { wrapper } = await mountView({ 'GET /api/config': configSnapshot() })
+    await wrapper.get(`[data-testid="edit-item-radarr-${RADARR_ID}"]`).trigger('click')
+    await flushPromises()
+
+    const valeurObtenue = document.body.textContent
+
+    expect(valeurObtenue).toContain('{proxyKey}')
+  })
+
+  it("ConfigView ajoute un indexeur Torznab avec l'URL en clair et la clé à part", async () => {
+    const { wrapper, calls } = await mountView({
+      'GET /api/config': configSnapshot({ lists: { torznab: [] } }),
+      'PUT /api/config/lists/{list}/{itemId}': configSnapshot(),
+    })
+    await wrapper.get('[data-testid="add-item-torznab"]').trigger('click')
+    await flushPromises()
+    const fill = async (testId: string, value: string) => {
+      const field = bodyElement<HTMLInputElement>(testId)!
+      field.value = value
+      field.dispatchEvent(new Event('input'))
+      await flushPromises()
+    }
+
+    expect(bodyElement<HTMLInputElement>('config-field-url')?.type).toBe('text')
+    expect(bodyElement<HTMLInputElement>('config-field-apiKey')?.type).toBe('password')
+    await fill('config-field-name', 'idx')
+    await fill('config-field-url', 'https://indexer.example.com/api/v1/12')
+    await fill('config-field-apiKey', 'dummy-indexer-key')
+    await clickInBody('config-form-submit')
+
+    const [written] = writeCalls(calls)
+    expect(written?.path).toBe('/api/config/lists/torznab/https%3A%2F%2Findexer.example.com')
+    expect(written?.body).toEqual({
+      element: {
+        name: 'idx',
+        url: 'https://indexer.example.com/api/v1/12',
+        apiKey: 'dummy-indexer-key',
+      },
     })
   })
 

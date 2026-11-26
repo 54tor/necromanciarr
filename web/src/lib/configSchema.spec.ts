@@ -6,11 +6,11 @@ import { ELEMENT_SCHEMAS, SETTING_SCHEMAS, schemaFieldNames } from '@/lib/config
 
 // Même contenu que secretFieldsByList (internal/config/sealedfields.go) : un écart ferait afficher un secret en clair.
 const SECRET_FIELDS_OF_THE_BACKEND: Record<string, string[]> = {
-  radarr: ['apiKey', 'password', 'url'],
-  sonarr: ['apiKey', 'password', 'url'],
-  torrentClients: ['password', 'url'],
+  radarr: ['apiKey', 'password', 'proxyKey'],
+  sonarr: ['apiKey', 'password', 'proxyKey'],
+  torrentClients: ['password', 'proxyKey'],
   trackers: ['announce'],
-  torznab: ['url'],
+  torznab: ['apiKey'],
   fsProviders: ['identityPassphrase', 'password', 'rc'],
 }
 const SECRET_SETTINGS_OF_THE_BACKEND = ['crossSeed', 'libraryApi', 'libraryToken', 'prowlarr']
