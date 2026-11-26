@@ -37,8 +37,8 @@ func invalidElement(list, reason string) error {
 	return fmt.Errorf("%w: %s: %s", ErrInvalidElement, list, reason)
 }
 
-// ElementFromRaw décompose la chaîne brute d'une liste en élément ; seules radarr, sonarr, torrentClients et linkDirs
-// ont une forme chaîne.
+// ElementFromRaw décompose la chaîne brute d'une liste en élément ; seules radarr, sonarr, torrentClients, linkDirs et
+// torznab ont une forme chaîne.
 func ElementFromRaw(list, raw string) (Element, error) {
 	switch list {
 	case listRadarr, listSonarr:
@@ -47,6 +47,8 @@ func ElementFromRaw(list, raw string) (Element, error) {
 		return clientElementFromRaw(raw)
 	case listLinkDirs:
 		return Element{fieldPath: raw}, nil
+	case listTorznab:
+		return torznabElementFromRaw(raw)
 	}
 	return nil, invalidElement(list, "no raw string form")
 }
@@ -56,8 +58,10 @@ func arrElementFromRaw(list, raw string) (Element, error) {
 	if err != nil {
 		return nil, invalidElement(list, reasonUnreadableRaw)
 	}
-	element := Element{fieldURL: service.BaseURL, fieldAPIKey: service.APIKey}
+	plainURL, proxyKey := splitProxyKey(service.BaseURL)
+	element := Element{fieldURL: plainURL, fieldAPIKey: service.APIKey}
 	addCredentials(element, service.User, service.Password)
+	addProxyKey(element, proxyKey)
 	return element, nil
 }
 
@@ -66,8 +70,10 @@ func clientElementFromRaw(raw string) (Element, error) {
 	if err != nil {
 		return nil, invalidElement(listTorrentClients, reasonUnreadableRaw)
 	}
-	element := Element{fieldType: client.Type, fieldReadOnly: client.ReadOnly, fieldURL: client.BaseURL}
+	plainURL, proxyKey := splitProxyKey(client.BaseURL)
+	element := Element{fieldType: client.Type, fieldReadOnly: client.ReadOnly, fieldURL: plainURL}
 	addCredentials(element, client.User, client.Password)
+	addProxyKey(element, proxyKey)
 	return element, nil
 }
 
@@ -92,7 +98,9 @@ func RawFromElement(list string, element Element) (any, error) {
 		return requiredString(list, element, fieldPath)
 	case listTrackers:
 		return trackerRawFromElement(element)
-	case listTorznab, listFSProviders:
+	case listTorznab:
+		return torznabRawFromElement(element)
+	case listFSProviders:
 		return marshalElement(list, element)
 	}
 	return nil, invalidElement(list, "unknown list")
@@ -107,7 +115,11 @@ func requiredString(list string, element Element, field string) (string, error) 
 }
 
 func urlWithCredentials(list string, element Element) (*url.URL, error) {
-	rawURL, err := requiredString(list, element, fieldURL)
+	plainURL, err := requiredString(list, element, fieldURL)
+	if err != nil {
+		return nil, err
+	}
+	rawURL, err := joinProxyKey(list, element, plainURL)
 	if err != nil {
 		return nil, err
 	}

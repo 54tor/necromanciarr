@@ -240,3 +240,21 @@ func TestConfigRoutes_internalErrorHasNoDetail(t *testing.T) {
 		t.Fatalf("valeurObtenue %q, valeurAttendue une erreur interne sans détail", body)
 	}
 }
+
+func TestConfigRoutes_refusalDetailMasksATypedProxyKeyAndIndexerKey(t *testing.T) {
+	const proxyKey, indexerKey = "dummy-web-proxy-key-0000", "dummy-web-indexer-key-0000"
+	scenarios := []struct{ path, body, typedKey string }{
+		{configTestItemPath, `{"element": {"url": "http://example.com:7878/proxy/{proxyKey}", "proxyKey": "` + proxyKey + `"}}`, proxyKey},
+		{"/api/config/lists/torznab/https%3A%2F%2Fexample.com", `{"element": {"url": "https://example.com/api", "apiKey": "` + indexerKey + `"}}`, indexerKey},
+	}
+	for _, scenario := range scenarios {
+		refusal := fmt.Errorf("%w: configuration refused: key %s rejected", config.ErrUsage, scenario.typedKey)
+		handler := newTestHandler(t, &fakeService{errors: map[string]error{"PutItem": refusal}}, loopbackSettings())
+
+		body := readBody(t, serve(handler, apiRequest(http.MethodPut, scenario.path, scenario.body)))
+
+		if valeurObtenue := decodeError(t, body).Error.Detail; valeurObtenue == "" || strings.Contains(body, scenario.typedKey) {
+			t.Fatalf("valeurObtenue %q, valeurAttendue un détail sans la clé saisie", body)
+		}
+	}
+}

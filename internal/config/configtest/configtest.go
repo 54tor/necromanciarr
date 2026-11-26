@@ -113,7 +113,7 @@ func listElements(t testing.TB, list string, rawValue json.RawMessage) []config.
 	return elements
 }
 
-// listElement lit une entrée : objet tel quel, URL Torznab seule, ou chaîne brute décomposée par ElementFromRaw.
+// listElement lit une entrée : objet (url Torznab décomposée), ou chaîne brute décomposée par ElementFromRaw.
 func listElement(t testing.TB, list string, rawEntry json.RawMessage) config.Element {
 	t.Helper()
 	var text string
@@ -122,14 +122,28 @@ func listElement(t testing.TB, list string, rawEntry json.RawMessage) config.Ele
 		if err := json.Unmarshal(rawEntry, &element); err != nil {
 			t.Fatal(err)
 		}
-		return element
-	}
-	if list == listTorznab {
-		return config.Element{fieldURL: text}
+		return splitIndexerURL(t, list, element)
 	}
 	element, err := config.ElementFromRaw(list, text)
 	if err != nil {
 		t.Fatal(err)
+	}
+	return element
+}
+
+// splitIndexerURL sort la clé apikey de l'url d'un objet Torznab, comme ElementFromRaw pour une chaîne.
+func splitIndexerURL(t testing.TB, list string, element config.Element) config.Element {
+	t.Helper()
+	rawURL, hasURL := element[fieldURL].(string)
+	if list != listTorznab || !hasURL {
+		return element
+	}
+	split, err := config.ElementFromRaw(list, rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for field, value := range split {
+		element[field] = value
 	}
 	return element
 }

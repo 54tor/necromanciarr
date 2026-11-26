@@ -171,15 +171,15 @@ func TestConfig_torznabRefusesExtraQueryParam(t *testing.T) {
 		"fragment":          "https://prowlarr.example.com/12/api?apikey=secret-k#top",
 		"other scheme":      "ftp://prowlarr.example.com/12/api?apikey=secret-k",
 		"missing key":       "https://prowlarr.example.com/12/api",
-		"raw at in the key": "https://prowlarr.example.com/12/api?apikey=secret@k",
 		"no host":           "https:///12/api?apikey=secret-k",
 	}
 	for name, rawURL := range scenarios {
 		t.Run(name, func(t *testing.T) {
 			_, err := loadTorznabConfig(t, `{"torznab": [`+quoteJSON(rawURL)+`]}`, nil)
 
-			if err == nil || !strings.Contains(err.Error(), "torznab[0]") {
-				t.Fatalf("gotValue %v, expectedValue an error naming torznab[0]", err)
+			isNamed := err != nil && (strings.Contains(err.Error(), "torznab[0]") || strings.Contains(err.Error(), "torznab.url"))
+			if !isNamed {
+				t.Fatalf("gotValue %v, expectedValue an error naming torznab[0] or torznab.url", err)
 			}
 			if strings.Contains(err.Error(), "secret-") || strings.Contains(err.Error(), "prowlarr.example.com") {
 				t.Fatalf("gotValue %q, expectedValue an error without the URL", err)

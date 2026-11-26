@@ -89,14 +89,28 @@ func testElement(t *testing.T, list string, rawEntry json.RawMessage) Element {
 		if err := json.Unmarshal(rawEntry, &element); err != nil {
 			t.Fatal(err)
 		}
-		return element
-	}
-	if list == listTorznab {
-		return Element{fieldURL: text}
+		return splitIndexerURL(t, list, element)
 	}
 	element, err := ElementFromRaw(list, text)
 	if err != nil {
 		t.Fatal(err)
+	}
+	return element
+}
+
+// splitIndexerURL sort la clé apikey de l'url d'un objet Torznab, comme ElementFromRaw pour une chaîne.
+func splitIndexerURL(t *testing.T, list string, element Element) Element {
+	t.Helper()
+	rawURL, hasURL := element[fieldURL].(string)
+	if list != listTorznab || !hasURL {
+		return element
+	}
+	split, err := ElementFromRaw(list, rawURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for field, value := range split {
+		element[field] = value
 	}
 	return element
 }
@@ -597,7 +611,7 @@ func TestLoadWith_clearCrossSeedSettingIsStillAccepted(t *testing.T) {
 }
 
 func TestLoadWith_storedTorznabWithoutNameIsUsageErrorNamingTheItem(t *testing.T) {
-	element := Element{"url": "https://prowlarr.example.com/12/api?apikey=" + fakeIndexerKey}
+	element := Element{"url": "https://prowlarr.example.com/12/api", "apiKey": fakeIndexerKey}
 	reader := fakeStoredReader{overrides: []store.ConfigOverride{
 		{List: "torznab", ItemID: "https://prowlarr.example.com", Value: mustMarshal(t, element)},
 	}}

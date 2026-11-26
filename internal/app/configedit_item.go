@@ -10,8 +10,8 @@ import (
 	"necromanciarr/internal/store"
 )
 
-// destinationFields désignent l'hôte qui reçoit les secrets d'un élément : un secret n'y est jamais reconduit vers une
-// autre destination.
+// destinationFields désignent la destination des secrets d'un élément (url en clair : schéma, hôte, port et chemin) : un
+// secret omis n'y est jamais reconduit vers une autre destination.
 var destinationFields = map[string][]string{
 	"radarr": {"url"}, "sonarr": {"url"}, "torrentClients": {"url"}, "torznab": {"url"}, "fsProviders": {"address"},
 }
@@ -19,6 +19,9 @@ var destinationFields = map[string][]string{
 // itemOverride prépare la surcharge d'un élément : un secret absent ou null garde la valeur précédente (enregistrée,
 // sinon cross-seed) si la destination ne change pas ; les secrets sont scellés ; l'empreinte amont date la surcharge.
 func (svc *service) itemOverride(snapshot storedSnapshot, list, itemID string, element map[string]any) (store.ConfigOverride, error) {
+	if err := config.RejectSecretInURL(list, element); err != nil {
+		return store.ConfigOverride{}, err
+	}
 	candidate := maps.Clone(element)
 	omitted := dropOmittedSecrets(list, candidate)
 	if err := svc.requireDerivableItemID(snapshot, list, itemID); err != nil {

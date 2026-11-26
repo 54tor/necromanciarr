@@ -22,11 +22,11 @@ const (
 
 // secretFieldsByList nomme, par liste de configuration, les champs gardés scellés en base.
 var secretFieldsByList = map[string][]string{
-	"radarr":         {"apiKey", "password", "url"},
-	"sonarr":         {"apiKey", "password", "url"},
-	"torrentClients": {"password", "url"},
+	"radarr":         {"apiKey", "password", "proxyKey"},
+	"sonarr":         {"apiKey", "password", "proxyKey"},
+	"torrentClients": {"password", "proxyKey"},
 	"trackers":       {"announce"},
-	"torznab":        {"url"},
+	"torznab":        {"apiKey"},
 	"fsProviders":    {"rc", "password", "identityPassphrase"},
 }
 

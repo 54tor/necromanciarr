@@ -201,7 +201,7 @@ func TestPutItem_invalidElementWritesNothing(t *testing.T) {
 		element   map[string]any
 		fieldName string
 	}{
-		{"torznab", map[string]any{"url": "https://indexer.example.com/api?apikey=fake"}, "name"},
+		{"torznab", map[string]any{"url": "https://indexer.example.com/api", "apiKey": "fake"}, "name"},
 		{"radarr", map[string]any{"url": "${RADARR_URL}", "apiKey": "fake"}, "radarr.url"},
 		{"radarr", map[string]any{"url": "ftp://radarr.example.com", "apiKey": "fake"}, "radarr"},
 		{"unknownList", map[string]any{"path": "/srv/links"}, "unknownList"},
@@ -487,12 +487,28 @@ func TestPutItem_editsALegacyStoredItemID(t *testing.T) {
 	}
 }
 
-func TestPutItem_sealsThePasswordAndTheURLOfEveryServiceList(t *testing.T) {
-	const servicePassword = "fake-service-pass-0000"
+
+const (
+	configEditProxyKey    = "fake-proxy-key-0000"
+	configEditPassword    = "fake-service-pass-0000"
+	configEditIndexerKey  = "fake-indexer-key-0000"
+	configEditProxiedURL  = "http://radarr.example.com:7476/proxy/{proxyKey}/radarr"
+	configEditIndexerURL  = "https://indexer.example.com/api/v1/12"
+	configEditQbitURL     = "http://qbit.example.com:8080/proxy/{proxyKey}/qbit"
+	configEditSonarrURL   = "http://sonarr.example.com:8989"
+	configEditDestination = "re-enter the secrets when url changes"
+)
+
+func proxiedRadarr() map[string]any {
+	return map[string]any{"url": configEditProxiedURL, "apiKey": configEditRadarrKey, "user": "alice", "password": configEditPassword, "proxyKey": configEditProxyKey}
+}
+
+func TestPutItem_sealsOnlyTheSecretsAndKeepsTheURLInClear(t *testing.T) {
 	elements := map[string]map[string]any{
-		"radarr":         {"url": "http://radarr.example.com:7878", "apiKey": configEditRadarrKey, "user": "alice", "password": servicePassword},
-		"sonarr":         {"url": "http://sonarr.example.com:8989", "apiKey": configEditRadarrKey, "user": "alice", "password": servicePassword},
-		"torrentClients": {"type": "qbittorrent", "url": "http://qbit.example.com:8080", "user": "alice", "password": servicePassword},
+		"radarr":         proxiedRadarr(),
+		"sonarr":         {"url": configEditSonarrURL, "apiKey": configEditRadarrKey, "password": configEditPassword},
+		"torrentClients": {"type": "qbittorrent", "url": configEditQbitURL, "user": "alice", "password": configEditPassword, "proxyKey": configEditProxyKey},
+		"torznab":        {"name": "idx", "url": configEditIndexerURL, "apiKey": configEditIndexerKey},
 	}
 	for list, element := range elements {
 		fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
@@ -502,27 +518,135 @@ func TestPutItem_sealsThePasswordAndTheURLOfEveryServiceList(t *testing.T) {
 			t.Fatalf("%s: %v", list, err)
 		}
 
-		storedValue := string(fixture.overrides(t)[0].Value)
-		if strings.Contains(storedValue, servicePassword) || strings.Contains(storedValue, clearURL) {
-			t.Errorf("%s: valeurObtenue %s, valeurAttendue ni mot de passe ni URL en clair", list, storedValue)
+		var stored map[string]any
+		if err := json.Unmarshal(fixture.overrides(t)[0].Value, &stored); err != nil {
+			t.Fatal(err)
 		}
-		valeurObtenue := reloadedService(t, fixture, list)
-		valeurAttendue := [2]string{clearURL, servicePassword}
-		if valeurObtenue != valeurAttendue {
-			t.Errorf("%s: valeurObtenue %v, valeurAttendue %v relus et descellés", list, valeurObtenue, valeurAttendue)
+		if valeurObtenue := stored["url"]; valeurObtenue != clearURL {
+			t.Errorf("%s: valeurObtenue url %v, valeurAttendue %q en clair", list, valeurObtenue, clearURL)
+		}
+		for _, secret := range []string{configEditRadarrKey, configEditPassword, configEditProxyKey, configEditIndexerKey} {
+			if strings.Contains(string(fixture.overrides(t)[0].Value), secret) {
+				t.Errorf("%s: valeurObtenue %s, valeurAttendue aucun secret en clair", list, fixture.overrides(t)[0].Value)
+			}
+		}
+		fixture.reload(t)
+	}
+}
+
+func TestPutItem_joinsTheSealedSecretsBackIntoTheLoadedServices(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	if err := fixture.service.PutItem(ctx, "radarr", "", proxiedRadarr()); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.service.PutItem(ctx, "torznab", "", map[string]any{"name": "idx", "url": configEditIndexerURL, "apiKey": configEditIndexerKey}); err != nil {
+		t.Fatal(err)
+	}
+	valeurAttendue := "http://radarr.example.com:7476/proxy/" + configEditProxyKey + "/radarr|" + configEditPassword + "|" +
+		configEditIndexerURL + "?apikey=" + configEditIndexerKey
+
+	loaded := fixture.reload(t)
+	valeurObtenue := loaded.Radarr[0].BaseURL + "|" + loaded.Radarr[0].Password + "|" + loaded.Torznab[0].URL
+
+	if valeurObtenue != valeurAttendue {
+		t.Fatalf("valeurObtenue %q, valeurAttendue %q", valeurObtenue, valeurAttendue)
+	}
+}
+
+func TestPutItem_refusesASecretWrittenInTheURLWithoutQuotingIt(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	element := map[string]any{"url": "http://radarr.example.com:7476/proxy/" + configEditProxyKey + "/radarr", "apiKey": configEditRadarrKey}
+
+	err := fixture.service.PutItem(context.Background(), "radarr", "", element)
+
+	if !errors.Is(err, config.ErrUsage) || !strings.Contains(err.Error(), "radarr.url") || strings.Contains(err.Error(), "example.com") ||
+		strings.Contains(err.Error(), configEditProxyKey) || strings.Contains(err.Error(), "stored ") {
+		t.Fatalf("valeurObtenue %v, valeurAttendue un refus d'écriture nommant radarr.url sans l'url", err)
+	}
+	if rowCount := len(fixture.overrides(t)); rowCount != 0 {
+		t.Fatalf("valeurObtenue %d rows, valeurAttendue rien d'écrit", rowCount)
+	}
+}
+
+func TestConfigView_showsTheURLInClearAndHidesTheSecrets(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	if err := fixture.service.PutItem(ctx, "radarr", "", proxiedRadarr()); err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := fixture.service.ConfigView(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	element := view.Lists["radarr"][0].Element
+	encodedView, _ := json.Marshal(view)
+
+	if valeurObtenue := element["url"]; valeurObtenue != configEditProxiedURL {
+		t.Fatalf("valeurObtenue %v, valeurAttendue %q", valeurObtenue, configEditProxiedURL)
+	}
+	for _, field := range []string{"apiKey", "password", "proxyKey"} {
+		if value, isPresent := element[field]; !isPresent || value != nil {
+			t.Errorf("valeurObtenue %s = %v (présent %v), valeurAttendue présent et null", field, value, isPresent)
+		}
+	}
+	if strings.Contains(string(encodedView), configEditProxyKey) || strings.Contains(string(encodedView), configEditPassword) {
+		t.Fatalf("valeurObtenue %s, valeurAttendue une vue sans secret", encodedView)
+	}
+}
+
+func TestPutItem_refusesOmittedSecretsWhenTheDestinationChanges(t *testing.T) {
+	changedURLs := map[string]string{
+		"host":   "http://other.example.com:7476/proxy/{proxyKey}/radarr",
+		"port":   "http://radarr.example.com:7477/proxy/{proxyKey}/radarr",
+		"path":   "http://radarr.example.com:7476/proxy/{proxyKey}/other",
+		"scheme": "https://radarr.example.com:7476/proxy/{proxyKey}/radarr",
+	}
+	for change, changedURL := range changedURLs {
+		fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+		ctx := context.Background()
+		if err := fixture.service.PutItem(ctx, "radarr", "", proxiedRadarr()); err != nil {
+			t.Fatal(err)
+		}
+		itemID := fixture.overrides(t)[0].ItemID
+
+		err := fixture.service.PutItem(ctx, "radarr", itemID, map[string]any{"url": changedURL, "apiKey": nil})
+
+		if !errors.Is(err, config.ErrUsage) || !strings.Contains(err.Error(), configEditDestination) {
+			t.Errorf("%s: valeurObtenue %v, valeurAttendue le refus %q", change, err, configEditDestination)
 		}
 	}
 }
 
-// reloadedService rend l'URL et le mot de passe relus par le chargement pour le seul élément de la liste.
-func reloadedService(t *testing.T, fixture configEditFixture, list string) [2]string {
-	t.Helper()
-	loaded := fixture.reload(t)
-	switch list {
-	case "radarr":
-		return [2]string{loaded.Radarr[0].BaseURL, loaded.Radarr[0].Password}
-	case "sonarr":
-		return [2]string{loaded.Sonarr[0].BaseURL, loaded.Sonarr[0].Password}
+func TestPutItem_keepsOmittedSecretsWhenOnlyTheUserChanges(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	if err := fixture.service.PutItem(ctx, "radarr", "", proxiedRadarr()); err != nil {
+		t.Fatal(err)
 	}
-	return [2]string{loaded.TorrentClients[0].BaseURL, loaded.TorrentClients[0].Password}
+	itemID := fixture.overrides(t)[0].ItemID
+	valeurAttendue := "bob|" + configEditPassword + "|" + configEditRadarrKey
+
+	err := fixture.service.PutItem(ctx, "radarr", itemID, map[string]any{"url": configEditProxiedURL, "user": "bob"})
+	loaded := fixture.reload(t)
+	valeurObtenue := loaded.Radarr[0].User + "|" + loaded.Radarr[0].Password + "|" + loaded.Radarr[0].APIKey
+
+	if err != nil || valeurObtenue != valeurAttendue {
+		t.Fatalf("valeurObtenue %q (%v), valeurAttendue %q", valeurObtenue, err, valeurAttendue)
+	}
+}
+
+func TestLoadStoredConfig_refusesAHandWrittenRowWithASecretInTheURL(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	row := store.ConfigOverride{List: "radarr", ItemID: configEditRadarrURL, Value: []byte(`{"url": "` + configEditRadarrURL + `?apikey=` + configEditRadarrKey + `"}`)}
+	if err := fixture.store.PutConfigOverride(context.Background(), row); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := fixture.load(fixture.store)
+
+	if !errors.Is(err, config.ErrInvalidStoredConfig) || strings.Contains(err.Error(), configEditRadarrKey) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue ErrInvalidStoredConfig sans la clé", err)
+	}
 }

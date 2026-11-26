@@ -66,7 +66,7 @@ func TestRawFromElement_feedsTheExistingParsers(t *testing.T) {
 		t.Fatalf("trackers obtenus %+v (%v)", trackers, err)
 	}
 
-	brutTorznab, _ := RawFromElement("torznab", Element{"url": "https://idx.example.com/api?apikey=dummy", "name": "idx"})
+	brutTorznab, _ := RawFromElement("torznab", Element{"url": "https://idx.example.com/api", "apiKey": "dummy", "name": "idx"})
 	indexeurs, err := parseTorznab([]json.RawMessage{brutTorznab.(json.RawMessage)})
 	if err != nil || len(indexeurs) != 1 || indexeurs[0].Name != "idx" {
 		t.Fatalf("torznab obtenu %+v (%v)", indexeurs, err)

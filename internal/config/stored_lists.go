@@ -118,6 +118,9 @@ func openOverride(override store.ConfigOverride, sealer *fieldSealer) (store.Con
 	if containsSealed(element) {
 		return store.ConfigOverride{}, fmt.Errorf("stored %s item: %w", override.List, ErrSealedSecretUnreadable)
 	}
+	if err := RejectSecretInURL(override.List, element); err != nil {
+		return store.ConfigOverride{}, fmt.Errorf("stored %s item: %w", override.List, err)
+	}
 	for field, value := range element {
 		if containsReference(value) {
 			return store.ConfigOverride{}, usageError{message: fmt.Sprintf(
