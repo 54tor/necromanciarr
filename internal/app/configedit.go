@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -83,7 +84,7 @@ func (svc *service) ConfigView(ctx context.Context) (ConfigView, error) {
 	if err != nil {
 		return ConfigView{}, err
 	}
-	loaded, err := load(editStore)
+	loaded, err := svc.loadForView(editStore, load)
 	if err != nil {
 		return ConfigView{}, err
 	}
@@ -99,6 +100,16 @@ func (svc *service) ConfigView(ctx context.Context) (ConfigView, error) {
 		Settings: settings, Lists: listViews(loaded.UpstreamElements, overrides),
 		Orphans: loaded.OrphanOverrides, RestartRequired: svc.restartRequired.Load(),
 	}, nil
+}
+
+// loadForView relit la base ; en réparation, une base invalide laisse voir la configuration chargée sans elle.
+func (svc *service) loadForView(editStore ConfigStore, load StoredConfigLoader) (config.Config, error) {
+	loaded, err := load(editStore)
+	isRepairing := svc.deps.Config.StoredLayerSkipped && errors.Is(err, config.ErrInvalidStoredConfig)
+	if isRepairing {
+		return svc.deps.Config, nil
+	}
+	return loaded, err
 }
 
 func settingViews(loaded config.Config) (map[string]ConfigValue, error) {

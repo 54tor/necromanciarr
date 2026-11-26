@@ -30,6 +30,22 @@ func loadConfig(args []string) (config.Config, error) {
 	return config.LoadWith(args, lookupEnv, defaultConfigDir(), openStoredReader)
 }
 
+// loadConfigFor charge la configuration ; pour une action config, une base invalide est ignorée afin de la réparer :
+// chaque écriture reste validée par le vrai chargement.
+func loadConfigFor(spec command, args []string) (config.Config, error) {
+	loadedConfig, err := loadConfig(args)
+	canRepair := spec.repairsStoredConfig && errors.Is(err, config.ErrInvalidStoredConfig)
+	if !canRepair {
+		return loadedConfig, err
+	}
+	withoutStored, bootstrapErr := config.LoadWith(args, lookupEnv, defaultConfigDir(), nil)
+	if bootstrapErr != nil {
+		return config.Config{}, err
+	}
+	withoutStored.StoredLayerSkipped = true
+	return withoutStored, nil
+}
+
 // storedConfigLoader rejoue le chargement du processus (mêmes options, même environnement) sur un contenu de base donné :
 // le Service valide ainsi chaque édition de la configuration avant de l'écrire.
 func storedConfigLoader(args []string) app.StoredConfigLoader {

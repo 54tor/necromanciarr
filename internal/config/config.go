@@ -105,6 +105,8 @@ type Config struct {
 	// SecretKey est NECROMANCIARR_SECRET_KEY décodée (32 octets) : elle scelle les .torrent d'indexeur. Jamais
 	// sérialisée ni rendue ; sa remise à zéro n'est qu'un effort, Go ne garantit pas l'absence de copie.
 	SecretKey []byte `json:"-"`
+	// StoredLayerSkipped dit que la base invalide a été ignorée pour la réparer par les actions config.
+	StoredLayerSkipped bool `json:"-"`
 }
 
 // fileConfig est la configuration brute (réglages et formes brutes des listes) avant analyse des chaînes de service.

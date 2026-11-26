@@ -63,18 +63,19 @@ const (
 // (utilisé par le test de parité). diagnostic ouvre le Service sans base ni client ; onConfigError rend un résultat
 // au lieu d'échouer quand la configuration est invalide.
 type command struct {
-	path              []string
-	summaryKey        i18n.Key
-	summaryParams     map[string]string
-	actions           []string
-	arguments         []string
-	optionalArguments bool
-	boolFlags         []string
-	valueFlags        []string
-	example           []string
-	diagnostic        bool
-	onConfigError     func(i18n.Translator, error) output
-	execute           func(ctx context.Context, call *invocation) (output, error)
+	path                []string
+	summaryKey          i18n.Key
+	summaryParams       map[string]string
+	actions             []string
+	arguments           []string
+	optionalArguments   bool
+	boolFlags           []string
+	valueFlags          []string
+	example             []string
+	diagnostic          bool
+	onConfigError       func(i18n.Translator, error) output
+	repairsStoredConfig bool
+	execute             func(ctx context.Context, call *invocation) (output, error)
 }
 
 func (spec command) name() string { return strings.Join(spec.path, " ") }

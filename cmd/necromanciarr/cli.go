@@ -292,7 +292,7 @@ func runCommand(ctx context.Context, spec command, args []string, stdout, stderr
 	}
 	out.jsonOutput = call.has(flagJSON)
 	call.stdout, call.stderr = stdout, stderr
-	call.settings, err = loadConfig(call.configArgs)
+	call.settings, err = loadConfigFor(spec, call.configArgs)
 	if err != nil {
 		isDiagnosable := !errors.Is(err, config.ErrUsage) || errors.Is(err, config.ErrInvalidStoredConfig)
 		if spec.onConfigError != nil && isDiagnosable {

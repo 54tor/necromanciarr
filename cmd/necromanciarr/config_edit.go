@@ -32,7 +32,7 @@ var stdin io.Reader = os.Stdin
 
 func configCommands() []command {
 	itemArguments := []string{app.ArgumentConfigList, app.ArgumentConfigItemID}
-	return []command{
+	editCommands := []command{
 		{
 			path: []string{"config", "get"}, summaryKey: i18n.KeyCLISummaryConfigGet, actions: []string{actionConfigGet},
 			arguments: []string{app.ArgumentConfigKey}, optionalArguments: true, example: []string{}, execute: runConfigGet,
@@ -63,6 +63,10 @@ func configCommands() []command {
 			execute: itemMutation(actionItemUnset, app.Service.UnsetItem),
 		},
 	}
+	for index := range editCommands {
+		editCommands[index].repairsStoredConfig = true
+	}
+	return editCommands
 }
 
 // configSaved est la sortie d'une écriture : elle ne s'applique qu'au prochain lancement du serveur.
