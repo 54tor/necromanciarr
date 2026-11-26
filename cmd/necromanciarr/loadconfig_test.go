@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -29,25 +27,22 @@ func openTestDatabase(t *testing.T, configDir string) *store.Store {
 	return openedStore
 }
 
-// sealTestSetting reproduit le format scellé de la configuration (sealed:v1: + base64url(nonce||chiffré), donnée
-// associée settings|clé|) avec la clé de test fakeSecretKey et un nonce nul, acceptable pour un test seulement.
+// sealTestSetting scelle un réglage avec la clé de test fakeSecretKey, comme le fait l'édition de la configuration.
 func sealTestSetting(t *testing.T, key, plain string) []byte {
 	t.Helper()
 	secretKey, err := base64.RawURLEncoding.DecodeString(fakeSecretKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	block, err := aes.NewCipher(secretKey)
+	sealer, err := config.NewSecretSealer(secretKey)
 	if err != nil {
 		t.Fatal(err)
 	}
-	aead, err := cipher.NewGCM(block)
+	sealed, err := sealer.SealSetting(key, plain)
 	if err != nil {
 		t.Fatal(err)
 	}
-	nonce := make([]byte, aead.NonceSize())
-	blob := aead.Seal(nonce, nonce, []byte(plain), []byte("settings|"+key+"|"))
-	encoded, err := json.Marshal("sealed:v1:" + base64.RawURLEncoding.EncodeToString(blob))
+	encoded, err := json.Marshal(sealed)
 	if err != nil {
 		t.Fatal(err)
 	}

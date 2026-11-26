@@ -312,7 +312,7 @@ func sealedRadarrReader(t *testing.T, key []byte) fakeStoredReader {
 		t.Fatal(err)
 	}
 	element := map[string]any{"url": "http://sealed.example.com:7878", "apiKey": "sealed-radarr-key"}
-	if err := sealer.sealElement("radarr", "http://sealed.example.com:7878", element); err != nil {
+	if err := sealer.SealElement("radarr", "http://sealed.example.com:7878", element); err != nil {
 		t.Fatal(err)
 	}
 	return fakeStoredReader{overrides: []store.ConfigOverride{
@@ -369,7 +369,7 @@ func TestLoadWith_sealedProwlarrSettingIsOpenedWithTheKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	valeurAttendue := "https://prowlarr.example.com?apikey=" + fakeProwlarrKey
-	sealed, err := sealer.sealSetting("prowlarr", valeurAttendue)
+	sealed, err := sealer.SealSetting("prowlarr", valeurAttendue)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +483,7 @@ func sealedSettingsReader(t *testing.T, plainByKey map[string]string) fakeStored
 	}
 	reader := fakeStoredReader{settings: map[string][]byte{}}
 	for key, plain := range plainByKey {
-		sealed, err := sealer.sealSetting(key, plain)
+		sealed, err := sealer.SealSetting(key, plain)
 		if err != nil {
 			t.Fatal(err)
 		}

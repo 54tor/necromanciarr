@@ -40,6 +40,9 @@ var settingFlags = map[string]string{
 	"crossSeedMode": "cross-seed-mode", settingLanguage: "language",
 }
 
+// SettingKeys rend les clés de réglage admises en base, dans l'ordre d'affichage.
+func SettingKeys() []string { return slices.Clone(settingKeys) }
+
 func settingTargets(rawFile *fileConfig) map[string]any {
 	return map[string]any{
 		settingListen: &rawFile.Listen, "readBytesPerSecond": &rawFile.ReadBytesPerSecond,
@@ -80,12 +83,12 @@ func applyStoredSettings(rawFile *fileConfig, settings map[string][]byte, sealer
 // openedSettingValue descelle un réglage secret scellé ; les autres valeurs passent telles quelles.
 func openedSettingValue(key string, value []byte, sealer *fieldSealer) ([]byte, error) {
 	var text string
-	isSealedSecret := slices.Contains(secretSettings, key) && json.Unmarshal(value, &text) == nil &&
+	isSealedSecret := IsSecretSetting(key) && json.Unmarshal(value, &text) == nil &&
 		strings.HasPrefix(text, sealedPrefix)
 	if !isSealedSecret {
 		return value, nil
 	}
-	plain, err := sealer.openSetting(key, text)
+	plain, err := sealer.OpenSetting(key, text)
 	if err != nil {
 		return nil, err
 	}

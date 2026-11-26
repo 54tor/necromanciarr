@@ -89,6 +89,9 @@ type Config struct {
 	// élément amont, gardées en base mais sans effet.
 	Origins         []ValueOrigin    `json:"origins"`
 	OrphanOverrides []OrphanOverride `json:"orphanOverrides"`
+	// UpstreamElements donne, par liste, les éléments importés de cross-seed avant surcharge : secrets en clair,
+	// jamais sérialisés ni affichés.
+	UpstreamElements map[string][]Element `json:"-"`
 	// SeedTags sont les tags posés avec la catégorie sur chaque torrent ajouté ; la liste remplace le défaut.
 	SeedTags []string `json:"seedTags"`
 	// PartialMaxMissingPercent : au-delà de ce pourcentage de pièces manquantes, un torrent incomplet n'est pas proposé
@@ -292,7 +295,7 @@ func (layers configLayers) describe(target *Config, environment loadEnvironment)
 	target.ConfigDir, target.WorkingDirDotEnv = environment.configDir, environment.workingDirDotEnv
 	target.DBPath, target.SecretKey = environment.dbPath, environment.secretKey
 	target.CrossSeed, target.CrossSeedImport = layers.daemon, layers.crossSeed.status
-	target.OrphanOverrides = layers.lists.orphans
+	target.OrphanOverrides, target.UpstreamElements = layers.lists.orphans, layers.lists.upstream
 }
 
 // finishConfig applique défauts, environnement et options, normalise, date les origines puis valide.
@@ -659,6 +662,7 @@ func (loadedConfig Config) redacted() plainConfig {
 		redactedCopy.LibraryProviderToken = redactedSecret
 	}
 	redactedCopy.SecretKey = nil
+	redactedCopy.UpstreamElements = nil
 	return plainConfig(redactedCopy)
 }
 

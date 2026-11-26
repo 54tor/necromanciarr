@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 	"strings"
 )
 
@@ -138,7 +139,8 @@ func transformSecretField(element map[string]any, field string, transform func(s
 	return nil
 }
 
-func (sealer *fieldSealer) sealElement(list, itemID string, element map[string]any) error {
+// SealElement scelle, en place, les champs secrets non vides d'un élément de la liste.
+func (sealer *fieldSealer) SealElement(list, itemID string, element map[string]any) error {
 	if err := rejectNonStringSecrets(list, element); err != nil {
 		return err
 	}
@@ -157,7 +159,8 @@ func (sealer *fieldSealer) sealElement(list, itemID string, element map[string]a
 	return nil
 }
 
-func (sealer *fieldSealer) openElement(list, itemID string, element map[string]any) error {
+// OpenElement descelle, en place, les champs secrets scellés d'un élément ; les autres valeurs restent telles quelles.
+func (sealer *fieldSealer) OpenElement(list, itemID string, element map[string]any) error {
 	for _, champCourant := range secretFieldsByList[list] {
 		associated := associatedFor(list, itemID, champCourant)
 		err := transformSecretField(element, champCourant, func(valeurScellee string) (string, error) {
@@ -173,13 +176,21 @@ func (sealer *fieldSealer) openElement(list, itemID string, element map[string]a
 	return nil
 }
 
-func (sealer *fieldSealer) sealSetting(key, plain string) (string, error) {
+// SealSetting scelle la valeur d'un réglage secret ; sans clé, ErrSecretKeyMissing.
+func (sealer *fieldSealer) SealSetting(key, plain string) (string, error) {
 	return sealer.seal(plain, associatedFor(settingsScope, key, ""))
 }
 
-func (sealer *fieldSealer) openSetting(key, sealed string) (string, error) {
+// OpenSetting descelle la valeur d'un réglage secret.
+func (sealer *fieldSealer) OpenSetting(key, sealed string) (string, error) {
 	return sealer.open(sealed, associatedFor(settingsScope, key, ""))
 }
+
+// SecretFields nomme les champs scellés d'un élément de la liste.
+func SecretFields(list string) []string { return slices.Clone(secretFieldsByList[list]) }
+
+// IsSecretSetting dit si le réglage est scellé en base.
+func IsSecretSetting(key string) bool { return slices.Contains(secretSettings, key) }
 
 func containsSealed(element map[string]any) bool {
 	for _, valeurCourante := range element {

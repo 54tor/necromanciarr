@@ -14,6 +14,9 @@ var (
 	storedOnlyLists = []string{listTrackers, listTorznab, listFSProviders}
 )
 
+// ListNames rend les listes admises en base : celles à amont cross-seed, puis celles de la base seule.
+func ListNames() []string { return slices.Concat(upstreamLists, storedOnlyLists) }
+
 var valueOriginOfElement = map[ElementOrigin]string{
 	OriginCrossSeed: originCrossSeed,
 	OriginOverride:  originOverride,
@@ -22,8 +25,9 @@ var valueOriginOfElement = map[ElementOrigin]string{
 
 // resolvedLists est le bilan de la couche liste : origine de chaque élément et surcharges orphelines.
 type resolvedLists struct {
-	origins []ValueOrigin
-	orphans []OrphanOverride
+	origins  []ValueOrigin
+	orphans  []OrphanOverride
+	upstream map[string][]Element
 }
 
 // applyStoredLists résout chaque liste (amont cross-seed + surcharges descellées) et range ses formes brutes dans
@@ -33,12 +37,13 @@ func applyStoredLists(rawFile *fileConfig, upstream map[string][]string, overrid
 	if err != nil {
 		return resolvedLists{}, err
 	}
-	var result resolvedLists
-	for _, list := range slices.Concat(upstreamLists, storedOnlyLists) {
+	result := resolvedLists{upstream: map[string][]Element{}}
+	for _, list := range ListNames() {
 		elements, err := upstreamElements(list, upstream[list])
 		if err != nil {
 			return resolvedLists{}, err
 		}
+		result.upstream[list] = elements
 		resolved, orphans := ResolveList(list, elements, opened)
 		if err := requireStoredNames(list, resolved); err != nil {
 			return resolvedLists{}, err
@@ -100,7 +105,7 @@ func openOverride(override store.ConfigOverride, sealer *fieldSealer) (store.Con
 	if err != nil {
 		return override, nil
 	}
-	if err := sealer.openElement(override.List, override.ItemID, element); err != nil {
+	if err := sealer.OpenElement(override.List, override.ItemID, element); err != nil {
 		return store.ConfigOverride{}, fmt.Errorf("stored %s item: %w", override.List, err)
 	}
 	if containsSealed(element) {

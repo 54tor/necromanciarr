@@ -27,13 +27,13 @@ func TestFieldSealer_roundTripsEveryListSecretField(t *testing.T) {
 		for _, champCourant := range secretFields {
 			element[champCourant] = dummySecret + "-" + champCourant
 		}
-		if err := sealer.sealElement(listName, "item-1", element); err != nil {
+		if err := sealer.SealElement(listName, "item-1", element); err != nil {
 			t.Fatalf("%s: sealElement: %v", listName, err)
 		}
 		if !containsSealed(element) {
 			t.Fatalf("%s: containsSealed = false after sealing", listName)
 		}
-		if err := sealer.openElement(listName, "item-1", element); err != nil {
+		if err := sealer.OpenElement(listName, "item-1", element); err != nil {
 			t.Fatalf("%s: openElement: %v", listName, err)
 		}
 		for _, champCourant := range secretFields {
@@ -48,10 +48,10 @@ func TestFieldSealer_roundTripsEveryListSecretField(t *testing.T) {
 
 func TestFieldSealer_wrongKeyReturnsSealedSecretUnreadable(t *testing.T) {
 	element := map[string]any{"apiKey": dummySecret}
-	if err := newTestFieldSealer(t, 1).sealElement("radarr", "item-1", element); err != nil {
+	if err := newTestFieldSealer(t, 1).SealElement("radarr", "item-1", element); err != nil {
 		t.Fatalf("sealElement: %v", err)
 	}
-	erreurObtenue := newTestFieldSealer(t, 2).openElement("radarr", "item-1", element)
+	erreurObtenue := newTestFieldSealer(t, 2).OpenElement("radarr", "item-1", element)
 	if !errors.Is(erreurObtenue, ErrSealedSecretUnreadable) {
 		t.Fatalf("valeurAttendue ErrSealedSecretUnreadable, valeurObtenue %v", erreurObtenue)
 	}
@@ -63,10 +63,10 @@ func TestFieldSealer_wrongKeyReturnsSealedSecretUnreadable(t *testing.T) {
 func TestFieldSealer_bindsTheCiphertextToItsItem(t *testing.T) {
 	sealer := newTestFieldSealer(t, 1)
 	element := map[string]any{"apiKey": dummySecret}
-	if err := sealer.sealElement("radarr", "item-1", element); err != nil {
+	if err := sealer.SealElement("radarr", "item-1", element); err != nil {
 		t.Fatalf("sealElement: %v", err)
 	}
-	erreurObtenue := sealer.openElement("radarr", "item-2", element)
+	erreurObtenue := sealer.OpenElement("radarr", "item-2", element)
 	if !errors.Is(erreurObtenue, ErrSealedSecretUnreadable) {
 		t.Fatalf("valeurAttendue ErrSealedSecretUnreadable, valeurObtenue %v", erreurObtenue)
 	}
@@ -75,7 +75,7 @@ func TestFieldSealer_bindsTheCiphertextToItsItem(t *testing.T) {
 func TestFieldSealer_leavesNonSecretFieldsUntouched(t *testing.T) {
 	sealer := newTestFieldSealer(t, 1)
 	element := map[string]any{"name": "visible", "apiKey": "", "port": 7878}
-	if err := sealer.sealElement("radarr", "item-1", element); err != nil {
+	if err := sealer.SealElement("radarr", "item-1", element); err != nil {
 		t.Fatalf("sealElement: %v", err)
 	}
 	if element["name"] != "visible" || element["port"] != 7878 {
@@ -92,7 +92,7 @@ func TestFieldSealer_leavesNonSecretFieldsUntouched(t *testing.T) {
 func TestFieldSealer_neverEmitsThePlaintext(t *testing.T) {
 	sealer := newTestFieldSealer(t, 1)
 	element := map[string]any{"password": dummySecret}
-	if err := sealer.sealElement("torrentClients", "item-1", element); err != nil {
+	if err := sealer.SealElement("torrentClients", "item-1", element); err != nil {
 		t.Fatalf("sealElement: %v", err)
 	}
 	serialisation, err := json.Marshal(element)
@@ -109,18 +109,18 @@ func TestFieldSealer_neverEmitsThePlaintext(t *testing.T) {
 
 func TestFieldSealer_roundTripsASetting(t *testing.T) {
 	sealer := newTestFieldSealer(t, 1)
-	sealedValue, err := sealer.sealSetting("prowlarr", dummySecret)
+	sealedValue, err := sealer.SealSetting("prowlarr", dummySecret)
 	if err != nil {
 		t.Fatalf("sealSetting: %v", err)
 	}
 	if strings.Contains(sealedValue, dummySecret) {
 		t.Fatalf("le clair apparaît dans la valeur scellée")
 	}
-	valeurObtenue, err := sealer.openSetting("prowlarr", sealedValue)
+	valeurObtenue, err := sealer.OpenSetting("prowlarr", sealedValue)
 	if err != nil || valeurObtenue != dummySecret {
 		t.Fatalf("valeurAttendue %q, valeurObtenue %q (%v)", dummySecret, valeurObtenue, err)
 	}
-	if _, err := sealer.openSetting("autre", sealedValue); !errors.Is(err, ErrSealedSecretUnreadable) {
+	if _, err := sealer.OpenSetting("autre", sealedValue); !errors.Is(err, ErrSealedSecretUnreadable) {
 		t.Errorf("valeurAttendue ErrSealedSecretUnreadable pour une autre clé de réglage, valeurObtenue %v", err)
 	}
 }
@@ -130,7 +130,7 @@ func TestFieldSealer_nilSealerRefusesToSeal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSecretSealer(nil): %v", err)
 	}
-	erreurObtenue := sealer.sealElement("radarr", "item-1", map[string]any{"apiKey": dummySecret})
+	erreurObtenue := sealer.SealElement("radarr", "item-1", map[string]any{"apiKey": dummySecret})
 	if !errors.Is(erreurObtenue, ErrSecretKeyMissing) || !errors.Is(erreurObtenue, ErrUsage) {
 		t.Fatalf("valeurAttendue ErrSecretKeyMissing rattachée à ErrUsage, valeurObtenue %v", erreurObtenue)
 	}
@@ -155,7 +155,7 @@ func TestFieldSealer_rejectsANonStringSecretField(t *testing.T) {
 	}
 	for nomCas, valeurInvalide := range valeursInvalides {
 		element := map[string]any{"apiKey": valeurInvalide}
-		erreurObtenue := sealer.sealElement("radarr", "item-1", element)
+		erreurObtenue := sealer.SealElement("radarr", "item-1", element)
 		if !errors.Is(erreurObtenue, ErrUsage) {
 			t.Fatalf("%s: valeurAttendue une erreur d'usage, valeurObtenue %v", nomCas, erreurObtenue)
 		}
@@ -171,14 +171,14 @@ func TestFieldSealer_rejectsANonStringSecretField(t *testing.T) {
 func TestFieldSealer_sealsEachEntryOfAnAnnounceArray(t *testing.T) {
 	sealer := newTestFieldSealer(t, 1)
 	element := map[string]any{"key": "tracker-a", "announce": []any{dummySecret + "-1", dummySecret + "-2"}}
-	if err := sealer.sealElement("trackers", "tracker-a", element); err != nil {
+	if err := sealer.SealElement("trackers", "tracker-a", element); err != nil {
 		t.Fatalf("sealElement: %v", err)
 	}
 	serialise, _ := json.Marshal(element)
 	if strings.Contains(string(serialise), dummySecret) || !containsSealed(element) {
 		t.Fatalf("valeurObtenue %s", serialise)
 	}
-	if err := sealer.openElement("trackers", "tracker-a", element); err != nil {
+	if err := sealer.OpenElement("trackers", "tracker-a", element); err != nil {
 		t.Fatalf("openElement: %v", err)
 	}
 	valeurAttendue := fmt.Sprint([]any{dummySecret + "-1", dummySecret + "-2"})
@@ -189,7 +189,7 @@ func TestFieldSealer_sealsEachEntryOfAnAnnounceArray(t *testing.T) {
 
 func TestFieldSealer_rejectsAnAnnounceArrayHoldingANonString(t *testing.T) {
 	element := map[string]any{"announce": []any{dummySecret, 42}}
-	erreurObtenue := newTestFieldSealer(t, 1).sealElement("trackers", "tracker-a", element)
+	erreurObtenue := newTestFieldSealer(t, 1).SealElement("trackers", "tracker-a", element)
 	if !errors.Is(erreurObtenue, ErrUsage) || strings.Contains(erreurObtenue.Error(), dummySecret) {
 		t.Fatalf("valeurObtenue %v", erreurObtenue)
 	}
