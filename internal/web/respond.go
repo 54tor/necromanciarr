@@ -42,6 +42,8 @@ var statusByErrorCode = map[string]int{
 type ErrorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// Detail est le texte, sans valeur, d'un refus d'écriture de configuration.
+	Detail string `json:"detail,omitempty"`
 }
 
 // apiError est une erreur du web lui-même (requête invalide, accès refusé), avec son statut et son message sûr ;
@@ -76,7 +78,8 @@ func (handler *Handler) describe(err error) (int, ErrorBody) {
 	if !known {
 		status = http.StatusInternalServerError
 	}
-	return status, ErrorBody{Code: code, Message: handler.translator.Render(app.MessageOf(err))}
+	body := ErrorBody{Code: code, Message: handler.translator.Render(app.MessageOf(err)), Detail: configDetail(err, handler.secrets())}
+	return status, body
 }
 
 // secrets liste les secrets de la configuration, masqués dans chaque sortie (corps JSON et journal).

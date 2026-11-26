@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -208,5 +209,34 @@ func TestConfigRoutes_mutatingRoutesNeedTheTokenAndTheSameOrigin(t *testing.T) {
 	if !isRefused || len(fake.calls) != 0 {
 		t.Fatalf("valeurObtenue %d / %d / %d, calls %v ; valeurAttendue 401, 403, 415 sans appel",
 			withoutToken.Code, refused.Code, unsupported.Code, fake.calls)
+	}
+}
+
+func TestConfigRoutes_refusedWriteCarriesItsReasonWithoutTheTypedSecret(t *testing.T) {
+	refusal := fmt.Errorf("%w: configuration refused: radarr: apiKey %s rejected", config.ErrUsage, configTestSecret)
+	fake := &fakeService{errors: map[string]error{"PutItem": refusal}}
+	handler := newTestHandler(t, fake, loopbackSettings())
+	requestBody := `{"element": {"url": "` + configTestItemID + `", "apiKey": "` + configTestSecret + `"}}`
+	valeurAttendue := "configuration refused: radarr: apiKey"
+
+	body := readBody(t, serve(handler, apiRequest(http.MethodPut, configTestItemPath, requestBody)))
+	valeurObtenue := decodeError(t, body).Error.Detail
+
+	if !strings.Contains(valeurObtenue, valeurAttendue) {
+		t.Fatalf("valeurObtenue %q, valeurAttendue un détail contenant %q", valeurObtenue, valeurAttendue)
+	}
+	if strings.Contains(body, configTestSecret) {
+		t.Fatalf("valeurObtenue %q, valeurAttendue aucun secret saisi dans le détail", body)
+	}
+}
+
+func TestConfigRoutes_internalErrorHasNoDetail(t *testing.T) {
+	fake := &fakeService{errors: map[string]error{"SetSetting": errors.New("disk unavailable at /home/u/db")}}
+	handler := newTestHandler(t, fake, loopbackSettings())
+
+	body := readBody(t, serve(handler, apiRequest(http.MethodPut, "/api/config/settings/"+configTestSettingKey, `{"value": 1}`)))
+
+	if strings.Contains(body, `"detail"`) || strings.Contains(body, "/home/u") {
+		t.Fatalf("valeurObtenue %q, valeurAttendue une erreur interne sans détail", body)
 	}
 }

@@ -150,7 +150,7 @@ Les actions longues (étapes, dedupe, repair) répondent 202 avec un job `{id, a
 
 ### Erreurs
 
-Corps `{"error": {"code", "message"}}`. Le message est celui de l'erreur typée reconnue ; une erreur inconnue donne `internal error` et le détail masqué n'est écrit que dans le journal du serveur.
+Corps `{"error": {"code", "message"}}`. Le message est celui de l'erreur typée reconnue ; une erreur inconnue donne `internal error` et le détail masqué n'est écrit que dans le journal du serveur. Un refus d'écriture de configuration (`/api/config/…`) ajoute `detail`, la raison du refus en anglais, sans valeur et masquée.
 
 | Code | HTTP | CLI | Cas |
 |---|---|---|---|

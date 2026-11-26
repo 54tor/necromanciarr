@@ -44,8 +44,9 @@ func putSetting(handler *Handler, request *http.Request) (any, int, error) {
 	if isValueMissing {
 		return nil, 0, requiredBodyField("value")
 	}
-	if err := handler.service.SetSetting(request.Context(), request.PathValue(pathConfigKey), body.Value); err != nil {
-		return nil, 0, err
+	key := request.PathValue(pathConfigKey)
+	if err := handler.service.SetSetting(request.Context(), key, body.Value); err != nil {
+		return nil, 0, withConfigDetail(err, settingSecrets(key, body.Value))
 	}
 	return handler.configView(request.Context())
 }
@@ -55,7 +56,7 @@ func deleteSetting(handler *Handler, request *http.Request) (any, int, error) {
 		return nil, 0, err
 	}
 	if err := handler.service.UnsetSetting(request.Context(), request.PathValue(pathConfigKey)); err != nil {
-		return nil, 0, err
+		return nil, 0, withConfigDetail(err, nil)
 	}
 	return handler.configView(request.Context())
 }
@@ -72,7 +73,7 @@ func putItem(handler *Handler, request *http.Request) (any, int, error) {
 	}
 	list, itemID := request.PathValue(pathConfigList), request.PathValue(pathConfigItemID)
 	if err := handler.service.PutItem(request.Context(), list, itemID, body.Element); err != nil {
-		return nil, 0, err
+		return nil, 0, withConfigDetail(err, elementSecrets(list, body.Element))
 	}
 	return handler.configView(request.Context())
 }
@@ -85,7 +86,7 @@ func (handler *Handler) changeItem(request *http.Request, change itemChange) (an
 		return nil, 0, err
 	}
 	if err := change(request.Context(), request.PathValue(pathConfigList), request.PathValue(pathConfigItemID)); err != nil {
-		return nil, 0, err
+		return nil, 0, withConfigDetail(err, nil)
 	}
 	return handler.configView(request.Context())
 }

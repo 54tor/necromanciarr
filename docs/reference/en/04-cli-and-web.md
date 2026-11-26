@@ -150,7 +150,7 @@ Long actions (stages, dedupe, repair) answer 202 with a job `{id, action, state,
 
 ### Errors
 
-Body `{"error": {"code", "message"}}`. The message is that of the recognized typed error; an unknown error gives `internal error` and the masked detail is only written in the server log.
+Body `{"error": {"code", "message"}}`. The message is that of the recognized typed error; an unknown error gives `internal error` and the masked detail is only written in the server log. A refused configuration write (`/api/config/…`) adds `detail`, the reason for the refusal, value-free and masked.
 
 | Code | HTTP | CLI | Case |
 |---|---|---|---|
