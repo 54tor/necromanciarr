@@ -47,7 +47,8 @@ type Registry struct {
 	providers []registeredProvider
 }
 
-// NewFromConfig construit la source de chaque fournisseur déclaré, sauf les sftp (volumes du registre de fichiers).
+// NewFromConfig construit la source de chaque fournisseur déclaré, sauf les sftp (volumes du registre de fichiers) et
+// les volumes locaux nommés (lus directement).
 // Un autre type sans fabrique est une erreur.
 func NewFromConfig(providers []config.FSProvider, deps Deps) (Registry, error) {
 	return newRegistry(providers, deps, providerFactories)
@@ -56,8 +57,8 @@ func NewFromConfig(providers []config.FSProvider, deps Deps) (Registry, error) {
 func newRegistry(providers []config.FSProvider, deps Deps, factories map[string]ProviderFactory) (Registry, error) {
 	var registry Registry
 	for _, spec := range providers {
-		if spec.Type == config.FSProviderTypeSFTP {
-			continue // volume du registre de fichiers, sans montage local à hacher
+		if !hasHashSource(spec) {
+			continue
 		}
 		factory, known := factories[spec.Type]
 		if !known {
@@ -159,4 +160,9 @@ func (registry Registry) CachedHashAlgorithms(ctx context.Context, cache Capabil
 		}
 	}
 	return slices.DeleteFunc(slices.Clone(AllAlgorithms), func(algorithm Algorithm) bool { return !offered[algorithm] }), nil
+}
+
+// hasHashSource écarte les volumes sftp (registre de fichiers) et locaux nommés (lus directement) : rien à hacher à part.
+func hasHashSource(spec config.FSProvider) bool {
+	return spec.Type != config.FSProviderTypeSFTP && spec.Type != config.FSProviderTypeLocal
 }

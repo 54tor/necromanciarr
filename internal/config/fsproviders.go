@@ -22,7 +22,7 @@ const (
 )
 
 // fsProviderTypes liste les types connus, dans l'ordre affiché par les erreurs.
-var fsProviderTypes = []string{FSProviderTypeRclone, FSProviderTypeSFTP}
+var fsProviderTypes = []string{FSProviderTypeRclone, FSProviderTypeSFTP, FSProviderTypeLocal}
 
 var fsProviderNamePattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 
@@ -37,12 +37,13 @@ type FSMount struct {
 }
 
 // FSProvider décrit un fournisseur de système de fichiers. Mounts, RC et Binary ne servent qu'au type rclone ;
-// Address à Exec qu'au type sftp ; Timeout aux deux. RC, Password et IdentityPassphrase sont des secrets, masqués à
+// Address à Exec qu'au type sftp ; Timeout aux deux ; Paths qu'au type local. RC, Password et IdentityPassphrase sont des secrets, masqués à
 // tout affichage ; fsProviders ne vient que de la base, où l'édition de la configuration scelle ces secrets.
 type FSProvider struct {
 	Type                  string        `json:"type"`
 	Name                  string        `json:"name"`
 	Mounts                []FSMount     `json:"mounts"`
+	Paths                 []string      `json:"paths,omitempty"`
 	RC                    string        `json:"rc,omitempty"`
 	Binary                string        `json:"binary,omitempty"`
 	Timeout               time.Duration `json:"timeout,omitempty"`
@@ -130,6 +131,8 @@ func parseFSProvider(rawProvider json.RawMessage) (FSProvider, error) {
 		return parseRcloneProvider(rawProvider)
 	case FSProviderTypeSFTP:
 		return parseSFTPProvider(rawProvider)
+	case FSProviderTypeLocal:
+		return parseLocalProvider(rawProvider)
 	default:
 		return FSProvider{}, fmt.Errorf("unknown type %q (known types: %s)", header.Type, strings.Join(fsProviderTypes, ", "))
 	}
@@ -186,8 +189,8 @@ func parseRcloneMount(rawMount string) (FSMount, error) {
 	return FSMount{LocalPath: filepath.Clean(localPath), Target: remote}, nil
 }
 
-// checkProvidersAreDistinct refuse un nom repris ou un chemin local déclaré deux fois. L'imbrication de montages
-// reste autorisée : le plus long préfixe gagne à la recherche.
+// checkProvidersAreDistinct refuse un nom repris ou un chemin local déclaré deux fois (montage rclone ou dossier d'un
+// volume local). L'imbrication reste autorisée : le plus long préfixe gagne à la recherche.
 func checkProvidersAreDistinct(providers []FSProvider) error {
 	seenNames := map[string]bool{}
 	pathOwners := map[string]string{}
@@ -196,11 +199,11 @@ func checkProvidersAreDistinct(providers []FSProvider) error {
 			return fmt.Errorf("fsProviders: duplicate name %q", provider.Name)
 		}
 		seenNames[provider.Name] = true
-		for _, mount := range provider.Mounts {
-			if owner, taken := pathOwners[mount.LocalPath]; taken {
-				return fmt.Errorf("fsProviders: local path %q is mounted by both %q and %q", mount.LocalPath, owner, provider.Name)
+		for _, localPath := range ownedPaths(provider) {
+			if owner, taken := pathOwners[localPath]; taken {
+				return fmt.Errorf("fsProviders: local path %q is mounted by both %q and %q", localPath, owner, provider.Name)
 			}
-			pathOwners[mount.LocalPath] = provider.Name
+			pathOwners[localPath] = provider.Name
 		}
 	}
 	return nil
