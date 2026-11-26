@@ -838,7 +838,7 @@
       "crossSeed": "Daemon URL, with ?apikey=…; it replaces the one from cross-seed.",
       "execHashTimeout": "Duration: 30m, 2h.",
       "fsProviderName": "Lower-case letters, digits and hyphens only (e.g. icue); this name is used in sftp://name/….",
-      "indexerUrl": "Torznab feed address in clear, without ?apikey=: the indexer key has its own field.",
+      "indexerUrl": "Torznab feed address in clear, without any query (no ?apikey=) or proxy segment: the indexer key has its own field.",
       "keepalive": "Duration: 15s, 1m.",
       "libraryApi": "Library API URL (token included if any).",
       "libraryToken": "Bearer token sent to the library API; the LIBRARY_PROVIDER_TOKEN variable, when set, wins.",

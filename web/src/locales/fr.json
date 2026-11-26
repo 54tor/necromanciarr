@@ -838,7 +838,7 @@
       "crossSeed": "URL du démon, avec ?apikey=… ; elle remplace celle de cross-seed.",
       "execHashTimeout": "Durée : 30m, 2h.",
       "fsProviderName": "Minuscules, chiffres et tirets uniquement (ex. icue) ; ce nom sert dans sftp://nom/….",
-      "indexerUrl": "Adresse du flux Torznab en clair, sans ?apikey= : la clé de l’indexeur a son propre champ.",
+      "indexerUrl": "Adresse du flux Torznab en clair, sans requête (ni ?apikey=) ni segment proxy : la clé de l’indexeur a son propre champ.",
       "keepalive": "Durée : 15s, 1m.",
       "libraryApi": "URL de l’API de la bibliothèque (jeton éventuel compris).",
       "libraryToken": "Jeton Bearer envoyé à l’API de la bibliothèque ; la variable LIBRARY_PROVIDER_TOKEN, si elle existe, l’emporte.",

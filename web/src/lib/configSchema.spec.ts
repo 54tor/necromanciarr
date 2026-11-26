@@ -39,7 +39,8 @@ describe('schéma de configuration', () => {
     expect(valeurObtenue).toEqual(['serviceUrl', 'serviceUrl', 'serviceUrl', 'indexerUrl'])
     expect(fr.config.help.serviceUrl).toContain('/proxy/')
     expect(en.config.help.serviceUrl).toContain('/proxy/')
-    expect(fr.config.help.indexerUrl).toContain('apikey')
+    expect(fr.config.help.indexerUrl).toContain('sans requête')
+    expect(en.config.help.indexerUrl).toContain('without any query')
     expect(en.config.help.indexerUrl).not.toContain('proxyKey')
   })
 
