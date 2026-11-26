@@ -10,6 +10,8 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - `config get [key]`, `config set|unset <key>` and `config item set|delete|unset <list> <item-id>`, with `--value-stdin` and `--element-stdin` to keep secrets out of the shell history, and the matching `/api/config` routes.
 - A Configuration page in the web interface: every value with its origin (cross-seed, override, addition, default, environment or option, the last two locked), secrets shown only as set or not set, revert to cross-seed, orphaned and drifting overrides.
 - `doctor` diagnoses an invalid stored configuration (unknown setting, unreadable value or element, unreadable sealed secret) as a failed `config` check instead of stopping.
+- `config get`, `config set|unset` and `config item set|delete|unset` still run on an invalid stored configuration, so the offending row can be fixed or removed; every other command keeps refusing it (`invalid_stored_config`, exit 1).
+- A refused configuration write keeps the edit dialog open with what was typed and shows the reason (`detail` in the error body, masked and value-free); the interface derives a new element's identifier from its URL, and the server refuses an identifier with a path, credentials or a query.
 - `volumes list|probe|commands`, `sftp trust <name> --yes` (CLI only) and the Volumes view.
 - `sources list`, `sources test <name>`, `proposals list --source`, and the Sources view.
 - An indexer title that carries a passkey is never stored: the candidate takes the torrent name instead, and a torrent whose name or file path carries a passkey is refused (`invalid_torrent`).
