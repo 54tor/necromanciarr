@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
+	"slices"
 
 	"necromanciarr/internal/store"
 )
@@ -23,6 +25,11 @@ const (
 )
 
 const collisionSuffixFormat = "%s#%d"
+
+// endpointLists sont les listes dont l'identifiant est l'adresse de l'élément.
+var endpointLists = []string{"radarr", "sonarr", "torznab", "torrentClients"}
+
+var collisionSuffix = regexp.MustCompile(`#[0-9]+$`)
 
 // ResolvedElement est un élément de liste après application des surcharges.
 type ResolvedElement struct {
@@ -61,6 +68,20 @@ func endpointOf(rawURL string) string {
 		return rawURL
 	}
 	return parsed.Scheme + "://" + parsed.Host
+}
+
+// IsDerivableItemID dit si itemID a la forme que ElementID et AssignIDs produisent pour une liste identifiée par l'URL :
+// scheme://host[:port] sans identifiants, chemin ni requête, suivi au besoin de #n.
+func IsDerivableItemID(list, itemID string) bool {
+	if !slices.Contains(endpointLists, list) {
+		return true
+	}
+	endpoint := collisionSuffix.ReplaceAllString(itemID, "")
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return endpointOf(endpoint) == endpoint
 }
 
 // AssignIDs donne un identifiant à chaque élément ; les collisions reçoivent #2, #3 dans l'ordre.

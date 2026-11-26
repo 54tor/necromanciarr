@@ -22,6 +22,8 @@ const props = defineProps<{
   locked?: boolean
   /** Un réglage envoie aussi ses valeurs vides (texte "", liste []) ; un élément les omet. */
   keepBlank?: boolean
+  /** Déduit l'identifiant des champs saisis tant que l'opérateur ne l'a pas modifié. */
+  deriveItemId?: (fields: readonly FormField[]) => string
   /** Enregistre ; le dialogue ne se ferme qu'après un succès, la saisie reste sinon. */
   save: (values: Record<string, unknown>, itemId: string) => Promise<boolean>
 }>()
@@ -30,6 +32,7 @@ const saving = ref(false)
 
 const editedFields = ref<FormField[]>([])
 const itemId = ref('')
+const isItemIdEdited = ref(false)
 const invalidField = ref('')
 
 watch(
@@ -38,9 +41,19 @@ watch(
     if (!isOpen) return
     editedFields.value = JSON.parse(JSON.stringify(props.fields)) as FormField[]
     itemId.value = ''
+    isItemIdEdited.value = false
     invalidField.value = ''
   },
   { immediate: true },
+)
+
+watch(
+  editedFields,
+  (fields) => {
+    if (!props.deriveItemId || isItemIdEdited.value) return
+    itemId.value = props.deriveItemId(fields)
+  },
+  { deep: true },
 )
 
 async function submit(): Promise<void> {
@@ -84,6 +97,7 @@ async function submit(): Promise<void> {
           <input
             v-model="itemId"
             data-testid="config-item-id"
+            @input="isItemIdEdited = true"
             type="text"
             autocomplete="off"
             :class="FIELD_CLASS"

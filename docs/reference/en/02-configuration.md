@@ -98,6 +98,7 @@ cross-seed provides `radarr`, `sonarr`, `torrentClients` and `linkDirs`; the dat
 | `fsProviders` | `name` |
 
 - Two cross-seed elements with the same identifier get `#2`, `#3`… in their order (`http://radarr:7878#2`).
+- For a new element of these four lists, an identifier of any other form (path, credentials, query) is refused; the interface derives it from `url` until it is edited. A row already stored keeps its own.
 - Effective list: the cross-seed elements in their order, each replaced by its override when it has one or removed when it carries a deletion marker, then the additions in insertion order.
 - An override replaces the whole element. It follows the identifier, not the rank: it keeps the identifier of the targeted element even when it changes its `url`, and stays attached to that element if cross-seed reorders its list.
 - A fingerprint of the cross-seed element is kept with the override: if the element changes later, the override still applies and carries `drift: true`.

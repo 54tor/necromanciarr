@@ -448,6 +448,52 @@ describe('ConfigView', () => {
       expect(bodyElement('config-field-rc')).toBeNull()
     })
 
+    it("ConfigView déduit l'identifiant de l'URL saisie tant qu'il n'est pas modifié", async () => {
+      const { wrapper } = await mountView({
+        'GET /api/config': configSnapshot({ lists: { radarr: [] } }),
+      })
+      await wrapper.get('[data-testid="add-item-radarr"]').trigger('click')
+      await flushPromises()
+
+      await setField(
+        'config-field-url',
+        'HTTP://alice:dummy@Radarr.example.com:80/api?apikey=dummy',
+      )
+      expect(bodyElement<HTMLInputElement>('config-item-id')?.value).toBe(
+        'http://Radarr.example.com:80',
+      )
+
+      await setField('config-item-id', 'http://radarr.example.com:7878#2')
+      await setField('config-field-url', 'http://other.example.com:7878')
+      expect(bodyElement<HTMLInputElement>('config-item-id')?.value).toBe(
+        'http://radarr.example.com:7878#2',
+      )
+    })
+
+    it('ConfigView ajoute un tracker avec ses annonces en tableau et sans champ vide', async () => {
+      const { wrapper, calls } = await mountView({
+        'GET /api/config': configSnapshot({ lists: { trackers: [] } }),
+        'PUT /api/config/lists/{list}/{itemId}': configSnapshot(),
+      })
+      await wrapper.get('[data-testid="add-item-trackers"]').trigger('click')
+      await flushPromises()
+
+      await setField('config-item-id', 'tracker-a')
+      await setField('config-field-key', 'tracker-a')
+      await setField(
+        'config-field-announce',
+        'https://a.example.com/announce\nhttps://b.example.com/announce',
+      )
+      await clickInBody('config-form-submit')
+
+      expect(writeCalls(calls)[0]?.body).toEqual({
+        element: {
+          key: 'tracker-a',
+          announce: ['https://a.example.com/announce', 'https://b.example.com/announce'],
+        },
+      })
+    })
+
     it("ConfigView n'affiche aucun JSON brut pour ajouter à une liste vide", async () => {
       const { wrapper } = await mountView({
         'GET /api/config': configSnapshot({ lists: { torznab: [] } }),

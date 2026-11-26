@@ -21,6 +21,9 @@ var destinationFields = map[string][]string{
 func (svc *service) itemOverride(snapshot storedSnapshot, list, itemID string, element map[string]any) (store.ConfigOverride, error) {
 	candidate := maps.Clone(element)
 	omitted := dropOmittedSecrets(list, candidate)
+	if err := svc.requireDerivableItemID(snapshot, list, itemID); err != nil {
+		return store.ConfigOverride{}, err
+	}
 	if itemID == "" {
 		itemID = config.ElementID(list, candidate)
 	}
@@ -51,6 +54,18 @@ func (svc *service) itemOverride(snapshot storedSnapshot, list, itemID string, e
 		override.UpstreamFingerprint = config.Fingerprint(upstream)
 	}
 	return override, nil
+}
+
+// requireDerivableItemID refuse un nouvel identifiant qu'ElementID ne produirait pas ; l'identifiant n'est pas cité.
+func (svc *service) requireDerivableItemID(snapshot storedSnapshot, list, itemID string) error {
+	_, isStored := snapshot.override(list, itemID)
+	_, isUpstream := svc.upstreamElement(list, itemID)
+	isAccepted := itemID == "" || isStored || isUpstream || config.IsDerivableItemID(list, itemID)
+	if isAccepted {
+		return nil
+	}
+	return fmt.Errorf("%w: %s: the item id must be scheme://host[:port] without credentials, path or query, "+
+		"with an optional #n suffix", config.ErrUsage, list)
 }
 
 // previousElement rend l'élément en clair que l'écriture remplace : la surcharge enregistrée descellée, sinon l'amont.

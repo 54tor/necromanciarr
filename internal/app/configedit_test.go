@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -83,6 +84,29 @@ func (fixture configEditFixture) overrides(t *testing.T) []store.ConfigOverride 
 		t.Fatal(err)
 	}
 	return overrides
+}
+
+// putSealedRow écrit une ligne scellée sous itemID sans passer par la validation de l'édition.
+func (fixture configEditFixture) putSealedRow(t *testing.T, list, itemID string, element map[string]any) {
+	t.Helper()
+	secretKey, err := base64.RawURLEncoding.DecodeString(configEditSecretKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealer, err := config.NewSecretSealer(secretKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sealer.SealElement(list, itemID, element); err != nil {
+		t.Fatal(err)
+	}
+	value, err := json.Marshal(element)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.store.PutConfigOverride(context.Background(), store.ConfigOverride{List: list, ItemID: itemID, Value: value}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func radarrElement(apiKey any) map[string]any {
@@ -183,7 +207,7 @@ func TestPutItem_invalidElementWritesNothing(t *testing.T) {
 		{"unknownList", map[string]any{"path": "/srv/links"}, "unknownList"},
 	}
 	for _, testCase := range cases {
-		err := fixture.service.PutItem(context.Background(), testCase.list, "item", testCase.element)
+		err := fixture.service.PutItem(context.Background(), testCase.list, "", testCase.element)
 
 		if !errors.Is(err, config.ErrUsage) || !strings.Contains(err.Error(), testCase.fieldName) {
 			t.Fatalf("%s %v: valeurObtenue %v, valeurAttendue a usage error naming %q", testCase.list, testCase.element, err, testCase.fieldName)
@@ -213,7 +237,7 @@ func TestPutItem_refusesAVariableReferenceInEveryList(t *testing.T) {
 		{"linkDirs", map[string]any{"path": "/srv/" + secretReference}, "linkDirs.path"},
 	}
 	for _, testCase := range cases {
-		err := fixture.service.PutItem(context.Background(), testCase.list, "item", testCase.element)
+		err := fixture.service.PutItem(context.Background(), testCase.list, "", testCase.element)
 
 		if !errors.Is(err, config.ErrUsage) || !strings.Contains(err.Error(), testCase.fieldName) {
 			t.Fatalf("%s: valeurObtenue %v, valeurAttendue a usage error naming %q", testCase.list, err, testCase.fieldName)
@@ -413,5 +437,52 @@ func TestUnsetItem_refusesAnUnknownListWithoutRow(t *testing.T) {
 
 	if !errors.Is(err, ErrUnknownConfigKey) {
 		t.Fatalf("valeurObtenue %v, valeurAttendue ErrUnknownConfigKey", err)
+	}
+}
+
+func TestPutItem_refusesAnItemIDThatIsNotAnEndpoint(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	refusedIDs := []string{
+		configEditRadarrURL + "/api/dummy-proxy-key-0000",
+		"http://alice:dummy-pass-0000@radarr.example.com:7878",
+		configEditRadarrURL + "?apikey=dummy-key-0000",
+	}
+	for _, refusedID := range refusedIDs {
+		err := fixture.service.PutItem(context.Background(), "radarr", refusedID, radarrElement(configEditRadarrKey))
+
+		if !errors.Is(err, config.ErrUsage) || strings.Contains(err.Error(), "dummy") {
+			t.Errorf("valeurObtenue %v, valeurAttendue un refus d'usage sans l'identifiant", err)
+		}
+	}
+	if valeurObtenue := len(fixture.overrides(t)); valeurObtenue != 0 {
+		t.Fatalf("valeurObtenue %d rows, valeurAttendue 0", valeurObtenue)
+	}
+}
+
+func TestPutItem_acceptsAnEndpointItemIDWithItsCollisionSuffix(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	valeurAttendue := 2
+
+	for _, acceptedID := range []string{configEditRadarrURL, configEditRadarrURL + "#2"} {
+		if err := fixture.service.PutItem(ctx, "radarr", acceptedID, radarrElement(configEditRadarrKey)); err != nil {
+			t.Fatalf("%s: %v", acceptedID, err)
+		}
+	}
+
+	if valeurObtenue := len(fixture.overrides(t)); valeurObtenue != valeurAttendue {
+		t.Fatalf("valeurObtenue %d rows, valeurAttendue %d", valeurObtenue, valeurAttendue)
+	}
+}
+
+func TestPutItem_editsALegacyStoredItemID(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	legacyID := configEditRadarrURL + "/legacy"
+	fixture.putSealedRow(t, "radarr", legacyID, radarrElement(configEditRadarrKey))
+
+	err := fixture.service.PutItem(ctx, "radarr", legacyID, radarrElement(nil))
+	if err != nil {
+		t.Fatalf("valeurObtenue %v, valeurAttendue l'édition d'une ligne existante acceptée", err)
 	}
 }

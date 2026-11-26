@@ -63,6 +63,28 @@ export const isSecretField = (list: string, name: string) =>
 
 export const idHintKey = (list: string) => `config.idHint.${ID_CONVENTIONS[list] ?? 'name'}`
 
+const URL_AUTHORITY = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/([^/?#]*)/
+
+/**
+ * endpointId rend l'identifiant que le serveur tire d'une URL (ElementID) : schéma en minuscules, `://`, hôte et port
+ * tels que saisis, sans identifiants, chemin ni requête ; vide si l'URL n'a pas d'hôte.
+ */
+export function endpointId(rawUrl: string): string {
+  const parts = URL_AUTHORITY.exec(rawUrl.trim())
+  if (!parts) return ''
+  const [, scheme = '', authority = ''] = parts
+  const host = authority.slice(authority.lastIndexOf('@') + 1)
+  return host === '' ? '' : `${scheme.toLowerCase()}://${host}`
+}
+
+/** itemIdDeriver rend, pour une liste identifiée par l'URL, la déduction de l'identifiant depuis le champ `url`. */
+export function itemIdDeriver(
+  list: string,
+): ((fields: readonly FormField[]) => string) | undefined {
+  if (ID_CONVENTIONS[list] !== 'url') return undefined
+  return (fields) => endpointId(fields.find((field) => field.name === 'url')?.text ?? '')
+}
+
 /** nsToDuration écrit une durée Go (`10m`) à partir des nanosecondes que rend la vue. */
 export function nsToDuration(nanoseconds: number): string {
   if (!Number.isFinite(nanoseconds) || nanoseconds <= 0) return ''

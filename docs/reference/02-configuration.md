@@ -98,6 +98,7 @@ Cross-seed fournit `radarr`, `sonarr`, `torrentClients` et `linkDirs` ; la base 
 | `fsProviders` | `name` |
 
 - Deux éléments de cross-seed de même identifiant reçoivent `#2`, `#3`… dans leur ordre (`http://radarr:7878#2`).
+- Pour un nouvel élément de ces quatre listes, un identifiant d'une autre forme (chemin, identifiants, requête) est refusé ; l'interface le déduit de `url` tant qu'il n'est pas modifié. Une ligne déjà enregistrée garde le sien.
 - Liste effective : les éléments de cross-seed dans leur ordre, chacun remplacé par sa surcharge s'il en a une ou retiré s'il porte un marqueur de suppression, puis les ajouts dans leur ordre d'insertion.
 - Une surcharge remplace l'élément entier. Elle suit l'identifiant, pas le rang : elle garde l'identifiant de l'élément visé même quand elle change son `url`, et reste attachée à cet élément si cross-seed réordonne sa liste.
 - Une empreinte de l'élément de cross-seed est gardée avec la surcharge : s'il change ensuite, la surcharge reste appliquée et porte `drift: true`.

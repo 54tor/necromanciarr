@@ -18,6 +18,7 @@ import {
   addFields,
   elementFields,
   idHintKey,
+  itemIdDeriver,
   settingField,
   type FormField,
 } from '@/lib/configFields'
@@ -26,6 +27,7 @@ interface Editor {
   title: string
   fields: FormField[]
   itemIdHintKey?: string
+  deriveItemId?: (fields: readonly FormField[]) => string
   locked: boolean
   keepBlank?: boolean
   save: (values: Record<string, unknown>, itemId: string) => Promise<boolean>
@@ -91,6 +93,7 @@ function addItem(list: string): void {
     title: t('config.form.addTitle', { list: t(`config.lists.${list}`) }),
     fields: addFields(list),
     itemIdHintKey: idHintKey(list),
+    deriveItemId: itemIdDeriver(list),
     locked: false,
     save: (values, itemId) => saveElement(list, itemId, values),
   })
@@ -182,6 +185,7 @@ onMounted(config.load)
       :title="editor.title"
       :fields="editor.fields"
       :item-id-hint-key="editor.itemIdHintKey"
+      :derive-item-id="editor.deriveItemId"
       :locked="editor.locked"
       :keep-blank="editor.keepBlank"
       :save="submitEditor"
