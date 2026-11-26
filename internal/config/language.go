@@ -9,14 +9,14 @@ import (
 
 const (
 	languageSourceDefault = "default"
-	languageSourceFile    = configFileName
+	languageSourceFile    = sourceConfigFile
 	languageSourceFlag    = "--language"
 	// maxEchoedLanguageRunes borne la valeur renvoyée dans l'erreur : elle vient de l'opérateur mais peut être collée en
 	// masse (même borne que crossSeedMode).
 	maxEchoedLanguageRunes = 20
 )
 
-// resolveLanguage applique la priorité option > environnement > config.json > fr et retient la source retenue.
+// resolveLanguage applique la priorité option > environnement > base > fr et retient la source retenue.
 func resolveLanguage(target *Config, fileValue string, options commandLine, lookup func(string) (string, bool)) error {
 	rawValue, source := "", languageSourceDefault
 	if strings.TrimSpace(fileValue) != "" {

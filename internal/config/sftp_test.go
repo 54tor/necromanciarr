@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -33,7 +34,7 @@ func sftpProvider(changes map[string]any) map[string]any {
 	return provider
 }
 
-// configWith rend un config.json qui déclare provider, plus les clés de premier niveau de topLevel.
+// configWith rend un document de base factice qui déclare provider, plus les clés de premier niveau de topLevel.
 func configWith(t *testing.T, provider map[string]any, topLevel map[string]any) string {
 	t.Helper()
 	document := map[string]any{"fsProviders": []any{provider}}
@@ -203,18 +204,17 @@ func TestConfig_sftpProviderExposesAFilesystem(t *testing.T) {
 	}
 }
 
-func TestConfig_refusesRemoteDBPath(t *testing.T) {
-	content := configWith(t, sftpProvider(nil), map[string]any{"dbPath": "sftp://seedbox/srv/necromanciarr.db"})
-
-	_, err := loadFromJSON(t, content, nil)
-
-	if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "dbPath") {
-		t.Fatalf("valeurObtenue %v, valeurAttendue a usage error naming dbPath", err)
+func TestConfig_refusesRemoteDBPathBeforeOpeningTheDatabase(t *testing.T) {
+	opened := false
+	opener := func(string) (StoredReader, io.Closer, error) {
+		opened = true
+		return storedFromJSON(t, configWith(t, sftpProvider(nil), nil)), nil, nil
 	}
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, "{}")
-	if _, err := Load([]string{"--db-path", "sftp://seedbox/x.db"}, lookupFrom(nil), configDir); !errors.Is(err, ErrUsage) {
-		t.Fatalf("--db-path: valeurObtenue %v, valeurAttendue a usage error", err)
+
+	_, err := LoadWith([]string{"--db-path", "sftp://seedbox/x.db"}, lookupFrom(nil), t.TempDir(), opener)
+
+	if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "dbPath") || opened {
+		t.Fatalf("valeurObtenue %v (opened %v), valeurAttendue a usage error naming dbPath, database untouched", err, opened)
 	}
 }
 

@@ -88,7 +88,7 @@ func decodeSFTPProvider(rawProvider json.RawMessage, lookup func(string) (string
 	return buildSFTPProvider(rawFile)
 }
 
-// requireVariableReferences refuse un secret écrit en clair dans config.json : il doit venir de l'environnement.
+// requireVariableReferences refuse un secret écrit en clair dans la configuration : il doit venir de l'environnement.
 func requireVariableReferences(rawFile sftpProviderFile) error {
 	secrets := []struct{ key, value string }{{"password", rawFile.Password}, {"identityPassphrase", rawFile.IdentityPassphrase}}
 	for _, secret := range secrets {

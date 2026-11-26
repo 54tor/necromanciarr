@@ -13,9 +13,7 @@ const rcPasswordForTest = "RC-PASS-FOR-TEST"
 
 func loadFromJSON(t *testing.T, content string, environment map[string]string) (Config, error) {
 	t.Helper()
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, content)
-	return Load(nil, lookupFrom(environment), configDir)
+	return loadStored(t, nil, environment, content)
 }
 
 func TestFsProviders_parsesRcloneEntryWithMounts(t *testing.T) {
@@ -131,16 +129,6 @@ func TestFsProviders_nestedMountPathsAcrossProvidersAreAllowed(t *testing.T) {
 	}
 }
 
-func TestFsProviders_oldRcloneKeyIsRefusedWithRenameHint(t *testing.T) {
-	for _, content := range []string{`{"rclone": {"rc": "http://rclone:5572"}}`, `{"rclone": null}`} {
-		_, err := loadFromJSON(t, content, nil)
-
-		if err == nil || !strings.Contains(err.Error(), "renamed to") || !strings.Contains(err.Error(), "fsProviders") {
-			t.Fatalf("%s: got %v", content, err)
-		}
-	}
-}
-
 func TestFsProviders_redactsRcCredentials(t *testing.T) {
 	loadedConfig, err := loadFromJSON(t, `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://rcuser:${RCLONE_RC_PASS}@rclone:5572",
 		"mounts": ["`+jsonText(absPath("mnt", "remote"))+`=remote:bucket"]}]}`, map[string]string{"RCLONE_RC_PASS": rcPasswordForTest})
@@ -173,9 +161,7 @@ func TestLoad_dedupeVerifyDefaultsToAutoAndRejectsUnknownMode(t *testing.T) {
 		t.Fatalf("gotValue %q, expectedValue auto", gotValue)
 	}
 	for _, mode := range []string{"auto", "full", "sampled", "hash"} {
-		configDir := t.TempDir()
-		writeFile(t, configDir, configFileName, `{"dedupe": {"verify": "`+mode+`"}}`)
-		if gotValue := mustLoad(t, nil, nil, configDir).Dedupe.Verify; gotValue != mode {
+		if gotValue := mustLoadStored(t, nil, nil, `{"dedupe": {"verify": "`+mode+`"}}`).Dedupe.Verify; gotValue != mode {
 			t.Fatalf("gotValue %q, expectedValue %q", gotValue, mode)
 		}
 	}

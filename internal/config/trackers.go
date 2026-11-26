@@ -288,7 +288,7 @@ func passkeyForms(values []string) []string {
 }
 
 // literalPasskeys retient les mots longs du chemin et de la requête qui mêlent chiffres et lettres : une passkey écrite
-// en clair dans config.json, sans ${NOM}. L'exigence d'un chiffre épargne des mots ordinaires comme « announce-list ».
+// en clair dans la configuration, sans ${NOM}. L'exigence d'un chiffre épargne des mots ordinaires comme « announce-list ».
 func literalPasskeys(announce string) []string {
 	parsedURL, err := url.Parse(announce)
 	if err != nil {

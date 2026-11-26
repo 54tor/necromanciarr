@@ -19,7 +19,7 @@ func ResolveDBPath(settings Config) string {
 	return filepath.Join(settings.ConfigDir, settings.DBPath)
 }
 
-// validateDBPath refuse une base sur un volume sftp, qu'elle vienne de config.json ou de --db-path.
+// validateDBPath refuse une base sur un volume sftp donnée par --db-path.
 func validateDBPath(dbPath string) error {
 	if strings.HasPrefix(dbPath, remoteRuleScheme) {
 		return fmt.Errorf("%w: %w", ErrUsage, errRemoteDBPath)

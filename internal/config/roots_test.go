@@ -8,9 +8,7 @@ import (
 
 func loadWithRoots(t *testing.T, content string) error {
 	t.Helper()
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, content)
-	_, err := Load(nil, lookupFrom(nil), configDir)
+	_, err := loadStored(t, nil, nil, content)
 	return err
 }
 

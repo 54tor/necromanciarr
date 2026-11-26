@@ -46,7 +46,7 @@ func normalizeSeedTags(rawTags []string) ([]string, error) {
 // defaultPartialMaxMissingPercent ne plafonne rien : un pourcentage de pièces manquantes ne dépasse jamais 100.
 const defaultPartialMaxMissingPercent = 100.0
 
-// applyPartialCapOverride lit le plafond de l'environnement, qui l'emporte sur config.json.
+// applyPartialCapOverride lit le plafond de l'environnement, qui l'emporte sur la base.
 func applyPartialCapOverride(target *Config, lookup func(string) (string, bool)) error {
 	rawValue, found := lookup(envPartialMaxMissingPercent)
 	if !found || rawValue == "" {

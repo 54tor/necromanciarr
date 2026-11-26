@@ -19,8 +19,6 @@ const (
 
 func loadTorznabConfig(t *testing.T, content string, environment map[string]string) (Config, error) {
 	t.Helper()
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, content)
 	// Un indexeur exige la clé de scellement : fournie par défaut, une valeur vide la retire.
 	if _, given := environment[envSecretKey]; !given {
 		environment = maps.Clone(environment)
@@ -29,7 +27,7 @@ func loadTorznabConfig(t *testing.T, content string, environment map[string]stri
 		}
 		environment[envSecretKey] = testSecretKey
 	}
-	return Load(nil, lookupFrom(environment), configDir)
+	return loadStored(t, nil, environment, content)
 }
 
 func TestConfig_sourceOrderKeepsProviderFirst(t *testing.T) {
@@ -95,7 +93,7 @@ func TestConfig_sourceOrderRefusesUnknownSource(t *testing.T) {
 	}
 }
 
-func TestConfig_torznabDefaultsNameFromPath(t *testing.T) {
+func TestConfig_torznabDefaultsNameFromPathOrStoredPosition(t *testing.T) {
 	loadedConfig, err := loadTorznabConfig(t, `{"torznab": [
 		"https://prowlarr.example.com:9696/12/api?apikey=k1",
 		"https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?apikey=k2",
@@ -107,7 +105,8 @@ func TestConfig_torznabDefaultsNameFromPath(t *testing.T) {
 
 	gotNames := []string{loadedConfig.Torznab[0].Name, loadedConfig.Torznab[1].Name, loadedConfig.Torznab[2].Name}
 
-	expectedNames := []string{"12", "1", "9"}
+	// Les ajouts suivent l'ordre de leur item_id : jackett, other, prowlarr.
+	expectedNames := []string{"0", "9", "12"}
 	if !slices.Equal(gotNames, expectedNames) {
 		t.Fatalf("gotValue %v, expectedValue %v", gotNames, expectedNames)
 	}
@@ -164,7 +163,6 @@ func quoteJSON(text string) string {
 func TestConfig_torznabRefusesUnknownObjectKeyAndWrongType(t *testing.T) {
 	for name, entry := range map[string]string{
 		"unknown key": `{"url": "https://a.example.com/1/api?apikey=k", "nom": "x"}`,
-		"number":      `12`,
 		"no url":      `{"name": "x"}`,
 	} {
 		t.Run(name, func(t *testing.T) {

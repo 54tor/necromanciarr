@@ -89,7 +89,6 @@ func TestConfig_trackerObjectRefusesUnknownKeyOrEmptyAnnounce(t *testing.T) {
 		"missing announce":  `{"tracker-a": {"aliases": ["a"]}}`,
 		"empty key":         `{" ": "https://tracker-a.example.com/announce"}`,
 		"empty alias":       `{"tracker-a": {"announce": ["https://tracker-a.example.com/announce"], "aliases": [" "]}}`,
-		"not an object":     `["https://tracker-a.example.com/announce"]`,
 		"number entry":      `{"tracker-a": 12}`,
 		"empty url":         `{"tracker-a": ""}`,
 		"announce as value": `{"tracker-a": {"announce": "https://tracker-a.example.com/announce"}}`,

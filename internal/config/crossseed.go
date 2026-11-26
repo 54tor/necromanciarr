@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -54,8 +53,7 @@ type UnsupportedClient struct {
 	Type  string `json:"type"`
 }
 
-// Sources dit d'où vient chaque liste effective : config.json, cross-seed ou none. Une liste vide ([]) dans
-// config.json vaut absence : elle laisse passer la liste importée.
+// Sources dit d'où vient chaque liste effective : config.json (au moins un élément de la base), cross-seed ou none.
 type Sources struct {
 	Radarr         string `json:"radarr"`
 	Sonarr         string `json:"sonarr"`
@@ -69,92 +67,49 @@ type CrossSeedDaemon struct {
 	APIKey  string
 }
 
-// crossSeedLayer est le résultat de l'import : fichier complété par les valeurs de cross-seed là où il se tait.
+// crossSeedLayer est le résultat de l'import du config.js de cross-seed : valeurs lues et bilan pour config check.
 type crossSeedLayer struct {
-	rawFile fileConfig
-	status  CrossSeedImport
-	sources Sources
-	daemon  *CrossSeedDaemon
+	imported crossseed.Imported
+	status   CrossSeedImport
 }
 
-// layerCrossSeed glisse les valeurs du config.js de cross-seed sous celles de config.json, clé par clé : une liste
-// non vide de config.json remplace en entier la liste importée. Sans chemin configuré, rien n'est importé.
-func layerCrossSeed(options commandLine, rawFile fileConfig, configDir string, lookup func(string) (string, bool)) (crossSeedLayer, error) {
-	layer := crossSeedLayer{rawFile: rawFile}
-	path := resolveCrossSeedPath(options, rawFile, configDir, lookup)
-	var imported crossseed.Imported
-	if path != "" {
-		var err error
-		// Load ne reçoit pas de contexte : le délai propre à l'évaluation borne l'appel.
-		if imported, err = crossseed.LoadConfigJS(context.Background(), path, lookup); err != nil {
-			return crossSeedLayer{}, err
-		}
-		layer.status = CrossSeedImport{
-			Configured: true, ConfigPath: path, ImportedKeys: imported.ImportedKeys,
-			IgnoredKeys: imported.IgnoredKeys, UnnamedIgnoredKeys: imported.UnnamedIgnoredKeys,
-			BlockedEnvironment: imported.BlockedEnvironment,
-		}
+// importCrossSeed lit le config.js de cross-seed ; sans chemin configuré, rien n'est importé. Les clients torrent non
+// pris en charge sont écartés de l'amont et signalés.
+func importCrossSeed(options commandLine, lookup func(string) (string, bool)) (crossSeedLayer, error) {
+	path := resolveCrossSeedPath(options, lookup)
+	if path == "" {
+		return crossSeedLayer{}, nil
 	}
-	if err := layer.mergeLists(imported); err != nil {
-		return crossSeedLayer{}, fmt.Errorf("cross-seed config.js: %w", err)
-	}
-	layer.mergeScalars(imported)
-	var err error
-	if layer.daemon, err = crossSeedDaemonOf(rawFile.CrossSeed, imported); err != nil {
+	// Load ne reçoit pas de contexte : le délai propre à l'évaluation borne l'appel.
+	imported, err := crossseed.LoadConfigJS(context.Background(), path, lookup)
+	if err != nil {
 		return crossSeedLayer{}, err
 	}
-	return layer, nil
+	supportedClients, unsupportedClients := splitSupportedClients(imported.TorrentClients)
+	imported.TorrentClients = supportedClients
+	status := CrossSeedImport{
+		Configured: true, ConfigPath: path, ImportedKeys: imported.ImportedKeys,
+		IgnoredKeys: imported.IgnoredKeys, UnnamedIgnoredKeys: imported.UnnamedIgnoredKeys,
+		BlockedEnvironment: imported.BlockedEnvironment, UnsupportedTorrentClients: unsupportedClients,
+	}
+	return crossSeedLayer{imported: imported, status: status}, nil
 }
 
-// resolveCrossSeedPath : --cross-seed-config > CROSS_SEED_CONFIG > crossSeedConfig de config.json. Un chemin
-// relatif de la ligne de commande ou de l'environnement part du dossier courant, celui de config.json de son dossier.
-func resolveCrossSeedPath(options commandLine, rawFile fileConfig, configDir string, lookup func(string) (string, bool)) string {
+// upstreamLists donne, par liste, les chaînes brutes importées qui servent d'amont aux surcharges de la base.
+func (layer crossSeedLayer) upstreamLists() map[string][]string {
+	return map[string][]string{
+		listRadarr: layer.imported.Radarr, listSonarr: layer.imported.Sonarr,
+		listTorrentClients: layer.imported.TorrentClients, listLinkDirs: layer.imported.LinkDirs,
+	}
+}
+
+// resolveCrossSeedPath : --cross-seed-config > CROSS_SEED_CONFIG ; un chemin relatif part du dossier courant.
+func resolveCrossSeedPath(options commandLine, lookup func(string) (string, bool)) string {
 	if options.set["cross-seed-config"] {
 		return options.crossSeedConfig
 	}
-	if value, found := lookup(envCrossSeedConfig); found && value != "" {
-		return value
-	}
-	if rawFile.CrossSeedConfig == "" || filepath.IsAbs(rawFile.CrossSeedConfig) {
-		return rawFile.CrossSeedConfig
-	}
-	return filepath.Join(configDir, rawFile.CrossSeedConfig)
-}
-
-// mergeLists ne valide que les listes importées réellement retenues : une liste invalide masquée par config.json
-// ne bloque pas le chargement.
-func (layer *crossSeedLayer) mergeLists(imported crossseed.Imported) error {
-	var useImported bool
-	layer.sources.Radarr, useImported = pickList(layer.rawFile.Radarr, imported.Radarr)
-	if useImported {
-		if _, err := parseArrServices("radarr", imported.Radarr); err != nil {
-			return err
-		}
-		layer.rawFile.Radarr = imported.Radarr
-	}
-	layer.sources.Sonarr, useImported = pickList(layer.rawFile.Sonarr, imported.Sonarr)
-	if useImported {
-		if _, err := parseArrServices("sonarr", imported.Sonarr); err != nil {
-			return err
-		}
-		layer.rawFile.Sonarr = imported.Sonarr
-	}
-	supportedClients, unsupportedClients := splitSupportedClients(imported.TorrentClients)
-	layer.sources.TorrentClients, useImported = pickList(layer.rawFile.TorrentClients, supportedClients)
-	if len(layer.rawFile.TorrentClients) == 0 {
-		layer.status.UnsupportedTorrentClients = unsupportedClients
-	}
-	if useImported {
-		if _, err := parseTorrentClients(supportedClients); err != nil {
-			return err
-		}
-		layer.rawFile.TorrentClients = supportedClients
-	}
-	layer.sources.LinkDirs, useImported = pickList(layer.rawFile.LinkDirs, imported.LinkDirs)
-	if useImported {
-		layer.rawFile.LinkDirs = imported.LinkDirs
-	}
-	return nil
+	value, _ := lookup(envCrossSeedConfig)
+	return value
 }
 
 // splitSupportedClients garde les clients pris en charge ; les autres ne sont décrits que par rang et type, jamais
@@ -174,27 +129,22 @@ func splitSupportedClients(rawClients []string) (supported []string, unsupported
 	return supported, unsupported
 }
 
-func pickList(fileList, importedList []string) (source string, useImported bool) {
-	switch {
-	case len(fileList) > 0:
-		return sourceConfigFile, false
-	case len(importedList) > 0:
-		return sourceCrossSeed, true
-	default:
-		return sourceNone, false
+// mergeCrossSeedScalars complète rawFile par les réglages importés là où la base se tait ; rend les clés complétées.
+func mergeCrossSeedScalars(rawFile *fileConfig, imported crossseed.Imported) []string {
+	var filledKeys []string
+	if rawFile.LinkType == "" && imported.LinkType != "" {
+		rawFile.LinkType = imported.LinkType
+		filledKeys = append(filledKeys, settingLinkType)
 	}
-}
-
-func (layer *crossSeedLayer) mergeScalars(imported crossseed.Imported) {
-	if layer.rawFile.LinkType == "" {
-		layer.rawFile.LinkType = imported.LinkType
+	if rawFile.LinkCategory == "" && imported.LinkCategory != "" {
+		rawFile.LinkCategory = imported.LinkCategory
+		filledKeys = append(filledKeys, settingLinkCategory)
 	}
-	if layer.rawFile.LinkCategory == "" {
-		layer.rawFile.LinkCategory = imported.LinkCategory
+	if rawFile.SkipRecheck == nil && slices.Contains(imported.ImportedKeys, settingSkipRecheck) {
+		rawFile.SkipRecheck = &imported.SkipRecheck
+		filledKeys = append(filledKeys, settingSkipRecheck)
 	}
-	if layer.rawFile.SkipRecheck == nil && slices.Contains(imported.ImportedKeys, "skipRecheck") {
-		layer.rawFile.SkipRecheck = &imported.SkipRecheck
-	}
+	return filledKeys
 }
 
 // crossSeedDaemonOf : l'URL explicite crossSeed l'emporte (en Docker, le localhost du config.js désigne le

@@ -1,19 +1,17 @@
-// Package config charge la configuration : fichier JSON, .env, variables d'environnement et options de ligne de commande.
+// Package config charge la configuration : base SQLite, config.js de cross-seed, .env, variables d'environnement et
+// options de ligne de commande.
 package config
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -30,7 +28,6 @@ const (
 	// defaultTieBreakReadBytes (50 Gio) laisse départager plusieurs copies d'un gros média sans relire sans fin des
 	// copies identiques, que le hash ne séparera jamais.
 	defaultTieBreakReadBytes = 50 << 30
-	configFileName           = "config.json"
 	redactedSecret           = "[redacted]"
 	defaultDedupeMinFileAge  = 10 * time.Minute
 	defaultLinkType          = "hardlink"
@@ -89,13 +86,17 @@ type Config struct {
 	// CrossSeedMode : auto (défaut), delegate, native ou off ; voir crossseed.ResolveMode.
 	CrossSeedMode string  `json:"crossSeedMode"`
 	Sources       Sources `json:"sources"`
+	// Origins dit d'où vient chaque réglage et chaque élément de liste ; OrphanOverrides liste les surcharges sans
+	// élément amont, gardées en base mais sans effet.
+	Origins         []ValueOrigin    `json:"origins"`
+	OrphanOverrides []OrphanOverride `json:"orphanOverrides"`
 	// SeedTags sont les tags posés avec la catégorie sur chaque torrent ajouté ; la liste remplace le défaut.
 	SeedTags []string `json:"seedTags"`
 	// PartialMaxMissingPercent : au-delà de ce pourcentage de pièces manquantes, un torrent incomplet n'est pas proposé
 	// (100 = sans plafond).
 	PartialMaxMissingPercent float64 `json:"partialMaxMissingPercent"`
-	// Language est la langue d'affichage (fr par défaut) ; LanguageSource dit d'où elle vient (default, config.json,
-	// NECROMANCIARR_LANGUAGE ou --language) pour `config check`.
+	// Language est la langue d'affichage (fr par défaut) ; LanguageSource dit d'où elle vient (default, config.json pour
+	// la base, NECROMANCIARR_LANGUAGE ou --language) pour `config check`.
 	Language       i18n.Language `json:"language"`
 	LanguageSource string        `json:"-"`
 
@@ -106,10 +107,9 @@ type Config struct {
 	SecretKey []byte `json:"-"`
 }
 
-// fileConfig est le contenu brut de config.json, avant interpolation et analyse des chaînes de service.
+// fileConfig est la configuration brute (réglages et formes brutes des listes) avant analyse des chaînes de service.
 type fileConfig struct {
 	Listen             string            `json:"listen"`
-	DBPath             string            `json:"dbPath"`
 	ReadBytesPerSecond int64             `json:"readBytesPerSecond"`
 	TieBreakReadBytes  int64             `json:"tieBreakReadBytes"`
 	LibraryAPI         string            `json:"libraryApi"`
@@ -128,15 +128,12 @@ type fileConfig struct {
 	LinkType           string            `json:"linkType"`
 	SkipRecheck        *bool             `json:"skipRecheck"`
 	LinkCategory       string            `json:"linkCategory"`
-	CrossSeedConfig    string            `json:"crossSeedConfig"`
 	CrossSeed          string            `json:"crossSeed"`
 	CrossSeedMode      string            `json:"crossSeedMode"`
 	SeedTags           []string          `json:"seedTags"`
 	// PartialMaxMissingPercent : nil distingue une clé absente de 0, qui est accepté.
 	PartialMaxMissingPercent *float64 `json:"partialMaxMissingPercent"`
 	Language                 string   `json:"language"`
-	// LegacyRclone n'existe que pour refuser l'ancienne section avec un message utile.
-	LegacyRclone json.RawMessage `json:"rclone"`
 }
 
 // Dedupe règle le remplacement, côté torrent, des copies d'un fichier de la bibliothèque par des liens. TorrentRoots
@@ -175,57 +172,142 @@ type commandLine struct {
 // ErrUsage signale une ligne de commande invalide (option inconnue, argument en trop, aide demandée).
 var ErrUsage = errors.New("usage")
 
-// Load construit la configuration. Priorité : ligne de commande > environnement > config.json > config.js de
-// cross-seed (si crossSeedConfig est donné) > défauts.
-// defaultConfigDir sert quand ni --config-dir ni CONFIG_DIR ne sont fournis. Les erreurs ne contiennent aucun secret.
+// Load construit la configuration sans base : cross-seed, environnement, options et défauts seulement.
 func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir string) (Config, error) {
+	return LoadWith(args, lookupEnv, defaultConfigDir, nil)
+}
+
+// LoadWith construit la configuration. Priorité : ligne de commande > environnement > base > config.js de cross-seed
+// > défauts. defaultConfigDir sert quand ni --config-dir ni CONFIG_DIR ne sont fournis ; openStored ouvre la base
+// (nil : aucune couche stockée). Les erreurs ne contiennent aucun secret.
+func LoadWith(args []string, lookupEnv func(string) (string, bool), defaultConfigDir string,
+	openStored func(dbPath string) (StoredReader, io.Closer, error),
+) (Config, error) {
 	options, err := parseCommandLine(args)
 	if err != nil {
 		return Config{}, err
 	}
-	configDir, err := resolveConfigDir(options, lookupEnv, defaultConfigDir)
+	environment, err := resolveLoadEnvironment(options, lookupEnv, defaultConfigDir)
 	if err != nil {
 		return Config{}, err
 	}
-	lookup, workingDirDotEnv, err := loadDotEnvLookup(configDir, lookupEnv)
+	layers, err := loadLayers(options, environment, openStored)
 	if err != nil {
 		return Config{}, err
 	}
-	rawFile, err := readConfigFile(filepath.Join(configDir, configFileName), lookup)
+	loadedConfig, err := buildConfig(layers.rawFile, environment.lookup)
 	if err != nil {
 		return Config{}, err
 	}
-	layer, err := layerCrossSeed(options, rawFile, configDir, lookup)
-	if err != nil {
-		return Config{}, err
-	}
-	loadedConfig, err := buildConfig(layer.rawFile, lookup)
-	if err != nil {
-		return Config{}, err
-	}
-	loadedConfig.ConfigDir, loadedConfig.WorkingDirDotEnv = configDir, workingDirDotEnv
-	loadedConfig.CrossSeed, loadedConfig.CrossSeedImport, loadedConfig.Sources = layer.daemon, layer.status, layer.sources
-	applyDefaults(&loadedConfig)
-	applyOverrides(&loadedConfig, options, lookup)
-	if loadedConfig.CrossSeedMode, err = crossseed.NormalizeMode(loadedConfig.CrossSeedMode); err != nil {
-		return Config{}, err
-	}
-	if loadedConfig.SeedTags, err = normalizeSeedTags(loadedConfig.SeedTags); err != nil {
-		return Config{}, err
-	}
-	if err := applyPartialCapOverride(&loadedConfig, lookup); err != nil {
-		return Config{}, err
-	}
-	if err := resolveLanguage(&loadedConfig, rawFile.Language, options, lookup); err != nil {
-		return Config{}, err
-	}
-	if loadedConfig.SecretKey, err = readSecretKey(lookup); err != nil {
-		return Config{}, err
-	}
-	if err := validate(loadedConfig); err != nil {
+	layers.describe(&loadedConfig, environment)
+	if err := finishConfig(&loadedConfig, layers, options, environment.lookup); err != nil {
 		return Config{}, err
 	}
 	return loadedConfig, nil
+}
+
+// loadEnvironment est ce que fixent la ligne de commande et l'environnement avant toute lecture de la base.
+type loadEnvironment struct {
+	configDir        string
+	lookup           func(string) (string, bool)
+	workingDirDotEnv bool
+	secretKey        []byte
+	dbPath           string
+}
+
+func resolveLoadEnvironment(options commandLine, lookupEnv func(string) (string, bool), defaultConfigDir string) (loadEnvironment, error) {
+	configDir, err := resolveConfigDir(options, lookupEnv, defaultConfigDir)
+	if err != nil {
+		return loadEnvironment{}, err
+	}
+	lookup, workingDirDotEnv, err := loadDotEnvLookup(configDir, lookupEnv)
+	if err != nil {
+		return loadEnvironment{}, err
+	}
+	secretKey, err := readSecretKey(lookup)
+	if err != nil {
+		return loadEnvironment{}, err
+	}
+	dbPath := defaultDBPath
+	if options.set["db-path"] {
+		dbPath = options.dbPath
+	}
+	if err := validateDBPath(dbPath); err != nil {
+		return loadEnvironment{}, err
+	}
+	return loadEnvironment{
+		configDir: configDir, lookup: lookup, workingDirDotEnv: workingDirDotEnv, secretKey: secretKey, dbPath: dbPath,
+	}, nil
+}
+
+// configLayers est la configuration brute empilée : base par-dessus cross-seed, avec le bilan des origines.
+type configLayers struct {
+	rawFile       fileConfig
+	crossSeed     crossSeedLayer
+	lists         resolvedLists
+	stored        map[string][]byte
+	crossSeedKeys []string
+	daemon        *CrossSeedDaemon
+}
+
+func loadLayers(options commandLine, environment loadEnvironment, openStored func(dbPath string) (StoredReader, io.Closer, error)) (configLayers, error) {
+	records, err := readStored(openStored, ResolveDBPath(Config{ConfigDir: environment.configDir, DBPath: environment.dbPath}))
+	if err != nil {
+		return configLayers{}, err
+	}
+	crossSeed, err := importCrossSeed(options, environment.lookup)
+	if err != nil {
+		return configLayers{}, err
+	}
+	sealer, err := NewSecretSealer(environment.secretKey)
+	if err != nil {
+		return configLayers{}, err
+	}
+	layers := configLayers{crossSeed: crossSeed, stored: records.settings}
+	if err := applyStoredSettings(&layers.rawFile, records.settings, sealer); err != nil {
+		return configLayers{}, err
+	}
+	if layers.lists, err = applyStoredLists(&layers.rawFile, crossSeed.upstreamLists(), records.overrides, sealer); err != nil {
+		return configLayers{}, err
+	}
+	layers.crossSeedKeys = mergeCrossSeedScalars(&layers.rawFile, crossSeed.imported)
+	if layers.daemon, err = crossSeedDaemonOf(layers.rawFile.CrossSeed, crossSeed.imported); err != nil {
+		return configLayers{}, err
+	}
+	if layers.rawFile.CrossSeed == "" && layers.daemon != nil {
+		layers.crossSeedKeys = append(layers.crossSeedKeys, settingCrossSeed)
+	}
+	return layers, nil
+}
+
+// describe reporte dans la configuration ce qui ne vient pas des analyseurs : dossier, base, cross-seed, orphelines.
+func (layers configLayers) describe(target *Config, environment loadEnvironment) {
+	target.ConfigDir, target.WorkingDirDotEnv = environment.configDir, environment.workingDirDotEnv
+	target.DBPath, target.SecretKey = environment.dbPath, environment.secretKey
+	target.CrossSeed, target.CrossSeedImport = layers.daemon, layers.crossSeed.status
+	target.Sources, target.OrphanOverrides = layers.lists.sources(), layers.lists.orphans
+}
+
+// finishConfig applique défauts, environnement et options, normalise, date les origines puis valide.
+func finishConfig(target *Config, layers configLayers, options commandLine, lookup func(string) (string, bool)) error {
+	applyDefaults(target)
+	applyOverrides(target, options, lookup)
+	var err error
+	if target.CrossSeedMode, err = crossseed.NormalizeMode(target.CrossSeedMode); err != nil {
+		return err
+	}
+	if target.SeedTags, err = normalizeSeedTags(target.SeedTags); err != nil {
+		return err
+	}
+	if err := applyPartialCapOverride(target, lookup); err != nil {
+		return err
+	}
+	if err := resolveLanguage(target, layers.rawFile.Language, options, lookup); err != nil {
+		return err
+	}
+	sources := originSources{stored: layers.stored, crossSeedKeys: layers.crossSeedKeys, options: options, lookup: lookup}
+	target.Origins = slices.Concat(settingOrigins(sources), layers.lists.origins)
+	return validate(*target)
 }
 
 func parseCommandLine(args []string) (commandLine, error) {
@@ -270,38 +352,9 @@ func resolveConfigDir(options commandLine, lookupEnv func(string) (string, bool)
 	return explicitDir, nil
 }
 
-// readConfigFile lit config.json en mode strict ; un fichier absent donne une configuration vide.
-// Limite d'encoding/json : une clé dupliquée n'est pas détectée, la dernière l'emporte.
-func readConfigFile(path string, lookup func(string) (string, bool)) (fileConfig, error) {
-	var rawFile fileConfig
-	content, err := os.ReadFile(path) // #nosec G304 -- chemin dérivé du dossier de configuration de l'opérateur
-	if errors.Is(err, fs.ErrNotExist) {
-		return rawFile, nil
-	}
-	if err != nil {
-		return fileConfig{}, fmt.Errorf("read %s: %w", configFileName, err)
-	}
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&rawFile); err != nil {
-		return fileConfig{}, fmt.Errorf("parse %s: %w", configFileName, err)
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return fileConfig{}, fmt.Errorf("parse %s: unexpected data after the JSON object", configFileName)
-	}
-	if err := interpolateValue(reflect.ValueOf(&rawFile).Elem(), "", lookup); err != nil {
-		return fileConfig{}, fmt.Errorf("%s: %w", configFileName, err)
-	}
-	return rawFile, nil
-}
-
 func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config, error) {
-	if len(rawFile.LegacyRclone) > 0 {
-		return Config{}, errors.New(`"rclone" was renamed to "fsProviders" (type "rclone", with a "name")`)
-	}
 	loadedConfig := Config{
 		ListenAddr:               rawFile.Listen,
-		DBPath:                   rawFile.DBPath,
 		ReadBytesPerSecond:       rawFile.ReadBytesPerSecond,
 		TieBreakReadBytes:        rawFile.TieBreakReadBytes,
 		LibraryAPI:               rawFile.LibraryAPI,
@@ -431,7 +484,7 @@ func applyDefaults(target *Config) {
 	}
 }
 
-// applyOverrides applique l'environnement puis la ligne de commande par-dessus le fichier ; les jetons ne viennent que de l'environnement.
+// applyOverrides applique l'environnement puis la ligne de commande par-dessus la base ; les jetons ne viennent que de l'environnement.
 func applyOverrides(target *Config, options commandLine, lookup func(string) (string, bool)) {
 	if value, found := lookup(envLibraryAPI); found && value != "" {
 		target.LibraryAPI = value

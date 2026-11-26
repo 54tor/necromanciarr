@@ -16,25 +16,23 @@ func TestLoad_seedTagsDefaultToTheToolTag(t *testing.T) {
 	}
 }
 
-func TestLoad_seedTagsFromFileReplaceTheDefaultTrimmedAndDeduplicated(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"seedTags": [" qui ", "relinked", "qui"]}`)
+func TestLoad_seedTagsFromTheDatabaseReplaceTheDefaultTrimmedAndDeduplicated(t *testing.T) {
+	stored := `{"seedTags": [" qui ", "relinked", "qui"]}`
 	expectedValue := []string{"qui", "relinked"}
 
-	gotValue := mustLoad(t, nil, nil, configDir).SeedTags
+	gotValue := mustLoadStored(t, nil, nil, stored).SeedTags
 
 	if !slices.Equal(gotValue, expectedValue) {
 		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
 	}
 }
 
-func TestLoad_seedTagsEnvironmentOverridesTheFile(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"seedTags": ["from-file"]}`)
+func TestLoad_seedTagsEnvironmentOverridesTheDatabase(t *testing.T) {
+	stored := `{"seedTags": ["from-file"]}`
 	environment := map[string]string{envSeedTags: "necromanciarr, from-env"}
 	expectedValue := []string{"necromanciarr", "from-env"}
 
-	gotValue := mustLoad(t, nil, environment, configDir).SeedTags
+	gotValue := mustLoadStored(t, nil, environment, stored).SeedTags
 
 	if !slices.Equal(gotValue, expectedValue) {
 		t.Fatalf("gotValue %v, expectedValue %v", gotValue, expectedValue)
@@ -42,10 +40,9 @@ func TestLoad_seedTagsEnvironmentOverridesTheFile(t *testing.T) {
 }
 
 func TestLoad_seedTagsEmptyListKeepsTheDefault(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"seedTags": []}`)
+	stored := `{"seedTags": []}`
 
-	gotValue := mustLoad(t, nil, nil, configDir).SeedTags
+	gotValue := mustLoadStored(t, nil, nil, stored).SeedTags
 
 	if !slices.Equal(gotValue, []string{defaultSeedTag}) {
 		t.Fatalf("gotValue %v, expectedValue the default tag", gotValue)
@@ -65,10 +62,7 @@ func TestLoad_seedTagsRejectsInvalidEntriesNamingTheKey(t *testing.T) {
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
-			configDir := t.TempDir()
-			writeFile(t, configDir, configFileName, content)
-
-			_, err := Load(nil, lookupFrom(nil), configDir)
+			_, err := loadStored(t, nil, nil, content)
 
 			if err == nil || !strings.Contains(err.Error(), "seedTags") {
 				t.Fatalf("gotValue %v, expectedValue an error naming seedTags", err)
@@ -82,10 +76,9 @@ func TestLoad_seedTagsAcceptsExactlyTheLimits(t *testing.T) {
 	for tagIndex := range atLimit {
 		atLimit[tagIndex] = `"` + strings.Repeat("x", maxSeedTagLength-2) + string(rune('a'+tagIndex)) + `y"`
 	}
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"seedTags": [`+strings.Join(atLimit, ",")+`]}`)
+	stored := `{"seedTags": [` + strings.Join(atLimit, ",") + `]}`
 
-	gotValue := mustLoad(t, nil, nil, configDir).SeedTags
+	gotValue := mustLoadStored(t, nil, nil, stored).SeedTags
 
 	if len(gotValue) != maxSeedTags {
 		t.Fatalf("gotValue %d tags, expectedValue %d", len(gotValue), maxSeedTags)
@@ -102,12 +95,11 @@ func TestLoad_partialMaxMissingPercentDefaultsToNoCap(t *testing.T) {
 	}
 }
 
-func TestLoad_partialMaxMissingPercentReadsZeroFromTheFileAndTheEnvironmentWins(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"partialMaxMissingPercent": 0}`)
+func TestLoad_partialMaxMissingPercentReadsZeroFromTheDatabaseAndTheEnvironmentWins(t *testing.T) {
+	stored := `{"partialMaxMissingPercent": 0}`
 
-	fromFile := mustLoad(t, nil, nil, configDir).PartialMaxMissingPercent
-	fromEnv := mustLoad(t, nil, map[string]string{envPartialMaxMissingPercent: "12.5"}, configDir).PartialMaxMissingPercent
+	fromFile := mustLoadStored(t, nil, nil, stored).PartialMaxMissingPercent
+	fromEnv := mustLoadStored(t, nil, map[string]string{envPartialMaxMissingPercent: "12.5"}, stored).PartialMaxMissingPercent
 
 	if fromFile != 0 || fromEnv != 12.5 {
 		t.Fatalf("gotValue file %v env %v, expectedValue 0 then 12.5", fromFile, fromEnv)
@@ -128,13 +120,12 @@ func TestLoad_partialMaxMissingPercentRejectsOutOfRangeValuesNamingTheKey(t *tes
 	}
 }
 
-func TestLoad_seedCategoryEnvironmentOverridesLinkCategoryFromTheFile(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"linkCategory": "from-file"}`)
+func TestLoad_seedCategoryEnvironmentOverridesLinkCategoryFromTheDatabase(t *testing.T) {
+	stored := `{"linkCategory": "from-file"}`
 	const expectedValue = "from-env"
 
-	fromFile := mustLoad(t, nil, nil, configDir).LinkCategory
-	gotValue := mustLoad(t, nil, map[string]string{envSeedCategory: expectedValue}, configDir).LinkCategory
+	fromFile := mustLoadStored(t, nil, nil, stored).LinkCategory
+	gotValue := mustLoadStored(t, nil, map[string]string{envSeedCategory: expectedValue}, stored).LinkCategory
 
 	if fromFile != "from-file" || gotValue != expectedValue {
 		t.Fatalf("gotValue file %q env %q, expectedValue from-file then %q", fromFile, gotValue, expectedValue)

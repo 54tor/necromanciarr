@@ -78,9 +78,8 @@ func TestLoad_acceptsNonLoopbackWithTokenFromEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoad_priorityCliOverEnvOverJsonOverDefault(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"libraryApi": "http://file.example.com", "dbPath": "/home/u/file.db"}`)
+func TestLoad_priorityCliOverEnvOverStoredOverDefault(t *testing.T) {
+	const stored = `{"libraryApi": "http://file.example.com"}`
 	environment := map[string]string{envLibraryAPI: "http://env.example.com"}
 	cases := []struct {
 		name        string
@@ -89,13 +88,13 @@ func TestLoad_priorityCliOverEnvOverJsonOverDefault(t *testing.T) {
 		expectedAPI string
 		expectedDB  string
 	}{
-		{"file only", nil, nil, "http://file.example.com", "/home/u/file.db"},
-		{"env over file", nil, environment, "http://env.example.com", "/home/u/file.db"},
+		{"stored only", nil, nil, "http://file.example.com", defaultDBPath},
+		{"env over stored", nil, environment, "http://env.example.com", defaultDBPath},
 		{"cli over env", []string{"--library-api", "http://cli.example.com", "--db-path", "/home/u/cli.db"}, environment, "http://cli.example.com", "/home/u/cli.db"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			loadedConfig := mustLoad(t, testCase.args, testCase.environment, configDir)
+			loadedConfig := mustLoadStored(t, testCase.args, testCase.environment, stored)
 			if loadedConfig.LibraryAPI != testCase.expectedAPI || loadedConfig.DBPath != testCase.expectedDB {
 				t.Fatalf("gotValue %q %q, expectedValue %q %q", loadedConfig.LibraryAPI, loadedConfig.DBPath, testCase.expectedAPI, testCase.expectedDB)
 			}
@@ -108,121 +107,84 @@ func TestLoad_priorityCliOverEnvOverJsonOverDefault(t *testing.T) {
 
 func TestLoad_configDirFlagAndEnvironmentChooseTheDirectory(t *testing.T) {
 	flagDir, environmentDir := t.TempDir(), t.TempDir()
-	writeFile(t, flagDir, configFileName, `{"dbPath": "/home/u/flag.db"}`)
-	writeFile(t, environmentDir, configFileName, `{"dbPath": "/home/u/env.db"}`)
 	environment := map[string]string{envConfigDir: environmentDir}
 
-	if gotValue := mustLoad(t, []string{"--config-dir", flagDir}, environment, t.TempDir()).DBPath; gotValue != "/home/u/flag.db" {
+	if gotValue := mustLoad(t, []string{"--config-dir", flagDir}, environment, t.TempDir()).ConfigDir; gotValue != flagDir {
 		t.Fatalf("flag: gotValue %q", gotValue)
 	}
-	if gotValue := mustLoad(t, nil, environment, t.TempDir()).DBPath; gotValue != "/home/u/env.db" {
+	if gotValue := mustLoad(t, nil, environment, t.TempDir()).ConfigDir; gotValue != environmentDir {
 		t.Fatalf("env: gotValue %q", gotValue)
 	}
 }
 
 func TestLoad_readsDotEnvFromConfigDirWithoutOverridingEnvironment(t *testing.T) {
 	configDir := t.TempDir()
-	writeFile(t, configDir, ".env", "# commentaire\nRADARR_API_KEY=from-dotenv\nexport QBIT_PASSWORD=\"dot-env-pass\"\nSONARR_API_KEY=dotenv-sonarr\n")
-	writeFile(t, configDir, configFileName, `{
-  "radarr": ["http://example.com:7878?apikey=${RADARR_API_KEY}"],
-  "sonarr": ["http://example.com:8989?apikey=${SONARR_API_KEY}"],
-  "torrentClients": ["qbittorrent:http://alice:${QBIT_PASSWORD}@example.com:8080"]
-}`)
-	environment := map[string]string{"SONARR_API_KEY": "from-real-env"}
+	writeFile(t, configDir, ".env", "# commentaire\nLIBRARY_API=https://dotenv.example.com\nexport NECROMANCIARR_SEED_CATEGORY=\"dot-env-category\"\nNECROMANCIARR_LISTEN=127.0.0.1:1111\n")
+	environment := map[string]string{envListen: "127.0.0.1:2222"}
 
 	loadedConfig := mustLoad(t, nil, environment, configDir)
 
-	if loadedConfig.Radarr[0].APIKey != "from-dotenv" {
-		t.Errorf("radarr key gotValue %q", loadedConfig.Radarr[0].APIKey)
+	if loadedConfig.LibraryAPI != "https://dotenv.example.com" {
+		t.Errorf("library api gotValue %q", loadedConfig.LibraryAPI)
 	}
-	if loadedConfig.Sonarr[0].APIKey != "from-real-env" {
-		t.Errorf("sonarr key gotValue %q: .env must not override the environment", loadedConfig.Sonarr[0].APIKey)
+	if loadedConfig.ListenAddr != "127.0.0.1:2222" {
+		t.Errorf("listen gotValue %q: .env must not override the environment", loadedConfig.ListenAddr)
 	}
-	if loadedConfig.TorrentClients[0].Password != "dot-env-pass" {
-		t.Errorf("qbit password gotValue %q", loadedConfig.TorrentClients[0].Password)
+	if loadedConfig.LinkCategory != "dot-env-category" {
+		t.Errorf("seed category gotValue %q", loadedConfig.LinkCategory)
 	}
 }
 
 func TestLoad_ignoresTheWorkingDirectoryDotEnvWhenTheConfigDirHasOne(t *testing.T) {
 	configDir, workingDir := t.TempDir(), t.TempDir()
-	writeFile(t, workingDir, ".env", "ONLY_CWD=cwd-value\n")
-	writeFile(t, configDir, ".env", "BOTH=from-config-dir\n")
-	writeFile(t, configDir, configFileName, `{"libraryRoots": ["${BOTH}", "${ONLY_CWD}"]}`)
+	writeFile(t, workingDir, ".env", "LIBRARY_API=https://cwd.example.com\n")
+	writeFile(t, configDir, ".env", "NECROMANCIARR_SEED_CATEGORY=from-config-dir\n")
 	t.Chdir(workingDir)
 
-	_, err := Load(nil, lookupFrom(nil), configDir)
+	loadedConfig := mustLoad(t, nil, nil, configDir)
 
-	if err == nil || !strings.Contains(err.Error(), "ONLY_CWD") {
-		t.Fatalf("gotValue %v, expectedValue ONLY_CWD undefined: the working directory .env is not read", err)
+	if loadedConfig.LibraryAPI != "" || loadedConfig.LinkCategory != "from-config-dir" || loadedConfig.WorkingDirDotEnv {
+		t.Fatalf("gotValue %q %q (cwd .env used %v), expectedValue only the config dir .env read",
+			loadedConfig.LibraryAPI, loadedConfig.LinkCategory, loadedConfig.WorkingDirDotEnv)
 	}
 }
 
 func TestLoad_readsTheWorkingDirectoryDotEnvOnlyWithoutAConfigDirOneAndSaysSo(t *testing.T) {
 	configDir, workingDir := t.TempDir(), t.TempDir()
-	cwdRoot := absPath("cwd-value")
-	writeFile(t, workingDir, ".env", "ONLY_CWD="+cwdRoot+"\n")
-	writeFile(t, configDir, configFileName, `{"libraryRoots": ["${ONLY_CWD}"]}`)
+	writeFile(t, workingDir, ".env", "LIBRARY_API=https://cwd.example.com\n")
 	t.Chdir(workingDir)
 
 	loadedConfig := mustLoad(t, nil, nil, configDir)
 
-	if loadedConfig.LibraryRoots[0] != cwdRoot || !loadedConfig.WorkingDirDotEnv {
-		t.Fatalf("gotValue %v (cwd .env used %v), expectedValue the working directory .env used and flagged", loadedConfig.LibraryRoots, loadedConfig.WorkingDirDotEnv)
+	if loadedConfig.LibraryAPI != "https://cwd.example.com" || !loadedConfig.WorkingDirDotEnv {
+		t.Fatalf("gotValue %q (cwd .env used %v), expectedValue the working directory .env used and flagged", loadedConfig.LibraryAPI, loadedConfig.WorkingDirDotEnv)
 	}
 }
 
 func TestLoad_undefinedVariableNamesItInTheError(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"radarr": ["http://example.com:7878?apikey=${NOPE_KEY}"]}`)
+	_, err := loadStored(t, nil, nil, `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://rcuser:${NOPE_KEY}@rclone:5572"}]}`)
 
-	_, err := Load(nil, lookupFrom(nil), configDir)
-
-	if err == nil || !strings.Contains(err.Error(), "NOPE_KEY") || !strings.Contains(err.Error(), "radarr[0]") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestLoad_rejectsUnknownJsonKeyNamingIt(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"listn": "127.0.0.1:1"}`)
-
-	_, err := Load(nil, lookupFrom(nil), configDir)
-
-	if err == nil || !strings.Contains(err.Error(), "listn") {
+	if err == nil || !strings.Contains(err.Error(), "NOPE_KEY") || !strings.Contains(err.Error(), "fsProviders[0]") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestLoad_errorsNeverContainServiceSecrets(t *testing.T) {
 	cases := map[string]string{
-		"torrent client type": `{"torrentClients": ["transmission:http://alice:secret-pass@example.com"]}`,
-		"torrent client url":  `{"torrentClients": ["qbittorrent:ftp://alice:secret-pass@example.com"]}`,
-		"radarr scheme":       `{"radarr": ["ftp://example.com?apikey=secret-key"]}`,
-		"radarr extra param":  `{"radarr": ["http://example.com?apikey=secret-key&token=secret-other"]}`,
+		"torrent client type": `{"torrentClients": [{"type": "transmission", "url": "http://example.com", "user": "alice", "password": "secret-pass"}]}`,
+		"torrent client url":  `{"torrentClients": [{"type": "qbittorrent", "url": "ftp://example.com", "user": "alice", "password": "secret-pass"}]}`,
+		"radarr scheme":       `{"radarr": [{"url": "ftp://example.com", "apiKey": "secret-key"}]}`,
+		"radarr fragment":     `{"radarr": [{"url": "http://example.com#secret-other", "apiKey": "secret-key"}]}`,
 		"library api":         `{"libraryApi": "ftp://alice:secret-pass@example.com"}`,
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {
-			configDir := t.TempDir()
-			writeFile(t, configDir, configFileName, content)
-
-			_, err := Load(nil, lookupFrom(nil), configDir)
+			_, err := loadStored(t, nil, nil, content)
 
 			if err == nil || strings.Contains(err.Error(), "secret-") {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
-	}
-}
-
-func TestLoad_rejectsTrailingDataAfterJsonObject(t *testing.T) {
-	for _, content := range []string{`{} garbage`, `{} {}`} {
-		configDir := t.TempDir()
-		writeFile(t, configDir, configFileName, content)
-
-		if _, err := Load(nil, lookupFrom(nil), configDir); err == nil {
-			t.Fatalf("expected an error for %q", content)
-		}
 	}
 }
 
@@ -242,7 +204,7 @@ func TestLoad_rejectsMissingExplicitConfigDirWithoutCreatingIt(t *testing.T) {
 	}
 }
 
-func TestLoad_missingConfigFileInExistingDirIsEmptyConfig(t *testing.T) {
+func TestLoad_existingConfigDirWithoutDatabaseLoads(t *testing.T) {
 	mustLoad(t, []string{"--config-dir", t.TempDir()}, nil, t.TempDir())
 }
 
@@ -259,10 +221,7 @@ func TestLoad_tieBreakReadBytesDefaultsTo50GiBAndRejectsNegative(t *testing.T) {
 	if gotValue := mustLoad(t, nil, nil, t.TempDir()).TieBreakReadBytes; gotValue != expectedValue {
 		t.Fatalf("gotValue %d, expectedValue %d", gotValue, expectedValue)
 	}
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"tieBreakReadBytes": -1}`)
-
-	_, err := Load([]string{"--config-dir", configDir}, lookupFrom(nil), t.TempDir())
+	_, err := loadStored(t, nil, nil, `{"tieBreakReadBytes": -1}`)
 
 	if err == nil || !strings.Contains(err.Error(), "tieBreakReadBytes must be positive") {
 		t.Fatalf("gotValue %v, expectedValue a refusal naming tieBreakReadBytes", err)
@@ -278,12 +237,10 @@ func TestLoad_extraPositionalArgumentIsUsageError(t *testing.T) {
 }
 
 func TestConfig_redactsUserinfoInRadarrAndLibraryApi(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{
+	loadedConfig := mustLoadStored(t, nil, nil, `{
   "libraryApi": "https://bob:secret-library@example.com/api?token=secret-token&page=2",
   "radarr": ["http://alice:secret-proxy@example.com:7878/radarr?apikey=secret-radarr"]
 }`)
-	loadedConfig := mustLoad(t, nil, nil, configDir)
 
 	if loadedConfig.Radarr[0].BaseURL != "http://example.com:7878/radarr" || loadedConfig.Radarr[0].User != "alice" {
 		t.Fatalf("unexpected service %+v", loadedConfig.Radarr[0])
@@ -307,37 +264,12 @@ func TestConfig_redactsUserinfoInRadarrAndLibraryApi(t *testing.T) {
 	}
 }
 
-func TestConfigExample_loadsFsProviders(t *testing.T) {
-	skipOnWindows(t)
-	configDir := t.TempDir()
-	exampleContent, err := os.ReadFile(filepath.Join("..", "..", "config.example.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, configDir, configFileName, string(exampleContent))
-	environment := map[string]string{"RADARR_API_KEY": "r", "SONARR_API_KEY": "s", "QBIT_PASSWORD": "q", "RCLONE_RC_PASS": "p", "PASSKEY_TRACKER_A": "fake-passkey-example"}
-
-	loadedConfig := mustLoad(t, nil, environment, configDir)
-
-	if len(loadedConfig.Radarr) == 0 || len(loadedConfig.Sonarr) == 0 || len(loadedConfig.TorrentClients) == 0 || len(loadedConfig.FSProviders) == 0 {
-		t.Fatalf("example config incomplete: %v", loadedConfig)
-	}
-	if provider := loadedConfig.FSProviders[0]; provider.Type != "rclone" || provider.Name != "remote" || len(provider.Mounts) != 1 {
-		t.Fatalf("unexpected example provider %+v", provider)
-	}
-	if provider := loadedConfig.FSProviders[1]; provider.Type != "sftp" || provider.Name != "seedbox" || provider.KnownHosts == "" {
-		t.Fatalf("unexpected example sftp provider %+v", provider)
-	}
-}
-
 func TestConfig_redactsUrlCredentials(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{
+	environment := map[string]string{envAuthToken: "secret-auth-secret-auth-secret-auth", envLibraryProviderToken: "secret-provider"}
+	loadedConfig := mustLoadStored(t, nil, environment, `{
   "radarr": ["http://example.com:7878?apikey=secret-radarr"],
   "torrentClients": ["qbittorrent:http://alice:secret-qbit@example.com:8080"]
 }`)
-	environment := map[string]string{envAuthToken: "secret-auth-secret-auth-secret-auth", envLibraryProviderToken: "secret-provider"}
-	loadedConfig := mustLoad(t, nil, environment, configDir)
 
 	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
 		assertNoSecret(t, fmt.Sprintf(verb, loadedConfig))
@@ -366,12 +298,8 @@ func TestLoad_dedupeDefaultsWhenSectionAbsent(t *testing.T) {
 }
 
 func TestLoad_dedupeReadsEveryKey(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"dedupe": {"torrentRoots": ["${TORRENTS}"], "kinds": ["hardlink", "symlink"],
-		"relativeSymlinks": false, "minFileAge": "1h30m", "recheckAfter": false}}`)
-	environment := map[string]string{"TORRENTS": "/home/u/torrents"}
-
-	gotValue := mustLoad(t, nil, environment, configDir).Dedupe
+	gotValue := mustLoadStored(t, nil, nil, `{"dedupe": {"torrentRoots": ["/home/u/torrents"], "kinds": ["hardlink", "symlink"],
+		"relativeSymlinks": false, "minFileAge": "1h30m", "recheckAfter": false}}`).Dedupe
 
 	expectedValue := Dedupe{
 		TorrentRoots: []string{"/home/u/torrents"}, Kinds: []string{"hardlink", "symlink"},
@@ -383,10 +311,7 @@ func TestLoad_dedupeReadsEveryKey(t *testing.T) {
 }
 
 func TestLoad_dedupeRejectsUnknownKindNamingTheKey(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"dedupe": {"kinds": ["symlink", "junction"]}}`)
-
-	_, err := Load(nil, lookupFrom(nil), configDir)
+	_, err := loadStored(t, nil, nil, `{"dedupe": {"kinds": ["symlink", "junction"]}}`)
 
 	if err == nil || !strings.Contains(err.Error(), "dedupe.kinds[1]") {
 		t.Fatalf("expected an error naming dedupe.kinds[1], got %v", err)
@@ -395,30 +320,11 @@ func TestLoad_dedupeRejectsUnknownKindNamingTheKey(t *testing.T) {
 
 func TestLoad_dedupeRejectsInvalidMinFileAge(t *testing.T) {
 	for _, rawAge := range []string{"soon", "-1m"} {
-		configDir := t.TempDir()
-		writeFile(t, configDir, configFileName, `{"dedupe": {"minFileAge": "`+rawAge+`"}}`)
-
-		_, err := Load(nil, lookupFrom(nil), configDir)
+		_, err := loadStored(t, nil, nil, `{"dedupe": {"minFileAge": "`+rawAge+`"}}`)
 
 		if err == nil || !strings.Contains(err.Error(), "dedupe.minFileAge") {
 			t.Fatalf("expected an error naming dedupe.minFileAge for %q, got %v", rawAge, err)
 		}
-	}
-}
-
-func TestExampleConfig_declaresDedupeSection(t *testing.T) {
-	content, err := os.ReadFile(filepath.Join("..", "..", "config.example.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var rawFile fileConfig
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&rawFile); err != nil {
-		t.Fatal(err)
-	}
-	if len(rawFile.Dedupe.Kinds) == 0 || rawFile.Dedupe.MinFileAge == "" {
-		t.Fatalf("example dedupe section incomplete: %+v", rawFile.Dedupe)
 	}
 }
 
@@ -437,11 +343,8 @@ func TestConfig_rejectsDedupeRootsOverlappingLibraryRoots(t *testing.T) {
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			configDir := t.TempDir()
-			writeFile(t, configDir, configFileName, fmt.Sprintf(`{"libraryRoots": [%q], "dedupe": {"torrentRoots": [%q]}}`,
+			_, err := loadStored(t, nil, nil, fmt.Sprintf(`{"libraryRoots": [%q], "dedupe": {"torrentRoots": [%q]}}`,
 				onThisSystem(testCase.libraryRoot), onThisSystem(testCase.torrentRoot)))
-
-			_, err := Load(nil, lookupFrom(nil), configDir)
 
 			gotOverlap := err != nil
 			if gotOverlap != testCase.expectedOverlap {
@@ -467,11 +370,8 @@ func TestConfig_rejectsLinkDirsOverlappingLibraryRoots(t *testing.T) {
 	}
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			configDir := t.TempDir()
-			writeFile(t, configDir, configFileName, fmt.Sprintf(`{"libraryRoots": [%q], "linkDirs": [%q]}`,
+			_, err := loadStored(t, nil, nil, fmt.Sprintf(`{"libraryRoots": [%q], "linkDirs": [%q]}`,
 				onThisSystem("/mnt/remote/1080p"), onThisSystem(testCase.linkDir)))
-
-			_, err := Load(nil, lookupFrom(nil), configDir)
 
 			gotOverlap := err != nil && strings.Contains(err.Error(), "linkDirs[0]")
 			if gotOverlap != testCase.expectedOverlap || (err != nil && !gotOverlap) {
@@ -514,14 +414,13 @@ func TestValidateServe_nonLoopbackWithoutTokenNamesTheVariable(t *testing.T) {
 	}
 }
 
-func TestLoad_listenEnvOverridesTheFileAndTheFlagOverridesTheEnv(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, configFileName, `{"listen": "127.0.0.1:1111"}`)
+func TestLoad_listenEnvOverridesTheStoredValueAndTheFlagOverridesTheEnv(t *testing.T) {
+	const stored = `{"listen": "127.0.0.1:1111"}`
 	environment := map[string]string{envListen: "127.0.0.1:2222"}
 
-	fromEnvironment := mustLoad(t, []string{"--config-dir", configDir}, environment, t.TempDir())
-	fromFlag := mustLoad(t, []string{"--config-dir", configDir, "--listen", "127.0.0.1:3333"}, environment, t.TempDir())
-	fromFile := mustLoad(t, []string{"--config-dir", configDir}, map[string]string{envListen: ""}, t.TempDir())
+	fromEnvironment := mustLoadStored(t, nil, environment, stored)
+	fromFlag := mustLoadStored(t, []string{"--listen", "127.0.0.1:3333"}, environment, stored)
+	fromFile := mustLoadStored(t, nil, map[string]string{envListen: ""}, stored)
 
 	gotValues := []string{fromEnvironment.ListenAddr, fromFlag.ListenAddr, fromFile.ListenAddr}
 	expectedValues := []string{"127.0.0.1:2222", "127.0.0.1:3333", "127.0.0.1:1111"}
@@ -543,36 +442,33 @@ func TestGenerateAuthToken_isLongRandomAndURLSafe(t *testing.T) {
 }
 
 func TestLanguage_defaultsToFrenchAndFollowsPriorityChain(t *testing.T) {
-	configDir := t.TempDir()
-	loadedConfig := mustLoad(t, nil, nil, configDir)
+	const stored = `{"language": "en"}`
+	loadedConfig := mustLoad(t, nil, nil, t.TempDir())
 	if loadedConfig.Language != i18n.French || loadedConfig.LanguageSource != "default" {
 		t.Fatalf("gotValue %q/%q, expectedValue fr/default", loadedConfig.Language, loadedConfig.LanguageSource)
 	}
-	writeFile(t, configDir, "config.json", `{"language": "en"}`)
-	loadedConfig = mustLoad(t, nil, nil, configDir)
+	loadedConfig = mustLoadStored(t, nil, nil, stored)
 	if loadedConfig.Language != i18n.English || loadedConfig.LanguageSource != "config.json" {
 		t.Fatalf("gotValue %q/%q, expectedValue en/config.json", loadedConfig.Language, loadedConfig.LanguageSource)
 	}
-	loadedConfig = mustLoad(t, nil, map[string]string{"NECROMANCIARR_LANGUAGE": " FR "}, configDir)
+	loadedConfig = mustLoadStored(t, nil, map[string]string{"NECROMANCIARR_LANGUAGE": " FR "}, stored)
 	if loadedConfig.Language != i18n.French || loadedConfig.LanguageSource != "NECROMANCIARR_LANGUAGE" {
 		t.Fatalf("gotValue %q/%q, expectedValue fr/env", loadedConfig.Language, loadedConfig.LanguageSource)
 	}
-	loadedConfig = mustLoad(t, []string{"--language", "en"}, map[string]string{"NECROMANCIARR_LANGUAGE": "fr"}, configDir)
+	loadedConfig = mustLoadStored(t, []string{"--language", "en"}, map[string]string{"NECROMANCIARR_LANGUAGE": "fr"}, stored)
 	if loadedConfig.Language != i18n.English || loadedConfig.LanguageSource != "--language" {
 		t.Fatalf("gotValue %q/%q, expectedValue en/--language", loadedConfig.Language, loadedConfig.LanguageSource)
 	}
 }
 
 func TestLanguage_unknownValueIsUsageError(t *testing.T) {
-	configDir := t.TempDir()
-	writeFile(t, configDir, "config.json", `{"language": "xx"}`)
 	for name, load := range map[string]func() error{
 		"flag": func() error { _, err := Load([]string{"--language", "de"}, lookupFrom(nil), t.TempDir()); return err },
 		"env": func() error {
 			_, err := Load(nil, lookupFrom(map[string]string{"NECROMANCIARR_LANGUAGE": "de"}), t.TempDir())
 			return err
 		},
-		"file": func() error { _, err := Load(nil, lookupFrom(nil), configDir); return err },
+		"stored": func() error { _, err := loadStored(t, nil, nil, `{"language": "xx"}`); return err },
 	} {
 		err := load()
 		if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "fr, en") {
