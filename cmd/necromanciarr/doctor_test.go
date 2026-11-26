@@ -110,7 +110,7 @@ func TestCli_jsonOutputIsStableAndRedacted(t *testing.T) {
 }
 
 func TestCli_invalidConfigReportsFailedConfigCheck(t *testing.T) {
-	configDir := writeDoctorConfig(t, `{"readBytesPerSecond": -1}`)
+	configDir := writeDoctorConfig(t, `{"bogus": 1}`)
 	var stdout, stderr bytes.Buffer
 
 	exitCode := run([]string{"doctor", "--config-dir", configDir}, &stdout, &stderr)
@@ -120,8 +120,20 @@ func TestCli_invalidConfigReportsFailedConfigCheck(t *testing.T) {
 	}
 }
 
+func TestCli_doctorUnknownFlagStaysAUsageErrorWithoutConfigCheck(t *testing.T) {
+	configDir := writeDoctorConfig(t, `{}`)
+	var stdout, stderr bytes.Buffer
+	valeurAttendue := usageExitCode
+
+	valeurObtenue := run([]string{"doctor", "--config-dir", configDir, "--unknown-flag"}, &stdout, &stderr)
+
+	if valeurObtenue != valeurAttendue || strings.Contains(stdout.String(), "Configuration") {
+		t.Fatalf("valeurObtenue exit %d stdout %q, valeurAttendue %d sans check de configuration", valeurObtenue, stdout.String(), valeurAttendue)
+	}
+}
+
 func TestCli_checkWithInvalidConfigReturnsConfigFailure(t *testing.T) {
-	configDir := writeDoctorConfig(t, `{"readBytesPerSecond": -1}`)
+	configDir := writeDoctorConfig(t, `{"bogus": 1}`)
 	var stdout, stderr bytes.Buffer
 
 	exitCode := run([]string{"doctor", "--config-dir", configDir, "--check", "library-roots"}, &stdout, &stderr)

@@ -169,6 +169,9 @@ type commandLine struct {
 // ErrUsage signale une ligne de commande invalide (option inconnue, argument en trop, aide demandée).
 var ErrUsage = errors.New("usage")
 
+// ErrInvalidStoredConfig signale un contenu de base illisible ou invalide : doctor le diagnostique au lieu d'abandonner.
+var ErrInvalidStoredConfig = errors.New("invalid stored configuration")
+
 // Load construit la configuration sans base : cross-seed, environnement, options et défauts seulement.
 func Load(args []string, lookupEnv func(string) (string, bool), defaultConfigDir string) (Config, error) {
 	return LoadWith(args, lookupEnv, defaultConfigDir, nil)
@@ -247,6 +250,16 @@ type configLayers struct {
 	daemon        *CrossSeedDaemon
 }
 
+// applyStoredLayer pose les réglages puis les listes de la base sur la configuration brute.
+func applyStoredLayer(layers *configLayers, records storedRecords, sealer *fieldSealer) error {
+	if err := applyStoredSettings(&layers.rawFile, records.settings, sealer); err != nil {
+		return err
+	}
+	var err error
+	layers.lists, err = applyStoredLists(&layers.rawFile, layers.crossSeed.upstreamLists(), records.overrides, sealer)
+	return err
+}
+
 func loadLayers(options commandLine, environment loadEnvironment, openStored func(dbPath string) (StoredReader, io.Closer, error)) (configLayers, error) {
 	records, err := readStored(openStored, ResolveDBPath(Config{ConfigDir: environment.configDir, DBPath: environment.dbPath}))
 	if err != nil {
@@ -261,11 +274,8 @@ func loadLayers(options commandLine, environment loadEnvironment, openStored fun
 		return configLayers{}, err
 	}
 	layers := configLayers{crossSeed: crossSeed, stored: records.settings}
-	if err := applyStoredSettings(&layers.rawFile, records.settings, sealer); err != nil {
-		return configLayers{}, err
-	}
-	if layers.lists, err = applyStoredLists(&layers.rawFile, crossSeed.upstreamLists(), records.overrides, sealer); err != nil {
-		return configLayers{}, err
+	if err := applyStoredLayer(&layers, records, sealer); err != nil {
+		return configLayers{}, fmt.Errorf("%w: %w", ErrInvalidStoredConfig, err)
 	}
 	layers.crossSeedKeys = mergeCrossSeedScalars(&layers.rawFile, crossSeed.imported)
 	if layers.daemon, err = crossSeedDaemonOf(layers.rawFile.CrossSeed, crossSeed.imported); err != nil {

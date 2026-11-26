@@ -294,7 +294,8 @@ func runCommand(ctx context.Context, spec command, args []string, stdout, stderr
 	call.stdout, call.stderr = stdout, stderr
 	call.settings, err = loadConfig(call.configArgs)
 	if err != nil {
-		if spec.onConfigError != nil && !errors.Is(err, config.ErrUsage) {
+		isDiagnosable := !errors.Is(err, config.ErrUsage) || errors.Is(err, config.ErrInvalidStoredConfig)
+		if spec.onConfigError != nil && isDiagnosable {
 			return out.result(spec.onConfigError(out.translator, err))
 		}
 		return out.failure(err)

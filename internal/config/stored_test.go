@@ -555,3 +555,29 @@ func TestLoadWith_storedTorznabWithoutNameIsUsageErrorNamingTheItem(t *testing.T
 	}
 	assertNoSecret(t, err.Error())
 }
+
+func TestLoadWith_invalidStoredContentIsAnInvalidStoredConfigUsageError(t *testing.T) {
+	testCases := map[string]fakeStoredReader{
+		"unknown setting key":   {settings: map[string][]byte{"bogus": []byte("1")}},
+		"unreadable value":      {settings: map[string][]byte{"linkCategory": []byte("12")}},
+		"sealed secret, no key": sealedRadarrReader(t, testSecretKeyBytes),
+	}
+	for name, reader := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, err := LoadWith(nil, lookupFrom(nil), t.TempDir(), openFake(reader))
+
+			estInvalideEnBase, estUsage := errors.Is(err, ErrInvalidStoredConfig), errors.Is(err, ErrUsage)
+			if !estInvalideEnBase || !estUsage {
+				t.Fatalf("valeurObtenue %v (stockée %v, usage %v), valeurAttendue les deux", err, estInvalideEnBase, estUsage)
+			}
+		})
+	}
+}
+
+func TestLoadWith_commandLineUsageErrorIsNotAnInvalidStoredConfig(t *testing.T) {
+	_, err := LoadWith([]string{"--unknown-flag"}, lookupFrom(nil), t.TempDir(), openFake(fakeStoredReader{}))
+
+	if !errors.Is(err, ErrUsage) || errors.Is(err, ErrInvalidStoredConfig) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue ErrUsage seul", err)
+	}
+}
