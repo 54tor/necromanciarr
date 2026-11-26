@@ -38,7 +38,11 @@ const invalidField = ref('')
 watch(
   open,
   (isOpen) => {
-    if (!isOpen) return
+    if (!isOpen) {
+      editedFields.value = []
+      itemId.value = ''
+      return
+    }
     editedFields.value = JSON.parse(JSON.stringify(props.fields)) as FormField[]
     itemId.value = ''
     isItemIdEdited.value = false

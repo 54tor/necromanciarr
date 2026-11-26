@@ -520,6 +520,23 @@ describe('ConfigView', () => {
     })
   })
 
+  it('ConfigView efface la saisie, secrets compris, quand le dialogue est annulé', async () => {
+    const { wrapper } = await mountView({ 'GET /api/config': configSnapshot() })
+    await wrapper.get(`[data-testid="edit-item-radarr-${RADARR_ID}"]`).trigger('click')
+    await flushPromises()
+    const secretInput = bodyElement<HTMLInputElement>('config-field-apiKey')!
+    secretInput.value = 'dummy-secret-value'
+    secretInput.dispatchEvent(new Event('input'))
+    await flushPromises()
+
+    document.body.querySelector<HTMLButtonElement>('button[type="button"]')?.click()
+    await flushPromises()
+
+    const dialog = wrapper.findComponent({ name: 'ConfigEditDialog' })
+    const valeurObtenue = JSON.stringify(dialog.vm.$.setupState.editedFields)
+    expect(valeurObtenue).toBe('[]')
+  })
+
   it('ConfigView affiche une configuration vide sans erreur', async () => {
     const { wrapper } = await mountView({
       'GET /api/config': { settings: {}, lists: null, orphans: null, restartRequired: false },
