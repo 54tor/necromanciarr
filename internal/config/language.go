@@ -9,7 +9,7 @@ import (
 
 const (
 	languageSourceDefault = "default"
-	languageSourceFile    = "config.json"
+	languageSourceStored  = "database: necromanciarr config set language"
 	languageSourceFlag    = "--language"
 	// maxEchoedLanguageRunes borne la valeur renvoyée dans l'erreur : elle vient de l'opérateur mais peut être collée en
 	// masse (même borne que crossSeedMode).
@@ -20,7 +20,7 @@ const (
 func resolveLanguage(target *Config, fileValue string, options commandLine, lookup func(string) (string, bool)) error {
 	rawValue, source := "", languageSourceDefault
 	if strings.TrimSpace(fileValue) != "" {
-		rawValue, source = fileValue, languageSourceFile
+		rawValue, source = fileValue, languageSourceStored
 	}
 	if value, found := lookup(envLanguage); found && strings.TrimSpace(value) != "" {
 		rawValue, source = value, envLanguage

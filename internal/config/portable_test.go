@@ -23,7 +23,7 @@ func jsonText(text string) string {
 	return string(encoded[1 : len(encoded)-1])
 }
 
-// skipOnWindows écarte un test dont la fixture ne porte que des chemins POSIX (config.example.json).
+// skipOnWindows écarte un test dont la fixture ne porte que des chemins POSIX (config.example.js de cross-seed).
 func skipOnWindows(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "windows" {

@@ -98,12 +98,18 @@ func openOverrides(overrides []store.ConfigOverride, sealer *fieldSealer) ([]sto
 	return opened, nil
 }
 
+// readableElement décode une surcharge ; illisible, elle passe telle quelle et ResolveList la signale orpheline.
+func readableElement(value []byte) (Element, bool) {
+	element, err := decodeElement(value)
+	return element, err == nil
+}
+
 func openOverride(override store.ConfigOverride, sealer *fieldSealer) (store.ConfigOverride, error) {
 	if override.Deleted {
 		return override, nil
 	}
-	element, err := decodeElement(override.Value)
-	if err != nil {
+	element, isReadable := readableElement(override.Value)
+	if !isReadable {
 		return override, nil
 	}
 	if err := sealer.OpenElement(override.List, override.ItemID, element); err != nil {
@@ -119,9 +125,11 @@ func openOverride(override store.ConfigOverride, sealer *fieldSealer) (store.Con
 				override.List, override.ItemID, field)}
 		}
 	}
-	if override.Value, err = json.Marshal(element); err != nil {
+	encoded, err := json.Marshal(element)
+	if err != nil {
 		return store.ConfigOverride{}, fmt.Errorf("stored %s item: %w", override.List, ErrInvalidElement)
 	}
+	override.Value = encoded
 	return override, nil
 }
 

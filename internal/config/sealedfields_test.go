@@ -141,7 +141,7 @@ func TestNewFieldSealer_rejectsAShortKey(t *testing.T) {
 	if !errors.Is(erreurObtenue, ErrUsage) {
 		t.Fatalf("valeurAttendue InvalidSecretKeyError, valeurObtenue %v", erreurObtenue)
 	}
-	if _, ok := erreurObtenue.(InvalidSecretKeyError); !ok {
+	if _, isInvalidKey := errors.AsType[InvalidSecretKeyError](erreurObtenue); !isInvalidKey {
 		t.Errorf("valeurAttendue InvalidSecretKeyError, valeurObtenue %T", erreurObtenue)
 	}
 }
