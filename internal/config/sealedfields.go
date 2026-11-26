@@ -21,9 +21,9 @@ const (
 
 // secretFieldsByList nomme, par liste de configuration, les champs gardés scellés en base.
 var secretFieldsByList = map[string][]string{
-	"radarr":         {"apiKey"},
-	"sonarr":         {"apiKey"},
-	"torrentClients": {"password"},
+	"radarr":         {"apiKey", "password", "url"},
+	"sonarr":         {"apiKey", "password", "url"},
+	"torrentClients": {"password", "url"},
 	"trackers":       {"announce"},
 	"torznab":        {"url"},
 	"fsProviders":    {"rc", "password", "identityPassphrase"},
@@ -87,12 +87,53 @@ func (sealer *fieldSealer) Format(state fmt.State, _ rune) {
 // LogValue rend le scelleur masqué dans les journaux slog.
 func (sealer *fieldSealer) LogValue() slog.Value { return slog.StringValue(redactedSealer) }
 
+// stringEntries lit un champ secret : une chaîne ou un tableau de chaînes (non lié à l'index de chaque entrée).
+func stringEntries(value any) (entries []string, isArray, isValid bool) {
+	switch typed := value.(type) {
+	case nil:
+		return nil, false, true
+	case string:
+		return []string{typed}, false, true
+	case []string:
+		return typed, true, true
+	case []any:
+		for _, entry := range typed {
+			text, isString := entry.(string)
+			if !isString {
+				return nil, true, false
+			}
+			entries = append(entries, text)
+		}
+		return entries, true, true
+	}
+	return nil, false, false
+}
+
 func rejectNonStringSecrets(list string, element map[string]any) error {
 	for _, champCourant := range secretFieldsByList[list] {
-		valeurCourante := element[champCourant]
-		if _, isString := valeurCourante.(string); valeurCourante != nil && !isString {
+		if _, _, isValid := stringEntries(element[champCourant]); !isValid {
 			return usageError{message: fmt.Sprintf("config: secret field %s.%s must be a string", list, champCourant)}
 		}
+	}
+	return nil
+}
+
+// transformSecretField applique transform à chaque entrée d'un champ secret en gardant sa forme (chaîne ou tableau).
+func transformSecretField(element map[string]any, field string, transform func(string) (string, error)) error {
+	entries, isArray, _ := stringEntries(element[field])
+	transformed := make([]any, len(entries))
+	for position, entry := range entries {
+		result, err := transform(entry)
+		if err != nil {
+			return err
+		}
+		transformed[position] = result
+	}
+	switch {
+	case isArray:
+		element[field] = transformed
+	case len(transformed) == 1:
+		element[field] = transformed[0]
 	}
 	return nil
 }
@@ -102,30 +143,32 @@ func (sealer *fieldSealer) sealElement(list, itemID string, element map[string]a
 		return err
 	}
 	for _, champCourant := range secretFieldsByList[list] {
-		clair, isSecretPresent := element[champCourant].(string)
-		if !isSecretPresent || clair == "" {
-			continue
-		}
-		valeurScellee, err := sealer.seal(clair, associatedFor(list, itemID, champCourant))
+		associated := associatedFor(list, itemID, champCourant)
+		err := transformSecretField(element, champCourant, func(clair string) (string, error) {
+			if clair == "" {
+				return clair, nil
+			}
+			return sealer.seal(clair, associated)
+		})
 		if err != nil {
 			return err
 		}
-		element[champCourant] = valeurScellee
 	}
 	return nil
 }
 
 func (sealer *fieldSealer) openElement(list, itemID string, element map[string]any) error {
 	for _, champCourant := range secretFieldsByList[list] {
-		valeurScellee, isString := element[champCourant].(string)
-		if !isString || !strings.HasPrefix(valeurScellee, sealedPrefix) {
-			continue
-		}
-		clair, err := sealer.open(valeurScellee, associatedFor(list, itemID, champCourant))
+		associated := associatedFor(list, itemID, champCourant)
+		err := transformSecretField(element, champCourant, func(valeurScellee string) (string, error) {
+			if !strings.HasPrefix(valeurScellee, sealedPrefix) {
+				return valeurScellee, nil
+			}
+			return sealer.open(valeurScellee, associated)
+		})
 		if err != nil {
 			return err
 		}
-		element[champCourant] = clair
 	}
 	return nil
 }
@@ -140,9 +183,11 @@ func (sealer *fieldSealer) openSetting(key, sealed string) (string, error) {
 
 func containsSealed(element map[string]any) bool {
 	for _, valeurCourante := range element {
-		texte, isString := valeurCourante.(string)
-		if isString && strings.HasPrefix(texte, sealedPrefix) {
-			return true
+		entries, _, _ := stringEntries(valeurCourante)
+		for _, entry := range entries {
+			if strings.HasPrefix(entry, sealedPrefix) {
+				return true
+			}
 		}
 	}
 	return false

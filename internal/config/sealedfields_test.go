@@ -74,11 +74,11 @@ func TestFieldSealer_bindsTheCiphertextToItsItem(t *testing.T) {
 
 func TestFieldSealer_leavesNonSecretFieldsUntouched(t *testing.T) {
 	sealer := newTestFieldSealer(t, 1)
-	element := map[string]any{"name": "visible", "url": "http://example.com", "apiKey": "", "port": 7878}
+	element := map[string]any{"name": "visible", "apiKey": "", "port": 7878}
 	if err := sealer.sealElement("radarr", "item-1", element); err != nil {
 		t.Fatalf("sealElement: %v", err)
 	}
-	if element["name"] != "visible" || element["url"] != "http://example.com" || element["port"] != 7878 {
+	if element["name"] != "visible" || element["port"] != 7878 {
 		t.Errorf("champs non secrets modifiés : %v", element)
 	}
 	if element["apiKey"] != "" {
@@ -165,5 +165,32 @@ func TestFieldSealer_rejectsANonStringSecretField(t *testing.T) {
 		if containsSealed(element) {
 			t.Errorf("%s: aucun champ ne doit être scellé après un refus", nomCas)
 		}
+	}
+}
+
+func TestFieldSealer_sealsEachEntryOfAnAnnounceArray(t *testing.T) {
+	sealer := newTestFieldSealer(t, 1)
+	element := map[string]any{"key": "tracker-a", "announce": []any{dummySecret + "-1", dummySecret + "-2"}}
+	if err := sealer.sealElement("trackers", "tracker-a", element); err != nil {
+		t.Fatalf("sealElement: %v", err)
+	}
+	serialise, _ := json.Marshal(element)
+	if strings.Contains(string(serialise), dummySecret) || !containsSealed(element) {
+		t.Fatalf("valeurObtenue %s", serialise)
+	}
+	if err := sealer.openElement("trackers", "tracker-a", element); err != nil {
+		t.Fatalf("openElement: %v", err)
+	}
+	valeurAttendue := fmt.Sprint([]any{dummySecret + "-1", dummySecret + "-2"})
+	if valeurObtenue := fmt.Sprint(element["announce"]); valeurObtenue != valeurAttendue {
+		t.Fatalf("valeurAttendue %s, valeurObtenue %s", valeurAttendue, valeurObtenue)
+	}
+}
+
+func TestFieldSealer_rejectsAnAnnounceArrayHoldingANonString(t *testing.T) {
+	element := map[string]any{"announce": []any{dummySecret, 42}}
+	erreurObtenue := newTestFieldSealer(t, 1).sealElement("trackers", "tracker-a", element)
+	if !errors.Is(erreurObtenue, ErrUsage) || strings.Contains(erreurObtenue.Error(), dummySecret) {
+		t.Fatalf("valeurObtenue %v", erreurObtenue)
 	}
 }
