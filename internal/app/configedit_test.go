@@ -486,3 +486,43 @@ func TestPutItem_editsALegacyStoredItemID(t *testing.T) {
 		t.Fatalf("valeurObtenue %v, valeurAttendue l'édition d'une ligne existante acceptée", err)
 	}
 }
+
+func TestPutItem_sealsThePasswordAndTheURLOfEveryServiceList(t *testing.T) {
+	const servicePassword = "fake-service-pass-0000"
+	elements := map[string]map[string]any{
+		"radarr":         {"url": "http://radarr.example.com:7878", "apiKey": configEditRadarrKey, "user": "alice", "password": servicePassword},
+		"sonarr":         {"url": "http://sonarr.example.com:8989", "apiKey": configEditRadarrKey, "user": "alice", "password": servicePassword},
+		"torrentClients": {"type": "qbittorrent", "url": "http://qbit.example.com:8080", "user": "alice", "password": servicePassword},
+	}
+	for list, element := range elements {
+		fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+		clearURL := element["url"].(string)
+
+		if err := fixture.service.PutItem(context.Background(), list, "", element); err != nil {
+			t.Fatalf("%s: %v", list, err)
+		}
+
+		storedValue := string(fixture.overrides(t)[0].Value)
+		if strings.Contains(storedValue, servicePassword) || strings.Contains(storedValue, clearURL) {
+			t.Errorf("%s: valeurObtenue %s, valeurAttendue ni mot de passe ni URL en clair", list, storedValue)
+		}
+		valeurObtenue := reloadedService(t, fixture, list)
+		valeurAttendue := [2]string{clearURL, servicePassword}
+		if valeurObtenue != valeurAttendue {
+			t.Errorf("%s: valeurObtenue %v, valeurAttendue %v relus et descellés", list, valeurObtenue, valeurAttendue)
+		}
+	}
+}
+
+// reloadedService rend l'URL et le mot de passe relus par le chargement pour le seul élément de la liste.
+func reloadedService(t *testing.T, fixture configEditFixture, list string) [2]string {
+	t.Helper()
+	loaded := fixture.reload(t)
+	switch list {
+	case "radarr":
+		return [2]string{loaded.Radarr[0].BaseURL, loaded.Radarr[0].Password}
+	case "sonarr":
+		return [2]string{loaded.Sonarr[0].BaseURL, loaded.Sonarr[0].Password}
+	}
+	return [2]string{loaded.TorrentClients[0].BaseURL, loaded.TorrentClients[0].Password}
+}
