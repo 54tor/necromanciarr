@@ -345,7 +345,6 @@ func TestApp_listProposalsReturnsDetailsForTheCliAndWeb(t *testing.T) {
 	}
 }
 
-// Exemption temporaire : la Task 8 enregistre ces actions (CLI et routes) et retire cette liste.
 func TestApp_actionsRegistryListsEveryServiceMethod(t *testing.T) {
 	serviceType := reflect.TypeFor[Service]()
 	registered := map[string]bool{}
