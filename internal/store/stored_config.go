@@ -3,7 +3,16 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 )
+
+// missingTableText est le message de SQLite pour une table absente ; le pilote n'a pas de code d'erreur plus précis.
+const missingTableText = "no such table"
+
+// isMissingTable : une base d'avant la configuration en base, ouverte en lecture seule, n'a pas encore ses tables.
+func isMissingTable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), missingTableText)
+}
 
 // ConfigOverride est la modification d'une entrée de liste de la configuration : un remplacement (Value) ou une
 // suppression (Deleted, Value nil) ; UpstreamFingerprint garde l'empreinte de l'entrée amont au moment de l'écriture.
@@ -17,6 +26,9 @@ type ConfigOverride struct {
 // Settings renvoie tous les réglages (clé → valeur brute).
 func (openedStore *Store) Settings(ctx context.Context) (map[string][]byte, error) {
 	rows, err := openedStore.database.QueryContext(ctx, `SELECT key, value FROM settings`)
+	if isMissingTable(err) {
+		return map[string][]byte{}, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list settings: %w", err)
 	}
@@ -60,6 +72,9 @@ func (openedStore *Store) DeleteSetting(ctx context.Context, key string) error {
 func (openedStore *Store) ConfigOverrides(ctx context.Context) ([]ConfigOverride, error) {
 	rows, err := openedStore.database.QueryContext(ctx,
 		`SELECT list, item_id, deleted, value, upstream_fingerprint FROM list_overrides ORDER BY list, rowid`)
+	if isMissingTable(err) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("list config overrides: %w", err)
 	}

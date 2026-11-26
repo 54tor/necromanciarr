@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -158,5 +159,38 @@ func TestStoredConfig_readOnlyStoreSeesRowsWrittenByAnotherHandle(t *testing.T) 
 	}
 	if string(settingsObtenus["k"]) != "v" || len(overridesObtenus) != 1 {
 		t.Fatalf("valeurObtenue %v %+v, valeurAttendue k=v et une ligne", settingsObtenus, overridesObtenus)
+	}
+}
+
+func TestStoredConfig_readOnlyDatabaseWithoutConfigTablesReadsAsEmpty(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "necromanciarr.db")
+	olderDatabase, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := olderDatabase.Exec(`CREATE TABLE media_files (id INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := olderDatabase.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := OpenReadOnly(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+	ctx := context.Background()
+
+	settingsObtenus, err := reader.Settings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overridesObtenus, err := reader.ConfigOverrides(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	valeurAttendue := 0
+	if valeurObtenue := len(settingsObtenus) + len(overridesObtenus); valeurObtenue != valeurAttendue {
+		t.Fatalf("valeurObtenue %d lignes, valeurAttendue %d", valeurObtenue, valeurAttendue)
 	}
 }
