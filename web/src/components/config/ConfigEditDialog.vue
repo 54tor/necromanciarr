@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import ConfigFieldInput from '@/components/config/ConfigFieldInput.vue'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -10,9 +11,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { t } from '@/i18n'
-import { WHOLE_ELEMENT_FIELD, formValues, type FormField } from '@/lib/configFields'
+import { formValues, type FormField } from '@/lib/configFields'
 import { FIELD_CLASS } from '@/lib/styles'
-import { cn } from '@/lib/utils'
 
 const props = defineProps<{
   title: string
@@ -20,47 +20,26 @@ const props = defineProps<{
   /** Clé de l'aide sur l'identifiant : présente pour un ajout, qui demande l'identifiant. */
   itemIdHintKey?: string
   locked?: boolean
+  /** Un réglage envoie aussi ses valeurs vides (texte "", liste []) ; un élément les omet. */
+  keepBlank?: boolean
 }>()
 const open = defineModel<boolean>('open', { required: true })
 const emit = defineEmits<{ submit: [values: Record<string, unknown>, itemId: string] }>()
 
-const TEXTAREA_CLASS = cn(FIELD_CLASS, 'h-auto min-h-24 py-2 font-mono')
-// Un textarea n'a pas de type password : le masquage passe par text-security.
-const MASKED_TEXTAREA_CLASS = cn(TEXTAREA_CLASS, '[-webkit-text-security:disc]')
-const MULTILINE_KINDS = ['lines', 'json']
-
 const editedFields = ref<FormField[]>([])
 const itemId = ref('')
 const invalidField = ref('')
-const revealedFields = ref<string[]>([])
 
 watch(
   open,
   (isOpen) => {
     if (!isOpen) return
-    editedFields.value = props.fields.map((field) => ({ ...field }))
+    editedFields.value = JSON.parse(JSON.stringify(props.fields)) as FormField[]
     itemId.value = ''
     invalidField.value = ''
-    revealedFields.value = []
   },
   { immediate: true },
 )
-
-const labelOf = (name: string) =>
-  name === WHOLE_ELEMENT_FIELD ? t('config.form.wholeElement') : name
-const fieldLabel = (field: FormField) => labelOf(field.name)
-const isMultiline = (field: FormField) =>
-  MULTILINE_KINDS.includes(field.kind) && (!field.secret || field.kind === 'lines')
-const isMasked = (field: FormField) => field.secret && !revealedFields.value.includes(field.name)
-const textareaClass = (field: FormField) =>
-  isMasked(field) ? MASKED_TEXTAREA_CLASS : TEXTAREA_CLASS
-
-function toggleReveal(field: FormField): void {
-  const others = revealedFields.value.filter((name) => name !== field.name)
-  revealedFields.value = isMasked(field) ? [...others, field.name] : others
-}
-const secretStateKey = (field: FormField) =>
-  field.isSet ? 'config.secret.set' : 'config.secret.unset'
 
 function submit(): void {
   const isAdding = props.itemIdHintKey !== undefined
@@ -68,9 +47,9 @@ function submit(): void {
     invalidField.value = t('config.form.itemId')
     return
   }
-  const read = formValues(editedFields.value)
+  const read = formValues(editedFields.value, !props.keepBlank)
   if (!read.valid) {
-    invalidField.value = labelOf(read.invalidField)
+    invalidField.value = t(`config.field.${read.invalidField}`)
     return
   }
   open.value = false
@@ -80,7 +59,7 @@ function submit(): void {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="max-h-[90vh] overflow-y-auto">
+    <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-[min(96vw,64rem)]">
       <DialogHeader>
         <DialogTitle>{{ title }}</DialogTitle>
         <DialogDescription>{{ t('config.form.description') }}</DialogDescription>
@@ -104,60 +83,13 @@ function submit(): void {
           />
           <span class="text-muted-foreground">{{ t(itemIdHintKey) }}</span>
         </label>
-        <template v-for="field in editedFields" :key="field.name">
-          <label v-if="field.kind === 'boolean'" class="flex items-center gap-2 text-sm">
-            <input
-              v-model="field.checked"
-              :data-testid="`config-field-${field.name}`"
-              type="checkbox"
-              class="accent-primary"
-            />
-            {{ fieldLabel(field) }}
-          </label>
-          <label v-else class="grid gap-1 text-sm">
-            <span class="font-mono [overflow-wrap:anywhere]">{{ fieldLabel(field) }}</span>
-            <textarea
-              v-if="isMultiline(field)"
-              v-model="field.text"
-              :data-testid="`config-field-${field.name}`"
-              :data-masked="isMasked(field) ? 'true' : undefined"
-              :class="textareaClass(field)"
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <Button
-              v-if="isMultiline(field) && field.secret"
-              type="button"
-              size="xs"
-              variant="outline"
-              class="justify-self-start"
-              :aria-pressed="!isMasked(field)"
-              :data-testid="`config-field-reveal-${field.name}`"
-              @click="toggleReveal(field)"
-            >
-              {{ isMasked(field) ? t('config.secret.show') : t('config.secret.hide') }}
-            </Button>
-            <input
-              v-else
-              v-model="field.text"
-              :data-testid="`config-field-${field.name}`"
-              :type="field.secret ? 'password' : 'text'"
-              :inputmode="field.kind === 'number' ? 'decimal' : undefined"
-              autocomplete="off"
-              :class="FIELD_CLASS"
-            />
-            <span v-if="field.kind === 'lines'" class="text-muted-foreground">
-              {{ t('config.form.linesHint') }}
-            </span>
-            <span
-              v-if="field.secret"
-              :data-testid="`config-field-state-${field.name}`"
-              class="text-muted-foreground"
-            >
-              {{ t('config.secret.state', { state: t(secretStateKey(field)) }) }}
-            </span>
-          </label>
-        </template>
+        <ConfigFieldInput
+          v-for="(field, fieldIndex) in editedFields"
+          :key="field.name"
+          v-model:field="editedFields[fieldIndex]!"
+          :siblings="editedFields"
+          :path="field.name"
+        />
         <p v-if="invalidField" role="alert" class="text-sm text-state-fail">
           {{ t('config.form.invalid', { field: invalidField }) }}
         </p>

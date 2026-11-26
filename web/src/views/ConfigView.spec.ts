@@ -1,6 +1,6 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ConfigSnapshot } from '@/api/types'
+import type { ConfigSetting, ConfigSnapshot } from '@/api/types'
 import { failure, installFakeApi, resetAppState, type FakeCall } from '@/test/fakeApi'
 import { stubViewport } from '@/test/viewport'
 import ConfigView from './ConfigView.vue'
@@ -32,7 +32,7 @@ function configSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot
       radarr: [
         {
           itemId: RADARR_ID,
-          element: { name: 'films', url: null, apiKey: null },
+          element: { user: 'films', url: null, apiKey: null },
           origin: 'override',
           drift: true,
         },
@@ -126,8 +126,9 @@ describe('ConfigView', () => {
     const secretInput = bodyElement<HTMLInputElement>('config-field-apiKey')
     expect(secretInput?.type).toBe('password')
     expect(secretInput?.value).toBe('')
-    expect(bodyElement('config-field-state-apiKey')?.textContent).toContain('Défini')
-    const nameInput = bodyElement<HTMLInputElement>('config-field-name')!
+    expect(bodyElement('config-field-apiKey-state')?.textContent).toContain('Défini')
+    const nameInput = bodyElement<HTMLInputElement>('config-field-user')!
+    expect(nameInput.value).toBe('films')
     nameInput.value = 'films-4k'
     nameInput.dispatchEvent(new Event('input'))
     await clickInBody('config-form-submit')
@@ -135,7 +136,7 @@ describe('ConfigView', () => {
     const [written] = writeCalls(calls)
     expect(written?.method).toBe('PUT')
     expect(written?.path).toBe(`/api/config/lists/radarr/${ENCODED_RADARR_ID}`)
-    expect(written?.body).toEqual({ element: { name: 'films-4k' } })
+    expect(written?.body).toEqual({ element: { user: 'films-4k' } })
   })
 
   describe('annonces de tracker', () => {
@@ -203,7 +204,7 @@ describe('ConfigView', () => {
       mounted[0]!.get('[data-testid="edit-item-trackers-tracker-a"]').trigger('click')
       await flushPromises()
 
-      await clickInBody('config-field-reveal-announce')
+      await clickInBody('config-field-announce-reveal')
 
       expect(bodyElement('config-field-announce')?.dataset.masked).toBeUndefined()
     })
@@ -280,6 +281,152 @@ describe('ConfigView', () => {
     expect(toastError).toHaveBeenCalledTimes(1)
     expect(String(toastError.mock.calls[0]?.[0])).toContain('NECROMANCIARR_SECRET_KEY')
     expect(String(toastError.mock.calls[0]?.[0])).not.toContain('dummy')
+  })
+
+  describe('formulaires typés', () => {
+    const settingsWith = (key: string, setting: Partial<ConfigSetting>): ConfigSnapshot =>
+      configSnapshot({
+        settings: {
+          [key]: {
+            value: null,
+            origin: 'default',
+            locked: false,
+            secret: false,
+            set: false,
+            ...setting,
+          },
+        },
+      })
+
+    async function saveSetting(snapshot: ConfigSnapshot, key: string, edit: () => Promise<void>) {
+      const { wrapper, calls } = await mountView({
+        'GET /api/config': snapshot,
+        'PUT /api/config/settings/{key}': snapshot,
+      })
+      await wrapper.get(`[data-testid="edit-setting-${key}"]`).trigger('click')
+      await flushPromises()
+      await edit()
+      await clickInBody('config-form-submit')
+      return writeCalls(calls)[0]
+    }
+
+    const setField = async (testId: string, value: string) => {
+      const field = bodyElement<HTMLInputElement>(testId)!
+      field.value = value
+      field.dispatchEvent(new Event(field.tagName === 'SELECT' ? 'change' : 'input'))
+      await flushPromises()
+    }
+
+    it('ConfigView propose une liste de choix pour un réglage à valeurs fixes', async () => {
+      const snapshot = settingsWith('crossSeedMode', {
+        value: 'auto',
+        origin: 'crossseed',
+        set: true,
+      })
+
+      const written = await saveSetting(snapshot, 'crossSeedMode', async () => {
+        const select = bodyElement<HTMLSelectElement>('config-field-crossSeedMode')!
+        expect(select.tagName).toBe('SELECT')
+        expect(Array.from(select.options).map((option) => option.value)).toEqual([
+          '',
+          'auto',
+          'delegate',
+          'native',
+          'off',
+        ])
+        await setField('config-field-crossSeedMode', 'native')
+      })
+
+      expect(written?.body).toEqual({ value: 'native' })
+    })
+
+    it('ConfigView édite la déduplication par champs et convertit la durée', async () => {
+      const dedupe = {
+        torrentRoots: ['/data/torrents'],
+        kinds: ['symlink'],
+        relativeSymlinks: true,
+        minFileAge: 600_000_000_000,
+        recheckAfter: false,
+        verify: 'auto',
+      }
+
+      const written = await saveSetting(
+        settingsWith('dedupe', { value: dedupe, origin: 'override', set: true }),
+        'dedupe',
+        async () => {
+          expect(bodyElement<HTMLInputElement>('config-field-dedupe.minFileAge')?.value).toBe('10m')
+          expect(bodyElement<HTMLInputElement>('config-field-dedupe.kinds.symlink')?.checked).toBe(
+            true,
+          )
+          await setField('config-field-dedupe.verify', 'hash')
+          bodyElement<HTMLInputElement>('config-field-dedupe.kinds.hardlink')!.click()
+          await flushPromises()
+        },
+      )
+
+      expect(written?.body).toEqual({
+        value: {
+          torrentRoots: ['/data/torrents'],
+          kinds: ['symlink', 'hardlink'],
+          relativeSymlinks: true,
+          minFileAge: '10m',
+          recheckAfter: false,
+          verify: 'hash',
+        },
+      })
+    })
+
+    it('ConfigView édite les correspondances de chemins en tableau', async () => {
+      const mappings = [{ from: '/home/u/media', to: '/data/media' }]
+
+      const written = await saveSetting(
+        settingsWith('pathMappings', { value: mappings, origin: 'override', set: true }),
+        'pathMappings',
+        async () => {
+          await clickInBody('config-field-pathMappings.add')
+          await setField('config-field-pathMappings.1.from', '/home/u/tv')
+          await setField('config-field-pathMappings.1.to', '/data/tv')
+        },
+      )
+
+      expect(written?.body).toEqual({
+        value: [
+          { from: '/home/u/media', to: '/data/media' },
+          { from: '/home/u/tv', to: '/data/tv' },
+        ],
+      })
+    })
+
+    it('ConfigView affiche les champs du type de fournisseur choisi', async () => {
+      const { wrapper } = await mountView({
+        'GET /api/config': configSnapshot({ lists: { fsProviders: [] } }),
+      })
+      await wrapper.get('[data-testid="add-item-fsProviders"]').trigger('click')
+      await flushPromises()
+
+      await setField('config-field-type', 'rclone')
+      expect(bodyElement('config-field-rc')).not.toBeNull()
+      expect(bodyElement('config-field-address')).toBeNull()
+
+      await setField('config-field-type', 'sftp')
+      expect(bodyElement('config-field-address')).not.toBeNull()
+      expect(bodyElement('config-field-rc')).toBeNull()
+    })
+
+    it("ConfigView n'affiche aucun JSON brut pour ajouter à une liste vide", async () => {
+      const { wrapper } = await mountView({
+        'GET /api/config': configSnapshot({ lists: { torznab: [] } }),
+      })
+
+      await wrapper.get('[data-testid="add-item-torznab"]').trigger('click')
+      await flushPromises()
+
+      expect(bodyElement('config-field-url')).not.toBeNull()
+      expect(bodyElement('config-field-name')).not.toBeNull()
+      expect(bodyElement('config-field-maxQueriesPerDay')).not.toBeNull()
+      expect(document.body.querySelector('textarea')).toBeNull()
+      expect(document.body.textContent).not.toContain('objet JSON')
+    })
   })
 
   it('ConfigView affiche une configuration vide sans erreur', async () => {

@@ -17,7 +17,6 @@ import {
   CONFIG_LISTS,
   addFields,
   elementFields,
-  elementOf,
   idHintKey,
   settingField,
   type FormField,
@@ -28,6 +27,7 @@ interface Editor {
   fields: FormField[]
   itemIdHintKey?: string
   locked: boolean
+  keepBlank?: boolean
   save: (values: Record<string, unknown>, itemId: string) => Promise<boolean>
 }
 
@@ -64,6 +64,7 @@ function editSetting(row: SettingRow): void {
     title: t('config.form.editTitle', { name: row.key }),
     fields: [settingField(row.key, row)],
     locked: row.locked,
+    keepBlank: true,
     save: async (values) => {
       if (!(row.key in values)) return true
       return config.saveSetting(row.key, values[row.key])
@@ -72,9 +73,7 @@ function editSetting(row: SettingRow): void {
 }
 
 async function saveElement(list: string, itemId: string, values: Record<string, unknown>) {
-  const element = elementOf(values)
-  if (!element) return false
-  return config.saveItem(list, itemId, element)
+  return config.saveItem(list, itemId, values)
 }
 
 function editItem(list: string, item: ConfigItem): void {
@@ -89,7 +88,7 @@ function editItem(list: string, item: ConfigItem): void {
 function addItem(list: string): void {
   openEditor({
     title: t('config.form.addTitle', { list: t(`config.lists.${list}`) }),
-    fields: addFields(list, itemsOf(list)[0]?.element),
+    fields: addFields(list),
     itemIdHintKey: idHintKey(list),
     locked: false,
     save: (values, itemId) => saveElement(list, itemId, values),
@@ -178,6 +177,7 @@ onMounted(config.load)
       :fields="editor.fields"
       :item-id-hint-key="editor.itemIdHintKey"
       :locked="editor.locked"
+      :keep-blank="editor.keepBlank"
       @submit="submitEditor"
     />
     <ConfirmDialog
