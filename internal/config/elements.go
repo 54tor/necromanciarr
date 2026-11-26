@@ -96,6 +96,7 @@ func ResolveList(list string, upstream []Element, overrides []store.ConfigOverri
 	}
 
 	resolved := make([]ResolvedElement, 0, len(upstream))
+	var unreadable []OrphanOverride
 	for position, identifier := range AssignIDs(list, upstream) {
 		upstreamElement := upstream[position]
 		overrideCourante, overridden := overridesByID[identifier]
@@ -109,6 +110,8 @@ func ResolveList(list string, upstream []Element, overrides []store.ConfigOverri
 		}
 		replacement, err := decodeElement(overrideCourante.Value)
 		if err != nil {
+			resolved = append(resolved, ResolvedElement{ItemID: identifier, Element: upstreamElement, Origin: OriginCrossSeed})
+			unreadable = append(unreadable, OrphanOverride{List: list, ItemID: identifier})
 			continue
 		}
 		drift := overrideCourante.UpstreamFingerprint != "" &&
@@ -117,7 +120,7 @@ func ResolveList(list string, upstream []Element, overrides []store.ConfigOverri
 	}
 
 	added, orphans := splitUnmatched(list, overridesByID)
-	return append(resolved, added...), orphans
+	return append(resolved, added...), append(unreadable, orphans...)
 }
 
 func splitUnmatched(list string, unmatched map[string]store.ConfigOverride) ([]ResolvedElement, []OrphanOverride) {

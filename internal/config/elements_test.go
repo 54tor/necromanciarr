@@ -113,3 +113,15 @@ func TestResolveList_followsItemIDWhenUpstreamReorders(t *testing.T) {
 		t.Fatalf("valeurObtenue %+v / %+v", resolved, resolvedReordered)
 	}
 }
+
+func TestResolveList_reportsUnreadableOverrideInsteadOfDroppingUpstream(t *testing.T) {
+	overrides := []store.ConfigOverride{{List: "linkDirs", ItemID: "/a", Value: []byte("not json")}}
+	resolved, orphans := ResolveList("linkDirs", []Element{{"path": "/a"}}, overrides)
+	orphelinAttendu := OrphanOverride{List: "linkDirs", ItemID: "/a"}
+	if len(resolved) != 1 || resolved[0].ItemID != "/a" || resolved[0].Origin != OriginCrossSeed {
+		t.Fatalf("valeurAttendue élément amont conservé, valeurObtenue %+v", resolved)
+	}
+	if len(orphans) != 1 || orphans[0] != orphelinAttendu {
+		t.Fatalf("valeurAttendue %v, valeurObtenue %v", orphelinAttendu, orphans)
+	}
+}
