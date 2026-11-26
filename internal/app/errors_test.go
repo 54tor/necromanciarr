@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -121,7 +122,6 @@ func TestClassify_configEditErrorsHaveTheirOwnCodes(t *testing.T) {
 		valeurAttendue string
 	}{
 		{"secret key missing", fmt.Errorf("item radarr: %w", config.ErrSecretKeyMissing), ErrorCodeSecretKeyMissing},
-		{"unreadable stored configuration", fmt.Errorf("%w: sealed value", config.ErrInvalidStoredConfig), ErrorCodeInvalidStoredConfig},
 		{"unknown setting", requireKnownSetting("notASetting"), ErrorCodeUsage},
 		{"unknown list", requireKnownList("notAList"), ErrorCodeUsage},
 	}
@@ -130,6 +130,21 @@ func TestClassify_configEditErrorsHaveTheirOwnCodes(t *testing.T) {
 		if valeurObtenue != scenario.valeurAttendue {
 			t.Errorf("%s: valeurObtenue %q, valeurAttendue %q", scenario.name, valeurObtenue, scenario.valeurAttendue)
 		}
+	}
+}
+
+func TestClassify_storedUnknownSettingIsAnInvalidStoredConfiguration(t *testing.T) {
+	fixture := newConfigEditFixture(t, map[string]string{}, "")
+	if err := fixture.store.SetSetting(context.Background(), "notASetting", []byte("1")); err != nil {
+		t.Fatal(err)
+	}
+	valeurAttendue := ErrorCodeInvalidStoredConfig
+
+	_, loadErr := fixture.load(fixture.store)
+	valeurObtenue, _ := Classify(loadErr)
+
+	if valeurObtenue != valeurAttendue {
+		t.Fatalf("valeurObtenue %q (%v), valeurAttendue %q", valeurObtenue, loadErr, valeurAttendue)
 	}
 }
 

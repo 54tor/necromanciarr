@@ -376,3 +376,15 @@ func TestPutItem_trackerWithASingleAnnounceStringLoadsBackSealed(t *testing.T) {
 		t.Fatalf("valeurObtenue %+v, valeurAttendue one tracker announcing %q", trackers, valeurAttendue)
 	}
 }
+
+func TestPutItem_refusedCandidateStaysAUsageErrorAfterTheStoredClass(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	valeurAttendue := ErrorCodeUsage
+
+	err := fixture.service.PutItem(context.Background(), "torznab", "", map[string]any{"url": "http://example.com/api"})
+	valeurObtenue, _ := Classify(err)
+
+	if valeurObtenue != valeurAttendue || len(fixture.overrides(t)) != 0 {
+		t.Fatalf("valeurObtenue %q (%v), valeurAttendue %q et rien d'écrit", valeurObtenue, err, valeurAttendue)
+	}
+}

@@ -44,12 +44,12 @@ var classes = []struct {
 	errors []error
 }{
 	{ErrorCodeSecretKeyMissing, []error{config.ErrSecretKeyMissing}},
+	{ErrorCodeInvalidStoredConfig, []error{config.ErrInvalidStoredConfig}},
 	{ErrorCodeUsage, []error{ErrUnknownConfigKey, config.ErrUsage, ErrUnknownCheck}},
 	{ErrorCodeStale, []error{ErrStaleProposal}},
 	{ErrorCodeRefused, refusals},
 	{ErrorCodeNotFound, []error{store.ErrProposalNotFound, ErrGroupNotFound, ErrSourceNotFound, ErrVolumeNotFound}},
 	{ErrorCodeNotConfigured, []error{ErrNotConfigured}},
-	{ErrorCodeInvalidStoredConfig, []error{config.ErrInvalidStoredConfig}},
 	{ErrorCodeStageRunning, []error{pipeline.ErrStageRunning}},
 	{ErrorCodeInspectionBusy, []error{ErrInspectionBusy}},
 }
