@@ -116,8 +116,8 @@ async function confirmRemoval(): Promise<void> {
   await config.deleteItem(list, itemId)
 }
 
-async function submitEditor(values: Record<string, unknown>, itemId: string): Promise<void> {
-  await editor.value?.save(values, itemId)
+async function submitEditor(values: Record<string, unknown>, itemId: string): Promise<boolean> {
+  return (await editor.value?.save(values, itemId)) ?? false
 }
 
 onMounted(config.load)
@@ -184,7 +184,7 @@ onMounted(config.load)
       :item-id-hint-key="editor.itemIdHintKey"
       :locked="editor.locked"
       :keep-blank="editor.keepBlank"
-      @submit="submitEditor"
+      :save="submitEditor"
     />
     <ConfirmDialog
       v-model:open="removalOpen"

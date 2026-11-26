@@ -245,6 +245,8 @@ export interface DoctorReport {
 export interface ApiErrorBody {
   code: string
   message: string
+  /** Raison, sans valeur, d'un refus d'écriture de configuration. */
+  detail?: string
 }
 
 type JobState = 'running' | 'done' | 'failed'

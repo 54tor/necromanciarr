@@ -22,9 +22,11 @@ const props = defineProps<{
   locked?: boolean
   /** Un réglage envoie aussi ses valeurs vides (texte "", liste []) ; un élément les omet. */
   keepBlank?: boolean
+  /** Enregistre ; le dialogue ne se ferme qu'après un succès, la saisie reste sinon. */
+  save: (values: Record<string, unknown>, itemId: string) => Promise<boolean>
 }>()
 const open = defineModel<boolean>('open', { required: true })
-const emit = defineEmits<{ submit: [values: Record<string, unknown>, itemId: string] }>()
+const saving = ref(false)
 
 const editedFields = ref<FormField[]>([])
 const itemId = ref('')
@@ -41,7 +43,7 @@ watch(
   { immediate: true },
 )
 
-function submit(): void {
+async function submit(): Promise<void> {
   const isAdding = props.itemIdHintKey !== undefined
   if (isAdding && itemId.value.trim() === '') {
     invalidField.value = t('config.form.itemId')
@@ -52,8 +54,13 @@ function submit(): void {
     invalidField.value = t(`config.field.${read.invalidField}`)
     return
   }
+  saving.value = true
+  const isSaved = await props.save(read.values, itemId.value.trim())
+  saving.value = false
+  if (!isSaved) return
+  editedFields.value = []
+  itemId.value = ''
   open.value = false
-  emit('submit', read.values, itemId.value.trim())
 }
 </script>
 
@@ -97,7 +104,7 @@ function submit(): void {
           <Button type="button" variant="outline" @click="open = false">
             {{ t('dialog.cancel') }}
           </Button>
-          <Button type="submit" data-testid="config-form-submit">
+          <Button type="submit" data-testid="config-form-submit" :disabled="saving">
             {{ t('config.form.save') }}
           </Button>
         </DialogFooter>

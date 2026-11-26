@@ -5,12 +5,14 @@ import type { ApiErrorBody } from './types'
 export class ApiError extends Error {
   readonly code: string
   readonly status: number
+  readonly detail?: string
 
   constructor(status: number, body: ApiErrorBody) {
     super(body.message)
     this.name = 'ApiError'
     this.status = status
     this.code = body.code
+    this.detail = body.detail
   }
 }
 
@@ -27,4 +29,9 @@ export function messageForCode(code: string): string {
 
 export function messageForError(error: unknown): string {
   return error instanceof ApiError ? messageForCode(error.code) : t('errors.generic')
+}
+
+/** detailForError rend la raison d'un refus d'écriture de configuration, affichée en texte brut à côté du message. */
+export function detailForError(error: unknown): string | undefined {
+  return error instanceof ApiError ? error.detail : undefined
 }

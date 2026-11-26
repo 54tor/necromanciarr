@@ -7,7 +7,10 @@ import ConfigView from './ConfigView.vue'
 
 const toastError = vi.fn()
 vi.mock('vue-sonner', () => ({
-  toast: { error: (message: string) => toastError(message), success: vi.fn() },
+  toast: {
+    error: (message: string, options?: unknown) => toastError(message, options),
+    success: vi.fn(),
+  },
 }))
 
 const RADARR_ID = 'http://radarr.example.com:7878'
@@ -281,6 +284,38 @@ describe('ConfigView', () => {
     expect(toastError).toHaveBeenCalledTimes(1)
     expect(String(toastError.mock.calls[0]?.[0])).toContain('NECROMANCIARR_SECRET_KEY')
     expect(String(toastError.mock.calls[0]?.[0])).not.toContain('dummy')
+  })
+
+  it('ConfigView garde le dialogue ouvert et montre la raison du refus', async () => {
+    const refusalDetail = 'configuration refused: radarr: missing apiKey'
+    let refusesTheWrite = true
+    const { wrapper } = await mountView({
+      'GET /api/config': configSnapshot(),
+      'PUT /api/config/settings/{key}': () =>
+        refusesTheWrite
+          ? new Response(
+              JSON.stringify({ error: { code: 'usage', message: 'x', detail: refusalDetail } }),
+              { status: 400 },
+            )
+          : configSnapshot(),
+    })
+
+    await wrapper.get('[data-testid="edit-setting-prowlarr"]').trigger('click')
+    await flushPromises()
+    const secretInput = bodyElement<HTMLInputElement>('config-field-prowlarr')!
+    secretInput.value = 'http://prowlarr.example.com/?apikey=dummy'
+    secretInput.dispatchEvent(new Event('input'))
+    await clickInBody('config-form-submit')
+
+    expect(toastError).toHaveBeenCalledWith(expect.any(String), { description: refusalDetail })
+    expect(bodyElement<HTMLInputElement>('config-field-prowlarr')?.value).toBe(
+      'http://prowlarr.example.com/?apikey=dummy',
+    )
+
+    refusesTheWrite = false
+    await clickInBody('config-form-submit')
+
+    expect(bodyElement('config-form-submit')).toBeNull()
   })
 
   describe('formulaires typés', () => {
