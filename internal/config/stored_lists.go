@@ -241,7 +241,7 @@ func trackersSection(resolved []ResolvedElement) (json.RawMessage, error) {
 	return TrackersSection(rawTrackers)
 }
 
-const reasonOldFormat = "sealed value in a clear field: item from an earlier format, rewrite or remove it"
+const reasonOldFormat = "sealed value in a clear field: item from an earlier format; remove the old rows first (config item unset), then add them again"
 
 // sealedInClearField repère une valeur scellée hors des champs secrets de la liste : une ligne d'un format antérieur.
 func sealedInClearField(list string, element Element) bool {

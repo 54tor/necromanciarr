@@ -109,7 +109,7 @@ func TestRawFromElement_roundTripsAProxyKeyWithSpecialCharacters(t *testing.T) {
 
 func TestLoadWith_namesAnOldFormatRowWithASealedValueInAClearField(t *testing.T) {
 	content := `{"radarr": [{"url": "sealed:v1:dummy-old-format", "apiKey": "` + dummyAPIKey + `"}]}`
-	valeurAttendue := "sealed value in a clear field: item from an earlier format, rewrite or remove it"
+	valeurAttendue := "sealed value in a clear field: item from an earlier format; remove the old rows first"
 
 	_, err := loadStored(t, nil, map[string]string{envSecretKey: testSecretKey}, content)
 
@@ -133,5 +133,46 @@ func TestConfig_masksAProxyKeyAfterAMixedCaseOrEncodedProxySegment(t *testing.T)
 		if strings.Contains(valeurObtenue, proxyKey) {
 			t.Errorf("%s: valeurObtenue %q, valeurAttendue la clé de proxy masquée", proxySegment, valeurObtenue)
 		}
+	}
+}
+
+func TestRejectSecretInURL_refusesAnEncodedSlashInAPathSegment(t *testing.T) {
+	refusedURLs := []string{
+		"http://radarr.example.com/proxy%2Fdummy-key",
+		"http://radarr.example.com/a%2Fb",
+		"http://radarr.example.com/a%2fb",
+	}
+	for _, list := range []string{"radarr", "sonarr", "torrentClients", "torznab"} {
+		for _, refusedURL := range refusedURLs {
+			expectRefusedWithoutURL(t, list+" "+refusedURL, RejectSecretInURL(list, map[string]any{"url": refusedURL}))
+		}
+	}
+	for _, acceptedURL := range []string{"http://radarr.example.com/proxy/{proxyKey}/radarr", "http://radarr.example.com/a/b"} {
+		if err := RejectSecretInURL("radarr", map[string]any{"url": acceptedURL}); err != nil {
+			t.Errorf("%s: valeurObtenue %v, valeurAttendue accepté", acceptedURL, err)
+		}
+	}
+}
+
+func TestRejectSecretInURL_refusesAnyProxySegmentForTorznabWithoutMentioningProxyKey(t *testing.T) {
+	refusedURLs := []string{"https://indexer.example.com/proxy/{proxyKey}/api", "https://indexer.example.com/Proxy/dummy-key"}
+	valeurAttendue := "torznab url: a proxy path segment is not supported"
+	for _, refusedURL := range refusedURLs {
+		err := RejectSecretInURL("torznab", map[string]any{"url": refusedURL})
+
+		expectRefusedWithoutURL(t, refusedURL, err)
+		if err == nil || !strings.Contains(err.Error(), valeurAttendue) || strings.Contains(err.Error(), "proxyKey") {
+			t.Errorf("%s: valeurObtenue %v, valeurAttendue %q sans proxyKey", refusedURL, err, valeurAttendue)
+		}
+	}
+}
+
+func TestLoadWith_oldFormatMessageTellsToRemoveTheRowsFirst(t *testing.T) {
+	valeurAttendue := "remove the old rows first (config item unset), then add them again"
+
+	valeurObtenue := reasonOldFormat
+
+	if !strings.Contains(valeurObtenue, valeurAttendue) {
+		t.Fatalf("valeurObtenue %q, valeurAttendue %q", valeurObtenue, valeurAttendue)
 	}
 }

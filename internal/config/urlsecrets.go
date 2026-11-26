@@ -27,6 +27,9 @@ func proxyLayoutOf(escapedPath string) proxyLayout {
 	segments := decodedSegments(escapedPath)
 	proxyCount, placeholderCount := 0, 0
 	for position, segment := range segments {
+		if strings.Contains(segment, "/") {
+			return proxyLayout{}
+		}
 		if strings.EqualFold(segment, proxySegmentName) {
 			proxyCount++
 			isFollowed := position+1 < len(segments) && segments[position+1] == proxyKeyPlaceholder
@@ -177,12 +180,30 @@ func RejectSecretInURL(list string, element map[string]any) error {
 		return nil
 	}
 	rawURL, _ := element[fieldURL].(string)
+	if list == listTorznab && hasProxySegment(rawURL) {
+		return usageError{message: "torznab url: a proxy path segment is not supported; put the address of the indexer " +
+			"in url and its key in apiKey"}
+	}
 	if !urlCarriesSecret(rawURL) {
 		return nil
 	}
 	return usageError{message: fmt.Sprintf(
 		"%s.url must not carry a secret nor a query: put the keys in apiKey, user and password, or proxyKey with a %s "+
 			"segment right after /proxy/", list, proxyKeyPlaceholder)}
+}
+
+// hasProxySegment repère un segment proxy ou {proxyKey} : un indexeur n'a pas de clé de proxy à joindre.
+func hasProxySegment(rawURL string) bool {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	for _, segment := range decodedSegments(parsedURL.EscapedPath()) {
+		if strings.EqualFold(segment, proxySegmentName) || segment == proxyKeyPlaceholder {
+			return true
+		}
+	}
+	return false
 }
 
 func urlCarriesSecret(rawURL string) bool {
