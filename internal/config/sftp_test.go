@@ -124,9 +124,9 @@ func TestConfig_sftpRequiresKnownHosts(t *testing.T) {
 	}
 }
 
-func TestConfig_sftpPasswordOnlyFromVariable(t *testing.T) {
+func TestConfig_sftpRefusesASecretMixingTextAndVariables(t *testing.T) {
 	for _, key := range []string{"password", "identityPassphrase"} {
-		for _, literal := range []string{sftpPasswordForTest, "prefix-${SFTP_PASSWORD}", "${SFTP_PASSWORD}${SFTP_KEY_PASSPHRASE}"} {
+		for _, literal := range []string{"prefix-${SFTP_PASSWORD}", "${SFTP_PASSWORD}${SFTP_KEY_PASSPHRASE}"} {
 			content := configWith(t, sftpProvider(map[string]any{key: literal}), nil)
 
 			_, err := loadFromJSON(t, content, sftpEnvironment())
@@ -139,6 +139,23 @@ func TestConfig_sftpPasswordOnlyFromVariable(t *testing.T) {
 					t.Fatalf("%s: the error echoes the value: %v", key, err)
 				}
 			}
+		}
+	}
+}
+
+func TestConfig_sftpKeepsAStoredLiteralSecretVerbatim(t *testing.T) {
+	const literalPassword = "fake-pa$$word-$HOME-0000"
+	for _, key := range []string{"password", "identityPassphrase"} {
+		content := configWith(t, sftpProvider(map[string]any{key: literalPassword}), nil)
+
+		loadedConfig, err := loadFromJSON(t, content, sftpEnvironment())
+		if err != nil {
+			t.Fatalf("%s: valeurObtenue %v, valeurAttendue a literal secret accepted", key, err)
+		}
+
+		valeurObtenue := loadedConfig.FSProviders[0].Password + loadedConfig.FSProviders[0].IdentityPassphrase
+		if valeurObtenue != literalPassword {
+			t.Fatalf("%s: valeurObtenue %q, valeurAttendue %q", key, valeurObtenue, literalPassword)
 		}
 	}
 }

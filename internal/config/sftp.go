@@ -59,8 +59,8 @@ type sftpProviderFile struct {
 	Mounts                json.RawMessage `json:"mounts"`
 }
 
-// parseSFTPProvider décode une entrée sftp (clés inconnues refusées), exige que les secrets soient des références
-// ${VAR}, interpole, puis applique défauts et règles. Les erreurs enveloppent ErrUsage et ne citent jamais un secret.
+// parseSFTPProvider décode une entrée sftp (clés inconnues refusées), garde les secrets littéraux, interpole les
+// références ${VAR}, puis applique défauts et règles. Les erreurs enveloppent ErrUsage et ne citent jamais un secret.
 func parseSFTPProvider(rawProvider json.RawMessage, lookup func(string) (string, bool)) (FSProvider, error) {
 	provider, err := decodeSFTPProvider(rawProvider, lookup)
 	if err != nil {
@@ -79,7 +79,7 @@ func decodeSFTPProvider(rawProvider json.RawMessage, lookup func(string) (string
 	if rawFile.Mounts != nil {
 		return FSProvider{}, errors.New("mounts does not apply: name sftp://<name>/<absolute path> locations instead")
 	}
-	if err := requireVariableReferences(rawFile); err != nil {
+	if err := keepLiteralSecrets(&rawFile); err != nil {
 		return FSProvider{}, err
 	}
 	if err := interpolateValue(reflect.ValueOf(&rawFile).Elem(), "", lookup); err != nil {
@@ -88,13 +88,22 @@ func decodeSFTPProvider(rawProvider json.RawMessage, lookup func(string) (string
 	return buildSFTPProvider(rawFile)
 }
 
-// requireVariableReferences refuse un secret écrit en clair dans la configuration : il doit venir de l'environnement.
-func requireVariableReferences(rawFile sftpProviderFile) error {
-	secrets := []struct{ key, value string }{{"password", rawFile.Password}, {"identityPassphrase", rawFile.IdentityPassphrase}}
+// keepLiteralSecrets garde tel quel un secret littéral, venu scellé de la base, et laisse interpoler une seule
+// référence ${VAR} ; un mélange de texte et de références est refusé.
+func keepLiteralSecrets(rawFile *sftpProviderFile) error {
+	secrets := []struct {
+		key   string
+		value *string
+	}{{"password", &rawFile.Password}, {"identityPassphrase", &rawFile.IdentityPassphrase}}
 	for _, secret := range secrets {
-		if secret.value != "" && !pureVariableReference.MatchString(secret.value) {
-			return fmt.Errorf("%s must be a single ${VARIABLE} reference, never a literal value", secret.key)
+		isReference := pureVariableReference.MatchString(*secret.value)
+		if isReference {
+			continue
 		}
+		if strings.Contains(*secret.value, "${") {
+			return fmt.Errorf("%s must be a literal value or a single ${VARIABLE} reference", secret.key)
+		}
+		*secret.value = strings.ReplaceAll(*secret.value, "$", "$$")
 	}
 	return nil
 }

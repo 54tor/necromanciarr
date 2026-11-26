@@ -39,7 +39,7 @@ type FSMount struct {
 
 // FSProvider décrit un fournisseur de système de fichiers. Mounts, RC et Binary ne servent qu'au type rclone ;
 // Address à Exec qu'au type sftp ; Timeout aux deux. RC, Password et IdentityPassphrase sont des secrets, masqués à
-// tout affichage ; Password et IdentityPassphrase ne viennent que d'une variable ${VAR}.
+// tout affichage ; Password et IdentityPassphrase sont scellés en base ou viennent d'une variable ${VAR}.
 type FSProvider struct {
 	Type                  string        `json:"type"`
 	Name                  string        `json:"name"`
