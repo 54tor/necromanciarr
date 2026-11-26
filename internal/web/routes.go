@@ -47,6 +47,12 @@ var apiRoutes = []route{
 	{http.MethodGet, "/api/volumes", "volumes list", "", listVolumes},
 	{http.MethodPost, "/api/volumes/{name}/probe", "volumes probe", "", probeVolume},
 	{http.MethodGet, "/api/volumes/{name}/commands", "volumes commands", "", volumeCommands},
+	{http.MethodGet, "/api/config", "config get", "", getConfig},
+	{http.MethodPut, "/api/config/settings/{key}", "config set", "", putSetting},
+	{http.MethodDelete, "/api/config/settings/{key}", "config unset", "", deleteSetting},
+	{http.MethodPut, "/api/config/lists/{list}/{itemId}", "config item-set", "", putItem},
+	{http.MethodDelete, "/api/config/lists/{list}/{itemId}", "config item-delete", "", deleteItem},
+	{http.MethodPost, "/api/config/lists/{list}/{itemId}/unset", "config item-unset", "", unsetItem},
 	{http.MethodGet, "/api/jobs", "", "follow the long actions started by the action routes", listJobs},
 	{http.MethodGet, "/api/jobs/{id}", "", "follow one long action started by an action route", getJob},
 }

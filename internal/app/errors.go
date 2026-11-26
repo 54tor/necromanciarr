@@ -21,6 +21,10 @@ const (
 	ErrorCodeStageRunning   = "stage_running"
 	ErrorCodeInspectionBusy = "inspection_busy"
 	ErrorCodeFailure        = "failure"
+	// ErrorCodeSecretKeyMissing : un secret ne peut pas être enregistré sans NECROMANCIARR_SECRET_KEY.
+	ErrorCodeSecretKeyMissing = "secret_key_missing"
+	// ErrorCodeInvalidStoredConfig : le contenu de la base ne se charge pas.
+	ErrorCodeInvalidStoredConfig = "invalid_stored_config"
 )
 
 // refusals sont les refus typés des règles métier : la demande est bien formée, l'action ne l'est pas.
@@ -39,11 +43,13 @@ var classes = []struct {
 	code   string
 	errors []error
 }{
-	{ErrorCodeUsage, []error{config.ErrUsage, ErrUnknownCheck}},
+	{ErrorCodeSecretKeyMissing, []error{config.ErrSecretKeyMissing}},
+	{ErrorCodeUsage, []error{ErrUnknownConfigKey, config.ErrUsage, ErrUnknownCheck}},
 	{ErrorCodeStale, []error{ErrStaleProposal}},
 	{ErrorCodeRefused, refusals},
 	{ErrorCodeNotFound, []error{store.ErrProposalNotFound, ErrGroupNotFound, ErrSourceNotFound, ErrVolumeNotFound}},
 	{ErrorCodeNotConfigured, []error{ErrNotConfigured}},
+	{ErrorCodeInvalidStoredConfig, []error{config.ErrInvalidStoredConfig}},
 	{ErrorCodeStageRunning, []error{pipeline.ErrStageRunning}},
 	{ErrorCodeInspectionBusy, []error{ErrInspectionBusy}},
 }
@@ -81,7 +87,8 @@ var messageKeys = map[error]i18n.Key{
 	pipeline.ErrStageRunning: i18n.KeyErrorStageRunning, ErrInspectionBusy: i18n.KeyErrorInspectionBusy,
 	ErrSourceNotFound: i18n.KeyErrorSourceNotFound, ErrSourceNotTestable: i18n.KeyErrorSourceNotTestable,
 	ErrSourceTestRunning: i18n.KeyErrorSourceTestRunning, ErrVolumeNotFound: i18n.KeyErrorVolumeNotFound,
-	ErrVolumeProbeRunning: i18n.KeyErrorVolumeProbeRunning,
+	ErrVolumeProbeRunning: i18n.KeyErrorVolumeProbeRunning, config.ErrSecretKeyMissing: i18n.KeyErrorSecretKeyMissing,
+	config.ErrInvalidStoredConfig: i18n.KeyErrorInvalidStoredConfig, ErrUnknownConfigKey: i18n.KeyErrorUnknownConfigKey,
 }
 
 // MessageOf donne le message à rendre pour err : la clé de l'erreur typée reconnue (avec le volume d'un refus de

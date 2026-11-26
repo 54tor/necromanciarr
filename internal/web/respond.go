@@ -27,13 +27,15 @@ const (
 
 // statusByErrorCode donne le statut HTTP de chaque code stable ; un code absent vaut 500.
 var statusByErrorCode = map[string]int{
-	app.ErrorCodeUsage:          http.StatusBadRequest,
-	app.ErrorCodeStale:          http.StatusConflict,
-	app.ErrorCodeRefused:        http.StatusUnprocessableEntity,
-	app.ErrorCodeNotFound:       http.StatusNotFound,
-	app.ErrorCodeNotConfigured:  http.StatusConflict,
-	app.ErrorCodeStageRunning:   http.StatusConflict,
-	app.ErrorCodeInspectionBusy: http.StatusConflict,
+	app.ErrorCodeUsage:               http.StatusBadRequest,
+	app.ErrorCodeStale:               http.StatusConflict,
+	app.ErrorCodeRefused:             http.StatusUnprocessableEntity,
+	app.ErrorCodeNotFound:            http.StatusNotFound,
+	app.ErrorCodeNotConfigured:       http.StatusConflict,
+	app.ErrorCodeStageRunning:        http.StatusConflict,
+	app.ErrorCodeInspectionBusy:      http.StatusConflict,
+	app.ErrorCodeSecretKeyMissing:    http.StatusConflict,
+	app.ErrorCodeInvalidStoredConfig: http.StatusUnprocessableEntity,
 }
 
 // ErrorBody est le corps stable d'une erreur : {"error": {"code", "message"}} dans une réponse, "error" d'un job.

@@ -521,12 +521,11 @@ func TestWeb_everyRouteMapsToRegisteredAction(t *testing.T) {
 		if !strings.HasPrefix(apiRoute.path, "/api/") {
 			t.Fatalf("route %s is not under /api", pattern)
 		}
-		expectedMethod := http.MethodGet
-		if mutatingNames[apiRoute.action] {
-			expectedMethod = http.MethodPost
-		}
-		if apiRoute.method != expectedMethod {
-			t.Fatalf("route %s: gotValue %s, expectedValue %s for a mutating=%v action", pattern, apiRoute.method, expectedMethod, mutatingNames[apiRoute.action])
+		isReadMethod := apiRoute.method == http.MethodGet
+		isWriteMethod := slices.Contains([]string{http.MethodPost, http.MethodPut, http.MethodDelete}, apiRoute.method)
+		isExpectedMethod := (mutatingNames[apiRoute.action] && isWriteMethod) || (!mutatingNames[apiRoute.action] && isReadMethod)
+		if !isExpectedMethod {
+			t.Fatalf("route %s: gotValue %s, expectedValue GET for a read, POST, PUT or DELETE for a mutating=%v action", pattern, apiRoute.method, mutatingNames[apiRoute.action])
 		}
 		coveredNames[apiRoute.action] = true
 	}

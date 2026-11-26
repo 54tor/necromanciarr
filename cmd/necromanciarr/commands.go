@@ -90,7 +90,7 @@ func buildCommands() []command {
 	for _, stage := range app.Stages() {
 		built = append(built, stageCommand(stage))
 	}
-	return append(built, []command{
+	return append(append(built, []command{
 		{path: []string{"status"}, summaryKey: i18n.KeyCLISummaryStatus, actions: []string{actionStatus}, execute: runStatus},
 		{
 			path: []string{"proposals", "list"}, summaryKey: i18n.KeyCLISummaryProposalsList,
@@ -159,7 +159,7 @@ func buildCommands() []command {
 			path: []string{"doctor"}, summaryKey: i18n.KeyCLISummaryDoctor, actions: []string{actionDoctor},
 			valueFlags: []string{flagCheck}, diagnostic: true, onConfigError: doctorConfigFailure, execute: runDoctor,
 		},
-	}...)
+	}...), configCommands()...)
 }
 
 func init() {

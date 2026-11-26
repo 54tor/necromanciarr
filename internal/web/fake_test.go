@@ -56,6 +56,12 @@ type fakeService struct {
 	language i18n.Language
 	// panicValue fait paniquer RunStage avec cette valeur (job qui plante).
 	panicValue any
+	// configView est rendue par ConfigView ; les écritures de configuration retiennent leurs derniers arguments.
+	configView       app.ConfigView
+	lastSettingValue json.RawMessage
+	lastList         string
+	lastItemID       string
+	lastElement      map[string]any
 }
 
 func (fake *fakeService) record(method string, arguments ...any) error {
@@ -181,10 +187,11 @@ func (fake *fakeService) VolumeCommands(_ context.Context, name string) (app.Vol
 }
 
 func (fake *fakeService) ConfigView(context.Context) (app.ConfigView, error) {
-	return app.ConfigView{}, fake.record("ConfigView")
+	return fake.configView, fake.record("ConfigView")
 }
 
-func (fake *fakeService) SetSetting(_ context.Context, key string, _ json.RawMessage) error {
+func (fake *fakeService) SetSetting(_ context.Context, key string, value json.RawMessage) error {
+	fake.lastSettingValue = value
 	return fake.record("SetSetting", key)
 }
 
@@ -192,15 +199,18 @@ func (fake *fakeService) UnsetSetting(_ context.Context, key string) error {
 	return fake.record("UnsetSetting", key)
 }
 
-func (fake *fakeService) PutItem(_ context.Context, list, itemID string, _ map[string]any) error {
+func (fake *fakeService) PutItem(_ context.Context, list, itemID string, element map[string]any) error {
+	fake.lastList, fake.lastItemID, fake.lastElement = list, itemID, element
 	return fake.record("PutItem", list, itemID)
 }
 
 func (fake *fakeService) DeleteItem(_ context.Context, list, itemID string) error {
+	fake.lastList, fake.lastItemID = list, itemID
 	return fake.record("DeleteItem", list, itemID)
 }
 
 func (fake *fakeService) UnsetItem(_ context.Context, list, itemID string) error {
+	fake.lastList, fake.lastItemID = list, itemID
 	return fake.record("UnsetItem", list, itemID)
 }
 
@@ -260,7 +270,7 @@ func newTestHandlerWith(t *testing.T, fake *fakeService, health HealthChecker, s
 func apiRequest(method, target, body string) *http.Request {
 	request := httptest.NewRequest(method, target, strings.NewReader(body))
 	request.Host = testHost
-	if method == http.MethodPost {
+	if method != http.MethodGet && method != http.MethodHead {
 		request.Header.Set("Content-Type", jsonType)
 		request.Header.Set("X-Requested-With", requestedWith)
 	}

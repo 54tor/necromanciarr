@@ -41,6 +41,8 @@ type fakeService struct {
 	sourceTest          *app.SourceTestResult
 	volumeRows          []app.VolumeRow
 	volumeProbe         *app.VolumeProbeResult
+	lastSettingValue    json.RawMessage
+	lastElement         map[string]any
 }
 
 func (fake *fakeService) record(method string, arguments ...any) {
@@ -164,8 +166,9 @@ func (fake *fakeService) ConfigView(context.Context) (app.ConfigView, error) {
 	return app.ConfigView{}, fake.err
 }
 
-func (fake *fakeService) SetSetting(_ context.Context, key string, _ json.RawMessage) error {
+func (fake *fakeService) SetSetting(_ context.Context, key string, value json.RawMessage) error {
 	fake.record("SetSetting", key)
+	fake.lastSettingValue = value
 	return fake.err
 }
 
@@ -174,8 +177,9 @@ func (fake *fakeService) UnsetSetting(_ context.Context, key string) error {
 	return fake.err
 }
 
-func (fake *fakeService) PutItem(_ context.Context, list, itemID string, _ map[string]any) error {
+func (fake *fakeService) PutItem(_ context.Context, list, itemID string, element map[string]any) error {
 	fake.record("PutItem", list, itemID)
+	fake.lastElement = element
 	return fake.err
 }
 

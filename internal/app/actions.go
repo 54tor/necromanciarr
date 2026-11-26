@@ -41,7 +41,13 @@ const (
 	OptionState              = "state"
 	OptionLimit              = "limit"
 	OptionOffset             = "offset"
+	ArgumentConfigKey        = "key"
+	ArgumentConfigValue      = "value"
+	ArgumentConfigList       = "list"
+	ArgumentConfigItemID     = "item-id"
+	ArgumentConfigElement    = "element"
 	actionNameProposalPrefix = "proposals "
+	actionNameConfigPrefix   = "config "
 )
 
 var registry = []Action{
@@ -114,6 +120,27 @@ var registry = []Action{
 	{
 		Name: "volumes commands", Method: "VolumeCommands", DescriptionKey: i18n.KeyActionVolumesCommands,
 		Arguments: []string{ArgumentVolumeName},
+	},
+	{Name: actionNameConfigPrefix + "get", Method: "ConfigView", DescriptionKey: i18n.KeyActionConfigGet},
+	{
+		Name: actionNameConfigPrefix + "set", Method: "SetSetting", DescriptionKey: i18n.KeyActionConfigSet, Mutating: true,
+		Arguments: []string{ArgumentConfigKey, ArgumentConfigValue},
+	},
+	{
+		Name: actionNameConfigPrefix + "unset", Method: "UnsetSetting", DescriptionKey: i18n.KeyActionConfigUnset,
+		Mutating: true, Arguments: []string{ArgumentConfigKey},
+	},
+	{
+		Name: actionNameConfigPrefix + "item-set", Method: "PutItem", DescriptionKey: i18n.KeyActionConfigItemSet,
+		Mutating: true, Arguments: []string{ArgumentConfigList, ArgumentConfigItemID, ArgumentConfigElement},
+	},
+	{
+		Name: actionNameConfigPrefix + "item-delete", Method: "DeleteItem", DescriptionKey: i18n.KeyActionConfigItemDelete,
+		Mutating: true, Arguments: []string{ArgumentConfigList, ArgumentConfigItemID},
+	},
+	{
+		Name: actionNameConfigPrefix + "item-unset", Method: "UnsetItem", DescriptionKey: i18n.KeyActionConfigItemUnset,
+		Mutating: true, Arguments: []string{ArgumentConfigList, ArgumentConfigItemID},
 	},
 }
 

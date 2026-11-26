@@ -110,6 +110,7 @@ func Keys() []Key {
 	keys = append(keys, reasonKeys...)
 	keys = append(keys, doctorSFTPKeys...)
 	keys = append(keys, volumeKeys...)
+	keys = append(keys, configKeys...)
 	keys = append(keys, logKeys...)
 	keys = append(keys, webKeys...)
 	return append(keys, warningKeys...)

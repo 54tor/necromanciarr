@@ -121,6 +121,42 @@
   },
   {
     "method": "GET",
+    "path": "/api/config",
+    "action": "config get",
+    "mutating": false
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/settings/{key}",
+    "action": "config set",
+    "mutating": true
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/config/settings/{key}",
+    "action": "config unset",
+    "mutating": true
+  },
+  {
+    "method": "PUT",
+    "path": "/api/config/lists/{list}/{itemId}",
+    "action": "config item-set",
+    "mutating": true
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/config/lists/{list}/{itemId}",
+    "action": "config item-delete",
+    "mutating": true
+  },
+  {
+    "method": "POST",
+    "path": "/api/config/lists/{list}/{itemId}/unset",
+    "action": "config item-unset",
+    "mutating": true
+  },
+  {
+    "method": "GET",
     "path": "/api/jobs",
     "action": "",
     "mutating": false

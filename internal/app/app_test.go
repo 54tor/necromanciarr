@@ -346,8 +346,6 @@ func TestApp_listProposalsReturnsDetailsForTheCliAndWeb(t *testing.T) {
 }
 
 // Exemption temporaire : la Task 8 enregistre ces actions (commandes et routes) et retire cette liste.
-var configEditMethodsAwaitingActions = []string{"ConfigView", "SetSetting", "UnsetSetting", "PutItem", "DeleteItem", "UnsetItem"}
-
 func TestApp_actionsRegistryListsEveryServiceMethod(t *testing.T) {
 	serviceType := reflect.TypeFor[Service]()
 	registered := map[string]bool{}
@@ -357,15 +355,9 @@ func TestApp_actionsRegistryListsEveryServiceMethod(t *testing.T) {
 		}
 		registered[action.Method] = true
 	}
-	for _, methodName := range configEditMethodsAwaitingActions {
-		if registered[methodName] {
-			t.Fatalf("gotValue %s registered, expectedValue its exemption removed", methodName)
-		}
-	}
 	for methodIndex := range serviceType.NumMethod() {
 		methodName := serviceType.Method(methodIndex).Name
-		isExempt := slices.Contains(configEditMethodsAwaitingActions, methodName)
-		if methodName != "Actions" && methodName != "Translator" && !isExempt && !registered[methodName] {
+		if methodName != "Actions" && methodName != "Translator" && !registered[methodName] {
 			t.Fatalf("gotValue no action for %s, expectedValue every Service method registered", methodName)
 		}
 	}

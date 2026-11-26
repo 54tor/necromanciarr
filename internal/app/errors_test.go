@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"necromanciarr/internal/config"
 	"necromanciarr/internal/fsys"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/linker"
@@ -110,5 +111,34 @@ func TestMessageOf_remoteForceRefusalNamesTheVolumeInBothLanguages(t *testing.T)
 	}
 	if forceRefusal(errors.New("other")) != nil {
 		t.Error("valeurObtenue a refusal, valeurAttendue nil for any other error")
+	}
+}
+
+func TestClassify_configEditErrorsHaveTheirOwnCodes(t *testing.T) {
+	scenarios := []struct {
+		name           string
+		err            error
+		valeurAttendue string
+	}{
+		{"secret key missing", fmt.Errorf("item radarr: %w", config.ErrSecretKeyMissing), ErrorCodeSecretKeyMissing},
+		{"unreadable stored configuration", fmt.Errorf("%w: sealed value", config.ErrInvalidStoredConfig), ErrorCodeInvalidStoredConfig},
+		{"unknown setting", requireKnownSetting("notASetting"), ErrorCodeUsage},
+		{"unknown list", requireKnownList("notAList"), ErrorCodeUsage},
+	}
+	for _, scenario := range scenarios {
+		valeurObtenue, _ := Classify(scenario.err)
+		if valeurObtenue != scenario.valeurAttendue {
+			t.Errorf("%s: valeurObtenue %q, valeurAttendue %q", scenario.name, valeurObtenue, scenario.valeurAttendue)
+		}
+	}
+}
+
+func TestMessageOf_unknownConfigKeyHasItsOwnMessage(t *testing.T) {
+	valeurAttendue := i18n.KeyErrorUnknownConfigKey
+
+	valeurObtenue := MessageOf(requireKnownSetting("notASetting")).Key
+
+	if valeurObtenue != valeurAttendue {
+		t.Fatalf("valeurObtenue %q, valeurAttendue %q", valeurObtenue, valeurAttendue)
 	}
 }

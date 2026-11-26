@@ -15,6 +15,9 @@ import (
 
 const variableReferenceMark = "${"
 
+// ErrUnknownConfigKey refuse une clé de réglage ou une liste que la configuration ne connaît pas.
+var ErrUnknownConfigKey = fmt.Errorf("%w: unknown configuration key", config.ErrUsage)
+
 // configWrite enregistre en base une écriture déjà validée ; nil : rien à écrire.
 type configWrite func(ctx context.Context, editStore ConfigStore) error
 
@@ -183,14 +186,14 @@ func (snapshot *storedSnapshot) removeOverride(list, itemID string) configWrite 
 
 func requireKnownSetting(key string) error {
 	if !slices.Contains(config.SettingKeys(), key) {
-		return fmt.Errorf("%w: unknown setting %q", config.ErrUsage, key)
+		return fmt.Errorf("%w: setting %q", ErrUnknownConfigKey, key)
 	}
 	return nil
 }
 
 func requireKnownList(list string) error {
 	if !slices.Contains(config.ListNames(), list) {
-		return fmt.Errorf("%w: unknown configuration list %q", config.ErrUsage, list)
+		return fmt.Errorf("%w: list %q", ErrUnknownConfigKey, list)
 	}
 	return nil
 }
