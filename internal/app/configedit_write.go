@@ -129,7 +129,7 @@ func (svc *service) commitConfig(ctx context.Context, change func(snapshot *stor
 	return nil
 }
 
-// refusedCandidate fait du refus d'une candidate une erreur d'usage, distincte d'une base illisible.
+// refusedCandidate fait du refus d'une candidate une erreur d'usage, et non une base illisible.
 func refusedCandidate(err error) error {
 	if errors.Is(err, config.ErrInvalidStoredConfig) {
 		reason := strings.TrimPrefix(err.Error(), config.ErrInvalidStoredConfig.Error()+": ")
