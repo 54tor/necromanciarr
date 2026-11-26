@@ -20,6 +20,7 @@ import (
 
 	"necromanciarr/internal/app"
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/config/configtest"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/pipeline"
 	"necromanciarr/internal/store"
@@ -720,17 +721,13 @@ const (
 
 func trackerSettings(t *testing.T) config.Config {
 	t.Helper()
-	configDir := t.TempDir()
 	content := `{"trackers": {"tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}",
 		"tracker-b": {"announce": ["udp://tracker-b.example.com:6969/announce?pk=${PASSKEY_TRACKER_B}"]}}}`
-	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	environment := map[string]string{"PASSKEY_TRACKER_A": webPasskeyA, "PASSKEY_TRACKER_B": webPasskeyB}
-	settings, err := config.Load(nil, func(name string) (string, bool) {
+	settings, err := config.LoadWith(nil, func(name string) (string, bool) {
 		value, found := environment[name]
 		return value, found
-	}, configDir)
+	}, t.TempDir(), configtest.Opener(t, content))
 	if err != nil {
 		t.Fatal(err)
 	}

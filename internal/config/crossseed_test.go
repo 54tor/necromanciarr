@@ -94,8 +94,8 @@ func TestConfig_storedValuesOverrideCrossSeedValues(t *testing.T) {
 	if loadedConfig.LinkCategory != "json-category" || loadedConfig.SkipRecheck {
 		t.Fatalf("gotValue %q %v, expectedValue json-category false", loadedConfig.LinkCategory, loadedConfig.SkipRecheck)
 	}
-	if loadedConfig.Sources.Radarr != sourceConfigFile {
-		t.Fatalf("gotValue %q, expectedValue %q", loadedConfig.Sources.Radarr, sourceConfigFile)
+	if valeurObtenue := elementOrigins(loadedConfig, listRadarr); !slices.Equal(valeurObtenue, []string{originOverride}) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue [%s]", valeurObtenue, originOverride)
 	}
 }
 
@@ -121,9 +121,13 @@ func TestConfig_listsAreMergedPerElement(t *testing.T) {
 	if !slices.Equal(loadedConfig.LinkDirs, []string{importedLinks}) {
 		t.Fatalf("an untouched list keeps the imported elements: gotValue %v", loadedConfig.LinkDirs)
 	}
-	expectedSources := Sources{Radarr: sourceNone, Sonarr: sourceConfigFile, TorrentClients: sourceNone, LinkDirs: sourceCrossSeed}
-	if loadedConfig.Sources != expectedSources {
-		t.Fatalf("gotValue %+v, expectedValue %+v", loadedConfig.Sources, expectedSources)
+	valeurAttendue := map[string][]string{
+		listRadarr: nil, listSonarr: {originAdded}, listTorrentClients: nil, listLinkDirs: {originCrossSeed},
+	}
+	for list, originesAttendues := range valeurAttendue {
+		if valeurObtenue := elementOrigins(loadedConfig, list); !slices.Equal(valeurObtenue, originesAttendues) {
+			t.Fatalf("%s: valeurObtenue %v, valeurAttendue %v", list, valeurObtenue, originesAttendues)
+		}
 	}
 }
 
@@ -263,9 +267,15 @@ func TestCrossSeedExample_loadsItsOptions(t *testing.T) {
 
 	loadedConfig := mustLoad(t, nil, environment, t.TempDir())
 
-	expectedSources := Sources{Radarr: sourceCrossSeed, Sonarr: sourceCrossSeed, TorrentClients: sourceCrossSeed, LinkDirs: sourceCrossSeed}
-	if loadedConfig.Sources != expectedSources || !loadedConfig.CrossSeedImport.Configured {
-		t.Fatalf("gotValue %+v %+v, expectedValue %+v", loadedConfig.Sources, loadedConfig.CrossSeedImport, expectedSources)
+	for _, list := range upstreamLists {
+		valeurObtenue := elementOrigins(loadedConfig, list)
+		toutVientDeCrossSeed := len(valeurObtenue) > 0 && !slices.ContainsFunc(valeurObtenue, func(origin string) bool { return origin != originCrossSeed })
+		if !toutVientDeCrossSeed {
+			t.Fatalf("%s: valeurObtenue %v, valeurAttendue des éléments tous crossseed", list, valeurObtenue)
+		}
+	}
+	if !loadedConfig.CrossSeedImport.Configured {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue un import configuré", loadedConfig.CrossSeedImport)
 	}
 	if loadedConfig.LinkType != "hardlink" || loadedConfig.LinkCategory != "cross-seed-link" || loadedConfig.CrossSeed == nil {
 		t.Fatalf("imported values missing: %v", loadedConfig)
@@ -332,8 +342,8 @@ func TestConfig_onlyUnsupportedImportedClientsLoadWithAnEmptyList(t *testing.T) 
 
 	loadedConfig := mustLoadWithCrossSeed(t, crossSeedPath, `{}`)
 
-	if len(loadedConfig.TorrentClients) != 0 || loadedConfig.Sources.TorrentClients != sourceNone {
-		t.Fatalf("gotValue %v %q, expectedValue no client", loadedConfig.TorrentClients, loadedConfig.Sources.TorrentClients)
+	if len(loadedConfig.TorrentClients) != 0 || len(elementOrigins(loadedConfig, listTorrentClients)) != 0 {
+		t.Fatalf("gotValue %v %v, expectedValue no client", loadedConfig.TorrentClients, elementOrigins(loadedConfig, listTorrentClients))
 	}
 	if len(loadedConfig.CrossSeedImport.UnsupportedTorrentClients) != 1 {
 		t.Fatalf("gotValue %v, expectedValue one warning", loadedConfig.CrossSeedImport.UnsupportedTorrentClients)

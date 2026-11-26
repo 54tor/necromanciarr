@@ -33,7 +33,7 @@ func runSFTPTrust(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	if err != nil {
 		return reportError(stderr, args, err)
 	}
-	settings, err := config.Load(call.configArgs, lookupEnv, defaultConfigDir())
+	settings, err := loadConfig(call.configArgs)
 	if err != nil {
 		return reportError(stderr, args, err)
 	}

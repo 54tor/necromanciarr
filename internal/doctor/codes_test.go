@@ -17,6 +17,7 @@ import (
 
 	"necromanciarr/internal/arr"
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/config/configtest"
 	"necromanciarr/internal/hashsource"
 	"necromanciarr/internal/i18n"
 	"necromanciarr/internal/libraryprovider"
@@ -332,10 +333,7 @@ func TestDoctor_redactsTrackerPasskeyInPanicAndDetail(t *testing.T) {
 	const passkey = `fake"pass&key/0000`
 	configDir := t.TempDir()
 	content := `{"radarr": ["http://example.com:7878?apikey=k"], "trackers": {"tracker-a": "https://tracker-a.example.com/announce?pk=${PASSKEY_TRACKER_A}"}}`
-	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	settings, err := config.Load(nil, func(name string) (string, bool) { return passkey, name == "PASSKEY_TRACKER_A" }, configDir)
+	settings, err := config.LoadWith(nil, func(name string) (string, bool) { return passkey, name == "PASSKEY_TRACKER_A" }, configDir, configtest.Opener(t, content))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,6 +348,23 @@ func TestDoctor_redactsTrackerPasskeyInPanicAndDetail(t *testing.T) {
 			if strings.Contains(string(rendered), form) {
 				t.Fatalf("%s: gotValue %q in %s, expectedValue no form of the passkey", label, form, rendered)
 			}
+		}
+	}
+}
+
+func TestConfigLoadResult_namesTheSourceOfEachList(t *testing.T) {
+	settings := config.Config{ConfigDir: "/home/u/config", Origins: []config.ValueOrigin{
+		{Key: "radarr", ItemID: "a", Origin: "crossseed"},
+		{Key: "sonarr", ItemID: "b", Origin: "crossseed"}, {Key: "sonarr", ItemID: "c", Origin: "added"},
+		{Key: "linkDirs", Origin: "default"},
+	}}
+	valeurAttendue := map[string]string{"radarr": "cross-seed", "sonarr": "database", "torrent_clients": "none", "link_dirs": "none"}
+
+	valeurObtenue := configLoadResult(settings).Detail.Params
+
+	for parametre, sourceAttendue := range valeurAttendue {
+		if valeurObtenue[parametre] != sourceAttendue {
+			t.Fatalf("valeurObtenue %v, valeurAttendue %v", valeurObtenue, valeurAttendue)
 		}
 	}
 }

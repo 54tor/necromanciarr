@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -20,12 +19,8 @@ func TestRun_unknownSubcommandPrintsUsageAndExits2(t *testing.T) {
 }
 
 func TestRun_configCheckPrintsRedactedConfigAndFailsOnError(t *testing.T) {
-	configDir := t.TempDir()
 	t.Setenv("SECRET_FOR_TEST", "secret-value")
-	configPath := filepath.Join(configDir, "config.json")
-	if err := os.WriteFile(configPath, []byte(`{"radarr": ["http://example.com:7878?apikey=${SECRET_FOR_TEST}"]}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	configDir := writeDoctorConfig(t, `{"radarr": ["http://example.com:7878?apikey=${SECRET_FOR_TEST}"]}`)
 	var stdout, stderr bytes.Buffer
 
 	exitCode := run([]string{"config", "check", "--config-dir", configDir}, &stdout, &stderr)
@@ -33,9 +28,7 @@ func TestRun_configCheckPrintsRedactedConfigAndFailsOnError(t *testing.T) {
 	if exitCode != 0 || strings.Contains(stdout.String(), "secret-value") || !strings.Contains(stdout.String(), "***") {
 		t.Fatalf("exit %d, stdout %q, stderr %q", exitCode, stdout.String(), stderr.String())
 	}
-	if err := os.WriteFile(configPath, []byte(`{"bogus": 1}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	configDir = writeDoctorConfig(t, `{"bogus": 1}`)
 	if exitCode = run([]string{"config", "check", "--config-dir", configDir}, &stdout, &stderr); exitCode == 0 || !strings.Contains(stderr.String(), "bogus") {
 		t.Fatalf("exit %d, stderr %q", exitCode, stderr.String())
 	}
@@ -101,7 +94,7 @@ func TestRun_configCheckPrintsTheEffectiveLanguageAndItsSource(t *testing.T) {
 
 	exitCode := run([]string{"config", "check", "--config-dir", t.TempDir(), "--language", "en"}, &stdout, &stderr)
 
-	expectedValue := "Language: en (source: --language)"
+	expectedValue := "Language: en (source: flag)"
 	if exitCode != successExitCode || !strings.Contains(stderr.String(), expectedValue) ||
 		!strings.Contains(stdout.String(), `"language": "en"`) {
 		t.Fatalf("gotValue exit %d stdout %q stderr %q, expectedValue %q", exitCode, stdout.String(), stderr.String(), expectedValue)

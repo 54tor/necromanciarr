@@ -14,7 +14,7 @@ func TestConfigCheck_masksTorznabKeysAndSecretKey(t *testing.T) {
 	t.Setenv("NECROMANCIARR_SECRET_KEY", fakeSecretKey)
 	configDir := writeDoctorConfig(t, `{
   "torznab": [
-    "https://prowlarr.example.com:9696/12/api?apikey=${INDEXER_KEY_A}",
+    {"url": "https://prowlarr.example.com:9696/12/api?apikey=${INDEXER_KEY_A}", "name": "12"},
     {"url": "https://prowlarr.example.com:9696/7/api?apikey=secret-b%26%22c%5Cd", "name": "tracker-a"}
   ],
   "prowlarr": "https://prowlarr.example.com:9696?apikey=${INDEXER_KEY_B}"

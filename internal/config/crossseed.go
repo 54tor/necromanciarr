@@ -18,9 +18,6 @@ const (
 	envCrossSeedConfig   = "CROSS_SEED_CONFIG"
 	defaultCrossSeedHost = "localhost"
 	defaultCrossSeedPort = 2468
-	sourceConfigFile     = "config.json"
-	sourceCrossSeed      = "cross-seed"
-	sourceNone           = "none"
 )
 
 // supportedClientTypes sont les clients torrent pris en charge ; knownClientTypes ceux que cross-seed connaît
@@ -51,14 +48,6 @@ type CrossSeedImport struct {
 type UnsupportedClient struct {
 	Index int    `json:"index"`
 	Type  string `json:"type"`
-}
-
-// Sources dit d'où vient chaque liste effective : config.json (au moins un élément de la base), cross-seed ou none.
-type Sources struct {
-	Radarr         string `json:"radarr"`
-	Sonarr         string `json:"sonarr"`
-	TorrentClients string `json:"torrentClients"`
-	LinkDirs       string `json:"linkDirs"`
 }
 
 // CrossSeedDaemon est l'adresse du démon cross-seed ; BaseURL ne porte pas la clé.

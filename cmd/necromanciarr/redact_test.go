@@ -156,7 +156,7 @@ func TestConfigCheck_namesATrackerValueTooShortToMask(t *testing.T) {
 	if result.exitCode != successExitCode || !strings.Contains(result.stderr, "UID") || !strings.Contains(result.stderr, "8") {
 		t.Fatalf("gotValue exit %d stderr %q, expectedValue a warning naming UID and the 8-character minimum", result.exitCode, result.stderr)
 	}
-	if !strings.Contains(result.stderr, "(source: --language)") {
+	if !strings.Contains(result.stderr, "(source: flag)") {
 		t.Fatalf("gotValue %q, expectedValue ordinary text (the language source) untouched by the short value", result.stderr)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"necromanciarr/internal/config"
+	"necromanciarr/internal/config/configtest"
 	"necromanciarr/internal/doctor"
 )
 
@@ -21,9 +22,7 @@ func (pinger failingPinger) Ping(context.Context) error { return pinger.err }
 func writeDoctorConfig(t *testing.T, content string) string {
 	t.Helper()
 	configDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	configtest.WriteDatabase(t, filepath.Join(configDir, testDatabaseName), content)
 	return configDir
 }
 
@@ -111,7 +110,7 @@ func TestCli_jsonOutputIsStableAndRedacted(t *testing.T) {
 }
 
 func TestCli_invalidConfigReportsFailedConfigCheck(t *testing.T) {
-	configDir := writeDoctorConfig(t, `{"bogus": 1}`)
+	configDir := writeDoctorConfig(t, `{"readBytesPerSecond": -1}`)
 	var stdout, stderr bytes.Buffer
 
 	exitCode := run([]string{"doctor", "--config-dir", configDir}, &stdout, &stderr)
@@ -122,7 +121,7 @@ func TestCli_invalidConfigReportsFailedConfigCheck(t *testing.T) {
 }
 
 func TestCli_checkWithInvalidConfigReturnsConfigFailure(t *testing.T) {
-	configDir := writeDoctorConfig(t, `{"bogus": 1}`)
+	configDir := writeDoctorConfig(t, `{"readBytesPerSecond": -1}`)
 	var stdout, stderr bytes.Buffer
 
 	exitCode := run([]string{"doctor", "--config-dir", configDir, "--check", "library-roots"}, &stdout, &stderr)

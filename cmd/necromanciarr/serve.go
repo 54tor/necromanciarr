@@ -32,7 +32,7 @@ var listen = func(address string) (net.Listener, error) { return net.Listen("tcp
 // runServe sert l'API et l'interface jusqu'au premier SIGINT ou SIGTERM (annulation de ctx), puis s'arrête proprement.
 func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	out := newPrinter(stdout, stderr, args)
-	settings, err := config.Load(args, lookupEnv, defaultConfigDir())
+	settings, err := loadConfig(args)
 	if err != nil {
 		return out.failure(err)
 	}
@@ -71,7 +71,7 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 // (la sortie d'une sonde Docker est visible par docker inspect).
 func runHealthcheck(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	out := newPrinter(stdout, stderr, args)
-	settings, err := config.Load(args, lookupEnv, defaultConfigDir())
+	settings, err := loadConfig(args)
 	if err != nil {
 		return out.healthcheckFailed(ctx)
 	}

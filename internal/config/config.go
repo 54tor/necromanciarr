@@ -68,7 +68,7 @@ type Config struct {
 	Sonarr             []ArrService    `json:"sonarr"`
 	TorrentClients     []TorrentClient `json:"torrentClients"`
 	// Torznab liste les indexeurs de secours ; Prowlarr (URL de l'API native, clé comprise) ne sert qu'à doctor ;
-	// SourceOrder range les sources (provider d'abord). `Sources` désigne déjà l'origine des réglages cross-seed.
+	// SourceOrder range les sources (provider d'abord).
 	Torznab     []TorznabIndexer `json:"torznab"`
 	Prowlarr    string           `json:"prowlarr"`
 	SourceOrder []string         `json:"sourceOrder"`
@@ -84,8 +84,7 @@ type Config struct {
 	CrossSeed       *CrossSeedDaemon `json:"crossSeed,omitempty"`
 	CrossSeedImport CrossSeedImport  `json:"crossSeedImport"`
 	// CrossSeedMode : auto (défaut), delegate, native ou off ; voir crossseed.ResolveMode.
-	CrossSeedMode string  `json:"crossSeedMode"`
-	Sources       Sources `json:"sources"`
+	CrossSeedMode string `json:"crossSeedMode"`
 	// Origins dit d'où vient chaque réglage et chaque élément de liste ; OrphanOverrides liste les surcharges sans
 	// élément amont, gardées en base mais sans effet.
 	Origins         []ValueOrigin    `json:"origins"`
@@ -95,10 +94,8 @@ type Config struct {
 	// PartialMaxMissingPercent : au-delà de ce pourcentage de pièces manquantes, un torrent incomplet n'est pas proposé
 	// (100 = sans plafond).
 	PartialMaxMissingPercent float64 `json:"partialMaxMissingPercent"`
-	// Language est la langue d'affichage (fr par défaut) ; LanguageSource dit d'où elle vient (default, config.json pour
-	// la base, NECROMANCIARR_LANGUAGE ou --language) pour `config check`.
-	Language       i18n.Language `json:"language"`
-	LanguageSource string        `json:"-"`
+	// Language est la langue d'affichage (fr par défaut) ; son origine est dans Origins.
+	Language i18n.Language `json:"language"`
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`
@@ -285,7 +282,7 @@ func (layers configLayers) describe(target *Config, environment loadEnvironment)
 	target.ConfigDir, target.WorkingDirDotEnv = environment.configDir, environment.workingDirDotEnv
 	target.DBPath, target.SecretKey = environment.dbPath, environment.secretKey
 	target.CrossSeed, target.CrossSeedImport = layers.daemon, layers.crossSeed.status
-	target.Sources, target.OrphanOverrides = layers.lists.sources(), layers.lists.orphans
+	target.OrphanOverrides = layers.lists.orphans
 }
 
 // finishConfig applique défauts, environnement et options, normalise, date les origines puis valide.

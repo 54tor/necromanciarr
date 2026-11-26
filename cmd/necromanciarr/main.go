@@ -29,7 +29,7 @@ const (
 	flagSecret = "--secret"
 )
 
-// lookupEnv lit l'environnement pour config.Load.
+// lookupEnv lit l'environnement pour loadConfig.
 var lookupEnv = os.LookupEnv
 
 // openService ouvre le Service de production ; les tests le remplacent par un faux.
@@ -126,7 +126,7 @@ func runAPIKey(args []string, stdout, stderr io.Writer) int {
 }
 
 func runConfigCheck(args []string, stdout, stderr io.Writer) int {
-	loadedConfig, err := config.Load(args, os.LookupEnv, defaultConfigDir())
+	loadedConfig, err := loadConfig(args)
 	if err != nil {
 		return reportError(stderr, args, err)
 	}
@@ -139,7 +139,7 @@ func runConfigCheck(args []string, stdout, stderr io.Writer) int {
 		return config.RedactText(text, loadedConfig.KnownSecrets()...)
 	})
 	_, _ = fmt.Fprintln(stderr, translator.Text(i18n.KeyConfigCheckLanguage, map[string]string{
-		"language": string(loadedConfig.Language), "source": loadedConfig.LanguageSource,
+		"language": string(loadedConfig.Language), "source": languageOrigin(loadedConfig),
 	}))
 	for _, tracker := range loadedConfig.Trackers {
 		for _, name := range tracker.ShortVariables {

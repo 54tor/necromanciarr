@@ -20,11 +20,10 @@ var valueOriginOfElement = map[ElementOrigin]string{
 	OriginAdded:     originAdded,
 }
 
-// resolvedLists est le bilan de la couche liste : origine de chaque élément, surcharges orphelines, source par liste.
+// resolvedLists est le bilan de la couche liste : origine de chaque élément et surcharges orphelines.
 type resolvedLists struct {
 	origins []ValueOrigin
 	orphans []OrphanOverride
-	byList  map[string][]ResolvedElement
 }
 
 // applyStoredLists résout chaque liste (amont cross-seed + surcharges descellées) et range ses formes brutes dans
@@ -34,7 +33,7 @@ func applyStoredLists(rawFile *fileConfig, upstream map[string][]string, overrid
 	if err != nil {
 		return resolvedLists{}, err
 	}
-	result := resolvedLists{byList: map[string][]ResolvedElement{}}
+	var result resolvedLists
 	for _, list := range slices.Concat(upstreamLists, storedOnlyLists) {
 		elements, err := upstreamElements(list, upstream[list])
 		if err != nil {
@@ -47,7 +46,6 @@ func applyStoredLists(rawFile *fileConfig, upstream map[string][]string, overrid
 		if err := assignList(rawFile, list, resolved); err != nil {
 			return resolvedLists{}, err
 		}
-		result.byList[list] = resolved
 		result.orphans = append(result.orphans, orphans...)
 		result.origins = append(result.origins, listOrigins(list, resolved)...)
 	}
@@ -197,23 +195,4 @@ func trackersSection(resolved []ResolvedElement) (json.RawMessage, error) {
 		return nil, err
 	}
 	return TrackersSection(rawTrackers)
-}
-
-// listSource garde la forme de Sources : none, cross-seed si tout vient de l'amont, sinon la configuration propre.
-func listSource(resolved []ResolvedElement) string {
-	if len(resolved) == 0 {
-		return sourceNone
-	}
-	allUpstream := !slices.ContainsFunc(resolved, func(element ResolvedElement) bool { return element.Origin != OriginCrossSeed })
-	if allUpstream {
-		return sourceCrossSeed
-	}
-	return sourceConfigFile
-}
-
-func (lists resolvedLists) sources() Sources {
-	return Sources{
-		Radarr: listSource(lists.byList[listRadarr]), Sonarr: listSource(lists.byList[listSonarr]),
-		TorrentClients: listSource(lists.byList[listTorrentClients]), LinkDirs: listSource(lists.byList[listLinkDirs]),
-	}
 }

@@ -218,11 +218,40 @@ func shortTrackerVariables(settings config.Config) []string {
 	return names
 }
 
+// Source d'une liste dans le bilan de configuration : vide, toute de cross-seed, ou modifiée en base.
+const (
+	listSourceNone      = "none"
+	listSourceCrossSeed = "cross-seed"
+	listSourceDatabase  = "database"
+	originCrossSeed     = "crossseed"
+)
+
+// listSource résume les origines des éléments effectifs d'une liste.
+func listSource(origins []config.ValueOrigin, list string) string {
+	elementCount, upstreamCount := 0, 0
+	for _, origin := range origins {
+		if origin.Key != list || origin.ItemID == "" {
+			continue
+		}
+		elementCount++
+		if origin.Origin == originCrossSeed {
+			upstreamCount++
+		}
+	}
+	if elementCount == 0 {
+		return listSourceNone
+	}
+	if upstreamCount == elementCount {
+		return listSourceCrossSeed
+	}
+	return listSourceDatabase
+}
+
 func configLoadResult(settings config.Config) Result {
-	sources := settings.Sources
+	origins := settings.Origins
 	params := []string{
-		"dir", settings.ConfigDir, "radarr", sources.Radarr, "sonarr", sources.Sonarr,
-		"torrent_clients", sources.TorrentClients, "link_dirs", sources.LinkDirs,
+		"dir", settings.ConfigDir, "radarr", listSource(origins, "radarr"), "sonarr", listSource(origins, "sonarr"),
+		"torrent_clients", listSource(origins, "torrentClients"), "link_dirs", listSource(origins, "linkDirs"),
 	}
 	if settings.WorkingDirDotEnv {
 		return Result{

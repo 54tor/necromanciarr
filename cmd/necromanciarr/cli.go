@@ -110,7 +110,7 @@ func languageFromArguments(args []string) i18n.Language {
 }
 
 // invocation est une sous-commande analysée : arguments positionnels nommés, options propres, options de
-// configuration (passées à config.Load), configuration chargée et Service ouvert.
+// configuration (passées à loadConfig), configuration chargée et Service ouvert.
 type invocation struct {
 	arguments  map[string]string
 	flags      map[string][]string
@@ -145,7 +145,7 @@ func parseID(raw string) (int64, error) {
 }
 
 // parseInvocation lit d'abord les arguments positionnels (avant toute option), puis les options : celles de la
-// commande sont gardées, toutes les autres vont à config.Load, qui refuse une option inconnue.
+// commande sont gardées, toutes les autres vont à loadConfig, qui refuse une option inconnue.
 func parseInvocation(spec command, args []string) (*invocation, error) {
 	call := &invocation{arguments: map[string]string{}, flags: map[string][]string{}}
 	position := 0
@@ -292,7 +292,7 @@ func runCommand(ctx context.Context, spec command, args []string, stdout, stderr
 	}
 	out.jsonOutput = call.has(flagJSON)
 	call.stdout, call.stderr = stdout, stderr
-	call.settings, err = config.Load(call.configArgs, lookupEnv, defaultConfigDir())
+	call.settings, err = loadConfig(call.configArgs)
 	if err != nil {
 		if spec.onConfigError != nil && !errors.Is(err, config.ErrUsage) {
 			return out.result(spec.onConfigError(out.translator, err))

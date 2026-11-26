@@ -181,6 +181,17 @@ func originOf(loadedConfig Config, key, itemID string) ValueOrigin {
 	return ValueOrigin{}
 }
 
+// elementOrigins donne, dans l'ordre, l'origine de chaque élément effectif d'une liste.
+func elementOrigins(loadedConfig Config, list string) []string {
+	var origins []string
+	for _, origin := range loadedConfig.Origins {
+		if origin.Key == list && origin.ItemID != "" {
+			origins = append(origins, origin.Origin)
+		}
+	}
+	return origins
+}
+
 func TestLoadWith_emptyDatabaseUsesCrossSeedAndDefaults(t *testing.T) {
 	environment := crossSeedEnvironment(t, `module.exports = { linkCategory: "imported-category" };`)
 	valeurAttendue := []string{"imported-category", defaultListenAddr, defaultLinkType}

@@ -334,7 +334,7 @@ var doctorFindingsReport = doctor.Report{Worst: doctor.Fail, Checks: []doctor.Ou
 }}
 
 func TestDoctorConfigFailure_codeIsStableAndTextFollowsTheLanguage(t *testing.T) {
-	configDir := writeDoctorConfig(t, `{"bogus": 1}`)
+	configDir := writeDoctorConfig(t, `{"readBytesPerSecond": -1}`)
 
 	frenchTree := jsonOf(t, configDir, "fr", &fakeService{}, "doctor")
 	englishTree := jsonOf(t, configDir, "en", &fakeService{}, "doctor")

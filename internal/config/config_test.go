@@ -444,20 +444,20 @@ func TestGenerateAuthToken_isLongRandomAndURLSafe(t *testing.T) {
 func TestLanguage_defaultsToFrenchAndFollowsPriorityChain(t *testing.T) {
 	const stored = `{"language": "en"}`
 	loadedConfig := mustLoad(t, nil, nil, t.TempDir())
-	if loadedConfig.Language != i18n.French || loadedConfig.LanguageSource != "default" {
-		t.Fatalf("gotValue %q/%q, expectedValue fr/default", loadedConfig.Language, loadedConfig.LanguageSource)
+	if origin := originOf(loadedConfig, settingLanguage, "").Origin; loadedConfig.Language != i18n.French || origin != originDefault {
+		t.Fatalf("gotValue %q/%q, expectedValue fr/default", loadedConfig.Language, origin)
 	}
 	loadedConfig = mustLoadStored(t, nil, nil, stored)
-	if loadedConfig.Language != i18n.English || loadedConfig.LanguageSource != "config.json" {
-		t.Fatalf("gotValue %q/%q, expectedValue en/config.json", loadedConfig.Language, loadedConfig.LanguageSource)
+	if origin := originOf(loadedConfig, settingLanguage, "").Origin; loadedConfig.Language != i18n.English || origin != originOverride {
+		t.Fatalf("gotValue %q/%q, expectedValue en/override", loadedConfig.Language, origin)
 	}
 	loadedConfig = mustLoadStored(t, nil, map[string]string{"NECROMANCIARR_LANGUAGE": " FR "}, stored)
-	if loadedConfig.Language != i18n.French || loadedConfig.LanguageSource != "NECROMANCIARR_LANGUAGE" {
-		t.Fatalf("gotValue %q/%q, expectedValue fr/env", loadedConfig.Language, loadedConfig.LanguageSource)
+	if origin := originOf(loadedConfig, settingLanguage, "").Origin; loadedConfig.Language != i18n.French || origin != originEnv {
+		t.Fatalf("gotValue %q/%q, expectedValue fr/env", loadedConfig.Language, origin)
 	}
 	loadedConfig = mustLoadStored(t, []string{"--language", "en"}, map[string]string{"NECROMANCIARR_LANGUAGE": "fr"}, stored)
-	if loadedConfig.Language != i18n.English || loadedConfig.LanguageSource != "--language" {
-		t.Fatalf("gotValue %q/%q, expectedValue en/--language", loadedConfig.Language, loadedConfig.LanguageSource)
+	if origin := originOf(loadedConfig, settingLanguage, "").Origin; loadedConfig.Language != i18n.English || origin != originFlag {
+		t.Fatalf("gotValue %q/%q, expectedValue en/flag", loadedConfig.Language, origin)
 	}
 }
 
