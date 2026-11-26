@@ -153,6 +153,22 @@ func TestPutItem_keepsTheStoredSecretWhenTheFieldIsOmitted(t *testing.T) {
 	}
 }
 
+func TestPutItem_refusesToCarryASecretToANewDestination(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	if err := fixture.service.PutItem(ctx, "radarr", "", radarrElement(configEditRadarrKey)); err != nil {
+		t.Fatal(err)
+	}
+	itemID := fixture.overrides(t)[0].ItemID
+	storedBefore := string(fixture.overrides(t)[0].Value)
+
+	err := fixture.service.PutItem(ctx, "radarr", itemID, map[string]any{"url": "http://other.example.com:7878"})
+
+	if !errors.Is(err, config.ErrUsage) || string(fixture.overrides(t)[0].Value) != storedBefore {
+		t.Fatalf("valeurObtenue %v, valeurAttendue a usage error and the stored item unchanged", err)
+	}
+}
+
 func TestPutItem_invalidElementWritesNothing(t *testing.T) {
 	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
 	cases := []struct {

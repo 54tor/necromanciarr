@@ -10,8 +10,14 @@ import (
 	"necromanciarr/internal/store"
 )
 
-// itemOverride prépare la surcharge d'un élément : un secret absent ou null garde la valeur enregistrée (scellée) ou,
-// à défaut, celle de cross-seed ; les secrets fournis sont scellés ; l'empreinte amont date la surcharge.
+// destinationFields désignent l'hôte qui reçoit les secrets d'un élément : un secret n'y est jamais reconduit vers une
+// autre destination.
+var destinationFields = map[string][]string{
+	"radarr": {"url"}, "sonarr": {"url"}, "torrentClients": {"url"}, "torznab": {"url"}, "fsProviders": {"address"},
+}
+
+// itemOverride prépare la surcharge d'un élément : un secret absent ou null garde la valeur précédente (enregistrée,
+// sinon cross-seed) si la destination ne change pas ; les secrets sont scellés ; l'empreinte amont date la surcharge.
 func (svc *service) itemOverride(snapshot storedSnapshot, list, itemID string, element map[string]any) (store.ConfigOverride, error) {
 	candidate := maps.Clone(element)
 	omitted := dropOmittedSecrets(list, candidate)
@@ -21,19 +27,20 @@ func (svc *service) itemOverride(snapshot storedSnapshot, list, itemID string, e
 	if itemID == "" {
 		return store.ConfigOverride{}, fmt.Errorf("%w: %s: an item id is required", config.ErrUsage, list)
 	}
-	upstream, isUpstream := svc.upstreamElement(list, itemID)
-	stored, hasStored := snapshot.override(list, itemID)
-	keepsStoredSecrets := hasStored && !stored.Deleted
-	if !keepsStoredSecrets && isUpstream {
-		copyFields(candidate, upstream, omitted)
-	}
-	if err := svc.sealElement(list, itemID, candidate); err != nil {
+	sealer, err := svc.sealer()
+	if err != nil {
 		return store.ConfigOverride{}, err
 	}
-	if keepsStoredSecrets {
-		if err := copyStoredSecrets(candidate, stored, omitted); err != nil {
-			return store.ConfigOverride{}, err
-		}
+	upstream, isUpstream := svc.upstreamElement(list, itemID)
+	previous, err := previousElement(snapshot, sealer, list, itemID, upstream)
+	if err != nil {
+		return store.ConfigOverride{}, err
+	}
+	if err := carryOmittedSecrets(list, itemID, candidate, previous, omitted); err != nil {
+		return store.ConfigOverride{}, err
+	}
+	if err := sealer.SealElement(list, itemID, candidate); err != nil {
+		return store.ConfigOverride{}, err
 	}
 	value, err := json.Marshal(candidate)
 	if err != nil {
@@ -46,12 +53,39 @@ func (svc *service) itemOverride(snapshot storedSnapshot, list, itemID string, e
 	return override, nil
 }
 
-func (svc *service) sealElement(list, itemID string, element map[string]any) error {
-	sealer, err := svc.sealer()
-	if err != nil {
-		return err
+// previousElement rend l'élément en clair que l'écriture remplace : la surcharge enregistrée descellée, sinon l'amont.
+func previousElement(snapshot storedSnapshot, sealer *config.FieldSealer, list, itemID string, upstream config.Element) (map[string]any, error) {
+	stored, hasStored := snapshot.override(list, itemID)
+	if !hasStored || stored.Deleted {
+		return upstream, nil
 	}
-	return sealer.SealElement(list, itemID, element)
+	var storedElement map[string]any
+	if err := json.Unmarshal(stored.Value, &storedElement); err != nil {
+		return nil, fmt.Errorf("%w: stored %s item %q: unreadable element", config.ErrUsage, list, itemID)
+	}
+	if err := sealer.OpenElement(list, itemID, storedElement); err != nil {
+		return nil, err
+	}
+	return storedElement, nil
+}
+
+// carryOmittedSecrets reprend les secrets omis de l'élément précédent, sauf si la destination change.
+func carryOmittedSecrets(list, itemID string, candidate, previous map[string]any, omitted []string) error {
+	carried := slices.DeleteFunc(slices.Clone(omitted), func(field string) bool {
+		_, present := previous[field]
+		return !present
+	})
+	if len(carried) == 0 {
+		return nil
+	}
+	for _, field := range destinationFields[list] {
+		value, isProvided := candidate[field]
+		if isProvided && value != previous[field] {
+			return fmt.Errorf("%w: %s item %q: re-enter the secrets when %s changes", config.ErrUsage, list, itemID, field)
+		}
+	}
+	copyFields(candidate, previous, carried)
+	return nil
 }
 
 // dropOmittedSecrets retire les secrets null et rend les champs secrets que l'élément ne fournit pas.
@@ -74,15 +108,6 @@ func copyFields(target, source map[string]any, fields []string) {
 			target[field] = value
 		}
 	}
-}
-
-func copyStoredSecrets(target map[string]any, stored store.ConfigOverride, fields []string) error {
-	var storedElement map[string]any
-	if err := json.Unmarshal(stored.Value, &storedElement); err != nil {
-		return fmt.Errorf("%w: stored %s item %q: unreadable element", config.ErrUsage, stored.List, stored.ItemID)
-	}
-	copyFields(target, storedElement, fields)
-	return nil
 }
 
 // upstreamElement rend l'élément importé de cross-seed sous cet identifiant (secrets en clair).
