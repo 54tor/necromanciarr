@@ -19,8 +19,7 @@ func TestRun_unknownSubcommandPrintsUsageAndExits2(t *testing.T) {
 }
 
 func TestRun_configCheckPrintsRedactedConfigAndFailsOnError(t *testing.T) {
-	t.Setenv("SECRET_FOR_TEST", "secret-value")
-	configDir := writeDoctorConfig(t, `{"radarr": ["http://example.com:7878?apikey=${SECRET_FOR_TEST}"]}`)
+	configDir := writeDoctorConfig(t, `{"radarr": ["http://example.com:7878?apikey=secret-value"]}`)
 	var stdout, stderr bytes.Buffer
 
 	exitCode := run([]string{"config", "check", "--config-dir", configDir}, &stdout, &stderr)

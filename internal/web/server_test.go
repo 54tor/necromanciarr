@@ -721,13 +721,9 @@ const (
 
 func trackerSettings(t *testing.T) config.Config {
 	t.Helper()
-	content := `{"trackers": {"tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}",
-		"tracker-b": {"announce": ["udp://tracker-b.example.com:6969/announce?pk=${PASSKEY_TRACKER_B}"]}}}`
-	environment := map[string]string{"PASSKEY_TRACKER_A": webPasskeyA, "PASSKEY_TRACKER_B": webPasskeyB}
-	settings, err := config.LoadWith(nil, func(name string) (string, bool) {
-		value, found := environment[name]
-		return value, found
-	}, t.TempDir(), configtest.Opener(t, content))
+	content := `{"trackers": {"tracker-a": "https://tracker-a.example.com/announce/0000aaaa0000aaaa0000aaaa0000aaaa",
+		"tracker-b": {"announce": ["udp://tracker-b.example.com:6969/announce?pk=fake\"pass&key/0000"]}}}`
+	settings, err := config.LoadWith(nil, func(string) (string, bool) { return "", false }, t.TempDir(), configtest.Opener(t, content))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -754,7 +750,7 @@ func expectNoWebPasskey(t *testing.T, label, output string) {
 	}
 }
 
-func TestRedact_trackerVariableValueEverywhere(t *testing.T) {
+func TestRedact_trackerPasskeyEverywhere(t *testing.T) {
 	leak := webLeakingText()
 	fake := &fakeService{
 		language: i18n.English,

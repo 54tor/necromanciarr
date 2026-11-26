@@ -198,7 +198,7 @@ func LoadWith(args []string, lookupEnv func(string) (string, bool), defaultConfi
 	if err != nil {
 		return Config{}, err
 	}
-	loadedConfig, err := buildConfig(layers.rawFile, environment.lookup)
+	loadedConfig, err := buildConfig(layers.rawFile)
 	if err != nil {
 		return Config{}, err
 	}
@@ -362,7 +362,7 @@ func resolveConfigDir(options commandLine, lookupEnv func(string) (string, bool)
 	return explicitDir, nil
 }
 
-func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config, error) {
+func buildConfig(rawFile fileConfig) (Config, error) {
 	loadedConfig := Config{
 		ListenAddr:               rawFile.Listen,
 		ReadBytesPerSecond:       rawFile.ReadBytesPerSecond,
@@ -385,7 +385,7 @@ func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config
 	if loadedConfig.Dedupe, err = parseDedupe(rawFile.Dedupe); err != nil {
 		return Config{}, err
 	}
-	if loadedConfig.FSProviders, err = parseFSProviders(rawFile.FSProviders, lookup); err != nil {
+	if loadedConfig.FSProviders, err = parseFSProviders(rawFile.FSProviders); err != nil {
 		return Config{}, err
 	}
 	if loadedConfig.Radarr, err = parseArrServices("radarr", rawFile.Radarr); err != nil {
@@ -397,13 +397,13 @@ func buildConfig(rawFile fileConfig, lookup func(string) (string, bool)) (Config
 	if loadedConfig.TorrentClients, err = parseTorrentClients(rawFile.TorrentClients); err != nil {
 		return Config{}, err
 	}
-	return withSources(loadedConfig, rawFile, lookup)
+	return withSources(loadedConfig, rawFile)
 }
 
 // withSources ajoute les indexeurs Torznab, Prowlarr, l'ordre des sources et les annonces des trackers.
-func withSources(loadedConfig Config, rawFile fileConfig, lookup func(string) (string, bool)) (Config, error) {
+func withSources(loadedConfig Config, rawFile fileConfig) (Config, error) {
 	var err error
-	if loadedConfig.Torznab, err = parseTorznab(rawFile.Torznab, lookup); err != nil {
+	if loadedConfig.Torznab, err = parseTorznab(rawFile.Torznab); err != nil {
 		return Config{}, err
 	}
 	if err = parseProwlarr(rawFile.Prowlarr); err != nil {
@@ -413,7 +413,7 @@ func withSources(loadedConfig Config, rawFile fileConfig, lookup func(string) (s
 	if loadedConfig.SourceOrder, err = resolveSourceOrder(rawFile.SourceOrder, loadedConfig.Torznab); err != nil {
 		return Config{}, err
 	}
-	if loadedConfig.Trackers, err = parseTrackers(rawFile.Trackers, lookup); err != nil {
+	if loadedConfig.Trackers, err = parseTrackers(rawFile.Trackers); err != nil {
 		return Config{}, err
 	}
 	return loadedConfig, nil

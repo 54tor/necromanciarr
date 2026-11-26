@@ -161,11 +161,26 @@ func TestLoad_readsTheWorkingDirectoryDotEnvOnlyWithoutAConfigDirOneAndSaysSo(t 
 	}
 }
 
-func TestLoad_undefinedVariableNamesItInTheError(t *testing.T) {
-	_, err := loadStored(t, nil, nil, `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://rcuser:${NOPE_KEY}@rclone:5572"}]}`)
+func TestLoadWith_neverInterpolatesAStoredReference(t *testing.T) {
+	const variableName, variableValue = "STORED_SECRET_VAR", "env-secret-value-0000"
+	environment := map[string]string{variableName: variableValue}
+	reference := "${" + variableName + "}"
+	documents := map[string]string{
+		"fsProviders rclone": `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://u:` + reference + `@rclone:5572"}]}`,
+		"fsProviders sftp":   configWith(t, sftpProvider(map[string]any{"password": reference}), nil),
+		"torznab":            `{"torznab": [{"name": "indexer", "url": "https://indexer.example.com/api?apikey=` + reference + `"}]}`,
+		"trackers":           `{"trackers": {"tracker-a": "https://tracker-a.example.com/announce/` + reference + `"}}`,
+	}
+	for documentName, content := range documents {
+		loadedConfig, err := loadStored(t, nil, environment, content)
 
-	if err == nil || !strings.Contains(err.Error(), "NOPE_KEY") || !strings.Contains(err.Error(), "fsProviders[0]") {
-		t.Fatalf("unexpected error: %v", err)
+		if !errors.Is(err, ErrInvalidStoredConfig) || !errors.Is(err, ErrUsage) {
+			t.Fatalf("%s: valeurObtenue %v, valeurAttendue an invalid stored configuration", documentName, err)
+		}
+		rendered := err.Error() + fmt.Sprintf("%#v", loadedConfig)
+		if strings.Contains(rendered, variableValue) || strings.Contains(rendered, variableName) {
+			t.Fatalf("%s: valeurObtenue %q, valeurAttendue neither the variable nor its value", documentName, rendered)
+		}
 	}
 }
 

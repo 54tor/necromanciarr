@@ -72,7 +72,7 @@ func TestConfig_sftpDefaults(t *testing.T) {
 
 func TestConfig_sftpReadsEveryKey(t *testing.T) {
 	provider := sftpProvider(map[string]any{
-		"agent": true, "password": "${SFTP_PASSWORD}", "identityPassphrase": "${SFTP_KEY_PASSPHRASE}",
+		"agent": true, "password": sftpPasswordForTest, "identityPassphrase": sftpPassphraseForTest,
 		"readBytesPerSecond": 10485760, "maxConcurrentRequests": 4, "timeout": "5s", "keepalive": "7s", "exec": "required",
 		"execHashTimeout": "2m",
 	})
@@ -124,19 +124,19 @@ func TestConfig_sftpRequiresKnownHosts(t *testing.T) {
 	}
 }
 
-func TestConfig_sftpRefusesASecretMixingTextAndVariables(t *testing.T) {
+func TestConfig_sftpRefusesAVariableReferenceInASecret(t *testing.T) {
 	for _, key := range []string{"password", "identityPassphrase"} {
-		for _, literal := range []string{"prefix-${SFTP_PASSWORD}", "${SFTP_PASSWORD}${SFTP_KEY_PASSPHRASE}"} {
-			content := configWith(t, sftpProvider(map[string]any{key: literal}), nil)
+		for _, reference := range []string{"${SFTP_PASSWORD}", "prefix-${SFTP_PASSWORD}"} {
+			content := configWith(t, sftpProvider(map[string]any{key: reference}), nil)
 
 			_, err := loadFromJSON(t, content, sftpEnvironment())
 
-			if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), key) {
-				t.Fatalf("%s %q: valeurObtenue %v, valeurAttendue a usage error naming the key", key, literal, err)
+			if !errors.Is(err, ErrInvalidStoredConfig) || !strings.Contains(err.Error(), key) {
+				t.Fatalf("%s %q: valeurObtenue %v, valeurAttendue a refusal naming the field", key, reference, err)
 			}
-			for _, secret := range []string{sftpPasswordForTest, sftpPassphraseForTest, "prefix-"} {
-				if strings.Contains(err.Error(), secret) {
-					t.Fatalf("%s: the error echoes the value: %v", key, err)
+			for _, forbidden := range []string{sftpPasswordForTest, "SFTP_PASSWORD"} {
+				if strings.Contains(err.Error(), forbidden) {
+					t.Fatalf("%s: the error echoes %q: %v", key, forbidden, err)
 				}
 			}
 		}
@@ -236,7 +236,7 @@ func TestConfig_refusesRemoteDBPathBeforeOpeningTheDatabase(t *testing.T) {
 }
 
 func TestConfigCheck_masksSFTPSecrets(t *testing.T) {
-	provider := sftpProvider(map[string]any{"password": "${SFTP_PASSWORD}", "identityPassphrase": "${SFTP_KEY_PASSPHRASE}"})
+	provider := sftpProvider(map[string]any{"password": sftpPasswordForTest, "identityPassphrase": sftpPassphraseForTest})
 	loadedConfig, err := loadFromJSON(t, configWith(t, provider, nil), sftpEnvironment())
 	if err != nil {
 		t.Fatal(err)

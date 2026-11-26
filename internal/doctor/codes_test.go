@@ -332,8 +332,8 @@ func TestRender_titleStaysInTheJSONAndCodesAreNeverTranslated(t *testing.T) {
 func TestDoctor_redactsTrackerPasskeyInPanicAndDetail(t *testing.T) {
 	const passkey = `fake"pass&key/0000`
 	configDir := t.TempDir()
-	content := `{"radarr": ["http://example.com:7878?apikey=k"], "trackers": {"tracker-a": "https://tracker-a.example.com/announce?pk=${PASSKEY_TRACKER_A}"}}`
-	settings, err := config.LoadWith(nil, func(name string) (string, bool) { return passkey, name == "PASSKEY_TRACKER_A" }, configDir, configtest.Opener(t, content))
+	content := `{"radarr": ["http://example.com:7878?apikey=k"], "trackers": {"tracker-a": "https://tracker-a.example.com/announce?pk=fake\"pass&key/0000"}}`
+	settings, err := config.LoadWith(nil, func(string) (string, bool) { return "", false }, configDir, configtest.Opener(t, content))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -19,19 +19,13 @@ const (
 	trackerPasskeyA = "0000aaaa0000aaaa0000aaaa0000aaaa"
 	trackerPasskeyB = `fake"pass&key/0000`
 	trackersConfig  = `{"trackers": {
-  "tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}",
+  "tracker-a": "https://tracker-a.example.com/announce/0000aaaa0000aaaa0000aaaa0000aaaa",
   "tracker-b": {
-    "announce": ["https://tracker-b.example.com/x/announce", "udp://tracker-b.example.com:6969/announce?pk=${PASSKEY_TRACKER_B}"],
+    "announce": ["https://tracker-b.example.com/x/announce", "udp://tracker-b.example.com:6969/announce?pk=fake\"pass&key/0000"],
     "aliases": ["TrackerB"]
   }
 }}`
 )
-
-func setTrackerPasskeys(t *testing.T) {
-	t.Helper()
-	t.Setenv("PASSKEY_TRACKER_A", trackerPasskeyA)
-	t.Setenv("PASSKEY_TRACKER_B", trackerPasskeyB)
-}
 
 // percentEncodeEveryByte encode chaque octet, comme le ferait une couche basse qui réécrit l'URL entière.
 func percentEncodeEveryByte(text string) string {
@@ -75,8 +69,7 @@ func expectNoPasskey(t *testing.T, label, output string) {
 	}
 }
 
-func TestRedact_trackerVariableValueEverywhere(t *testing.T) {
-	setTrackerPasskeys(t)
+func TestRedact_trackerPasskeyEverywhere(t *testing.T) {
 	configDir := writeDoctorConfig(t, trackersConfig)
 	leak := leakingText()
 	fake := &fakeService{
@@ -106,8 +99,7 @@ func TestRedact_trackerVariableValueEverywhere(t *testing.T) {
 }
 
 func TestRedact_refusedTrackerNeverEchoesTheURL(t *testing.T) {
-	setTrackerPasskeys(t)
-	configDir := writeDoctorConfig(t, `{"trackers": {"tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}#x"}}`)
+	configDir := writeDoctorConfig(t, `{"trackers": {"tracker-a": "https://tracker-a.example.com/announce/0000aaaa0000aaaa0000aaaa0000aaaa#x"}}`)
 
 	for _, args := range [][]string{{"config", "check"}, {"status", "--json"}} {
 		result := runCli(t, configDir, args...)
@@ -122,8 +114,7 @@ func TestRedact_refusedTrackerNeverEchoesTheURL(t *testing.T) {
 	}
 }
 
-func TestConfigCheck_showsTrackerHostsAndVariableNamesOnly(t *testing.T) {
-	setTrackerPasskeys(t)
+func TestConfigCheck_showsTrackerHostsOnly(t *testing.T) {
 	configDir := writeDoctorConfig(t, trackersConfig)
 
 	result := runCli(t, configDir, "config", "check")
@@ -139,26 +130,11 @@ func TestConfigCheck_showsTrackerHostsAndVariableNamesOnly(t *testing.T) {
 	if result.exitCode != successExitCode || json.Unmarshal([]byte(result.stdout), &printed) != nil {
 		t.Fatalf("gotValue exit %d stdout %q stderr %q, expectedValue the configuration as JSON", result.exitCode, result.stdout, result.stderr)
 	}
-	expectedValue := `[{tracker-a [] [https://tracker-a.example.com/***] [PASSKEY_TRACKER_A]} {tracker-b [TrackerB] [https://tracker-b.example.com/*** udp://tracker-b.example.com:6969/***] [PASSKEY_TRACKER_B]}]`
+	expectedValue := `[{tracker-a [] [https://tracker-a.example.com/***] []} {tracker-b [TrackerB] [https://tracker-b.example.com/*** udp://tracker-b.example.com:6969/***] []}]`
 	if gotValue := fmt.Sprint(printed.Trackers); gotValue != expectedValue {
 		t.Fatalf("gotValue %s, expectedValue %s", gotValue, expectedValue)
 	}
 	expectNoPasskey(t, "config check", result.stdout+result.stderr)
-}
-
-func TestConfigCheck_namesATrackerValueTooShortToMask(t *testing.T) {
-	setTrackerPasskeys(t)
-	t.Setenv("UID", "a")
-	configDir := writeDoctorConfig(t, `{"trackers": {"tracker-a": "https://tracker-a.example.com/announce?uid=${UID}&pk=${PASSKEY_TRACKER_A}"}}`)
-
-	result := runCli(t, configDir, "config", "check")
-
-	if result.exitCode != successExitCode || !strings.Contains(result.stderr, "UID") || !strings.Contains(result.stderr, "8") {
-		t.Fatalf("gotValue exit %d stderr %q, expectedValue a warning naming UID and the 8-character minimum", result.exitCode, result.stderr)
-	}
-	if !strings.Contains(result.stderr, "(source: flag)") {
-		t.Fatalf("gotValue %q, expectedValue ordinary text (the language source) untouched by the short value", result.stderr)
-	}
 }
 
 func TestPrinter_controlByteCannotSplitASecretPastTheRedaction(t *testing.T) {

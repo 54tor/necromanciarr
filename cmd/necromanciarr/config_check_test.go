@@ -9,15 +9,13 @@ import (
 const fakeSecretKey = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"
 
 func TestConfigCheck_masksTorznabKeysAndSecretKey(t *testing.T) {
-	t.Setenv("INDEXER_KEY_A", "secret-indexer-a")
-	t.Setenv("INDEXER_KEY_B", "secret-prowlarr-b")
 	t.Setenv("NECROMANCIARR_SECRET_KEY", fakeSecretKey)
 	configDir := writeDoctorConfig(t, `{
   "torznab": [
-    {"url": "https://prowlarr.example.com:9696/12/api?apikey=${INDEXER_KEY_A}", "name": "12"},
+    {"url": "https://prowlarr.example.com:9696/12/api?apikey=secret-indexer-a", "name": "12"},
     {"url": "https://prowlarr.example.com:9696/7/api?apikey=secret-b%26%22c%5Cd", "name": "tracker-a"}
   ],
-  "prowlarr": "https://prowlarr.example.com:9696?apikey=${INDEXER_KEY_B}"
+  "prowlarr": "https://prowlarr.example.com:9696?apikey=secret-prowlarr-b"
 }`)
 
 	for _, language := range []string{"fr", "en"} {

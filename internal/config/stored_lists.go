@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 
 	"necromanciarr/internal/store"
 )
@@ -111,10 +112,34 @@ func openOverride(override store.ConfigOverride, sealer *fieldSealer) (store.Con
 	if containsSealed(element) {
 		return store.ConfigOverride{}, fmt.Errorf("stored %s item: %w", override.List, ErrSealedSecretUnreadable)
 	}
+	for field, value := range element {
+		if containsReference(value) {
+			return store.ConfigOverride{}, usageError{message: fmt.Sprintf(
+				"stored %s item %q: field %s: ${...} references are not supported, store the value itself",
+				override.List, override.ItemID, field)}
+		}
+	}
 	if override.Value, err = json.Marshal(element); err != nil {
 		return store.ConfigOverride{}, fmt.Errorf("stored %s item: %w", override.List, ErrInvalidElement)
 	}
 	return override, nil
+}
+
+// containsReference repère une référence ${...} : une valeur stockée n'est jamais interpolée.
+func containsReference(value any) bool {
+	switch typed := value.(type) {
+	case string:
+		return strings.Contains(typed, "${")
+	case []any:
+		return slices.ContainsFunc(typed, containsReference)
+	case map[string]any:
+		for _, entry := range typed {
+			if containsReference(entry) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func unknownListOrphans(overrides []store.ConfigOverride) []OrphanOverride {

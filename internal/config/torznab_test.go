@@ -119,7 +119,7 @@ func TestParseTorznab_defaultsNameFromPathOrPosition(t *testing.T) {
 	}
 	expectedNames := []string{"12", "1", "9"}
 
-	indexers, err := parseTorznab(rawEntries, lookupFrom(nil))
+	indexers, err := parseTorznab(rawEntries)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestParseTorznab_refusesTheSameDefaultNameOnTwoHosts(t *testing.T) {
 		json.RawMessage(`"https://a.example.com/12/api?apikey=k"`), json.RawMessage(`"https://b.example.com/12/api?apikey=k"`),
 	}
 
-	_, err := parseTorznab(rawEntries, lookupFrom(nil))
+	_, err := parseTorznab(rawEntries)
 
 	if err == nil || !strings.Contains(err.Error(), "name") {
 		t.Fatalf("gotValue %v, expectedValue an error about the name", err)
@@ -256,26 +256,6 @@ func TestConfig_torznabRefusesNonPositiveLimits(t *testing.T) {
 	}
 }
 
-func TestConfig_torznabInterpolatesVariablesInTheURL(t *testing.T) {
-	loadedConfig, err := loadTorznabConfig(t, `{"torznab": ["https://prowlarr.example.com/12/api?apikey=${PROWLARR_API_KEY}"],
-		"prowlarr": "https://prowlarr.example.com:9696?apikey=${PROWLARR_API_KEY}"}`,
-		map[string]string{"PROWLARR_API_KEY": fakeIndexerKey})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if loadedConfig.Torznab[0].URL != "https://prowlarr.example.com/12/api?apikey="+fakeIndexerKey {
-		t.Fatalf("gotValue %q, expectedValue the interpolated URL", "…")
-	}
-	if !slices.Contains(loadedConfig.KnownSecrets(), fakeIndexerKey) {
-		t.Fatalf("gotValue %v, expectedValue the key among the known secrets", loadedConfig.KnownSecrets())
-	}
-	_, err = loadTorznabConfig(t, `{"torznab": ["https://prowlarr.example.com/12/api?apikey=${MISSING_KEY}"]}`, nil)
-	if err == nil || !strings.Contains(err.Error(), "MISSING_KEY") {
-		t.Fatalf("gotValue %v, expectedValue an error naming the undefined variable", err)
-	}
-}
-
 func TestConfig_prowlarrIsValidatedLikeAnIndexerURL(t *testing.T) {
 	for name, rawURL := range map[string]string{
 		"extra parameter": "https://prowlarr.example.com:9696?apikey=secret-k&x=1",
@@ -295,10 +275,9 @@ func TestConfig_prowlarrIsValidatedLikeAnIndexerURL(t *testing.T) {
 
 func TestConfig_torznabAndProwlarrKeysAreNeverRendered(t *testing.T) {
 	loadedConfig, err := loadTorznabConfig(t, `{"torznab": [
-		"https://prowlarr.example.com:9696/12/api?apikey=${INDEXER_KEY}",
+		"https://prowlarr.example.com:9696/12/api?apikey=secret-indexer-key",
 		{"url": "https://prowlarr.example.com:9696/7/api?apikey=secret-a%26b%22c", "name": "tracker-a"}
-	], "prowlarr": "https://prowlarr.example.com:9696?apikey=${PROWLARR_KEY}"}`,
-		map[string]string{"INDEXER_KEY": fakeIndexerKey, "PROWLARR_KEY": fakeProwlarrKey})
+	], "prowlarr": "https://prowlarr.example.com:9696?apikey=secret-prowlarr-key"}`, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

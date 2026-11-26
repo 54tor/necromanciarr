@@ -148,6 +148,13 @@ func mustMarshal(t *testing.T, value any) []byte {
 	return encoded
 }
 
+func lookupFrom(variables map[string]string) func(string) (string, bool) {
+	return func(name string) (string, bool) {
+		variableValue, found := variables[name]
+		return variableValue, found
+	}
+}
+
 func loadStored(t *testing.T, args []string, environment map[string]string, content string) (Config, error) {
 	t.Helper()
 	return LoadWith(args, lookupFrom(environment), t.TempDir(), openFake(storedFromJSON(t, content)))

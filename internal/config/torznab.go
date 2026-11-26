@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -139,11 +138,11 @@ type torznabFile struct {
 
 // parseTorznab lit la liste « torznab » : chaque entrée est une URL ou un objet. Les messages ne reprennent jamais
 // l'URL, qui porte la clé.
-func parseTorznab(rawEntries []json.RawMessage, lookup func(string) (string, bool)) ([]TorznabIndexer, error) {
+func parseTorznab(rawEntries []json.RawMessage) ([]TorznabIndexer, error) {
 	var indexers []TorznabIndexer
 	usedNames := map[string]bool{}
 	for entryIndex, rawEntry := range rawEntries {
-		indexer, err := parseTorznabEntry(rawEntry, entryIndex, lookup)
+		indexer, err := parseTorznabEntry(rawEntry, entryIndex)
 		if err != nil {
 			return nil, fmt.Errorf("torznab[%d]: %w", entryIndex, err)
 		}
@@ -156,12 +155,9 @@ func parseTorznab(rawEntries []json.RawMessage, lookup func(string) (string, boo
 	return indexers, nil
 }
 
-func parseTorznabEntry(rawEntry json.RawMessage, entryIndex int, lookup func(string) (string, bool)) (TorznabIndexer, error) {
+func parseTorznabEntry(rawEntry json.RawMessage, entryIndex int) (TorznabIndexer, error) {
 	rawFile, err := decodeTorznabFile(rawEntry)
 	if err != nil {
-		return TorznabIndexer{}, err
-	}
-	if err := interpolateValue(reflect.ValueOf(&rawFile).Elem(), "", lookup); err != nil {
 		return TorznabIndexer{}, err
 	}
 	if err := validateIndexerURL(rawFile.URL, true); err != nil {

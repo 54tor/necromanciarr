@@ -18,11 +18,11 @@ func loadFromJSON(t *testing.T, content string, environment map[string]string) (
 
 func TestFsProviders_parsesRcloneEntryWithMounts(t *testing.T) {
 	remoteMount, otherMount := absPath("mnt", "remote"), absPath("mnt", "other")
-	content := `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://rcuser:${RCLONE_RC_PASS}@rclone:5572",
+	content := `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://rcuser:RC-PASS-FOR-TEST@rclone:5572",
 		"binary": "/usr/bin/rclone", "timeout": "30s", "mounts": ["` + jsonText(remoteMount) + `=remote:bucket/prefix", "` +
 		jsonText(otherMount) + `=other:"]}]}`
 
-	loadedConfig, err := loadFromJSON(t, content, map[string]string{"RCLONE_RC_PASS": rcPasswordForTest})
+	loadedConfig, err := loadFromJSON(t, content, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestFsProviders_rejectsDuplicateNameAndSharedMountPath(t *testing.T) {
 		{"rc not http", `[{"type":"rclone","name":"a","rc":"ftp://u:` + rcPasswordForTest + `@h:1"}]`, "rc must be an http(s) url"},
 		{"rc without host", `[{"type":"rclone","name":"a","rc":"http://u:` + rcPasswordForTest + `@"}]`, "rc must be an http(s) url"},
 		{"rc fragment", `[{"type":"rclone","name":"a","rc":"http://u:` + rcPasswordForTest + `@h:1#x"}]`, "rc must be an http(s) url"},
-		{"undefined variable", `[{"type":"rclone","name":"a","rc":"http://u:${NOPE}@h:1"}]`, "undefined variable NOPE"},
+		{"variable reference", `[{"type":"rclone","name":"a","rc":"http://u:${NOPE}@h:1"}]`, "references are not supported"},
 	}
 	for _, testCase := range cases {
 		_, err := loadFromJSON(t, `{"fsProviders": `+testCase.providers+`}`, nil)
@@ -130,8 +130,8 @@ func TestFsProviders_nestedMountPathsAcrossProvidersAreAllowed(t *testing.T) {
 }
 
 func TestFsProviders_redactsRcCredentials(t *testing.T) {
-	loadedConfig, err := loadFromJSON(t, `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://rcuser:${RCLONE_RC_PASS}@rclone:5572",
-		"mounts": ["`+jsonText(absPath("mnt", "remote"))+`=remote:bucket"]}]}`, map[string]string{"RCLONE_RC_PASS": rcPasswordForTest})
+	loadedConfig, err := loadFromJSON(t, `{"fsProviders": [{"type": "rclone", "name": "remote", "rc": "http://rcuser:RC-PASS-FOR-TEST@rclone:5572",
+		"mounts": ["`+jsonText(absPath("mnt", "remote"))+`=remote:bucket"]}]}`, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

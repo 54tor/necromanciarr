@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -18,6 +17,8 @@ import (
 const (
 	fakePasskeyA = "0000aaaa0000aaaa0000aaaa0000aaaa"
 	fakePasskeyB = `fake"pass&key/0000`
+	// fakeStoredPasskeyB est une passkey littérale de la base, assez longue pour être reconnue comme secret.
+	fakeStoredPasskeyB = "1111bbbb1111bbbb1111bbbb"
 )
 
 func trackerEnvironment() map[string]string {
@@ -30,11 +31,11 @@ func loadTrackerConfig(t *testing.T, trackers string, environment map[string]str
 }
 
 const sampleTrackers = `{
-  "tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}",
+  "tracker-a": "https://tracker-a.example.com/announce/0000aaaa0000aaaa0000aaaa0000aaaa",
   "tracker-b": {
     "announce": [
-      "https://tracker-b.example.com/${PASSKEY_TRACKER_B}/announce",
-      "udp://tracker-b.example.com:6969/announce?pk=${PASSKEY_TRACKER_B}"
+      "https://tracker-b.example.com/1111bbbb1111bbbb1111bbbb/announce",
+      "udp://tracker-b.example.com:6969/announce?pk=1111bbbb1111bbbb1111bbbb"
     ],
     "aliases": ["TrackerB", "tracker-b.example.com"]
   }
@@ -57,15 +58,14 @@ func TestConfig_trackerStringOrObjectForms(t *testing.T) {
 	expectedValue := []Tracker{
 		{
 			Key: "tracker-a", Announce: []string{"https://tracker-a.example.com/announce/" + fakePasskeyA},
-			Variables: []string{"PASSKEY_TRACKER_A"},
 		},
 		{
 			Key: "tracker-b",
 			Announce: []string{
-				"https://tracker-b.example.com/" + fakePasskeyB + "/announce",
-				"udp://tracker-b.example.com:6969/announce?pk=" + fakePasskeyB,
+				"https://tracker-b.example.com/" + fakeStoredPasskeyB + "/announce",
+				"udp://tracker-b.example.com:6969/announce?pk=" + fakeStoredPasskeyB,
 			},
-			Aliases: []string{"TrackerB", "tracker-b.example.com"}, Variables: []string{"PASSKEY_TRACKER_B"},
+			Aliases: []string{"TrackerB", "tracker-b.example.com"},
 		},
 	}
 	if len(loadedConfig.Trackers) != len(expectedValue) {
@@ -101,10 +101,10 @@ func TestConfig_trackerObjectRefusesUnknownKeyOrEmptyAnnounce(t *testing.T) {
 
 func TestConfig_refusesTrackerAliasCollision(t *testing.T) {
 	for name, trackers := range map[string]string{
-		"alias equals another key":  `{"tracker-a": "https://tracker-a.example.com/${PASSKEY_TRACKER_A}", "tracker-b": {"announce": ["https://tracker-b.example.com/${PASSKEY_TRACKER_A}"], "aliases": ["TRACKER-A"]}}`,
-		"keys differing by case":    `{"Tracker-A": "https://tracker-a.example.com/${PASSKEY_TRACKER_A}", "tracker-a": "https://tracker-b.example.com/${PASSKEY_TRACKER_A}"}`,
-		"keys differing by a space": `{"tracker a": "https://tracker-a.example.com/${PASSKEY_TRACKER_A}", "trackera": "https://tracker-b.example.com/${PASSKEY_TRACKER_A}"}`,
-		"shared alias":              `{"tracker-a": {"announce": ["https://tracker-a.example.com/${PASSKEY_TRACKER_A}"], "aliases": ["shared"]}, "tracker-b": {"announce": ["https://tracker-b.example.com/${PASSKEY_TRACKER_A}"], "aliases": ["Shared"]}}`,
+		"alias equals another key":  `{"tracker-a": "https://tracker-a.example.com/0000aaaa0000aaaa0000aaaa0000aaaa", "tracker-b": {"announce": ["https://tracker-b.example.com/0000aaaa0000aaaa0000aaaa0000aaaa"], "aliases": ["TRACKER-A"]}}`,
+		"keys differing by case":    `{"Tracker-A": "https://tracker-a.example.com/0000aaaa0000aaaa0000aaaa0000aaaa", "tracker-a": "https://tracker-b.example.com/0000aaaa0000aaaa0000aaaa0000aaaa"}`,
+		"keys differing by a space": `{"tracker a": "https://tracker-a.example.com/0000aaaa0000aaaa0000aaaa0000aaaa", "trackera": "https://tracker-b.example.com/0000aaaa0000aaaa0000aaaa0000aaaa"}`,
+		"shared alias":              `{"tracker-a": {"announce": ["https://tracker-a.example.com/0000aaaa0000aaaa0000aaaa0000aaaa"], "aliases": ["shared"]}, "tracker-b": {"announce": ["https://tracker-b.example.com/0000aaaa0000aaaa0000aaaa0000aaaa"], "aliases": ["Shared"]}}`,
 	} {
 		_, err := loadTrackerConfig(t, trackers, trackerEnvironment())
 
@@ -126,17 +126,17 @@ func TestConfig_trackerOwnAliasEqualToItsKeyIsAccepted(t *testing.T) {
 
 func TestConfig_trackerRefusesFragmentOrMissingHost(t *testing.T) {
 	for name, announce := range map[string]string{
-		"fragment":            "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}#x",
-		"empty fragment":      "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}#",
-		"missing host":        "https:///announce/${PASSKEY_TRACKER_A}",
-		"opaque udp":          "udp:tracker-a.example.com/${PASSKEY_TRACKER_A}",
-		"no scheme":           "tracker-a.example.com/announce/${PASSKEY_TRACKER_A}",
-		"other scheme":        "wss://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}",
-		"port without host":   "https://:443/announce/${PASSKEY_TRACKER_A}",
-		"unparsable":          "https://tracker-a.example.com:port/${PASSKEY_TRACKER_A}",
-		"control character":   "https://tracker-a.example.com/\u0001/${PASSKEY_TRACKER_A}",
-		"surrounding spaces":  " https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}",
-		"passkey in fragment": "https://tracker-a.example.com/announce#${PASSKEY_TRACKER_A}",
+		"fragment":            "https://tracker-a.example.com/announce/0000aaaa0000aaaa0000aaaa0000aaaa#x",
+		"empty fragment":      "https://tracker-a.example.com/announce/0000aaaa0000aaaa0000aaaa0000aaaa#",
+		"missing host":        "https:///announce/0000aaaa0000aaaa0000aaaa0000aaaa",
+		"opaque udp":          "udp:tracker-a.example.com/0000aaaa0000aaaa0000aaaa0000aaaa",
+		"no scheme":           "tracker-a.example.com/announce/0000aaaa0000aaaa0000aaaa0000aaaa",
+		"other scheme":        "wss://tracker-a.example.com/announce/0000aaaa0000aaaa0000aaaa0000aaaa",
+		"port without host":   "https://:443/announce/0000aaaa0000aaaa0000aaaa0000aaaa",
+		"unparsable":          "https://tracker-a.example.com:port/0000aaaa0000aaaa0000aaaa0000aaaa",
+		"control character":   "https://tracker-a.example.com/\u0001/0000aaaa0000aaaa0000aaaa0000aaaa",
+		"surrounding spaces":  " https://tracker-a.example.com/announce/0000aaaa0000aaaa0000aaaa0000aaaa",
+		"passkey in fragment": "https://tracker-a.example.com/announce#0000aaaa0000aaaa0000aaaa0000aaaa",
 	} {
 		_, err := loadTrackerConfig(t, `{"tracker-a": "`+jsonText(announce)+`"}`, trackerEnvironment())
 
@@ -159,14 +159,6 @@ func TestConfig_trackerAcceptsUppercaseSchemeAndIPv6Host(t *testing.T) {
 	}
 }
 
-func TestConfig_trackerUndefinedVariableNamesItOnly(t *testing.T) {
-	_, err := loadTrackerConfig(t, `{"tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_MISSING}"}`, nil)
-
-	if err == nil || !strings.Contains(err.Error(), "PASSKEY_MISSING") || strings.Contains(err.Error(), "example.com") {
-		t.Fatalf("gotValue %v, expectedValue an error naming the variable only", err)
-	}
-}
-
 func TestConfig_trackerValuesAreKnownSecretsUnderEveryForm(t *testing.T) {
 	loadedConfig, err := loadTrackerConfig(t, sampleTrackers, trackerEnvironment())
 	if err != nil {
@@ -176,8 +168,7 @@ func TestConfig_trackerValuesAreKnownSecretsUnderEveryForm(t *testing.T) {
 	gotValue := loadedConfig.KnownSecrets()
 
 	for _, expectedForm := range []string{
-		fakePasskeyA, strings.ToUpper(fakePasskeyA), fakePasskeyB, strings.ToUpper(fakePasskeyB),
-		url.QueryEscape(fakePasskeyB), url.PathEscape(fakePasskeyB), url.QueryEscape(strings.ToUpper(fakePasskeyB)),
+		fakePasskeyA, strings.ToUpper(fakePasskeyA), fakeStoredPasskeyB, strings.ToUpper(fakeStoredPasskeyB),
 	} {
 		if !slices.Contains(gotValue, expectedForm) {
 			t.Fatalf("gotValue %d known secrets without %q, expectedValue every form of the passkey", len(gotValue), expectedForm)
@@ -211,7 +202,22 @@ func TestWithDiscoveredSecrets_addsTransientValuesToTheKnownOnes(t *testing.T) {
 	}
 }
 
-func TestConfig_trackersRenderHostsAndVariableNamesOnly(t *testing.T) {
+func TestConfig_trackerPlainWordSegmentIsNotMaskedOutsideTheURL(t *testing.T) {
+	loadedConfig, err := loadTrackerConfig(t, `{"tracker-a": "https://tracker-a.example.com/announce/`+fakePasskeyA+`"}`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const ordinaryText = "the announce failed"
+
+	valeurObtenue := RedactText(ordinaryText+" for "+strings.ToUpper(fakePasskeyA), loadedConfig.KnownSecrets()...)
+
+	valeurAttendue := ordinaryText + " for ***"
+	if valeurObtenue != valeurAttendue {
+		t.Fatalf("valeurObtenue %q, valeurAttendue %q", valeurObtenue, valeurAttendue)
+	}
+}
+
+func TestConfig_trackersRenderHostsOnly(t *testing.T) {
 	loadedConfig, err := loadTrackerConfig(t, sampleTrackers, trackerEnvironment())
 	if err != nil {
 		t.Fatal(err)
@@ -233,38 +239,16 @@ func TestConfig_trackersRenderHostsAndVariableNamesOnly(t *testing.T) {
 	}
 
 	for _, rendering := range renderings {
-		for _, leaked := range []string{fakePasskeyA, "0000aaaa", "pass&key", `pass&key`, "/announce"} {
+		for _, leaked := range []string{fakePasskeyA, "0000aaaa", "pass&key", `pass&key`, fakeStoredPasskeyB, "/announce"} {
 			if strings.Contains(rendering, leaked) {
 				t.Fatalf("gotValue %q in %q, expectedValue only hosts and variable names", leaked, rendering)
 			}
 		}
 	}
-	for _, expectedPart := range []string{`"key": "tracker-b"`, `"udp://tracker-b.example.com:6969/***"`, `"PASSKEY_TRACKER_B"`, `"TrackerB"`} {
+	for _, expectedPart := range []string{`"key": "tracker-b"`, `"udp://tracker-b.example.com:6969/***"`, `"TrackerB"`} {
 		if !strings.Contains(string(redactedJSON), expectedPart) {
 			t.Fatalf("gotValue %s, expectedValue it to contain %s", redactedJSON, expectedPart)
 		}
-	}
-}
-
-func TestConfig_shortTrackerValueIsNotALiteralSecret(t *testing.T) {
-	environment := map[string]string{"UID": "a", "PASSKEY_TRACKER_A": fakePasskeyA}
-	loadedConfig, err := loadTrackerConfig(t, `{"tracker-a": "https://tracker-a.example.com/announce?uid=${UID}&passkey=${PASSKEY_TRACKER_A}"}`, environment)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const ordinaryText = "Radarr scan has a problem"
-
-	gotText := RedactText(ordinaryText, loadedConfig.KnownSecrets()...)
-	gotURL := RedactText("announce https://tracker-a.example.com/announce?uid=a&x=1", loadedConfig.KnownSecrets()...)
-
-	if gotText != ordinaryText || strings.Contains(gotURL, "uid=a") {
-		t.Fatalf("gotValue %q and %q, expectedValue the text untouched and the uid masked inside the URL", gotText, gotURL)
-	}
-	if gotValue := loadedConfig.Trackers[0].ShortVariables; !slices.Equal(gotValue, []string{"UID"}) {
-		t.Fatalf("gotValue %v, expectedValue [UID] named as too short", gotValue)
-	}
-	if !slices.Contains(loadedConfig.KnownSecrets(), fakePasskeyA) {
-		t.Fatal("gotValue the long passkey missing from the known secrets, expectedValue it kept")
 	}
 }
 
@@ -279,7 +263,7 @@ func TestWithDiscoveredSecrets_ignoresValuesShorterThanEightBytes(t *testing.T) 
 func TestConfig_torznabTrackerMatchesTrackersWithNormalizeTracker(t *testing.T) {
 	loadedConfig, err := loadTorznabConfig(t, `{
 		"torznab": [{"url": "https://prowlarr.example.com/12/api?apikey=k1", "tracker": " Tracker A "}],
-		"trackers": {"trackera": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}", "tracker-b": {"announce": ["https://tracker-b.example.com/x"], "aliases": ["Tracker B"]}}
+		"trackers": {"trackera": "https://tracker-a.example.com/announce/0000aaaa0000aaaa0000aaaa0000aaaa", "tracker-b": {"announce": ["https://tracker-b.example.com/x"], "aliases": ["Tracker B"]}}
 	}`, trackerEnvironment())
 	if err != nil {
 		t.Fatal(err)
@@ -294,33 +278,6 @@ func TestConfig_torznabTrackerMatchesTrackersWithNormalizeTracker(t *testing.T) 
 	}
 	if gotValue := loadedConfig.Torznab[0].Tracker; gotValue != "Tracker A" {
 		t.Fatalf("gotValue %q, expectedValue the stored spelling unchanged (trimmed)", gotValue)
-	}
-}
-
-func TestConfig_shortTrackerValueIsMaskedInsideAnyURLOnly(t *testing.T) {
-	environment := map[string]string{"UID": "42", "PASSKEY_TRACKER_A": fakePasskeyA}
-	loadedConfig, err := loadTrackerConfig(t, `{"tracker-a": "https://tracker-a.example.com/${UID}/announce?id=${UID}&pk=${PASSKEY_TRACKER_A}"}`, environment)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secrets := loadedConfig.KnownSecrets()
-
-	gotText := RedactText("count 42; https://tracker-a.example.com/42/announce?id=42&x=1 and http://other.example.com/x?ref=%34%32#n=42", secrets...)
-	encoded, err := RedactJSON(map[string]any{"id": 42, "url": "https://tracker-a.example.com/announce?id=42"}, secrets...)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	expectedText := "count 42; https://tracker-a.example.com/***/announce?id=***&x=1 and http://other.example.com/x?ref=***#n=***"
-	if gotText != expectedText {
-		t.Fatalf("gotValue %q, expectedValue %q", gotText, expectedText)
-	}
-	var decoded struct {
-		ID  int    `json:"id"`
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(encoded, &decoded); err != nil || decoded.ID != 42 || decoded.URL != "https://tracker-a.example.com/announce?id=***" {
-		t.Fatalf("gotValue %s (%v), expectedValue the number kept and the URL value masked", encoded, err)
 	}
 }
 
@@ -362,15 +319,6 @@ func TestConfig_trackerRefusesSpacesAndLongURLsAtLoad(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), `trackers["tracker-a"]`) || strings.Contains(err.Error(), "tracker-a.example.com") {
 			t.Fatalf("%s: gotValue %v, expectedValue a refusal naming the key only", name, err)
 		}
-	}
-}
-
-func TestConfig_trackerRefusesAnEnvironmentValueWithATrailingSpace(t *testing.T) {
-	_, err := loadTrackerConfig(t, `{"tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}"}`,
-		map[string]string{"PASSKEY_TRACKER_A": fakePasskeyA + " "})
-
-	if err == nil || strings.Contains(err.Error(), fakePasskeyA) {
-		t.Fatalf("gotValue %v, expectedValue a refusal without the value", err)
 	}
 }
 

@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
-	"reflect"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -35,9 +33,6 @@ const (
 
 var sftpExecModes = []string{SFTPExecAuto, SFTPExecOff, SFTPExecRequired}
 
-// pureVariableReference reconnaît une valeur faite d'une seule référence ${NOM}, sans texte autour.
-var pureVariableReference = regexp.MustCompile(`^\$\{[A-Za-z_][A-Za-z0-9_]*\}$`)
-
 // sftpProviderFile est la forme brute d'une entrée de type sftp. Mounts n'existe que pour refuser la clé avec un
 // message utile ; les durées sont des textes Go (« 30s ») ; les pointeurs distinguent une clé absente de 0.
 type sftpProviderFile struct {
@@ -59,17 +54,16 @@ type sftpProviderFile struct {
 	Mounts                json.RawMessage `json:"mounts"`
 }
 
-// parseSFTPProvider décode une entrée sftp (clés inconnues refusées), garde les secrets littéraux, interpole les
-// références ${VAR}, puis applique défauts et règles. Les erreurs enveloppent ErrUsage et ne citent jamais un secret.
-func parseSFTPProvider(rawProvider json.RawMessage, lookup func(string) (string, bool)) (FSProvider, error) {
-	provider, err := decodeSFTPProvider(rawProvider, lookup)
+// parseSFTPProvider décode une entrée sftp (clés inconnues refusées), puis applique défauts et règles. Les erreurs enveloppent ErrUsage et ne citent jamais un secret.
+func parseSFTPProvider(rawProvider json.RawMessage) (FSProvider, error) {
+	provider, err := decodeSFTPProvider(rawProvider)
 	if err != nil {
 		return FSProvider{}, fmt.Errorf("%w: type sftp: %w", ErrUsage, err)
 	}
 	return provider, nil
 }
 
-func decodeSFTPProvider(rawProvider json.RawMessage, lookup func(string) (string, bool)) (FSProvider, error) {
+func decodeSFTPProvider(rawProvider json.RawMessage) (FSProvider, error) {
 	var rawFile sftpProviderFile
 	decoder := json.NewDecoder(bytes.NewReader(rawProvider))
 	decoder.DisallowUnknownFields()
@@ -79,33 +73,7 @@ func decodeSFTPProvider(rawProvider json.RawMessage, lookup func(string) (string
 	if rawFile.Mounts != nil {
 		return FSProvider{}, errors.New("mounts does not apply: name sftp://<name>/<absolute path> locations instead")
 	}
-	if err := keepLiteralSecrets(&rawFile); err != nil {
-		return FSProvider{}, err
-	}
-	if err := interpolateValue(reflect.ValueOf(&rawFile).Elem(), "", lookup); err != nil {
-		return FSProvider{}, err
-	}
 	return buildSFTPProvider(rawFile)
-}
-
-// keepLiteralSecrets garde tel quel un secret littéral, venu scellé de la base, et laisse interpoler une seule
-// référence ${VAR} ; un mélange de texte et de références est refusé.
-func keepLiteralSecrets(rawFile *sftpProviderFile) error {
-	secrets := []struct {
-		key   string
-		value *string
-	}{{"password", &rawFile.Password}, {"identityPassphrase", &rawFile.IdentityPassphrase}}
-	for _, secret := range secrets {
-		isReference := pureVariableReference.MatchString(*secret.value)
-		if isReference {
-			continue
-		}
-		if strings.Contains(*secret.value, "${") {
-			return fmt.Errorf("%s must be a literal value or a single ${VARIABLE} reference", secret.key)
-		}
-		*secret.value = strings.ReplaceAll(*secret.value, "$", "$$")
-	}
-	return nil
 }
 
 func buildSFTPProvider(rawFile sftpProviderFile) (FSProvider, error) {

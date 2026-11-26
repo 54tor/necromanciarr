@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/url"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -39,7 +38,7 @@ type FSMount struct {
 
 // FSProvider décrit un fournisseur de système de fichiers. Mounts, RC et Binary ne servent qu'au type rclone ;
 // Address à Exec qu'au type sftp ; Timeout aux deux. RC, Password et IdentityPassphrase sont des secrets, masqués à
-// tout affichage ; Password et IdentityPassphrase sont scellés en base ou viennent d'une variable ${VAR}.
+// tout affichage ; fsProviders ne vient que de la base, où l'édition de la configuration scelle ces secrets.
 type FSProvider struct {
 	Type                  string        `json:"type"`
 	Name                  string        `json:"name"`
@@ -102,10 +101,10 @@ type rcloneProviderFile struct {
 
 // parseFSProviders décode chaque entrée selon son type (clés inconnues refusées), interpole ${VAR}, puis vérifie
 // l'unicité des noms et des chemins locaux.
-func parseFSProviders(rawProviders []json.RawMessage, lookup func(string) (string, bool)) ([]FSProvider, error) {
+func parseFSProviders(rawProviders []json.RawMessage) ([]FSProvider, error) {
 	var providers []FSProvider
 	for providerIndex, rawProvider := range rawProviders {
-		provider, err := parseFSProvider(rawProvider, lookup)
+		provider, err := parseFSProvider(rawProvider)
 		if err != nil {
 			return nil, fmt.Errorf("fsProviders[%d]: %w", providerIndex, err)
 		}
@@ -117,7 +116,7 @@ func parseFSProviders(rawProviders []json.RawMessage, lookup func(string) (strin
 	return providers, nil
 }
 
-func parseFSProvider(rawProvider json.RawMessage, lookup func(string) (string, bool)) (FSProvider, error) {
+func parseFSProvider(rawProvider json.RawMessage) (FSProvider, error) {
 	var header struct {
 		Type string `json:"type"`
 	}
@@ -128,23 +127,20 @@ func parseFSProvider(rawProvider json.RawMessage, lookup func(string) (string, b
 	case "":
 		return FSProvider{}, fmt.Errorf("type is required (known types: %s)", strings.Join(fsProviderTypes, ", "))
 	case FSProviderTypeRclone:
-		return parseRcloneProvider(rawProvider, lookup)
+		return parseRcloneProvider(rawProvider)
 	case FSProviderTypeSFTP:
-		return parseSFTPProvider(rawProvider, lookup)
+		return parseSFTPProvider(rawProvider)
 	default:
 		return FSProvider{}, fmt.Errorf("unknown type %q (known types: %s)", header.Type, strings.Join(fsProviderTypes, ", "))
 	}
 }
 
-func parseRcloneProvider(rawProvider json.RawMessage, lookup func(string) (string, bool)) (FSProvider, error) {
+func parseRcloneProvider(rawProvider json.RawMessage) (FSProvider, error) {
 	var rawFile rcloneProviderFile
 	decoder := json.NewDecoder(bytes.NewReader(rawProvider))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&rawFile); err != nil {
 		return FSProvider{}, fmt.Errorf("type rclone: %w", err)
-	}
-	if err := interpolateValue(reflect.ValueOf(&rawFile).Elem(), "", lookup); err != nil {
-		return FSProvider{}, err
 	}
 	if !fsProviderNamePattern.MatchString(rawFile.Name) {
 		return FSProvider{}, fmt.Errorf("name %q is required and must match %s", rawFile.Name, fsProviderNamePattern)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -127,7 +128,7 @@ func (tracker Tracker) LogValue() slog.Value { return slog.StringValue(tracker.S
 func (tracker Tracker) MarshalJSON() ([]byte, error) { return json.Marshal(tracker.redacted()) }
 
 // parseTrackers lit la section « trackers », triée par clé. Les messages ne reprennent jamais une URL.
-func parseTrackers(rawSection json.RawMessage, lookup func(string) (string, bool)) ([]Tracker, error) {
+func parseTrackers(rawSection json.RawMessage) ([]Tracker, error) {
 	trimmed := bytes.TrimSpace(rawSection)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		return nil, nil
@@ -144,7 +145,7 @@ func parseTrackers(rawSection json.RawMessage, lookup func(string) (string, bool
 	owners := map[string]string{}
 	trackers := make([]Tracker, 0, len(keys))
 	for _, key := range keys {
-		tracker, err := parseTrackerEntry(key, rawEntries[key], lookup)
+		tracker, err := parseTrackerEntry(key, rawEntries[key])
 		if err != nil {
 			return nil, fmt.Errorf("trackers[%q]: %w", key, err)
 		}
@@ -156,7 +157,7 @@ func parseTrackers(rawSection json.RawMessage, lookup func(string) (string, bool
 	return trackers, nil
 }
 
-func parseTrackerEntry(key string, rawEntry json.RawMessage, lookup func(string) (string, bool)) (Tracker, error) {
+func parseTrackerEntry(key string, rawEntry json.RawMessage) (Tracker, error) {
 	rawFile, err := decodeTrackerFile(rawEntry)
 	if err != nil {
 		return Tracker{}, err
@@ -178,21 +179,14 @@ func parseTrackerEntry(key string, rawEntry json.RawMessage, lookup func(string)
 	if len(rawFile.Announce) > MaxAnnounceURLs {
 		return Tracker{}, fmt.Errorf("announce: at most %d URLs", MaxAnnounceURLs)
 	}
-	recorder := variableRecorder{lookup: lookup}
-	for announceIndex, rawAnnounce := range rawFile.Announce {
-		announce, err := Interpolate(rawAnnounce, recorder.resolve)
-		if err != nil {
-			return Tracker{}, fmt.Errorf("announce[%d]: %w", announceIndex, err)
-		}
+	for announceIndex, announce := range rawFile.Announce {
 		if ValidAnnounceURL(announce) != nil {
 			return Tracker{}, fmt.Errorf(errAnnounceURLFormat, announceIndex)
 		}
 		tracker.Announce = append(tracker.Announce, announce)
 		tracker.secrets = append(tracker.secrets, literalPasskeys(announce)...)
+		tracker.secrets = append(tracker.secrets, announceValueSecrets(announce)...)
 	}
-	tracker.Variables = uniqueInOrder(recorder.names)
-	tracker.ShortVariables = shortVariableNames(recorder)
-	tracker.secrets = append(valueSecrets(recorder.values), tracker.secrets...)
 	return tracker, nil
 }
 
@@ -287,6 +281,24 @@ func passkeyForms(values []string) []string {
 	return slices.Compact(forms)
 }
 
+// plainLowercaseWord reconnaît un mot ordinaire d'URL (« announce », « announce-list ») : jamais pris pour un secret.
+var plainLowercaseWord = regexp.MustCompile(`^[a-z]+([._-][a-z]+)*$`)
+
+// announceValueSecrets retient chaque segment de chemin et chaque valeur de requête décodés d'une annonce stockée, hors
+// mots ordinaires : sans interpolation, la passkey n'a plus d'autre frontière connue.
+func announceValueSecrets(announce string) []string {
+	parsedURL, err := url.Parse(announce)
+	if err != nil {
+		return nil
+	}
+	values := strings.Split(parsedURL.Path, "/")
+	query, _ := url.ParseQuery(parsedURL.RawQuery)
+	for _, queryValues := range query {
+		values = append(values, queryValues...)
+	}
+	return valueSecrets(slices.DeleteFunc(values, plainLowercaseWord.MatchString))
+}
+
 // literalPasskeys retient les mots longs du chemin et de la requête qui mêlent chiffres et lettres : une passkey écrite
 // en clair dans la configuration, sans ${NOM}. L'exigence d'un chiffre épargne des mots ordinaires comme « announce-list ».
 func literalPasskeys(announce string) []string {
@@ -301,24 +313,4 @@ func literalPasskeys(announce string) []string {
 		}
 	}
 	return passkeyForms(passkeys)
-}
-
-func shortVariableNames(recorder variableRecorder) []string {
-	var names []string
-	for valueIndex, value := range recorder.values {
-		if len(value) < MinKnownSecretLength {
-			names = append(names, recorder.names[valueIndex])
-		}
-	}
-	return uniqueInOrder(names)
-}
-
-func uniqueInOrder(values []string) []string {
-	var unique []string
-	for _, value := range values {
-		if !slices.Contains(unique, value) {
-			unique = append(unique, value)
-		}
-	}
-	return unique
 }

@@ -8,8 +8,6 @@ import (
 	"testing"
 )
 
-func noVariables(string) (string, bool) { return "", false }
-
 func TestElementFromRaw_splitsTheAPIKeyOutOfTheURL(t *testing.T) {
 	valeurAttendue := Element{"url": "http://h:7878", "apiKey": "dummy-key"}
 
@@ -63,19 +61,19 @@ func TestRawFromElement_feedsTheExistingParsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	trackers, err := parseTrackers(section, noVariables)
+	trackers, err := parseTrackers(section)
 	if err != nil || len(trackers) != 2 || trackers[0].Key != "tracker-a" || trackers[0].Aliases[0] != "ta" {
 		t.Fatalf("trackers obtenus %+v (%v)", trackers, err)
 	}
 
 	brutTorznab, _ := RawFromElement("torznab", Element{"url": "https://idx.example.com/api?apikey=dummy", "name": "idx"})
-	indexeurs, err := parseTorznab([]json.RawMessage{brutTorznab.(json.RawMessage)}, noVariables)
+	indexeurs, err := parseTorznab([]json.RawMessage{brutTorznab.(json.RawMessage)})
 	if err != nil || len(indexeurs) != 1 || indexeurs[0].Name != "idx" {
 		t.Fatalf("torznab obtenu %+v (%v)", indexeurs, err)
 	}
 
 	brutFournisseur, _ := RawFromElement("fsProviders", Element{"type": "rclone", "name": "remote", "rc": "http://h:5572", "mounts": []any{"/mnt/a=remote:a"}})
-	fournisseurs, err := parseFSProviders([]json.RawMessage{brutFournisseur.(json.RawMessage)}, noVariables)
+	fournisseurs, err := parseFSProviders([]json.RawMessage{brutFournisseur.(json.RawMessage)})
 	if err != nil || len(fournisseurs) != 1 || fournisseurs[0].Name != "remote" {
 		t.Fatalf("fsProviders obtenu %+v (%v)", fournisseurs, err)
 	}
