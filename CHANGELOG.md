@@ -5,6 +5,11 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- The whole configuration lives in the SQLite database; only the bootstrap stays outside it (`--config-dir`/`CONFIG_DIR`, `--db-path`, `--cross-seed-config`/`CROSS_SEED_CONFIG`, `NECROMANCIARR_SECRET_KEY`, `NECROMANCIARR_AUTH_TOKEN`, `LIBRARY_PROVIDER_TOKEN`). Priority is default < cross-seed `config.js` < database < environment < option, and a change applies at the next start (`restartRequired`).
+- cross-seed values are defaults overridden element by element: an override, a deletion marker or an addition targets one Radarr or Sonarr instance, torrent client or link folder by its identifier (URL without credentials, or path), so changing one instance keeps the others on cross-seed. Additions keep their insertion order; an override whose cross-seed element disappeared is reported as orphaned, one whose element changed as drifting, and neither is deleted on its own.
+- `config get [key]`, `config set|unset <key>` and `config item set|delete|unset <list> <item-id>`, with `--value-stdin` and `--element-stdin` to keep secrets out of the shell history, and the matching `/api/config` routes.
+- A Configuration page in the web interface: every value with its origin (cross-seed, override, addition, default, environment or option, the last two locked), secrets shown only as set or not set, revert to cross-seed, orphaned and drifting overrides.
+- `doctor` diagnoses an invalid stored configuration (unknown setting, unreadable value or element, unreadable sealed secret) as a failed `config` check instead of stopping.
 - `volumes list|probe|commands`, `sftp trust <name> --yes` (CLI only) and the Volumes view.
 - `sources list`, `sources test <name>`, `proposals list --source`, and the Sources view.
 - An indexer title that carries a passkey is never stored: the candidate takes the torrent name instead, and a torrent whose name or file path carries a passkey is refused (`invalid_torrent`).
@@ -47,6 +52,10 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - Verify falls back to indexers of the same tracker when the library provider has no `.torrent`: only a torrent whose computed infohash matches is kept, stored without announce and sealed with `NECROMANCIARR_SECRET_KEY` (not sealed, and no key needed, when a `trackers` entry covers the tracker); the candidate's `source` becomes the indexer; the stage result lists `searched_sources`, and new reasons `indexer_unavailable`, `indexer_access_denied`, `indexer_hostile_response`, `foreign_download_host` and `magnet_only` explain skipped indexers and items (an unavailable, refusing, hostile or unreadable indexer is set aside for the rest of the run, and like an exhausted budget leaves the candidate for the next run).
 
 ### Changed
+- `config check` gives the origin of every value (`origins`) and lists orphaned overrides (`orphanOverrides`); the `sources` key is gone and the language line names its origin (`default`, `override`, `env`, `flag`).
+- A Torznab indexer stored in the database requires an explicit `name` (no name derived from its URL or rank).
+- A `trackers` element accepts `announce` as a single URL string as well as a list.
+- The web interface pages use the full width of the screen.
 - Web interface redesigned: sidebar navigation, page toolbars, dense sortable tables, status pills; cards only on narrow screens; fully translated (fr/en).
 - Server log lines are translated and carry a stable `code` attribute (`job_failed`, `server_listening`, ...); the `serve` startup line is now a structured log line (`code=server_listening`) and follows `language`, as do the other `serve` messages; Go HTTP server errors and handler panics are logged through the same coded, redacted log.
 - `links list` returns a stable `reason` code with a translated `label` instead of an English sentence; dedupe reasons are stable codes too, and `warnings` of `status`, stage results and `dedupe apply`/`repair apply` are `{code, text}` objects; mount advice and cross-seed mode warnings are translated.
@@ -55,7 +64,11 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - Proposal warnings are stored as translatable messages and returned as `{code, text}`; reasons come with translated labels (`reason_labels`, `label`). Warnings stored by earlier versions are still shown as they were saved, but a database written by this version cannot be read by an older binary.
 - A link kind failure (`cross_device`, `no_link_dir_on_same_device`, `link_kind_refused`) now tells the cause and the setting to change.
 
+### Removed
+- **Breaking:** `config.json` is no longer read and `config.example.json` is gone: enter the configuration again in the database (Configuration page or `config` commands). `${VAR}` references are no longer interpolated and are refused in stored values: store the value itself, secrets being sealed.
+
 ### Security
+- Secrets stored in the configuration (API keys, passwords, tracker announces, indexer URLs, rclone `rc`, `prowlarr`, `crossSeed`, `libraryApi`) are sealed with AES-256-GCM under `NECROMANCIARR_SECRET_KEY` and never returned by the configuration view; storing a secret without the key is refused (`secret_key_missing`), and sealed secrets with a missing or changed key block startup. Rewriting an element without its secrets keeps them only while its destination (`url`, or `address` of an `fsProviders` entry) stays the same.
 - Every output also masks, inside any URL, credentials, parameters named like a passkey (`passkey`, `pk`, `authkey`, `torrent_pass`, `key`, `uid`, `apikey`, `secret`, `token`) whatever their length, and any path segment or parameter holding a hex or base64url word of 16 characters or more, including percent-encoded, double-encoded and upper-case spellings; an infohash shown inside a URL is masked too. JSON-escaped URLs (`https:\/\/…`) are masked whole, token-like host labels are masked, a `trackers` value shorter than 8 characters is masked only inside URLs (exactly, whatever the parameter name) and named by `config check` and `doctor` (`tracker_value_too_short`); redacted JSON stays valid with short secrets, and CLI text drops control characters before masking.
 - A sealed indexer torrent is erased in the same database statement that fails or invalidates its candidate or closes its last open proposal (`applied`, `rejected`, `superseded`), and after 30 days without update; Verify keeps only an announce-free copy of every `.torrent` (a `.torrent` it cannot sanitize fails that candidate only), and the `torrent` column refuses `announce`, `announce-list`, `url-list`, `httpseeds` and `comment`.
 - Force copies each linked media sharing a missing piece out of the library before starting, or refuses.
