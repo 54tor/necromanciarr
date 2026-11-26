@@ -56,10 +56,10 @@ func (openedStore *Store) DeleteSetting(ctx context.Context, key string) error {
 	return nil
 }
 
-// ConfigOverrides renvoie toutes les modifications de liste, triées par liste puis identifiant.
+// ConfigOverrides renvoie toutes les modifications de liste, par liste puis dans l'ordre d'insertion.
 func (openedStore *Store) ConfigOverrides(ctx context.Context) ([]ConfigOverride, error) {
 	rows, err := openedStore.database.QueryContext(ctx,
-		`SELECT list, item_id, deleted, value, upstream_fingerprint FROM list_overrides ORDER BY list, item_id`)
+		`SELECT list, item_id, deleted, value, upstream_fingerprint FROM list_overrides ORDER BY list, rowid`)
 	if err != nil {
 		return nil, fmt.Errorf("list config overrides: %w", err)
 	}

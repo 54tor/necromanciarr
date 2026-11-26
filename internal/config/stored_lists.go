@@ -41,6 +41,9 @@ func applyStoredLists(rawFile *fileConfig, upstream map[string][]string, overrid
 			return resolvedLists{}, err
 		}
 		resolved, orphans := ResolveList(list, elements, opened)
+		if err := requireStoredNames(list, resolved); err != nil {
+			return resolvedLists{}, err
+		}
 		if err := assignList(rawFile, list, resolved); err != nil {
 			return resolvedLists{}, err
 		}
@@ -50,6 +53,19 @@ func applyStoredLists(rawFile *fileConfig, upstream map[string][]string, overrid
 	}
 	result.orphans = append(result.orphans, unknownListOrphans(opened)...)
 	return result, nil
+}
+
+// requireStoredNames exige un name explicite pour chaque indexeur Torznab : un nom tiré du rang changerait à chaque ajout.
+func requireStoredNames(list string, resolved []ResolvedElement) error {
+	if list != listTorznab {
+		return nil
+	}
+	for _, element := range resolved {
+		if name, _ := element.Element["name"].(string); name == "" {
+			return usageError{message: fmt.Sprintf("stored %s item %q: a \"name\" is required", list, element.ItemID)}
+		}
+	}
+	return nil
 }
 
 func upstreamElements(list string, rawEntries []string) ([]Element, error) {

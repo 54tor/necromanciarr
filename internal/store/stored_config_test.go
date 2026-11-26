@@ -15,11 +15,11 @@ func TestStoredConfig_roundTripsSettingsAndOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	valeurAttendue := []ConfigOverride{
-		{List: "indexers", ItemID: "a", Value: []byte(`{"x":1}`), UpstreamFingerprint: "fp"},
 		{List: "indexers", ItemID: "b", Deleted: true},
+		{List: "indexers", ItemID: "a", Value: []byte(`{"x":1}`), UpstreamFingerprint: "fp"},
 		{List: "mounts", ItemID: "a", Value: []byte("v")},
 	}
-	for _, override := range []ConfigOverride{valeurAttendue[2], valeurAttendue[1], valeurAttendue[0]} {
+	for _, override := range []ConfigOverride{valeurAttendue[2], valeurAttendue[0], valeurAttendue[1]} {
 		if err := openedStore.PutConfigOverride(ctx, override); err != nil {
 			t.Fatal(err)
 		}
@@ -38,6 +38,33 @@ func TestStoredConfig_roundTripsSettingsAndOverrides(t *testing.T) {
 	}
 	if !reflect.DeepEqual(valeurObtenue, valeurAttendue) {
 		t.Fatalf("valeurObtenue %+v, valeurAttendue %+v", valeurObtenue, valeurAttendue)
+	}
+}
+
+func TestStoredConfig_upsertKeepsTheInsertionPosition(t *testing.T) {
+	openedStore := openTestStore(t)
+	ctx := context.Background()
+	for _, itemID := range []string{"z", "a", "m"} {
+		if err := openedStore.PutConfigOverride(ctx, ConfigOverride{List: "l", ItemID: itemID, Value: []byte("v1")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := openedStore.PutConfigOverride(ctx, ConfigOverride{List: "l", ItemID: "z", Value: []byte("v2")}); err != nil {
+		t.Fatal(err)
+	}
+	valeurAttendue := []string{"z", "a", "m"}
+
+	overrides, err := openedStore.ConfigOverrides(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var valeurObtenue []string
+	for _, override := range overrides {
+		valeurObtenue = append(valeurObtenue, override.ItemID)
+	}
+	if !reflect.DeepEqual(valeurObtenue, valeurAttendue) || string(overrides[0].Value) != "v2" {
+		t.Fatalf("valeurObtenue %v (%q), valeurAttendue %v with z replaced in place", valeurObtenue, overrides[0].Value, valeurAttendue)
 	}
 }
 

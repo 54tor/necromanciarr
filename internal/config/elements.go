@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"sort"
 
 	"necromanciarr/internal/store"
 )
@@ -89,9 +88,11 @@ func Fingerprint(element Element) string {
 // ResolveList applique les surcharges de la liste à l'amont ; les orphelines sont rendues à part.
 func ResolveList(list string, upstream []Element, overrides []store.ConfigOverride) ([]ResolvedElement, []OrphanOverride) {
 	overridesByID := make(map[string]store.ConfigOverride, len(overrides))
+	var insertionOrder []string
 	for _, overrideCourante := range overrides {
 		if overrideCourante.List == list {
 			overridesByID[overrideCourante.ItemID] = overrideCourante
+			insertionOrder = append(insertionOrder, overrideCourante.ItemID)
 		}
 	}
 
@@ -119,21 +120,20 @@ func ResolveList(list string, upstream []Element, overrides []store.ConfigOverri
 		resolved = append(resolved, ResolvedElement{ItemID: identifier, Element: replacement, Origin: OriginOverride, Drift: drift})
 	}
 
-	added, orphans := splitUnmatched(list, overridesByID)
+	added, orphans := splitUnmatched(list, insertionOrder, overridesByID)
 	return append(resolved, added...), append(unreadable, orphans...)
 }
 
-func splitUnmatched(list string, unmatched map[string]store.ConfigOverride) ([]ResolvedElement, []OrphanOverride) {
-	identifiers := make([]string, 0, len(unmatched))
-	for identifier := range unmatched {
-		identifiers = append(identifiers, identifier)
-	}
-	sort.Strings(identifiers)
-
+// splitUnmatched garde l'ordre d'insertion des surcharges restantes.
+func splitUnmatched(list string, insertionOrder []string, unmatched map[string]store.ConfigOverride) ([]ResolvedElement, []OrphanOverride) {
 	var added []ResolvedElement
 	var orphans []OrphanOverride
-	for _, identifier := range identifiers {
-		overrideCourante := unmatched[identifier]
+	for _, identifier := range insertionOrder {
+		overrideCourante, isUnmatched := unmatched[identifier]
+		if !isUnmatched {
+			continue
+		}
+		delete(unmatched, identifier)
 		addedElement, err := decodeElement(overrideCourante.Value)
 		isAddition := !overrideCourante.Deleted && overrideCourante.UpstreamFingerprint == "" && err == nil
 		if !isAddition {

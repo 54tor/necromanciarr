@@ -37,14 +37,14 @@ func TestAssignIDs_suffixesCollisionsInUpstreamOrder(t *testing.T) {
 	}
 }
 
-func TestResolveList_keepsUpstreamOrderThenAdditions(t *testing.T) {
+func TestResolveList_keepsUpstreamOrderThenAdditionsInInsertionOrder(t *testing.T) {
 	upstream := []Element{{"path": "/b"}, {"path": "/a"}}
 	overrides := []store.ConfigOverride{
 		{List: "linkDirs", ItemID: "/z", Value: overrideValue(t, Element{"path": "/z"})},
 		{List: "linkDirs", ItemID: "/c", Value: overrideValue(t, Element{"path": "/c"})},
 		{List: "other", ItemID: "/x", Value: overrideValue(t, Element{"path": "/x"})},
 	}
-	valeurAttendue := []string{"/b", "/a", "/c", "/z"}
+	valeurAttendue := []string{"/b", "/a", "/z", "/c"}
 	resolved, orphans := ResolveList("linkDirs", upstream, overrides)
 	if len(resolved) != len(valeurAttendue) || len(orphans) != 0 {
 		t.Fatalf("valeurAttendue %v, valeurObtenue %v (orphelins %v)", valeurAttendue, resolved, orphans)

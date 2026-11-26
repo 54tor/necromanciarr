@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"slices"
@@ -37,7 +38,7 @@ var storedListNames = []string{"radarr", "sonarr", "torrentClients", "linkDirs",
 
 // storedFromJSON range un document à la forme de l'ancien config.json dans une base factice : chaque entrée de liste
 // devient un ajout (chaîne brute décomposée par ElementFromRaw, URL Torznab seule, section trackers éclatée par clé,
-// annonce seule mise en tableau). Les ajouts sont relus dans l'ordre de leur item_id, comme ceux de la base.
+// annonce seule mise en tableau, indexeur sans name nommé indexer-<rang>). Les ajouts sont relus dans l'ordre de leur item_id, comme ceux de la base.
 func storedFromJSON(t *testing.T, content string) fakeStoredReader {
 	t.Helper()
 	var document map[string]json.RawMessage
@@ -65,10 +66,19 @@ func testElements(t *testing.T, list string, rawValue json.RawMessage) []Element
 		t.Fatal(err)
 	}
 	elements := make([]Element, 0, len(rawEntries))
-	for _, rawEntry := range rawEntries {
+	for position, rawEntry := range rawEntries {
 		elements = append(elements, testElement(t, list, rawEntry))
+		nameFixtureIndexer(list, elements[position], position)
 	}
 	return elements
+}
+
+// nameFixtureIndexer nomme un indexeur de fixture qui n'a pas de name : la base l'exige (testé à part), les tests du
+// seul analyseur n'ont pas à le répéter.
+func nameFixtureIndexer(list string, element Element, position int) {
+	if _, hasName := element["name"]; list == listTorznab && !hasName {
+		element["name"] = fmt.Sprintf("indexer-%d", position)
+	}
 }
 
 func testElement(t *testing.T, list string, rawEntry json.RawMessage) Element {
@@ -452,4 +462,19 @@ func TestLoadWith_crossSeedConfigPathOnlyFromFlagOrEnvironment(t *testing.T) {
 	if err != nil || loadedConfig.LinkCategory != "from-flag-path" {
 		t.Fatalf("valeurObtenue %q (%v), valeurAttendue from-flag-path", loadedConfig.LinkCategory, err)
 	}
+}
+
+func TestLoadWith_storedTorznabWithoutNameIsUsageErrorNamingTheItem(t *testing.T) {
+	element := Element{"url": "https://prowlarr.example.com/12/api?apikey=" + fakeIndexerKey}
+	reader := fakeStoredReader{overrides: []store.ConfigOverride{
+		{List: "torznab", ItemID: "https://prowlarr.example.com", Value: mustMarshal(t, element)},
+	}}
+
+	_, err := LoadWith(nil, lookupFrom(map[string]string{envSecretKey: testSecretKey}), t.TempDir(), openFake(reader))
+
+	if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), "torznab") ||
+		!strings.Contains(err.Error(), "https://prowlarr.example.com") || !strings.Contains(err.Error(), "name") {
+		t.Fatalf("valeurObtenue %v, valeurAttendue a usage error naming torznab, the item and name", err)
+	}
+	assertNoSecret(t, err.Error())
 }

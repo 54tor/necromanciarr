@@ -31,7 +31,7 @@ func loadTorznabConfig(t *testing.T, content string, environment map[string]stri
 }
 
 func TestConfig_sourceOrderKeepsProviderFirst(t *testing.T) {
-	indexers := `"torznab": ["https://prowlarr.example.com/12/api?apikey=k1", {"url": "https://prowlarr.example.com/7/api?apikey=k2", "name": "tracker-a"}]`
+	indexers := `"torznab": [{"url": "https://prowlarr.example.com/12/api?apikey=k1", "name": "12"}, {"url": "https://prowlarr.example.com/7/api?apikey=k2", "name": "tracker-a"}]`
 	scenarios := []struct {
 		name          string
 		sourceOrder   string
@@ -93,11 +93,11 @@ func TestConfig_sourceOrderRefusesUnknownSource(t *testing.T) {
 	}
 }
 
-func TestConfig_torznabDefaultsNameFromPathOrStoredPosition(t *testing.T) {
+func TestConfig_storedTorznabKeepsTheInsertionOrder(t *testing.T) {
 	loadedConfig, err := loadTorznabConfig(t, `{"torznab": [
-		"https://prowlarr.example.com:9696/12/api?apikey=k1",
-		"https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?apikey=k2",
-		"https://other.example.com/api/9?apikey=k3"
+		{"url": "https://prowlarr.example.com:9696/12/api?apikey=k1", "name": "12"},
+		{"url": "https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?apikey=k2", "name": "1"},
+		{"url": "https://other.example.com/api/9?apikey=k3", "name": "9"}
 	]}`, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -105,20 +105,53 @@ func TestConfig_torznabDefaultsNameFromPathOrStoredPosition(t *testing.T) {
 
 	gotNames := []string{loadedConfig.Torznab[0].Name, loadedConfig.Torznab[1].Name, loadedConfig.Torznab[2].Name}
 
-	// Les ajouts suivent l'ordre de leur item_id : jackett, other, prowlarr.
-	expectedNames := []string{"0", "9", "12"}
+	expectedNames := []string{"12", "1", "9"}
 	if !slices.Equal(gotNames, expectedNames) {
 		t.Fatalf("gotValue %v, expectedValue %v", gotNames, expectedNames)
 	}
 }
 
+func TestParseTorznab_defaultsNameFromPathOrPosition(t *testing.T) {
+	rawEntries := []json.RawMessage{
+		json.RawMessage(`"https://prowlarr.example.com:9696/12/api?apikey=k1"`),
+		json.RawMessage(`"https://jackett.example.com/api/v2.0/indexers/all/results/torznab/api?apikey=k2"`),
+		json.RawMessage(`"https://other.example.com/api/9?apikey=k3"`),
+	}
+	expectedNames := []string{"12", "1", "9"}
+
+	indexers, err := parseTorznab(rawEntries, lookupFrom(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var gotNames []string
+	for _, indexer := range indexers {
+		gotNames = append(gotNames, indexer.Name)
+	}
+	if !slices.Equal(gotNames, expectedNames) {
+		t.Fatalf("gotValue %v, expectedValue %v", gotNames, expectedNames)
+	}
+}
+
+func TestParseTorznab_refusesTheSameDefaultNameOnTwoHosts(t *testing.T) {
+	rawEntries := []json.RawMessage{
+		json.RawMessage(`"https://a.example.com/12/api?apikey=k"`), json.RawMessage(`"https://b.example.com/12/api?apikey=k"`),
+	}
+
+	_, err := parseTorznab(rawEntries, lookupFrom(nil))
+
+	if err == nil || !strings.Contains(err.Error(), "name") {
+		t.Fatalf("gotValue %v, expectedValue an error about the name", err)
+	}
+}
+
 func TestConfig_torznabRefusesDuplicateAndInvalidNames(t *testing.T) {
 	scenarios := map[string]string{
-		"same numeric id on two hosts": `["https://a.example.com/12/api?apikey=k", "https://b.example.com/12/api?apikey=k"]`,
-		"explicit duplicate":           `[{"url": "https://a.example.com/1/api?apikey=k", "name": "x"}, {"url": "https://a.example.com/2/api?apikey=k", "name": "x"}]`,
-		"uppercase":                    `[{"url": "https://a.example.com/1/api?apikey=k", "name": "Tracker"}]`,
-		"underscore":                   `[{"url": "https://a.example.com/1/api?apikey=k", "name": "tracker_a"}]`,
-		"colon":                        `[{"url": "https://a.example.com/1/api?apikey=k", "name": "torznab:a"}]`,
+		"same name on two hosts": `[{"url": "https://a.example.com/12/api?apikey=k", "name": "12"}, {"url": "https://b.example.com/12/api?apikey=k", "name": "12"}]`,
+		"explicit duplicate":     `[{"url": "https://a.example.com/1/api?apikey=k", "name": "x"}, {"url": "https://a.example.com/2/api?apikey=k", "name": "x"}]`,
+		"uppercase":              `[{"url": "https://a.example.com/1/api?apikey=k", "name": "Tracker"}]`,
+		"underscore":             `[{"url": "https://a.example.com/1/api?apikey=k", "name": "tracker_a"}]`,
+		"colon":                  `[{"url": "https://a.example.com/1/api?apikey=k", "name": "torznab:a"}]`,
 	}
 	for name, indexers := range scenarios {
 		t.Run(name, func(t *testing.T) {
