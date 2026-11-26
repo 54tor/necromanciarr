@@ -838,6 +838,7 @@
       "crossSeed": "Daemon URL, with ?apikey=…; it replaces the one from cross-seed.",
       "execHashTimeout": "Duration: 30m, 2h.",
       "fsProviderName": "Lower-case letters, digits and hyphens only (e.g. icue); this name is used in sftp://name/….",
+      "indexerUrl": "Torznab feed address in clear, without ?apikey=: the indexer key has its own field.",
       "keepalive": "Duration: 15s, 1m.",
       "libraryApi": "Library API URL (token included if any).",
       "libraryToken": "Bearer token sent to the library API; the LIBRARY_PROVIDER_TOKEN variable, when set, wins.",
@@ -847,10 +848,10 @@
       "mounts": "Each row links a folder of this server to its rclone location, for example /mnt/icue and icue:media. Only the rclone type needs it: an sftp volume is named with sftp://name/path.",
       "prowlarr": "Prowlarr native API URL, key included.",
       "seedTags": "One tag per line.",
+      "serviceUrl": "Address in clear, without credentials or query: the keys, user and password have their own fields. Behind a keyed proxy, write {'{'}proxyKey{'}'} right after /proxy/ (http://host:7476/proxy/{'{'}proxyKey{'}'}/radarr) and enter the key in “Proxy key”.",
       "sourceOrder": "One source per line: provider, then torznab:name.",
       "target": "rclone remote and sub-path: remote:path.",
-      "timeout": "Duration: 500ms, 30s, 10m, 2h.",
-      "url": "Address shown in clear; the key goes in its own field. The {'{'}proxyKey{'}'} segment marks where the proxy key sits in the path (http://host:7476/proxy/{'{'}proxyKey{'}'}/radarr)."
+      "timeout": "Duration: 500ms, 30s, 10m, 2h."
     }
   }
 }

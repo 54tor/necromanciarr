@@ -31,6 +31,18 @@ describe('schéma de configuration', () => {
     expect(en.config.help.fsProviderName).toContain('Lower-case')
   })
 
+  it("donne à l'URL une aide propre aux services et une autre aux indexeurs", () => {
+    const urlHelpOf = (list: string) =>
+      ELEMENT_SCHEMAS[list]!.find((spec) => spec.name === 'url')?.helpKey
+    const valeurObtenue = ['radarr', 'sonarr', 'torrentClients', 'torznab'].map(urlHelpOf)
+
+    expect(valeurObtenue).toEqual(['serviceUrl', 'serviceUrl', 'serviceUrl', 'indexerUrl'])
+    expect(fr.config.help.serviceUrl).toContain('/proxy/')
+    expect(en.config.help.serviceUrl).toContain('/proxy/')
+    expect(fr.config.help.indexerUrl).toContain('apikey')
+    expect(en.config.help.indexerUrl).not.toContain('proxyKey')
+  })
+
   it('couvre chaque liste du serveur, sans liste inconnue', () => {
     expect(Object.keys(ELEMENT_SCHEMAS).sort()).toEqual([...BACKEND.lists].sort())
   })

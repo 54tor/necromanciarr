@@ -43,8 +43,11 @@ const select = (name: string, options: readonly string[]): FieldSpec => ({
   options,
 })
 
+const withHelp = (spec: FieldSpec, helpKey: string): FieldSpec => ({ ...spec, helpKey })
+const serviceUrl = withHelp(text('url'), 'serviceUrl')
+
 const ARR_FIELDS: readonly FieldSpec[] = [
-  text('url'),
+  serviceUrl,
   text('apiKey', true),
   text('user'),
   text('password', true),
@@ -65,7 +68,7 @@ export const ELEMENT_SCHEMAS: Readonly<Record<string, readonly FieldSpec[]>> = {
   torrentClients: [
     select('type', ['qbittorrent']),
     boolean('readOnly'),
-    text('url'),
+    serviceUrl,
     text('user'),
     text('password', true),
     text('proxyKey', true),
@@ -74,7 +77,7 @@ export const ELEMENT_SCHEMAS: Readonly<Record<string, readonly FieldSpec[]>> = {
   trackers: [text('key'), lines('announce', true), lines('aliases')],
   torznab: [
     text('name'),
-    text('url'),
+    withHelp(text('url'), 'indexerUrl'),
     text('apiKey', true),
     text('tracker'),
     { name: 'categories', kind: 'numbers' },

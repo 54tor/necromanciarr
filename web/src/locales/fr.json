@@ -838,6 +838,7 @@
       "crossSeed": "URL du démon, avec ?apikey=… ; elle remplace celle de cross-seed.",
       "execHashTimeout": "Durée : 30m, 2h.",
       "fsProviderName": "Minuscules, chiffres et tirets uniquement (ex. icue) ; ce nom sert dans sftp://nom/….",
+      "indexerUrl": "Adresse du flux Torznab en clair, sans ?apikey= : la clé de l’indexeur a son propre champ.",
       "keepalive": "Durée : 15s, 1m.",
       "libraryApi": "URL de l’API de la bibliothèque (jeton éventuel compris).",
       "libraryToken": "Jeton Bearer envoyé à l’API de la bibliothèque ; la variable LIBRARY_PROVIDER_TOKEN, si elle existe, l’emporte.",
@@ -847,10 +848,10 @@
       "mounts": "Chaque ligne relie un dossier de ce serveur à son emplacement rclone, par exemple /mnt/icue et icue:medias. Seul le type rclone en a besoin : un volume sftp se désigne par sftp://nom/chemin.",
       "prowlarr": "URL de l’API native de Prowlarr, clé comprise.",
       "seedTags": "Un tag par ligne.",
+      "serviceUrl": "Adresse en clair, sans identifiants ni requête : les clés, l’utilisateur et le mot de passe ont leurs propres champs. Derrière un proxy à clé, écrire {'{'}proxyKey{'}'} juste après /proxy/ (http://hôte:7476/proxy/{'{'}proxyKey{'}'}/radarr) et saisir la clé dans « Clé de proxy ».",
       "sourceOrder": "Une source par ligne : provider, puis torznab:nom.",
       "target": "Remote rclone et sous-chemin : remote:chemin.",
-      "timeout": "Durée : 500ms, 30s, 10m, 2h.",
-      "url": "Adresse affichée en clair ; la clé va dans son propre champ. Le segment {'{'}proxyKey{'}'} marque, dans le chemin, la place de la clé de proxy (http://hôte:7476/proxy/{'{'}proxyKey{'}'}/radarr)."
+      "timeout": "Durée : 500ms, 30s, 10m, 2h."
     }
   }
 }
