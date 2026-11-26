@@ -92,14 +92,11 @@ func (svc *service) DeleteItem(ctx context.Context, list, itemID string) error {
 }
 
 // UnsetItem retire la surcharge (retour à cross-seed) ; sur un élément ajouté, c'est une suppression ; sans surcharge,
-// rien n'est écrit.
+// rien n'est écrit. Une ligne d'une liste inconnue (orpheline) se retire aussi.
 func (svc *service) UnsetItem(ctx context.Context, list, itemID string) error {
-	if err := requireKnownList(list); err != nil {
-		return err
-	}
 	return svc.commitConfig(ctx, func(snapshot *storedSnapshot) (configWrite, error) {
 		if _, isStored := snapshot.override(list, itemID); !isStored {
-			return nil, nil
+			return nil, requireKnownList(list)
 		}
 		return snapshot.removeOverride(list, itemID), nil
 	})

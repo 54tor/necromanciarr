@@ -228,7 +228,7 @@ describe('ConfigView', () => {
   it('ConfigView signale un élément orphelin', async () => {
     const { wrapper, calls } = await mountView({
       'GET /api/config': configSnapshot({ orphans: [{ List: 'radarr', ItemID: ORPHAN_ID }] }),
-      'DELETE /api/config/lists/{list}/{itemId}': configSnapshot(),
+      'POST /api/config/lists/{list}/{itemId}/unset': configSnapshot(),
     })
 
     const orphanRow = wrapper.get(`tr[data-row-key="radarr:${ORPHAN_ID}"]`)
@@ -242,7 +242,7 @@ describe('ConfigView', () => {
     await clickInBody('confirm-dialog-confirm')
 
     expect(writeCalls(calls).map((call) => `${call.method} ${call.path}`)).toEqual([
-      'DELETE /api/config/lists/radarr/http%3A%2F%2Fgone.example.com%3A7878',
+      'POST /api/config/lists/radarr/http%3A%2F%2Fgone.example.com%3A7878/unset',
     ])
   })
 

@@ -35,6 +35,7 @@ interface Removal {
   list: string
   itemId: string
   descriptionKey: string
+  isOrphan: boolean
 }
 
 const CROSS_SEED_ORIGIN = 'cross-seed'
@@ -95,8 +96,8 @@ function addItem(list: string): void {
   })
 }
 
-function askRemoval(list: string, itemId: string, descriptionKey: string): void {
-  removal.value = { list, itemId, descriptionKey }
+function askRemoval(list: string, itemId: string, descriptionKey: string, isOrphan = false): void {
+  removal.value = { list, itemId, descriptionKey, isOrphan }
   removalOpen.value = true
 }
 
@@ -107,7 +108,12 @@ function askItemRemoval(list: string, item: ConfigItem): void {
 
 async function confirmRemoval(): Promise<void> {
   if (!removal.value) return
-  await config.deleteItem(removal.value.list, removal.value.itemId)
+  const { list, itemId, isOrphan } = removal.value
+  if (isOrphan) {
+    await config.unsetItem(list, itemId)
+    return
+  }
+  await config.deleteItem(list, itemId)
 }
 
 async function submitEditor(values: Record<string, unknown>, itemId: string): Promise<void> {
@@ -167,7 +173,7 @@ onMounted(config.load)
     <ConfigOrphansSection
       :orphans="orphans"
       :disabled="isBusy"
-      @remove="(orphan) => askRemoval(orphan.List, orphan.ItemID, 'config.remove.orphan')"
+      @remove="(orphan) => askRemoval(orphan.List, orphan.ItemID, 'config.remove.orphan', true)"
     />
 
     <ConfigEditDialog

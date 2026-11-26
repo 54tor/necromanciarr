@@ -388,3 +388,30 @@ func TestPutItem_refusedCandidateStaysAUsageErrorAfterTheStoredClass(t *testing.
 		t.Fatalf("valeurObtenue %q (%v), valeurAttendue %q et rien d'écrit", valeurObtenue, err, valeurAttendue)
 	}
 }
+
+func TestUnsetItem_removesTheRowOfAnUnknownList(t *testing.T) {
+	fixture := newConfigEditFixture(t, map[string]string{}, "")
+	ctx := context.Background()
+	orphan := store.ConfigOverride{List: "retiredList", ItemID: "http://example.com", Value: []byte(`{}`)}
+	if err := fixture.store.PutConfigOverride(ctx, orphan); err != nil {
+		t.Fatal(err)
+	}
+	valeurAttendue := 0
+
+	err := fixture.service.UnsetItem(ctx, orphan.List, orphan.ItemID)
+	valeurObtenue := len(fixture.overrides(t))
+
+	if err != nil || valeurObtenue != valeurAttendue {
+		t.Fatalf("valeurObtenue %d rows (%v), valeurAttendue %d", valeurObtenue, err, valeurAttendue)
+	}
+}
+
+func TestUnsetItem_refusesAnUnknownListWithoutRow(t *testing.T) {
+	fixture := newConfigEditFixture(t, map[string]string{}, "")
+
+	err := fixture.service.UnsetItem(context.Background(), "retiredList", "http://example.com")
+
+	if !errors.Is(err, ErrUnknownConfigKey) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue ErrUnknownConfigKey", err)
+	}
+}
