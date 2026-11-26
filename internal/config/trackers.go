@@ -35,26 +35,20 @@ var ErrInvalidAnnounceURL = errors.New("invalid announce URL")
 
 // Tracker décrit l'annonce d'un tracker, injectée au seed. Announce porte la passkey de l'opérateur : c'est un secret,
 // rendu seulement en schéma://hôte[:port]/*** par String, GoString, LogValue et MarshalJSON. Plusieurs URL forment un
-// seul palier d'announce-list. Variables ne garde que les noms des variables interpolées, jamais leur valeur ;
-// ShortVariables nomme celles dont la valeur fait moins de MinKnownSecretLength octets : masquées seulement dans une
-// URL, quel que soit le nom du paramètre, à l'identique.
+// seul palier d'announce-list.
 type Tracker struct {
-	Key            string
-	Announce       []string
-	Aliases        []string
-	Variables      []string
-	ShortVariables []string
-	// secrets retient les valeurs interpolées (et les mots littéraux qui ont l'allure d'une passkey) pour
-	// KnownSecrets ; jamais rendu.
+	Key      string
+	Announce []string
+	Aliases  []string
+	// secrets retient les segments et valeurs des annonces (hors mots ordinaires) pour KnownSecrets ; jamais rendu.
 	secrets []string
 }
 
 type (
 	jsonTracker struct {
-		Key       string   `json:"key"`
-		Aliases   []string `json:"aliases"`
-		Announce  []string `json:"announce"`
-		Variables []string `json:"variables"`
+		Key      string   `json:"key"`
+		Aliases  []string `json:"aliases"`
+		Announce []string `json:"announce"`
 	}
 	trackerFile struct {
 		Announce []string `json:"announce"`
@@ -111,7 +105,7 @@ func (tracker Tracker) redacted() jsonTracker {
 	for _, announce := range tracker.Announce {
 		announces = append(announces, RedactAnnounce(announce))
 	}
-	return jsonTracker{Key: tracker.Key, Aliases: tracker.Aliases, Announce: announces, Variables: tracker.Variables}
+	return jsonTracker{Key: tracker.Key, Aliases: tracker.Aliases, Announce: announces}
 }
 
 // String masque les annonces pour %v, %+v et %s.

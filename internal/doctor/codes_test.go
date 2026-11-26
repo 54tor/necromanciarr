@@ -106,7 +106,6 @@ func codeScenarios(t *testing.T) []codeScenario {
 	}
 	return []codeScenario{
 		{"empty configuration", config.Config{ConfigDir: "/home/u/absent-config", ListenAddr: "0.0.0.0:1"}, Deps{}},
-		{"short tracker value", config.Config{Trackers: []config.Tracker{{Key: "tracker-a", ShortVariables: []string{"UID"}}}}, Deps{}},
 		{"healthy fakes", richSettings, healthyDeps},
 		{"failing fakes", richSettings, failingDeps},
 		{"invalid cross-seed mode", config.Config{CrossSeedMode: "bogus", CrossSeed: &config.CrossSeedDaemon{BaseURL: "http://example.com"}}, healthyDeps},

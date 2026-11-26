@@ -74,10 +74,10 @@ func TestConfig_trackerStringOrObjectForms(t *testing.T) {
 	for trackerIndex, gotValue := range loadedConfig.Trackers {
 		expected := expectedValue[trackerIndex]
 		sameTracker := gotValue.Key == expected.Key && slices.Equal(gotValue.Announce, expected.Announce) &&
-			slices.Equal(gotValue.Aliases, expected.Aliases) && slices.Equal(gotValue.Variables, expected.Variables)
+			slices.Equal(gotValue.Aliases, expected.Aliases)
 		if !sameTracker {
-			t.Fatalf("tracker %d: gotValue a different tracker (key %q, %d announces, aliases %v, variables %v), expectedValue key %q",
-				trackerIndex, gotValue.Key, len(gotValue.Announce), gotValue.Aliases, gotValue.Variables, expected.Key)
+			t.Fatalf("tracker %d: gotValue a different tracker (key %q, %d announces, aliases %v), expectedValue key %q",
+				trackerIndex, gotValue.Key, len(gotValue.Announce), gotValue.Aliases, expected.Key)
 		}
 	}
 }

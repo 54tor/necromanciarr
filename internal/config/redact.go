@@ -287,7 +287,7 @@ func unescapeLeniently(text string) string {
 }
 
 // KnownSecrets liste les valeurs secrètes de la configuration (jetons, clés, mots de passe, clé de proxy qui suit
-// « /proxy/ », identifiants rc, mot de passe et passphrase sftp, clé de scellement sous ses écritures probables, valeurs interpolées dans trackers)
+// « /proxy/ », identifiants rc, mot de passe et passphrase sftp, clé de scellement sous ses écritures probables, segments et paramètres des annonces de trackers)
 // pour que RedactText les masque même hors d'une URL.
 func (loadedConfig Config) KnownSecrets() []string {
 	secrets := append([]string{loadedConfig.AuthToken, loadedConfig.LibraryProviderToken}, urlSecrets(loadedConfig.LibraryAPI)...)

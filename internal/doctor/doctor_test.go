@@ -745,17 +745,3 @@ func TestChecks_qbittorrentShowsTheSeedCategoryAndTags(t *testing.T) {
 		t.Fatalf("gotValue %+v, expectedValue a detail containing %q", gotValue, expectedValue)
 	}
 }
-
-func TestChecks_configWarnsAboutATrackerValueTooShortToMask(t *testing.T) {
-	settings := config.Config{WorkingDirDotEnv: true, Trackers: []config.Tracker{{Key: "tracker-a", ShortVariables: []string{"UID"}}}}
-
-	got := checkConfig(settings)
-
-	gotText := detailOf(got) + hintOf(got)
-	if got.Status != Warn || !strings.Contains(gotText, "UID") || !strings.Contains(gotText, ".env") {
-		t.Fatalf("gotValue %+v, expectedValue a warning naming UID next to the .env warning", got)
-	}
-	if gotCode := checkConfig(config.Config{Trackers: settings.Trackers}).Code; gotCode != CodeTrackerValueTooShort {
-		t.Fatalf("gotValue %q, expectedValue %q", gotCode, CodeTrackerValueTooShort)
-	}
-}

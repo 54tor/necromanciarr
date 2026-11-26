@@ -195,8 +195,6 @@ var english = map[Key]string{
 	KeyDoctorConfigLoaded:                   "loaded from {dir}; sources: radarr={radarr}, sonarr={sonarr}, torrentClients={torrent_clients}, linkDirs={link_dirs}",
 	KeyDoctorConfigDotEnv:                   "loaded from {dir}; sources: radarr={radarr}, sonarr={sonarr}, torrentClients={torrent_clients}, linkDirs={link_dirs}; variables read from the .env of the working directory",
 	KeyDoctorConfigDotEnvHint:               "move that .env into the configuration directory, or delete it if it belongs to another tool",
-	KeyDoctorTrackerValueTooShort:           "{name} is shorter than 8 characters: its value is masked only inside URLs (any parameter name, exact match)",
-	KeyDoctorTrackerValueTooShortHint:       "such a short value, masked everywhere, would cut ordinary words; do not copy it anywhere but trackers",
 	KeyDoctorConfigLoadFailed:               "{error}",
 	KeyDoctorConfigLoadFailedHint:           "fix the configuration, then run `necromanciarr config check`",
 	KeyDoctorConfigDirMissing:               "configuration directory not found: {path}",

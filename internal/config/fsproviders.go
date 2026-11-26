@@ -99,7 +99,7 @@ type rcloneProviderFile struct {
 	Timeout string   `json:"timeout"`
 }
 
-// parseFSProviders décode chaque entrée selon son type (clés inconnues refusées), interpole ${VAR}, puis vérifie
+// parseFSProviders décode chaque entrée selon son type (clés inconnues refusées), puis vérifie
 // l'unicité des noms et des chemins locaux.
 func parseFSProviders(rawProviders []json.RawMessage) ([]FSProvider, error) {
 	var providers []FSProvider

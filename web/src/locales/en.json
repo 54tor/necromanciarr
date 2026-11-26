@@ -105,7 +105,6 @@
       "check_timeout": "Check timed out",
       "panic": "Check aborted by an error",
       "working_dir_dotenv": ".env file in the working directory",
-      "tracker_value_too_short": "Tracker variable too short to be masked everywhere",
       "config_invalid": "Invalid configuration",
       "config_dir_missing": "Configuration directory missing",
       "database_dir_unresolved": "Database directory not resolved",

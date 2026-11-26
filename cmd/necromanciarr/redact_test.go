@@ -121,20 +121,22 @@ func TestConfigCheck_showsTrackerHostsOnly(t *testing.T) {
 
 	var printed struct {
 		Trackers []struct {
-			Key       string   `json:"key"`
-			Aliases   []string `json:"aliases"`
-			Announce  []string `json:"announce"`
-			Variables []string `json:"variables"`
+			Key      string   `json:"key"`
+			Aliases  []string `json:"aliases"`
+			Announce []string `json:"announce"`
 		} `json:"trackers"`
 	}
 	if result.exitCode != successExitCode || json.Unmarshal([]byte(result.stdout), &printed) != nil {
 		t.Fatalf("gotValue exit %d stdout %q stderr %q, expectedValue the configuration as JSON", result.exitCode, result.stdout, result.stderr)
 	}
-	expectedValue := `[{tracker-a [] [https://tracker-a.example.com/***] []} {tracker-b [TrackerB] [https://tracker-b.example.com/*** udp://tracker-b.example.com:6969/***] []}]`
+	expectedValue := `[{tracker-a [] [https://tracker-a.example.com/***]} {tracker-b [TrackerB] [https://tracker-b.example.com/*** udp://tracker-b.example.com:6969/***]}]`
 	if gotValue := fmt.Sprint(printed.Trackers); gotValue != expectedValue {
 		t.Fatalf("gotValue %s, expectedValue %s", gotValue, expectedValue)
 	}
 	expectNoPasskey(t, "config check", result.stdout+result.stderr)
+	if strings.Contains(result.stdout, `"variables"`) {
+		t.Fatalf("valeurObtenue %q, valeurAttendue aucun champ variables", result.stdout)
+	}
 }
 
 func TestPrinter_controlByteCannotSplitASecretPastTheRedaction(t *testing.T) {

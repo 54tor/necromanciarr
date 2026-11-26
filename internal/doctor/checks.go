@@ -193,30 +193,8 @@ func (collected *findings) result() Result {
 	return Result{Status: collected.status, Code: code, Details: collected.details, Hints: collected.hints}
 }
 
-// checkConfig rend l'état de la configuration ; une variable de trackers trop courte pour être masquée partout ajoute
-// un avertissement, à côté de celui du .env.
-func checkConfig(settings config.Config) Result {
-	base := configLoadResult(settings)
-	shortNames := shortTrackerVariables(settings)
-	if len(shortNames) == 0 {
-		return base
-	}
-	var collected findings
-	collected.add(base.Status, base.Code, base.Detail, base.Hint)
-	for _, name := range shortNames {
-		collected.add(Warn, CodeTrackerValueTooShort, message(i18n.KeyDoctorTrackerValueTooShort, "name", name),
-			message(i18n.KeyDoctorTrackerValueTooShortHint))
-	}
-	return collected.result()
-}
-
-func shortTrackerVariables(settings config.Config) []string {
-	var names []string
-	for _, tracker := range settings.Trackers {
-		names = append(names, tracker.ShortVariables...)
-	}
-	return names
-}
+// checkConfig rend l'état de la configuration.
+func checkConfig(settings config.Config) Result { return configLoadResult(settings) }
 
 // Source d'une liste dans le bilan de configuration : vide, toute de cross-seed, ou modifiée en base.
 const (
