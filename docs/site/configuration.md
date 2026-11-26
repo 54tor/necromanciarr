@@ -26,7 +26,7 @@ Ce qu'il faut pour ouvrir la base reste hors base.
 | `--cross-seed-config`, `CROSS_SEED_CONFIG` | Chemin du `config.js` de cross-seed |
 | `NECROMANCIARR_SECRET_KEY` | Clé qui scelle les secrets en base ; sans elle, saisir un secret est refusé |
 | `NECROMANCIARR_AUTH_TOKEN` | Jeton de l'interface. Obligatoire si `listen` n'est pas une adresse de boucle locale |
-| `LIBRARY_PROVIDER_TOKEN` | Jeton Bearer envoyé au fournisseur de bibliothèque ([contrat](/api)) |
+| `LIBRARY_PROVIDER_TOKEN` | Jeton Bearer envoyé au fournisseur de bibliothèque ([contrat](/api)) ; facultatif, le réglage `libraryToken` de la base sert sinon |
 
 Le `.env` est lu dans le dossier de configuration, à défaut dans le dossier courant.
 

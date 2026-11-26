@@ -102,8 +102,8 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `library-roots` | `root_empty` | `warn` | no media in the first 2000 entries: empty root or mount not ready yet |
 | `library-roots` | `root_ok` | `ok` | readable root, media found |
 | `library-api` | `library_api_unset` | `skipped` | `libraryApi` not configured |
-| `library-api` | `provider_client_failed` | `fail` | `libraryApi` or `LIBRARY_PROVIDER_TOKEN` unusable |
-| `library-api` | `provider_access_denied` | `fail` | `LIBRARY_PROVIDER_TOKEN` wrong or missing |
+| `library-api` | `provider_client_failed` | `fail` | `libraryApi` or `libraryToken` unusable |
+| `library-api` | `provider_access_denied` | `fail` | provider token (`libraryToken`) wrong or missing |
 | `library-api` | `provider_not_found` | `fail` | base path of `libraryApi` |
 | `library-api` | `provider_rate_limited`, `provider_unavailable` | `fail` | provider quota or outage; retry later |
 | `library-api` | `provider_bad_response` | `fail` | response outside [`openapi.yaml`](../../contract/openapi.yaml) |

@@ -13,7 +13,7 @@ const SECRET_FIELDS_OF_THE_BACKEND: Record<string, string[]> = {
   torznab: ['url'],
   fsProviders: ['identityPassphrase', 'password', 'rc'],
 }
-const SECRET_SETTINGS_OF_THE_BACKEND = ['crossSeed', 'libraryApi', 'prowlarr']
+const SECRET_SETTINGS_OF_THE_BACKEND = ['crossSeed', 'libraryApi', 'libraryToken', 'prowlarr']
 const SETTING_KEYS_OF_THE_BACKEND = [
   'crossSeed',
   'crossSeedMode',
@@ -21,6 +21,7 @@ const SETTING_KEYS_OF_THE_BACKEND = [
   'language',
   'libraryApi',
   'libraryRoots',
+  'libraryToken',
   'linkCategory',
   'linkType',
   'listen',

@@ -115,6 +115,7 @@ type fileConfig struct {
 	ReadBytesPerSecond int64             `json:"readBytesPerSecond"`
 	TieBreakReadBytes  int64             `json:"tieBreakReadBytes"`
 	LibraryAPI         string            `json:"libraryApi"`
+	LibraryToken       string            `json:"libraryToken"`
 	LibraryRoots       []string          `json:"libraryRoots"`
 	PathMappings       []PathRule        `json:"pathMappings"`
 	Radarr             []string          `json:"radarr"`
@@ -370,6 +371,7 @@ func buildConfig(rawFile fileConfig) (Config, error) {
 		ReadBytesPerSecond:       rawFile.ReadBytesPerSecond,
 		TieBreakReadBytes:        rawFile.TieBreakReadBytes,
 		LibraryAPI:               rawFile.LibraryAPI,
+		LibraryProviderToken:     rawFile.LibraryToken,
 		LibraryRoots:             rawFile.LibraryRoots,
 		PathRules:                rawFile.PathMappings,
 		LinkDirs:                 rawFile.LinkDirs,
@@ -514,7 +516,9 @@ func applyOverrides(target *Config, options commandLine, lookup func(string) (st
 		target.SeedTags = strings.Split(value, ",")
 	}
 	target.AuthToken, _ = lookup(envAuthToken)
-	target.LibraryProviderToken, _ = lookup(envLibraryProviderToken)
+	if value, found := lookup(envLibraryProviderToken); found && value != "" {
+		target.LibraryProviderToken = value
+	}
 	if value, found := lookup(envListen); found && value != "" {
 		target.ListenAddr = value
 	}

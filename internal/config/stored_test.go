@@ -525,6 +525,54 @@ func TestLoadWith_sealedCrossSeedAndLibraryAPIAreOpenedWithTheKey(t *testing.T) 
 	}
 }
 
+const sealedLibraryToken = "secret-provider-token-0000"
+
+func TestLoadWith_sealedLibraryTokenIsOpenedWithTheKey(t *testing.T) {
+	reader := sealedSettingsReader(t, map[string]string{"libraryToken": sealedLibraryToken})
+
+	loadedConfig, err := LoadWith(nil, lookupFrom(map[string]string{envSecretKey: testSecretKey}), t.TempDir(), openFake(reader))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if valeurObtenue := loadedConfig.LibraryProviderToken; valeurObtenue != sealedLibraryToken {
+		t.Fatalf("valeurObtenue %q, valeurAttendue %q", valeurObtenue, sealedLibraryToken)
+	}
+	for _, rendering := range renderingsOf(t, loadedConfig) {
+		if strings.Contains(rendering, sealedLibraryToken) {
+			t.Fatalf("le jeton du fournisseur apparaît dans un rendu de la configuration")
+		}
+	}
+}
+
+func TestLoadWith_environmentLibraryTokenBeatsTheStoredOne(t *testing.T) {
+	reader := sealedSettingsReader(t, map[string]string{"libraryToken": sealedLibraryToken})
+	environment := map[string]string{envSecretKey: testSecretKey, envLibraryProviderToken: "env-provider-token-0000"}
+
+	loadedConfig, err := LoadWith(nil, lookupFrom(environment), t.TempDir(), openFake(reader))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if valeurObtenue := loadedConfig.LibraryProviderToken; valeurObtenue != "env-provider-token-0000" {
+		t.Fatalf("valeurObtenue %q, valeurAttendue the environment token", valeurObtenue)
+	}
+}
+
+func TestLoadWith_emptyEnvironmentDoesNotEraseTheStoredLibraryToken(t *testing.T) {
+	reader := sealedSettingsReader(t, map[string]string{"libraryToken": sealedLibraryToken})
+	environment := map[string]string{envSecretKey: testSecretKey, envLibraryProviderToken: ""}
+
+	loadedConfig, err := LoadWith(nil, lookupFrom(environment), t.TempDir(), openFake(reader))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if valeurObtenue := loadedConfig.LibraryProviderToken; valeurObtenue != sealedLibraryToken {
+		t.Fatalf("valeurObtenue %q, valeurAttendue the stored token", valeurObtenue)
+	}
+}
+
 func TestLoadWith_sealedCrossSeedOrLibraryAPIWithoutKeyFailsWithoutTheURL(t *testing.T) {
 	for key, plain := range map[string]string{"crossSeed": sealedCrossSeedURL, "libraryApi": sealedLibraryAPIURL} {
 		reader := sealedSettingsReader(t, map[string]string{key: plain})

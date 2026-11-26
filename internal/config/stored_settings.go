@@ -22,14 +22,14 @@ const (
 
 // settingKeys sont, dans l'ordre d'affichage des provenances, les seules clés admises dans la table settings.
 var settingKeys = []string{
-	settingListen, "readBytesPerSecond", "tieBreakReadBytes", settingLibraryAPI, "libraryRoots", "pathMappings",
+	settingListen, "readBytesPerSecond", "tieBreakReadBytes", settingLibraryAPI, "libraryToken", "libraryRoots", "pathMappings",
 	"prowlarr", "sourceOrder", "dedupe", settingLinkType, settingSkipRecheck, settingLinkCategory, settingCrossSeed,
 	"crossSeedMode", "seedTags", "partialMaxMissingPercent", settingLanguage,
 }
 
 // settingEnvironment nomme la variable d'environnement qui l'emporte sur chaque réglage, quand elle existe.
 var settingEnvironment = map[string]string{
-	settingListen: envListen, settingLibraryAPI: envLibraryAPI, "crossSeedMode": envCrossSeedMode,
+	settingListen: envListen, settingLibraryAPI: envLibraryAPI, "libraryToken": envLibraryProviderToken, "crossSeedMode": envCrossSeedMode,
 	"seedTags": envSeedTags, settingLinkCategory: envSeedCategory,
 	"partialMaxMissingPercent": envPartialMaxMissingPercent, settingLanguage: envLanguage,
 }
@@ -47,7 +47,7 @@ func settingTargets(rawFile *fileConfig) map[string]any {
 	return map[string]any{
 		settingListen: &rawFile.Listen, "readBytesPerSecond": &rawFile.ReadBytesPerSecond,
 		"tieBreakReadBytes": &rawFile.TieBreakReadBytes, settingLibraryAPI: &rawFile.LibraryAPI,
-		"libraryRoots": &rawFile.LibraryRoots, "pathMappings": &rawFile.PathMappings, "prowlarr": &rawFile.Prowlarr,
+		"libraryToken": &rawFile.LibraryToken, "libraryRoots": &rawFile.LibraryRoots, "pathMappings": &rawFile.PathMappings, "prowlarr": &rawFile.Prowlarr,
 		"sourceOrder": &rawFile.SourceOrder, "dedupe": &rawFile.Dedupe, settingLinkType: &rawFile.LinkType,
 		settingSkipRecheck: &rawFile.SkipRecheck, settingLinkCategory: &rawFile.LinkCategory,
 		settingCrossSeed: &rawFile.CrossSeed, "crossSeedMode": &rawFile.CrossSeedMode, "seedTags": &rawFile.SeedTags,

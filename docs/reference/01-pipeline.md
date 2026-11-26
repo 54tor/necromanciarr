@@ -9,7 +9,7 @@ Cinq étapes s'exécutent dans cet ordre, chacune par sa commande (`scan`, `matc
 | Étape | Lit | Écrit | Composant requis |
 |---|---|---|---|
 | Scan | `libraryRoots`, Radarr, Sonarr | inventaire (chemin, taille, date, TMDB/TVDB) | `libraryRoots` ; `radarr`/`sonarr` pour les identifiants |
-| Match | inventaire, fournisseur, indexeurs | candidats `matched` (fournisseur) ou `fetched` (indexeurs) et leurs fichiers | `libraryApi` + `LIBRARY_PROVIDER_TOKEN` ; `torznab` pour les indexeurs |
+| Match | inventaire, fournisseur, indexeurs | candidats `matched` (fournisseur) ou `fetched` (indexeurs) et leurs fichiers | `libraryApi` + `libraryToken` ; `torznab` pour les indexeurs |
 | Verify | candidats, `.torrent`, `.nfo`, fichiers locaux | vérifications, associations prouvées, annexes, propositions | `libraryApi` |
 | Link | propositions acceptées avec une annonce | dossier du torrent sous `linkDirs`, liens, annexes, étape `linked` | `linkDirs` |
 | Seed | propositions `linked` | torrent ajouté au client avec son annonce injectée en mémoire, décision `applied`, étape finale | `torrentClients` ; `trackers` ou `.torrent` scellé |

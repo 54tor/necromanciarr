@@ -98,7 +98,7 @@ docker compose exec -T necromanciarr necromanciarr config set crossSeed --value-
 docker compose restart necromanciarr
 ```
 
-`cross-seed.json` contient la chaîne JSON `"http://cross-seed:2468?apikey=dummy-api-key"`. `LIBRARY_PROVIDER_TOKEN` et `NECROMANCIARR_SECRET_KEY` (qui scelle `libraryApi` et `crossSeed`) vont dans `/data/.env`. Le port n'est publié que sur la boucle locale de l'hôte : l'accès distant passe par un mandataire inverse (qui garde le jeton `Bearer`) ou un tunnel.
+`cross-seed.json` contient la chaîne JSON `"http://cross-seed:2468?apikey=dummy-api-key"`. `NECROMANCIARR_SECRET_KEY` (qui scelle `libraryApi`, `libraryToken` et `crossSeed`) va dans `/data/.env` ; le jeton du fournisseur se saisit dans le réglage `libraryToken` (`LIBRARY_PROVIDER_TOKEN` reste possible). Le port n'est publié que sur la boucle locale de l'hôte : l'accès distant passe par un mandataire inverse (qui garde le jeton `Bearer`) ou un tunnel.
 
 ## Lancer une commande dans le conteneur
 

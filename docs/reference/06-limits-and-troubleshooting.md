@@ -102,8 +102,8 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `library-roots` | `root_empty` | `warn` | aucun média dans les 2000 premières entrées : racine vide ou montage pas encore prêt |
 | `library-roots` | `root_ok` | `ok` | racine lisible, média trouvé |
 | `library-api` | `library_api_unset` | `skipped` | `libraryApi` non configuré |
-| `library-api` | `provider_client_failed` | `fail` | `libraryApi` ou `LIBRARY_PROVIDER_TOKEN` inutilisable |
-| `library-api` | `provider_access_denied` | `fail` | `LIBRARY_PROVIDER_TOKEN` faux ou absent |
+| `library-api` | `provider_client_failed` | `fail` | `libraryApi` ou `libraryToken` inutilisable |
+| `library-api` | `provider_access_denied` | `fail` | jeton du fournisseur (`libraryToken`) faux ou absent |
 | `library-api` | `provider_not_found` | `fail` | chemin de base de `libraryApi` |
 | `library-api` | `provider_rate_limited`, `provider_unavailable` | `fail` | quota ou panne du fournisseur ; relancer plus tard |
 | `library-api` | `provider_bad_response` | `fail` | réponse hors [`openapi.yaml`](../contract/openapi.yaml) |

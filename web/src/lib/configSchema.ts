@@ -97,6 +97,7 @@ export const SETTING_SCHEMAS: Readonly<Record<string, FieldSpec>> = {
   readBytesPerSecond: number('readBytesPerSecond'),
   tieBreakReadBytes: number('tieBreakReadBytes'),
   libraryApi: text('libraryApi', true),
+  libraryToken: text('libraryToken', true),
   libraryRoots: lines('libraryRoots'),
   pathMappings: { name: 'pathMappings', kind: 'table', fields: [text('from'), text('to')] },
   prowlarr: text('prowlarr', true),

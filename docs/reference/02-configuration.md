@@ -21,7 +21,7 @@ Du plus fort au plus faible : **options de ligne de commande**, **variables d'en
 | Plafond de pièces manquantes | aucune | `NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT` | `partialMaxMissingPercent` |
 | Jeton de l'interface | aucune | `NECROMANCIARR_AUTH_TOKEN` | aucune (jamais en base) |
 | Clé de scellement | aucune | `NECROMANCIARR_SECRET_KEY` | aucune (jamais en base) |
-| Jeton du fournisseur | aucune | `LIBRARY_PROVIDER_TOKEN` | aucune |
+| Jeton du fournisseur | aucune | `LIBRARY_PROVIDER_TOKEN` | `libraryToken` |
 
 Une variable vide est ignorée. Ces options s'ajoutent à toute sous-commande ; une option inconnue est un défaut d'usage (exit 2).
 
@@ -47,6 +47,7 @@ Les réglages sont dans la table `settings` (une valeur JSON par clé, remplacé
 | `readBytesPerSecond` | entier (octets/s) | `20971520` (20 Mio/s) | strictement positif |
 | `tieBreakReadBytes` | entier (octets) | `53687091200` (50 Gio) | strictement positif. Octets lus au plus, par candidat, pour départager des fichiers locaux de même taille ; la couverture n'est pas concernée |
 | `libraryApi` | URL | vide | `http(s)`, sans fragment ; scellée en base. Vide : Match et Verify refusent (`not_configured`) |
+| `libraryToken` | texte | vide | jeton Bearer envoyé au fournisseur de bibliothèque ; scellé en base. `LIBRARY_PROVIDER_TOKEN`, quand elle est définie et non vide, l'emporte |
 | `libraryRoots` | liste de chemins | vide | vus par ce processus ; chemins absolus, sans segment `..` (refus au chargement). Une adresse `sftp://<provider>/<absolute path>` vise un fournisseur `fsProviders` de type `sftp` déclaré (exemple : `sftp://seedbox/srv/media`) ; un fournisseur `rclone` est refusé. Le serveur n'est joint qu'au premier usage : injoignable, il n'empêche ni le démarrage, ni les opérations locales, ni `doctor` ; Scan laisse alors ses racines telles quelles (`remote_unavailable`) et l'étape suivante retente une fois |
 | `pathMappings` | liste `{from, to}` | vide | `from` : vue de ce processus (chemin local, ou adresse `sftp://<provider>/<absolute path>` d'un fournisseur déclaré) ; `to` : vue de Radarr, Sonarr et du client torrent, jamais une adresse `sftp://` |
 | `radarr`, `sonarr` | liste d'objets `{url, apiKey, user, password}` | vide | `url` en `http(s)://host:port[/path]`, `apiKey` obligatoire, `user` et `password` facultatifs (proxy en authentification basique). Cross-seed les donne en chaîne `http(s)://[user:password@]host:port[/path]?apikey=KEY`, décomposée de même ; seul `apikey` y est admis |
@@ -116,7 +117,7 @@ Les champs secrets sont scellés en base (AES-256-GCM, clé `NECROMANCIARR_SECRE
 | `trackers` | `announce` |
 | `torznab` | `url` |
 | `fsProviders` | `rc`, `password`, `identityPassphrase` |
-| réglages | `prowlarr`, `crossSeed`, `libraryApi` |
+| réglages | `prowlarr`, `crossSeed`, `libraryApi`, `libraryToken` |
 
 - Sans `NECROMANCIARR_SECRET_KEY`, écrire un secret est refusé (`secret_key_missing`, HTTP 409) et rien n'est écrit. Générer la clé avec `necromanciarr api-key --secret`.
 - Au chargement, un secret scellé qui ne s'ouvre pas (clé absente ou changée) bloque le démarrage : `sealed config secrets cannot be read: NECROMANCIARR_SECRET_KEY is missing or changed`. Changer de clé impose de ressaisir chaque secret.
@@ -378,7 +379,7 @@ Une passkey qui contient `&`, `#`, `%` ou `;` doit être encodée en pourcentage
 
 ## Fournisseur de bibliothèque
 
-Contrat HTTP défini dans [`docs/contract/openapi.yaml`](../contract/openapi.yaml), sous la base `libraryApi` : `GET /v1/releases` (filtres `tmdb`, `imdb`, `tvdb`, `q`, `size` répétable 50 fois, `tracker`, `limit` ≤ 100, pagination par curseur), `GET /v1/releases/{infohash}`, `…/torrent`, `…/nfos`. Authentification `Authorization: Bearer <LIBRARY_PROVIDER_TOKEN>`, erreurs `application/problem+json`, `429` avec `Retry-After`. Un fournisseur qui ignore `size` fonctionne : un filtre local de défense écarte les releases sans fichier de la bonne taille, mais il télécharge beaucoup plus de candidats (`doctor` le signale).
+Contrat HTTP défini dans [`docs/contract/openapi.yaml`](../contract/openapi.yaml), sous la base `libraryApi` : `GET /v1/releases` (filtres `tmdb`, `imdb`, `tvdb`, `q`, `size` répétable 50 fois, `tracker`, `limit` ≤ 100, pagination par curseur), `GET /v1/releases/{infohash}`, `…/torrent`, `…/nfos`. Authentification `Authorization: Bearer <token>`, erreurs `application/problem+json`, `429` avec `Retry-After`. Un fournisseur qui ignore `size` fonctionne : un filtre local de défense écarte les releases sans fichier de la bonne taille, mais il télécharge beaucoup plus de candidats (`doctor` le signale).
 
 ## Diagnostic (`doctor`)
 

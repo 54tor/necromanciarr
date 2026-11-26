@@ -21,7 +21,7 @@ From strongest to weakest: **command-line options**, **environment variables**, 
 | Cap on missing pieces | none | `NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT` | `partialMaxMissingPercent` |
 | Interface token | none | `NECROMANCIARR_AUTH_TOKEN` | none (never in the database) |
 | Sealing key | none | `NECROMANCIARR_SECRET_KEY` | none (never in the database) |
-| Provider token | none | `LIBRARY_PROVIDER_TOKEN` | none |
+| Provider token | none | `LIBRARY_PROVIDER_TOKEN` | `libraryToken` |
 
 An empty variable is ignored. These options apply to every subcommand; an unknown option is a usage error (exit 2).
 
@@ -47,6 +47,7 @@ Settings live in the `settings` table (one JSON value per key, replaced as a who
 | `readBytesPerSecond` | integer (bytes/s) | `20971520` (20 MiB/s) | strictly positive |
 | `tieBreakReadBytes` | integer (bytes) | `53687091200` (50 GiB) | strictly positive. Maximum bytes read, per candidate, to tell same-size local files apart; coverage is not affected |
 | `libraryApi` | URL | empty | `http(s)`, no fragment; sealed in the database. Empty: Match and Verify refuse (`not_configured`) |
+| `libraryToken` | text | empty | Bearer token sent to the library provider; sealed in the database. `LIBRARY_PROVIDER_TOKEN` wins when it is set and not empty |
 | `libraryRoots` | list of paths | empty | as seen by this process; absolute paths without a `..` segment (refused at load time). An `sftp://<provider>/<absolute path>` location targets a declared `fsProviders` entry of type `sftp` (example: `sftp://seedbox/srv/media`); an `rclone` provider is refused. The server is reached only at first use: when it is unreachable, startup, local operations and `doctor` still work; Scan then leaves its roots as they are (`remote_unavailable`) and the next stage tries once more |
 | `pathMappings` | list of `{from, to}` | empty | `from`: this process's view (a local path, or an `sftp://<provider>/<absolute path>` location of a declared provider); `to`: the view of Radarr, Sonarr and the torrent client, never an `sftp://` location |
 | `radarr`, `sonarr` | list of `{url, apiKey, user, password}` objects | empty | `url` as `http(s)://host:port[/path]`, `apiKey` required, `user` and `password` optional (basic-authentication proxy). cross-seed gives them as a `http(s)://[user:password@]host:port[/path]?apikey=KEY` string, split the same way; only `apikey` is allowed there |
@@ -116,7 +117,7 @@ Secret fields are sealed in the database (AES-256-GCM, key `NECROMANCIARR_SECRET
 | `trackers` | `announce` |
 | `torznab` | `url` |
 | `fsProviders` | `rc`, `password`, `identityPassphrase` |
-| settings | `prowlarr`, `crossSeed`, `libraryApi` |
+| settings | `prowlarr`, `crossSeed`, `libraryApi`, `libraryToken` |
 
 - Without `NECROMANCIARR_SECRET_KEY`, writing a secret is refused (`secret_key_missing`, HTTP 409) and nothing is written. Generate the key with `necromanciarr api-key --secret`.
 - On load, a sealed secret that does not open (missing or changed key) blocks startup: `sealed config secrets cannot be read: NECROMANCIARR_SECRET_KEY is missing or changed`. Changing the key means entering every secret again.
@@ -378,7 +379,7 @@ A passkey that contains `&`, `#`, `%` or `;` must be percent-encoded in a query,
 
 ## Library provider
 
-HTTP contract defined in [`docs/contract/openapi.yaml`](../../contract/openapi.yaml), under the `libraryApi` base: `GET /v1/releases` (filters `tmdb`, `imdb`, `tvdb`, `q`, `size` repeatable 50 times, `tracker`, `limit` ≤ 100, cursor pagination), `GET /v1/releases/{infohash}`, `…/torrent`, `…/nfos`. Authentication `Authorization: Bearer <LIBRARY_PROVIDER_TOKEN>`, errors `application/problem+json`, `429` with `Retry-After`. A provider that ignores `size` works: a local defensive filter discards releases with no file of the right size, but it downloads many more candidates (`doctor` flags it).
+HTTP contract defined in [`docs/contract/openapi.yaml`](../../contract/openapi.yaml), under the `libraryApi` base: `GET /v1/releases` (filters `tmdb`, `imdb`, `tvdb`, `q`, `size` repeatable 50 times, `tracker`, `limit` ≤ 100, cursor pagination), `GET /v1/releases/{infohash}`, `…/torrent`, `…/nfos`. Authentication `Authorization: Bearer <token>`, errors `application/problem+json`, `429` with `Retry-After`. A provider that ignores `size` works: a local defensive filter discards releases with no file of the right size, but it downloads many more candidates (`doctor` flags it).
 
 ## Diagnostics (`doctor`)
 

@@ -9,7 +9,7 @@ Five stages run in this order, each through its own command (`scan`, `match`, `v
 | Stage | Reads | Writes | Required component |
 |---|---|---|---|
 | Scan | `libraryRoots`, Radarr, Sonarr | inventory (path, size, date, TMDB/TVDB) | `libraryRoots`; `radarr`/`sonarr` for the identifiers |
-| Match | inventory, provider, indexers | `matched` (provider) or `fetched` (indexers) candidates and their files | `libraryApi` + `LIBRARY_PROVIDER_TOKEN`; `torznab` for the indexers |
+| Match | inventory, provider, indexers | `matched` (provider) or `fetched` (indexers) candidates and their files | `libraryApi` + `libraryToken`; `torznab` for the indexers |
 | Verify | candidates, `.torrent`, `.nfo`, local files | verifications, proven associations, annexes, proposals | `libraryApi` |
 | Link | accepted proposals with an announce | torrent folder under `linkDirs`, links, annexes, `linked` step | `linkDirs` |
 | Seed | `linked` proposals | torrent added to the client with its announce injected in memory, `applied` decision, final step | `torrentClients`; `trackers` or sealed `.torrent` |
