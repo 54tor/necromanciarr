@@ -87,7 +87,20 @@ func (sealer *fieldSealer) Format(state fmt.State, _ rune) {
 // LogValue rend le scelleur masqué dans les journaux slog.
 func (sealer *fieldSealer) LogValue() slog.Value { return slog.StringValue(redactedSealer) }
 
+func rejectNonStringSecrets(list string, element map[string]any) error {
+	for _, champCourant := range secretFieldsByList[list] {
+		valeurCourante := element[champCourant]
+		if _, isString := valeurCourante.(string); valeurCourante != nil && !isString {
+			return usageError{message: fmt.Sprintf("config: secret field %s.%s must be a string", list, champCourant)}
+		}
+	}
+	return nil
+}
+
 func (sealer *fieldSealer) sealElement(list, itemID string, element map[string]any) error {
+	if err := rejectNonStringSecrets(list, element); err != nil {
+		return err
+	}
 	for _, champCourant := range secretFieldsByList[list] {
 		clair, isSecretPresent := element[champCourant].(string)
 		if !isSecretPresent || clair == "" {

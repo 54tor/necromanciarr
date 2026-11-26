@@ -145,3 +145,25 @@ func TestNewFieldSealer_rejectsAShortKey(t *testing.T) {
 		t.Errorf("valeurAttendue InvalidSecretKeyError, valeurObtenue %T", erreurObtenue)
 	}
 }
+
+func TestFieldSealer_rejectsANonStringSecretField(t *testing.T) {
+	sealer := newTestFieldSealer(t, 1)
+	valeursInvalides := map[string]any{
+		"number": 12345,
+		"bool":   true,
+		"object": map[string]any{"token": dummySecret},
+	}
+	for nomCas, valeurInvalide := range valeursInvalides {
+		element := map[string]any{"apiKey": valeurInvalide}
+		erreurObtenue := sealer.sealElement("radarr", "item-1", element)
+		if !errors.Is(erreurObtenue, ErrUsage) {
+			t.Fatalf("%s: valeurAttendue une erreur d'usage, valeurObtenue %v", nomCas, erreurObtenue)
+		}
+		if strings.Contains(erreurObtenue.Error(), dummySecret) {
+			t.Errorf("%s: l'erreur cite la valeur", nomCas)
+		}
+		if containsSealed(element) {
+			t.Errorf("%s: aucun champ ne doit être scellé après un refus", nomCas)
+		}
+	}
+}
