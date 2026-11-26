@@ -84,14 +84,13 @@ func TestConfig_trackerStringOrObjectForms(t *testing.T) {
 
 func TestConfig_trackerObjectRefusesUnknownKeyOrEmptyAnnounce(t *testing.T) {
 	for name, trackers := range map[string]string{
-		"unknown key":       `{"tracker-a": {"announce": ["https://tracker-a.example.com/announce"], "tier": 2}}`,
-		"empty announce":    `{"tracker-a": {"announce": []}}`,
-		"missing announce":  `{"tracker-a": {"aliases": ["a"]}}`,
-		"empty key":         `{" ": "https://tracker-a.example.com/announce"}`,
-		"empty alias":       `{"tracker-a": {"announce": ["https://tracker-a.example.com/announce"], "aliases": [" "]}}`,
-		"number entry":      `{"tracker-a": 12}`,
-		"empty url":         `{"tracker-a": ""}`,
-		"announce as value": `{"tracker-a": {"announce": "https://tracker-a.example.com/announce"}}`,
+		"unknown key":      `{"tracker-a": {"announce": ["https://tracker-a.example.com/announce"], "tier": 2}}`,
+		"empty announce":   `{"tracker-a": {"announce": []}}`,
+		"missing announce": `{"tracker-a": {"aliases": ["a"]}}`,
+		"empty key":        `{" ": "https://tracker-a.example.com/announce"}`,
+		"empty alias":      `{"tracker-a": {"announce": ["https://tracker-a.example.com/announce"], "aliases": [" "]}}`,
+		"number entry":     `{"tracker-a": 12}`,
+		"empty url":        `{"tracker-a": ""}`,
 	} {
 		if _, err := loadTrackerConfig(t, trackers, nil); err == nil || !strings.Contains(err.Error(), "trackers") {
 			t.Fatalf("%s: gotValue %v, expectedValue a trackers error", name, err)

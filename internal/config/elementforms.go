@@ -25,6 +25,7 @@ const (
 	fieldReadOnly = "readOnly"
 	fieldPath     = "path"
 	fieldKey      = "key"
+	fieldAnnounce = "announce"
 
 	reasonUnreadableRaw = "unreadable value (expected a valid url form)"
 )
@@ -164,6 +165,10 @@ func trackerRawFromElement(element Element) (json.RawMessage, error) {
 		if field != fieldKey {
 			entry[field] = value
 		}
+	}
+	// L'analyseur lit announce comme une liste : une annonce seule devient une liste d'un élément.
+	if singleAnnounce, isString := entry[fieldAnnounce].(string); isString {
+		entry[fieldAnnounce] = []string{singleAnnounce}
 	}
 	return marshalElement(listTrackers, map[string]Element{key: entry})
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -352,5 +353,26 @@ func TestConfigView_marksEnvironmentLockedSettings(t *testing.T) {
 	}
 	if before.RestartRequired || !after.RestartRequired {
 		t.Fatalf("valeurObtenue restart %v then %v, valeurAttendue false then true", before.RestartRequired, after.RestartRequired)
+	}
+}
+
+func TestPutItem_trackerWithASingleAnnounceStringLoadsBackSealed(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	announce := "https://tracker.example.com/announce/fake-passkey-0000"
+	valeurAttendue := []string{announce}
+
+	err := fixture.service.PutItem(context.Background(), "trackers", "tracker-a",
+		map[string]any{"key": "tracker-a", "announce": announce})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	overrides := fixture.overrides(t)
+	if len(overrides) != 1 || strings.Contains(string(overrides[0].Value), announce) {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue one row without the clear announce", overrides)
+	}
+	trackers := fixture.reload(t).Trackers
+	if len(trackers) != 1 || !slices.Equal(trackers[0].Announce, valeurAttendue) {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue one tracker announcing %q", trackers, valeurAttendue)
 	}
 }

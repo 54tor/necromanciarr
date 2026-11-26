@@ -113,3 +113,40 @@ func TestElementFromRaw_errorHidesTheFirstTokenOfAMalformedClient(t *testing.T) 
 		t.Fatalf("valeurObtenue %v", err)
 	}
 }
+
+func announcesThroughTheParser(t *testing.T, announce any) []string {
+	t.Helper()
+	brut, err := RawFromElement("trackers", Element{"key": "tracker-a", "announce": announce})
+	if err != nil {
+		t.Fatal(err)
+	}
+	section, err := TrackersSection([]json.RawMessage{brut.(json.RawMessage)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	trackers, err := parseTrackers(section)
+	if err != nil || len(trackers) != 1 {
+		t.Fatalf("trackers obtenus %+v (%v)", trackers, err)
+	}
+	return trackers[0].Announce
+}
+
+func TestRawFromElement_trackerAcceptsASingleAnnounceString(t *testing.T) {
+	valeurAttendue := []string{"https://t.example.com/announce/abc"}
+
+	valeurObtenue := announcesThroughTheParser(t, "https://t.example.com/announce/abc")
+
+	if !reflect.DeepEqual(valeurObtenue, valeurAttendue) {
+		t.Fatalf("valeurObtenue %q, valeurAttendue %q", valeurObtenue, valeurAttendue)
+	}
+}
+
+func TestRawFromElement_trackerKeepsEveryAnnounceOfAnArray(t *testing.T) {
+	valeurAttendue := []string{"https://t.example.com/announce/abc", "https://u.example.com/announce/def"}
+
+	valeurObtenue := announcesThroughTheParser(t, []any{valeurAttendue[0], valeurAttendue[1]})
+
+	if !reflect.DeepEqual(valeurObtenue, valeurAttendue) {
+		t.Fatalf("valeurObtenue %q, valeurAttendue %q", valeurObtenue, valeurAttendue)
+	}
+}
