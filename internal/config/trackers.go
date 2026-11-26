@@ -275,8 +275,9 @@ func passkeyForms(values []string) []string {
 	return slices.Compact(forms)
 }
 
-// plainLowercaseWord reconnaît un mot ordinaire d'URL (« announce », « announce-list ») : jamais pris pour un secret.
-var plainLowercaseWord = regexp.MustCompile(`^[a-z]+([._-][a-z]+)*$`)
+// plainWord reconnaît un mot ordinaire d'URL (« announce », « Announce », « ANNOUNCE.php »), casse ignorée :
+// jamais pris pour un secret.
+var plainWord = regexp.MustCompile(`^(?i)[a-z]+([._-][a-z]+)*$`)
 
 // announceValueSecrets retient chaque segment de chemin et chaque valeur de requête décodés d'une annonce stockée, hors
 // mots ordinaires : sans interpolation, la passkey n'a plus d'autre frontière connue.
@@ -290,7 +291,7 @@ func announceValueSecrets(announce string) []string {
 	for _, queryValues := range query {
 		values = append(values, queryValues...)
 	}
-	return valueSecrets(slices.DeleteFunc(values, plainLowercaseWord.MatchString))
+	return valueSecrets(slices.DeleteFunc(values, plainWord.MatchString))
 }
 
 // literalPasskeys retient les mots longs du chemin et de la requête qui mêlent chiffres et lettres : une passkey écrite

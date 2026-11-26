@@ -332,3 +332,18 @@ func TestConfig_trackerRefusesMoreThanTheAnnounceLimit(t *testing.T) {
 		t.Fatal("gotValue accepted, expectedValue a refusal above MaxAnnounceURLs")
 	}
 }
+
+func TestAnnounceValueSecrets_ignoresAnOrdinaryWordWhateverItsCase(t *testing.T) {
+	announce := "https://tracker.example.com/Announce/ANNOUNCE.php?pk=dummy-passkey-0000"
+	valeurAttendue := "the announce word stays readable"
+
+	secrets := announceValueSecrets(announce)
+	valeurObtenue := RedactText(valeurAttendue, secrets...)
+
+	if valeurObtenue != valeurAttendue {
+		t.Fatalf("valeurObtenue %q, valeurAttendue %q", valeurObtenue, valeurAttendue)
+	}
+	if !slices.Contains(secrets, "dummy-passkey-0000") {
+		t.Fatalf("valeurObtenue %v, valeurAttendue la passkey parmi les secrets", secrets)
+	}
+}
