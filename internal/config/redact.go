@@ -316,12 +316,11 @@ func (loadedConfig Config) KnownSecrets() []string {
 }
 
 func proxyKeyOf(baseURL string) string {
-	_, afterMarker, found := strings.Cut(baseURL, proxyPathMarker)
+	start, end, found := proxyKeyBounds(baseURL)
 	if !found {
 		return ""
 	}
-	segment, _, _ := strings.Cut(afterMarker, "/")
-	return segment
+	return baseURL[start:end]
 }
 
 // rcCredentials ne renvoie que le mot de passe : un nom d'utilisateur court masquerait des mots ordinaires.

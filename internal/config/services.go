@@ -14,7 +14,6 @@ const (
 	apiKeyQueryParam    = "apikey"
 	typeQbittorrent     = "qbittorrent"
 	readOnlyModifier    = "readonly:"
-	proxyPathMarker     = "/proxy/"
 	errInvalidURLFormat = "%s: invalid url (expected http(s)://host[:port])"
 )
 
@@ -183,16 +182,11 @@ func (client TorrentClient) MarshalJSON() ([]byte, error) {
 
 // redactProxyKey masque le segment qui suit /proxy/ : le proxy de qui authentifie par cette clé dans le chemin.
 func redactProxyKey(baseURL string) string {
-	beforeMarker, afterMarker, found := strings.Cut(baseURL, proxyPathMarker)
+	start, end, found := proxyKeyBounds(baseURL)
 	if !found {
 		return baseURL
 	}
-	_, remainingPath, hasRemainingPath := strings.Cut(afterMarker, "/")
-	redactedURL := beforeMarker + proxyPathMarker + redactedMark
-	if hasRemainingPath {
-		redactedURL += "/" + remainingPath
-	}
-	return redactedURL
+	return baseURL[:start] + redactedMark + baseURL[end:]
 }
 
 // redactURL masque le mot de passe d'userinfo et les valeurs de requête qui ressemblent à un secret ;

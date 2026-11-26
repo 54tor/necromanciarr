@@ -68,27 +68,57 @@ func HasProxyPlaceholder(rawURL string) bool {
 	return layout.isValid && layout.hasPlaceholder
 }
 
-// splitProxyKey remplace le segment qui suit le premier segment proxy (casse ignorée) par {proxyKey} et rend la clé
-// décodée ; un second segment proxy reste et sera refusé à la jonction.
+// proxyKeyBounds rend les bornes, dans une url textuelle, du segment qui suit le premier segment proxy du chemin (casse
+// et encodage ignorés) : séparation, masquage et secrets connus partagent ce repérage.
+func proxyKeyBounds(rawURL string) (int, int, bool) {
+	pathStart := 0
+	if schemeEnd := strings.Index(rawURL, "://"); schemeEnd >= 0 {
+		slash := strings.Index(rawURL[schemeEnd+3:], "/")
+		if slash < 0 {
+			return 0, 0, false
+		}
+		pathStart = schemeEnd + 3 + slash
+	}
+	pathEnd := len(rawURL)
+	if stop := strings.IndexAny(rawURL[pathStart:], "?#"); stop >= 0 {
+		pathEnd = pathStart + stop
+	}
+	return keySegmentAfterProxy(rawURL, pathStart, pathEnd)
+}
+
+func keySegmentAfterProxy(rawURL string, pathStart, pathEnd int) (int, int, bool) {
+	segmentStart := pathStart
+	for segmentStart < pathEnd {
+		segmentEnd := segmentEndAt(rawURL, segmentStart+1, pathEnd)
+		decoded, _ := url.PathUnescape(rawURL[segmentStart+1 : segmentEnd])
+		if strings.EqualFold(decoded, proxySegmentName) && segmentEnd < pathEnd {
+			return segmentEnd + 1, segmentEndAt(rawURL, segmentEnd+1, pathEnd), true
+		}
+		segmentStart = segmentEnd
+	}
+	return 0, 0, false
+}
+
+func segmentEndAt(rawURL string, from, pathEnd int) int {
+	if slash := strings.Index(rawURL[from:pathEnd], "/"); slash >= 0 {
+		return from + slash
+	}
+	return pathEnd
+}
+
+// splitProxyKey remplace le segment qui suit le premier segment proxy par {proxyKey} et rend la clé décodée ; un second
+// segment proxy reste et sera refusé à la jonction.
 func splitProxyKey(baseURL string) (string, string) {
-	parsedURL, err := url.Parse(baseURL)
-	if err != nil {
+	start, end, found := proxyKeyBounds(baseURL)
+	if !found {
 		return baseURL, ""
 	}
-	segments := strings.Split(parsedURL.EscapedPath(), "/")
-	for position, segment := range segments {
-		isProxyWithKey := strings.EqualFold(segment, proxySegmentName) && position+1 < len(segments)
-		if !isProxyWithKey {
-			continue
-		}
-		proxyKey, unescapeErr := url.PathUnescape(segments[position+1])
-		if unescapeErr != nil {
-			proxyKey = segments[position+1]
-		}
-		segments[position+1] = proxyKeyPlaceholder
-		return parsedURL.Scheme + "://" + parsedURL.Host + strings.Join(segments, "/"), proxyKey
+	escapedKey := baseURL[start:end]
+	proxyKey, err := url.PathUnescape(escapedKey)
+	if err != nil {
+		proxyKey = escapedKey
 	}
-	return baseURL, ""
+	return baseURL[:start] + proxyKeyPlaceholder + baseURL[end:], proxyKey
 }
 
 func addProxyKey(element Element, proxyKey string) {

@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -114,5 +115,23 @@ func TestLoadWith_namesAnOldFormatRowWithASealedValueInAClearField(t *testing.T)
 
 	if !errors.Is(err, ErrInvalidStoredConfig) || !strings.Contains(err.Error(), valeurAttendue) {
 		t.Fatalf("valeurObtenue %v, valeurAttendue %q", err, valeurAttendue)
+	}
+}
+
+func TestConfig_masksAProxyKeyAfterAMixedCaseOrEncodedProxySegment(t *testing.T) {
+	const proxyKey = "dummy-proxy-key-2222"
+	for _, proxySegment := range []string{"Proxy", "%70roxy"} {
+		content := `{"radarr": [{"url": "http://radarr.example.com:7476/` + proxySegment + `/{proxyKey}/radarr", "apiKey": "` +
+			dummyAPIKey + `", "proxyKey": "` + proxyKey + `"}]}`
+		loadedConfig, err := loadStored(t, nil, map[string]string{envSecretKey: testSecretKey}, content)
+		if err != nil {
+			t.Fatalf("%s: %v", proxySegment, err)
+		}
+
+		valeurObtenue := fmt.Sprintf("%v", loadedConfig) + RedactText("see "+loadedConfig.Radarr[0].BaseURL, loadedConfig.KnownSecrets()...)
+
+		if strings.Contains(valeurObtenue, proxyKey) {
+			t.Errorf("%s: valeurObtenue %q, valeurAttendue la clé de proxy masquée", proxySegment, valeurObtenue)
+		}
 	}
 }
