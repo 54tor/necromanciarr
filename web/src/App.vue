@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { Copy, Database, HardDrive, Inbox, Link, ListChecks, Rocket } from '@lucide/vue'
+import {
+  Copy,
+  Database,
+  HardDrive,
+  Inbox,
+  Link,
+  ListChecks,
+  Rocket,
+  SlidersHorizontal,
+} from '@lucide/vue'
 import { computed, onMounted, ref, watch, type Component } from 'vue'
 import { authToken, loginRequired } from '@/api/client'
 import AppShell from '@/components/AppShell.vue'
@@ -9,6 +18,7 @@ import { Toaster } from '@/components/ui/sonner'
 import type { NavItem } from '@/lib/nav'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { ROUTES, currentPath, navigate, useHashRouter } from '@/router'
+import ConfigView from '@/views/ConfigView.vue'
 import DedupeView from '@/views/DedupeView.vue'
 import LinksView from '@/views/LinksView.vue'
 import OnboardingView from '@/views/OnboardingView.vue'
@@ -25,6 +35,7 @@ const VIEWS: Record<string, Component> = {
   '/etapes': StagesView,
   '/sources': SourcesView,
   '/volumes': VolumesView,
+  '/configuration': ConfigView,
 }
 
 const NAV_ICONS: Record<string, Component> = {
@@ -35,6 +46,7 @@ const NAV_ICONS: Record<string, Component> = {
   '/etapes': ListChecks,
   '/sources': Database,
   '/volumes': HardDrive,
+  '/configuration': SlidersHorizontal,
 }
 
 useHashRouter()

@@ -12,7 +12,8 @@
     "skip": "Skip to content",
     "openMenu": "Open the menu",
     "closeMenu": "Close the menu",
-    "drawerHint": "Choose a page of the application."
+    "drawerHint": "Choose a page of the application.",
+    "configuration": "Configuration"
   },
   "actions": {
     "signIn": "Sign in"
@@ -338,6 +339,8 @@
     "shutting_down": "The server is shutting down.",
     "failure": "Server-side failure. Check its log.",
     "network": "Server unreachable.",
+    "secret_key_missing": "Storing a secret requires the NECROMANCIARR_SECRET_KEY sealing key: set it, then restart.",
+    "invalid_stored_config": "The stored configuration is invalid: fix the refused value.",
     "generic": "An error occurred. Check the server log.",
     "unknownCode": "{message} (code: {code})"
   },
@@ -687,6 +690,82 @@
         "yes": "Remote identity: yes",
         "no": "Remote identity: no"
       }
+    }
+  },
+  "config": {
+    "refresh": "Refresh",
+    "loadFailed": "Could not load the configuration.",
+    "restartRequired": "Configuration saved. Restart necromanciarr to apply it.",
+    "settings": "Settings",
+    "emptySettings": "No setting.",
+    "emptyList": "No item.",
+    "orphans": "Orphan overrides",
+    "orphansHint": "The cross-seed item of these overrides is gone: delete them or restore the item in cross-seed.",
+    "emptyOrphans": "No orphan override.",
+    "add": "Add",
+    "edit": "Edit",
+    "editOf": "Edit {name}",
+    "revert": "Revert to cross-seed",
+    "revertOf": "Revert {name} to its cross-seed value",
+    "locked": "Locked",
+    "lockedWarning": "The environment imposes this value (variable or option): a write is stored in the database but only takes effect without that constraint.",
+    "drift": "Drift",
+    "orphan": "Orphan",
+    "origin": {
+      "default": "Default value",
+      "crossseed": "cross-seed",
+      "override": "Override",
+      "added": "Added",
+      "env": "Environment",
+      "flag": "Launch option"
+    },
+    "secret": {
+      "set": "Set",
+      "unset": "Not set",
+      "state": "{state} · leave empty to keep the stored value"
+    },
+    "columns": {
+      "key": "Setting",
+      "value": "Value",
+      "origin": "Origin",
+      "itemId": "Identifier",
+      "fields": "Fields",
+      "list": "List"
+    },
+    "lists": {
+      "radarr": "Radarr",
+      "sonarr": "Sonarr",
+      "torrentClients": "Torrent clients",
+      "linkDirs": "Link directories",
+      "trackers": "Trackers",
+      "torznab": "Torznab indexers",
+      "fsProviders": "File providers"
+    },
+    "idHint": {
+      "url": "Identifier: the URL without credentials (scheme, host, port, path).",
+      "path": "Identifier: the directory path.",
+      "key": "Identifier: the tracker key.",
+      "name": "Identifier: the provider name."
+    },
+    "form": {
+      "editTitle": "Edit {name}",
+      "addTitle": "Add to {list}",
+      "description": "The saved item fully replaces the previous one.",
+      "itemId": "Item identifier",
+      "wholeElement": "Item (JSON object)",
+      "linesHint": "One value per line.",
+      "invalid": "Unreadable value: {field}",
+      "save": "Save"
+    },
+    "remove": {
+      "action": "Delete",
+      "actionOf": "Delete {name}",
+      "title": "Delete this item?",
+      "hide": "The item comes from cross-seed: it will be hidden, cross-seed is not changed.",
+      "delete": "The item and its override will be deleted from the database.",
+      "orphan": "The orphan override will be deleted from the database.",
+      "confirm": "Delete",
+      "summary": "Item: {name}"
     }
   }
 }

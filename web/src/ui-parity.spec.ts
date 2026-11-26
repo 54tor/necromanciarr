@@ -12,6 +12,7 @@ import {
   proposal,
   repairDetails,
 } from '@/test/fixtures'
+import ConfigView from '@/views/ConfigView.vue'
 import DedupeView from '@/views/DedupeView.vue'
 import LinksView from '@/views/LinksView.vue'
 import OnboardingView from '@/views/OnboardingView.vue'
@@ -30,6 +31,7 @@ const VIEWS: Record<string, Component> = {
   StagesView,
   SourcesView,
   VolumesView,
+  ConfigView,
 }
 
 async function actionsRenderedBy(view: Component): Promise<Set<string>> {
@@ -60,6 +62,23 @@ async function actionsRenderedBy(view: Component): Promise<Set<string>> {
         probed_at: null,
       },
     ],
+    'GET /api/config': {
+      settings: {
+        language: { value: 'fr', origin: 'override', locked: false, secret: false, set: true },
+      },
+      lists: {
+        radarr: [
+          {
+            itemId: 'http://radarr.example.com:7878',
+            element: { name: 'films' },
+            origin: 'override',
+            drift: false,
+          },
+        ],
+      },
+      orphans: [],
+      restartRequired: false,
+    },
     'GET /api/proposals': (call) => {
       const kind = call.query.get('kind')
       if (kind === 'dedupe') return [maintenanceProposal(1, dedupeDetails)]

@@ -114,7 +114,7 @@ const reducedMotion = 'motion-reduce:animate-none motion-reduce:transition-none'
           id="main-content"
           ref="mainContent"
           tabindex="-1"
-          class="mx-auto grid w-full max-w-6xl flex-1 content-start gap-4 p-4 outline-none sm:p-6"
+          class="grid w-full min-w-0 flex-1 content-start gap-4 px-[clamp(16px,3vw,56px)] py-4 outline-none sm:py-6"
         >
           <slot />
         </main>

@@ -334,3 +334,38 @@ export interface VolumeCommands {
   lines: string[]
   guard_script: string
 }
+
+/** Origine d'une valeur de configuration ; un élément de liste dit `cross-seed`, un réglage `crossseed`. */
+export type ConfigOrigin =
+  'default' | 'crossseed' | 'cross-seed' | 'override' | 'added' | 'env' | 'flag'
+
+/** Réglage de `GET /api/config` : `value` nul pour un secret, `set` dit s'il existe. */
+export interface ConfigSetting {
+  value: unknown
+  origin: ConfigOrigin
+  locked: boolean
+  secret: boolean
+  set: boolean
+}
+
+/** Élément de liste résolu ; un champ secret présent vaut null. */
+export interface ConfigItem {
+  itemId: string
+  element: Record<string, unknown>
+  origin: ConfigOrigin
+  drift: boolean
+}
+
+/** Surcharge dont l'élément cross-seed a disparu (noms Go sans balise JSON). */
+export interface ConfigOrphan {
+  List: string
+  ItemID: string
+}
+
+/** Réponse de `GET /api/config` et de chaque écriture : la configuration relue, sans aucun secret. */
+export interface ConfigSnapshot {
+  settings: Record<string, ConfigSetting> | null
+  lists: Record<string, ConfigItem[] | null> | null
+  orphans: ConfigOrphan[] | null
+  restartRequired: boolean
+}

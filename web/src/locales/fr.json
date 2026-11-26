@@ -12,7 +12,8 @@
     "skip": "Aller au contenu",
     "openMenu": "Ouvrir le menu",
     "closeMenu": "Fermer le menu",
-    "drawerHint": "Choisissez une page de l’application."
+    "drawerHint": "Choisissez une page de l’application.",
+    "configuration": "Configuration"
   },
   "actions": {
     "signIn": "Se connecter"
@@ -338,6 +339,8 @@
     "shutting_down": "Le serveur est en cours d’arrêt.",
     "failure": "Échec côté serveur. Consultez son journal.",
     "network": "Serveur injoignable.",
+    "secret_key_missing": "Enregistrer un secret exige la clé de scellement NECROMANCIARR_SECRET_KEY : définissez-la puis redémarrez.",
+    "invalid_stored_config": "La configuration enregistrée est invalide : corrigez la valeur refusée.",
     "generic": "Une erreur est survenue. Consultez le journal du serveur.",
     "unknownCode": "{message} (code : {code})"
   },
@@ -687,6 +690,82 @@
         "yes": "Identité distante : oui",
         "no": "Identité distante : non"
       }
+    }
+  },
+  "config": {
+    "refresh": "Actualiser",
+    "loadFailed": "Impossible de charger la configuration.",
+    "restartRequired": "Configuration enregistrée. Redémarrez necromanciarr pour l’appliquer.",
+    "settings": "Réglages",
+    "emptySettings": "Aucun réglage.",
+    "emptyList": "Aucun élément.",
+    "orphans": "Surcharges orphelines",
+    "orphansHint": "L’élément cross-seed de ces surcharges a disparu : supprimez-les ou rétablissez l’élément dans cross-seed.",
+    "emptyOrphans": "Aucune surcharge orpheline.",
+    "add": "Ajouter",
+    "edit": "Modifier",
+    "editOf": "Modifier {name}",
+    "revert": "Revenir à cross-seed",
+    "revertOf": "Revenir à la valeur cross-seed de {name}",
+    "locked": "Verrouillé",
+    "lockedWarning": "L’environnement impose cette valeur (variable ou option) : une écriture est enregistrée en base mais ne prendra effet que sans cette contrainte.",
+    "drift": "Dérive",
+    "orphan": "Orphelin",
+    "origin": {
+      "default": "Valeur par défaut",
+      "crossseed": "cross-seed",
+      "override": "Surcharge",
+      "added": "Ajout",
+      "env": "Environnement",
+      "flag": "Option de lancement"
+    },
+    "secret": {
+      "set": "Défini",
+      "unset": "Non défini",
+      "state": "{state} · laisser vide pour conserver la valeur enregistrée"
+    },
+    "columns": {
+      "key": "Réglage",
+      "value": "Valeur",
+      "origin": "Origine",
+      "itemId": "Identifiant",
+      "fields": "Champs",
+      "list": "Liste"
+    },
+    "lists": {
+      "radarr": "Radarr",
+      "sonarr": "Sonarr",
+      "torrentClients": "Clients torrent",
+      "linkDirs": "Dossiers de liens",
+      "trackers": "Trackers",
+      "torznab": "Indexeurs Torznab",
+      "fsProviders": "Fournisseurs de fichiers"
+    },
+    "idHint": {
+      "url": "Identifiant : l’URL sans identifiants (schéma, hôte, port, chemin).",
+      "path": "Identifiant : le chemin du dossier.",
+      "key": "Identifiant : la clé du tracker.",
+      "name": "Identifiant : le nom du fournisseur."
+    },
+    "form": {
+      "editTitle": "Modifier {name}",
+      "addTitle": "Ajouter à {list}",
+      "description": "L’élément enregistré remplace entièrement le précédent.",
+      "itemId": "Identifiant de l’élément",
+      "wholeElement": "Élément (objet JSON)",
+      "linesHint": "Une valeur par ligne.",
+      "invalid": "Valeur illisible : {field}",
+      "save": "Enregistrer"
+    },
+    "remove": {
+      "action": "Supprimer",
+      "actionOf": "Supprimer {name}",
+      "title": "Supprimer cet élément ?",
+      "hide": "L’élément vient de cross-seed : il sera masqué, cross-seed n’est pas modifié.",
+      "delete": "L’élément et sa surcharge seront supprimés de la base.",
+      "orphan": "La surcharge orpheline sera supprimée de la base.",
+      "confirm": "Supprimer",
+      "summary": "Élément : {name}"
     }
   }
 }

@@ -1,5 +1,6 @@
 import { request } from './client'
 import type {
+  ConfigSnapshot,
   DecisionResult,
   DoctorReport,
   ForceResult,
@@ -17,6 +18,10 @@ import type {
   StageName,
   Status,
 } from './types'
+
+const encoded = encodeURIComponent
+const itemPath = (list: string, itemId: string) =>
+  `/api/config/lists/${encoded(list)}/${encoded(itemId)}`
 
 const post = <Result>(path: string, body: unknown = {}) => request<Result>('POST', path, body)
 
@@ -80,6 +85,17 @@ export const api = {
     post<VolumeProbeResult>(`/api/volumes/${encodeURIComponent(name)}/probe`, {}),
   volumeCommands: (name: string) =>
     request<VolumeCommands>('GET', `/api/volumes/${encodeURIComponent(name)}/commands`),
+  getConfig: () => request<ConfigSnapshot>('GET', '/api/config'),
+  putConfigSetting: (key: string, value: unknown) =>
+    request<ConfigSnapshot>('PUT', `/api/config/settings/${encoded(key)}`, { value }),
+  unsetConfigSetting: (key: string) =>
+    request<ConfigSnapshot>('DELETE', `/api/config/settings/${encoded(key)}`),
+  putConfigItem: (list: string, itemId: string, element: Record<string, unknown>) =>
+    request<ConfigSnapshot>('PUT', itemPath(list, itemId), { element }),
+  deleteConfigItem: (list: string, itemId: string) =>
+    request<ConfigSnapshot>('DELETE', itemPath(list, itemId)),
+  unsetConfigItem: (list: string, itemId: string) =>
+    post<ConfigSnapshot>(`${itemPath(list, itemId)}/unset`),
   listJobs: () => request<Job[]>('GET', '/api/jobs'),
   getJob: (jobId: number) => request<Job>('GET', `/api/jobs/${jobId}`),
 }

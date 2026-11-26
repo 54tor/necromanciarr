@@ -2,7 +2,7 @@
 // routes de suivi des jobs, hors registre. Le test `actions.spec.ts` la compare au fichier d'or du test Go.
 
 export interface ApiRoute {
-  method: 'GET' | 'POST'
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
   path: string
   action: string
   mutating: boolean
@@ -54,6 +54,27 @@ export const API_ROUTES: readonly ApiRoute[] = [
     action: 'volumes commands',
     mutating: false,
   },
+  { method: 'GET', path: '/api/config', action: 'config get', mutating: false },
+  { method: 'PUT', path: '/api/config/settings/{key}', action: 'config set', mutating: true },
+  { method: 'DELETE', path: '/api/config/settings/{key}', action: 'config unset', mutating: true },
+  {
+    method: 'PUT',
+    path: '/api/config/lists/{list}/{itemId}',
+    action: 'config item-set',
+    mutating: true,
+  },
+  {
+    method: 'DELETE',
+    path: '/api/config/lists/{list}/{itemId}',
+    action: 'config item-delete',
+    mutating: true,
+  },
+  {
+    method: 'POST',
+    path: '/api/config/lists/{list}/{itemId}/unset',
+    action: 'config item-unset',
+    mutating: true,
+  },
   { method: 'GET', path: '/api/jobs', action: '', mutating: false },
   { method: 'GET', path: '/api/jobs/{id}', action: '', mutating: false },
 ]
@@ -87,6 +108,12 @@ export const UI_TRIGGERS: Readonly<Record<string, string>> = {
   'volumes list': 'VolumesView',
   'volumes probe': 'VolumesView',
   'volumes commands': 'VolumesView',
+  'config get': 'ConfigView',
+  'config set': 'ConfigView',
+  'config unset': 'ConfigView',
+  'config item-set': 'ConfigView',
+  'config item-delete': 'ConfigView',
+  'config item-unset': 'ConfigView',
 }
 
 /** Actions dont le déclencheur existe en version par ligne. */
@@ -102,4 +129,8 @@ export const ROW_SCOPED_ACTIONS: readonly string[] = [
   'sources test',
   'volumes probe',
   'volumes commands',
+  'config set',
+  'config item-set',
+  'config item-delete',
+  'config item-unset',
 ]

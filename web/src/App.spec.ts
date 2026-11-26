@@ -23,7 +23,7 @@ describe('App', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders the product name and the seven tabs', async () => {
+  it('renders the product name and the eight tabs', async () => {
     installFakeApi({
       'POST /api/doctor/run': okReport,
       'GET /api/status': busyStatus,
@@ -43,6 +43,7 @@ describe('App', () => {
       'Étapes',
       'Sources',
       'Volumes',
+      'Configuration',
     ])
   })
 
@@ -65,6 +66,7 @@ describe('App', () => {
       'Stages',
       'Sources',
       'Volumes',
+      'Configuration',
     ])
   })
 
