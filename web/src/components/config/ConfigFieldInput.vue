@@ -132,7 +132,7 @@ function removeRow(rowIndex: number): void {
         :data-testid="testId()"
         :data-masked="isMasked() ? 'true' : undefined"
         :class="textareaClass()"
-        autocomplete="off"
+        :autocomplete="field.secret ? 'new-password' : 'off'"
         spellcheck="false"
       />
       <input
@@ -141,7 +141,7 @@ function removeRow(rowIndex: number): void {
         :data-testid="testId()"
         :type="field.secret ? 'password' : 'text'"
         :inputmode="NUMERIC_KINDS.includes(field.kind) ? 'decimal' : undefined"
-        autocomplete="off"
+        :autocomplete="field.secret ? 'new-password' : 'off'"
         :class="FIELD_CLASS"
       />
     </label>

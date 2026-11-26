@@ -286,6 +286,16 @@ describe('ConfigView', () => {
     expect(String(toastError.mock.calls[0]?.[0])).not.toContain('dummy')
   })
 
+  it('ConfigView empêche le navigateur de remplir un secret avec un mot de passe enregistré', async () => {
+    const { wrapper } = await mountView({ 'GET /api/config': configSnapshot() })
+
+    await wrapper.get('[data-testid="edit-setting-prowlarr"]').trigger('click')
+    await flushPromises()
+    const valeurObtenue = bodyElement<HTMLInputElement>('config-field-prowlarr')?.autocomplete
+
+    expect(valeurObtenue).toBe('new-password')
+  })
+
   it('ConfigView garde le dialogue ouvert et montre la raison du refus', async () => {
     const refusalDetail = 'configuration refused: radarr: missing apiKey'
     let refusesTheWrite = true
