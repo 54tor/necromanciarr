@@ -49,8 +49,9 @@ necromanciarr config set linkType '"symlink"'
 
 ## Secrets
 
-Clés d'API, mots de passe, passkeys d'annonce, URL d'indexeur et `rc` rclone sont scellés en base (AES-256-GCM)
-et ne sont jamais rendus : la page Configuration affiche « Défini » ou « Non défini ». Passer un secret par
+Clés d'API, clés de proxy, mots de passe, passkeys d'annonce et `rc` rclone sont scellés en base (AES-256-GCM)
+et ne sont jamais rendus : la page Configuration affiche « Défini » ou « Non défini ». Les URL des services et des
+indexeurs restent en clair, sans secret (`{proxyKey}` marque une clé de proxy dans le chemin). Passer un secret par
 `--value-stdin` ou `--element-stdin` le garde hors de l'historique du shell. Aucune valeur en base n'est
 interpolée : `${VAR}` y est refusé.
 

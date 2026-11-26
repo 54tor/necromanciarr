@@ -50,8 +50,8 @@ Settings live in the `settings` table (one JSON value per key, replaced as a who
 | `libraryToken` | text | empty | Bearer token sent to the library provider; sealed in the database. `LIBRARY_PROVIDER_TOKEN` wins when it is set and not empty |
 | `libraryRoots` | list of paths | empty | as seen by this process; absolute paths without a `..` segment (refused at load time). An `sftp://<provider>/<absolute path>` location targets a declared `fsProviders` entry of type `sftp` (example: `sftp://seedbox/srv/media`); an `rclone` provider is refused. The server is reached only at first use: when it is unreachable, startup, local operations and `doctor` still work; Scan then leaves its roots as they are (`remote_unavailable`) and the next stage tries once more |
 | `pathMappings` | list of `{from, to}` | empty | `from`: this process's view (a local path, or an `sftp://<provider>/<absolute path>` location of a declared provider); `to`: the view of Radarr, Sonarr and the torrent client, never an `sftp://` location |
-| `radarr`, `sonarr` | list of `{url, apiKey, user, password}` objects | empty | `url` as `http(s)://host:port[/path]`, `apiKey` required, `user` and `password` optional (basic-authentication proxy). cross-seed gives them as a `http(s)://[user:password@]host:port[/path]?apikey=KEY` string, split the same way; only `apikey` is allowed there |
-| `torrentClients` | list of `{type, readOnly, url, user, password}` objects | empty | `type` is `qbittorrent`, `url` as `http(s)://host:port[/path]` with no query parameter. cross-seed gives them as a `qbittorrent[:readonly]:http(s)://[user:password@]host:port[/path]` string. Only the first client receives torrents (warning if there are several) |
+| `radarr`, `sonarr` | list of `{url, apiKey, user, password, proxyKey}` objects | empty | `url` as `http(s)://host:port[/path]`, in clear and without any secret; `apiKey` required, `user` and `password` optional (basic-authentication proxy), `proxyKey` for a proxy key in the path (`/proxy/{proxyKey}`). cross-seed gives them as a `http(s)://[user:password@]host:port[/path]?apikey=KEY` string, split the same way; only `apikey` is allowed there |
+| `torrentClients` | list of `{type, readOnly, url, user, password, proxyKey}` objects | empty | `type` is `qbittorrent`, `url` as `http(s)://host:port[/path]` in clear, with no query parameter; `proxyKey` as for `radarr`. cross-seed gives them as a `qbittorrent[:readonly]:http(s)://[user:password@]host:port[/path]` string. Only the first client receives torrents (warning if there are several) |
 | `linkDirs` | list of `{path}` objects | empty | absolute paths without `..`; never overlaps a `libraryRoots` root of the same volume |
 | `linkType` | `hardlink`, `symlink`, `reflink` | `hardlink` | a single kind, no fallback; a failure states the cause and the setting to change |
 | `skipRecheck` | boolean | `true` | see [03-seed-safety.md](03-seed-safety.md) |
@@ -83,7 +83,7 @@ The paths of the library, link directories and torrent roots are those seen by *
 ### Torrent clients, qui, read-only mode
 
 - `readonly:` forbids any write: Seed stops (`ErrClientReadOnly`), deduplication cannot request a recheck (warning `recheck_failed`). Reading (list, doctor) remains allowed.
-- **qui** (autobrr) declares itself as a qBittorrent behind its proxy: `qbittorrent:http://host:7476/proxy/<key>`, without credentials. The key after `/proxy/` is masked in all outputs.
+- **qui** (autobrr) declares itself as a qBittorrent behind its proxy: `qbittorrent:http://host:7476/proxy/<key>`, without credentials. The key after `/proxy/` goes into `proxyKey`, sealed; the `url` keeps `/proxy/{proxyKey}` in clear and the key is masked in all outputs.
 - The client is called without an environment proxy and without redirection to another host; response bodies are capped.
 - Only qBittorrent is supported. A `deluge`, `transmission` or `rtorrent` client imported from cross-seed is discarded and reported by rank and type.
 
@@ -112,13 +112,14 @@ Secret fields are sealed in the database (AES-256-GCM, key `NECROMANCIARR_SECRET
 
 | List or setting | Sealed fields |
 |---|---|
-| `radarr`, `sonarr` | `apiKey`, `password`, `url` |
-| `torrentClients` | `password`, `url` |
+| `radarr`, `sonarr` | `apiKey`, `password`, `proxyKey` |
+| `torrentClients` | `password`, `proxyKey` |
 | `trackers` | `announce` |
-| `torznab` | `url` |
+| `torznab` | `apiKey` |
 | `fsProviders` | `rc`, `password`, `identityPassphrase` |
 | settings | `prowlarr`, `crossSeed`, `libraryApi`, `libraryToken` |
 
+- The `url` of `radarr`, `sonarr`, `torrentClients` and `torznab` stays in clear, without any secret: a `url` that carries credentials (`user:password@`), an `apikey` parameter or a key after `/proxy/` other than `{proxyKey}` is refused on write and on load (`<list>.url must not carry a secret`), with a message that never repeats the URL. On load, `{proxyKey}` receives the key escaped for a path, and an indexer's `apiKey` joins the URL as `?apikey=`.
 - Without `NECROMANCIARR_SECRET_KEY`, writing a secret is refused (`secret_key_missing`, HTTP 409) and nothing is written. Generate the key with `necromanciarr api-key --secret`.
 - On load, a sealed secret that does not open (missing or changed key) blocks startup: `sealed config secrets cannot be read: NECROMANCIARR_SECRET_KEY is missing or changed`. Changing the key means entering every secret again.
 - The configuration view (`config get`, `GET /api/config`, Configuration page) never returns a secret: the field is `null`, with `secret: true`, and `set` tells whether a value exists. Rewriting an element without one of its secrets keeps the stored value (or the cross-seed one), unless its destination changes (`url`, or `address` of an `fsProviders` entry): the write is then refused (`re-enter the secrets when url changes`), so a secret never leaves for another host.
@@ -308,7 +309,8 @@ A Torznab indexer is a fallback source of `.torrent` files, after the library pr
 
 ```json
 {
-  "url": "https://prowlarr.example.com:9696/7/api?apikey=dummy-api-key",
+  "url": "https://prowlarr.example.com:9696/7/api",
+  "apiKey": "dummy-api-key",
   "name": "tracker-a",
   "tracker": "tracker-a",
   "maxDownloadsPerDay": 20
@@ -325,7 +327,8 @@ necromanciarr config set sourceOrder '["provider", "torznab:tracker-a"]'
 
 | Key | Default | Validation |
 |---|---|---|
-| `torznab[].url` | required | `http(s)`, no fragment, no user credentials, `apikey` is the only query parameter (as for `radarr`); a secret, sealed in the database and masked everywhere (`config check`, logs, `doctor`) |
+| `torznab[].url` | required | `http(s)`, no fragment, no user credentials, no query parameter; in clear |
+| `torznab[].apiKey` | required | the indexer key, added to the URL as `apikey`; a secret, sealed in the database and masked everywhere (`config check`, logs, `doctor`) |
 | `torznab[].name` | required | `[a-z0-9-]+`, unique; an element without `name` blocks loading (`a "name" is required`) |
 | `torznab[].tracker` | empty | tracker name as the library provider writes it; used for the `.torrent` fallback and for the uniqueness (infohash, tracker); kept as written (trimmed), compared in lower case without spaces (`Tracker A` equals `trackera`), like the `trackers` keys |
 | `torznab[].categories` | those of the indexer capabilities (films, series) | positive integers |
@@ -338,7 +341,7 @@ necromanciarr config set sourceOrder '["provider", "torznab:tracker-a"]'
 
 An indexer requires `NECROMANCIARR_SECRET_KEY`: without it the configuration is refused ("torznab requires NECROMANCIARR_SECRET_KEY"), because an indexer `.torrent` carries the tracker passkey and is only kept sealed ([03](03-seed-safety.md#passkeys-of-indexer-torrents)). Generate the key with `necromanciarr api-key --secret`.
 
-An indexer absent from `sourceOrder` is never queried (`doctor` warns with `torznab_not_in_source_order`). A key that contains `&`, `#`, `%` or `;` must be percent-encoded in the URL (`%26`, `%23`, `%25`, `%3B`): `?apikey=ab%26cd` stands for `ab&cd`. A refused URL gets a generic message that never repeats it.
+An indexer absent from `sourceOrder` is never queried (`doctor` warns with `torznab_not_in_source_order`). The `torznab[].apiKey` key is entered as is; in `prowlarr`, a key that contains `&`, `#`, `%` or `;` must be percent-encoded in the URL (`%26`, `%23`, `%25`, `%3B`): `?apikey=ab%26cd` stands for `ab&cd`. A refused URL gets a generic message that never repeats it.
 
 With Prowlarr, give the Torznab feed of each indexer (`/<id>/api`, the `<id>` being the indexer id in Prowlarr) and keep its `Redirect` option disabled (Proxy mode): with a redirect, the download links point to the original tracker and are refused. `doctor` warns when a `torznab` entry matches no enabled indexer of `prowlarr`.
 
