@@ -841,7 +841,7 @@
       "mounts": "Un montage par ligne : /point/local=distant:chemin.",
       "prowlarr": "URL de l’API native de Prowlarr, clé comprise.",
       "seedTags": "Un tag par ligne.",
-      "sourceOrder": "Une source par ligne : provider, puis torznab:<nom>.",
+      "sourceOrder": "Une source par ligne : provider, puis torznab:nom.",
       "timeout": "Durée : 500ms, 30s, 10m, 2h.",
       "url": "Les identifiants éventuels de l’URL sont gardés scellés."
     }

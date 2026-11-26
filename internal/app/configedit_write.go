@@ -105,7 +105,7 @@ func (svc *service) UnsetItem(ctx context.Context, list, itemID string) error {
 	})
 }
 
-// commitConfig applique le changement à une copie de la base, la fait relire par le vrai chargeur, puis seulement
+// commitConfig applique le changement à une copie de la base, la fait relire par le vrai chargement, puis seulement
 // l'écrit : un refus n'écrit rien.
 func (svc *service) commitConfig(ctx context.Context, change func(snapshot *storedSnapshot) (configWrite, error)) error {
 	editStore, load, err := svc.configEditing()

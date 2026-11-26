@@ -30,7 +30,7 @@ func loadConfig(args []string) (config.Config, error) {
 	return config.LoadWith(args, lookupEnv, defaultConfigDir(), openStoredReader)
 }
 
-// storedConfigLoader rejoue le chargeur du processus (mêmes options, même environnement) sur un contenu de base donné :
+// storedConfigLoader rejoue le chargement du processus (mêmes options, même environnement) sur un contenu de base donné :
 // le Service valide ainsi chaque édition de la configuration avant de l'écrire.
 func storedConfigLoader(args []string) app.StoredConfigLoader {
 	return func(reader config.StoredReader) (config.Config, error) {

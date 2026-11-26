@@ -169,10 +169,14 @@ func TestConfigRoutes_mapsConfigErrorsToTranslatedStatuses(t *testing.T) {
 		expectedCode                            string
 		expectedKey                             i18n.Key
 	}{
-		{"unknown key", http.MethodPut, "/api/config/settings/notASetting", `{"value": 1}`, "SetSetting", unknownKey,
-			http.StatusBadRequest, app.ErrorCodeUsage, i18n.KeyErrorUnknownConfigKey},
-		{"invalid stored configuration", http.MethodGet, "/api/config", "", "ConfigView", invalidStored,
-			http.StatusUnprocessableEntity, app.ErrorCodeInvalidStoredConfig, i18n.KeyErrorInvalidStoredConfig},
+		{
+			"unknown key", http.MethodPut, "/api/config/settings/notASetting", `{"value": 1}`, "SetSetting", unknownKey,
+			http.StatusBadRequest, app.ErrorCodeUsage, i18n.KeyErrorUnknownConfigKey,
+		},
+		{
+			"invalid stored configuration", http.MethodGet, "/api/config", "", "ConfigView", invalidStored,
+			http.StatusUnprocessableEntity, app.ErrorCodeInvalidStoredConfig, i18n.KeyErrorInvalidStoredConfig,
+		},
 	}
 	for _, scenario := range scenarios {
 		fake := &fakeService{errors: map[string]error{scenario.failingMethod: scenario.err}}

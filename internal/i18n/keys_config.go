@@ -1,6 +1,6 @@
 package i18n
 
-// Clés de l'édition de la configuration : actions config get/set/unset/item-*, sous-commandes et erreurs.
+// Clés de l'édition de la configuration : actions config get/set/unset/item-*, sous-actions et erreurs.
 const (
 	KeyActionConfigGet        Key = "action.config.get"
 	KeyActionConfigSet        Key = "action.config.set"

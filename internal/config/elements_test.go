@@ -55,7 +55,7 @@ func TestResolveList_keepsUpstreamOrderThenAdditionsInInsertionOrder(t *testing.
 		}
 	}
 	if resolved[2].Origin != OriginAdded || resolved[0].Origin != OriginCrossSeed {
-		t.Fatalf("origines inattendues: %v", resolved)
+		t.Fatalf("provenances inattendues: %v", resolved)
 	}
 }
 

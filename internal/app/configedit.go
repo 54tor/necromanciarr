@@ -26,12 +26,12 @@ type ConfigStore interface {
 	DeleteConfigOverride(ctx context.Context, list, itemID string) error
 }
 
-// StoredConfigLoader reconstruit la configuration avec le vrai chargeur (mêmes options et environnement que le
+// StoredConfigLoader reconstruit la configuration avec le vrai chargement (mêmes options et environnement que le
 // processus) sur le contenu de base que rend reader.
 type StoredConfigLoader func(reader config.StoredReader) (config.Config, error)
 
 // ConfigView est la configuration éditable, sans aucune valeur secrète ; RestartRequired dit qu'une écriture attend
-// le prochain démarrage.
+// le prochain lancement.
 type ConfigView struct {
 	Settings        map[string]ConfigValue  `json:"settings"`
 	Lists           map[string][]ConfigItem `json:"lists"`
@@ -57,7 +57,7 @@ type ConfigItem struct {
 	Drift   bool           `json:"drift"`
 }
 
-// storedSnapshot est un contenu de base en mémoire, lu par le chargeur pour valider une écriture avant de la faire.
+// storedSnapshot est un contenu de base en mémoire, lu par le chargement pour valider une écriture avant de la faire.
 type storedSnapshot struct {
 	settings  map[string][]byte
 	overrides []store.ConfigOverride
@@ -160,7 +160,7 @@ func listViews(upstream map[string][]config.Element, overrides []store.ConfigOve
 	return views
 }
 
-// maskedElement garde la présence d'un champ secret (null) sans jamais sa valeur, scellée ou non.
+// maskedElement garde la existence d'un champ secret (null) sans jamais sa valeur, scellée ou non.
 func maskedElement(list string, element config.Element) map[string]any {
 	masked := maps.Clone(map[string]any(element))
 	for field := range masked {

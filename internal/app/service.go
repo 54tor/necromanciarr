@@ -224,7 +224,7 @@ type service struct {
 	sourceTests sync.Map
 	// volumeProbes garde les volumes dont un volumes probe est en cours : une seconde sonde simultanée est refusée.
 	volumeProbes sync.Map
-	// configEdits sérialise les écritures de configuration ; restartRequired dit qu'une écriture attend un redémarrage.
+	// configEdits sérialise les écritures de configuration ; restartRequired dit qu'une écriture attend une relance.
 	configEdits     sync.Mutex
 	restartRequired atomic.Bool
 }

@@ -226,7 +226,7 @@ const (
 	originCrossSeed     = "crossseed"
 )
 
-// listSource résume les origines des éléments effectifs d'une liste.
+// listSource résume les provenances des éléments effectifs d'une liste.
 func listSource(origins []config.ValueOrigin, list string) string {
 	elementCount, upstreamCount := 0, 0
 	for _, origin := range origins {

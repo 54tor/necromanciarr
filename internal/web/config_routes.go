@@ -15,7 +15,7 @@ const (
 	pathConfigItemID = "itemId"
 )
 
-// Les routes de configuration répondent par la ConfigView relue : l'interface affiche l'état et le redémarrage requis.
+// Les routes de configuration répondent par la ConfigView relue : l'interface affiche l'état et la relance requise.
 func getConfig(handler *Handler, request *http.Request) (any, int, error) {
 	if err := requireKnownQuery(request.URL.Query()); err != nil {
 		return nil, 0, err

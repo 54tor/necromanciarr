@@ -841,7 +841,7 @@
       "mounts": "One mount per line: /local/mount=remote:path.",
       "prowlarr": "Prowlarr native API URL, key included.",
       "seedTags": "One tag per line.",
-      "sourceOrder": "One source per line: provider, then torznab:<name>.",
+      "sourceOrder": "One source per line: provider, then torznab:name.",
       "timeout": "Duration: 500ms, 30s, 10m, 2h.",
       "url": "Credentials in the URL are kept sealed."
     }

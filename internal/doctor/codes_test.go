@@ -355,7 +355,8 @@ func TestDoctor_redactsTrackerPasskeyInPanicAndDetail(t *testing.T) {
 func TestConfigLoadResult_namesTheSourceOfEachList(t *testing.T) {
 	settings := config.Config{ConfigDir: "/home/u/config", Origins: []config.ValueOrigin{
 		{Key: "radarr", ItemID: "a", Origin: "crossseed"},
-		{Key: "sonarr", ItemID: "b", Origin: "crossseed"}, {Key: "sonarr", ItemID: "c", Origin: "added"},
+		{Key: "sonarr", ItemID: "b", Origin: "crossseed"},
+		{Key: "sonarr", ItemID: "c", Origin: "added"},
 		{Key: "linkDirs", Origin: "default"},
 	}}
 	valeurAttendue := map[string]string{"radarr": "cross-seed", "sonarr": "database", "torrent_clients": "none", "link_dirs": "none"}

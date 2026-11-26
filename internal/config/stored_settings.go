@@ -20,7 +20,7 @@ const (
 	settingLanguage     = "language"
 )
 
-// settingKeys sont, dans l'ordre d'affichage des origines, les seules clés admises dans la table settings.
+// settingKeys sont, dans l'ordre d'affichage des provenances, les seules clés admises dans la table settings.
 var settingKeys = []string{
 	settingListen, "readBytesPerSecond", "tieBreakReadBytes", settingLibraryAPI, "libraryRoots", "pathMappings",
 	"prowlarr", "sourceOrder", "dedupe", settingLinkType, settingSkipRecheck, settingLinkCategory, settingCrossSeed,

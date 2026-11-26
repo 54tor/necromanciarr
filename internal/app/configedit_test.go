@@ -23,7 +23,7 @@ const (
 	configEditDatabaseRel = "necromanciarr.db"
 )
 
-// configEditFixture est un Service d'édition sur une vraie base et le vrai chargeur, sans réseau.
+// configEditFixture est un Service d'édition sur une vraie base et le vrai chargement, sans réseau.
 type configEditFixture struct {
 	service Service
 	store   *store.Store

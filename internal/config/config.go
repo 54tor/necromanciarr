@@ -243,7 +243,7 @@ func resolveLoadEnvironment(options commandLine, lookupEnv func(string) (string,
 	}, nil
 }
 
-// configLayers est la configuration brute empilée : base par-dessus cross-seed, avec le bilan des origines.
+// configLayers est la configuration brute empilée : base par-dessus cross-seed, avec le bilan des provenances.
 type configLayers struct {
 	rawFile       fileConfig
 	crossSeed     crossSeedLayer
@@ -298,7 +298,7 @@ func (layers configLayers) describe(target *Config, environment loadEnvironment)
 	target.OrphanOverrides, target.UpstreamElements = layers.lists.orphans, layers.lists.upstream
 }
 
-// finishConfig applique défauts, environnement et options, normalise, date les origines puis valide.
+// finishConfig applique défauts, environnement et options, normalise, date les provenances puis valide.
 func finishConfig(target *Config, layers configLayers, options commandLine, lookup func(string) (string, bool)) error {
 	applyDefaults(target)
 	applyOverrides(target, options, lookup)

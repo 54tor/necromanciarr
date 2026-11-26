@@ -13,7 +13,7 @@ import (
 	"necromanciarr/internal/i18n"
 )
 
-// Options des sous-commandes d'édition : la valeur ou l'élément est lu sur l'entrée standard, hors de l'historique du shell.
+// Options des sous-actions d'édition : la valeur ou l'élément est lu sur l'entrée standard, hors de l'historique du shell.
 const (
 	flagValueStdin    = "value-stdin"
 	flagElementStdin  = "element-stdin"
@@ -65,7 +65,7 @@ func configCommands() []command {
 	}
 }
 
-// configSaved est la sortie d'une écriture : elle ne s'applique qu'au prochain démarrage du serveur.
+// configSaved est la sortie d'une écriture : elle ne s'applique qu'au prochain lancement du serveur.
 type configSaved struct {
 	Action          string `json:"action"`
 	RestartRequired bool   `json:"restartRequired"`
