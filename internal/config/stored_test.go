@@ -464,6 +464,72 @@ func TestLoadWith_crossSeedConfigPathOnlyFromFlagOrEnvironment(t *testing.T) {
 	}
 }
 
+func sealedSettingsReader(t *testing.T, plainByKey map[string]string) fakeStoredReader {
+	t.Helper()
+	sealer, err := newFieldSealer(testSecretKeyBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := fakeStoredReader{settings: map[string][]byte{}}
+	for key, plain := range plainByKey {
+		sealed, err := sealer.sealSetting(key, plain)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader.settings[key] = mustMarshal(t, sealed)
+	}
+	return reader
+}
+
+const (
+	sealedCrossSeedURL  = "http://cross-seed.example.com:2468?apikey=secret-daemon-key"
+	sealedLibraryAPIURL = "https://alice:secret-library@example.com/api?token=secret-token"
+)
+
+func TestLoadWith_sealedCrossSeedAndLibraryAPIAreOpenedWithTheKey(t *testing.T) {
+	reader := sealedSettingsReader(t, map[string]string{"crossSeed": sealedCrossSeedURL, "libraryApi": sealedLibraryAPIURL})
+	valeurAttendue := []string{"http://cross-seed.example.com:2468", "secret-daemon-key", sealedLibraryAPIURL}
+
+	loadedConfig, err := LoadWith(nil, lookupFrom(map[string]string{envSecretKey: testSecretKey}), t.TempDir(), openFake(reader))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if loadedConfig.CrossSeed == nil {
+		t.Fatal("valeurObtenue no cross-seed daemon, valeurAttendue the opened url")
+	}
+	valeurObtenue := []string{loadedConfig.CrossSeed.BaseURL, loadedConfig.CrossSeed.APIKey, loadedConfig.LibraryAPI}
+	if !slices.Equal(valeurObtenue, valeurAttendue) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue %v", valeurObtenue, valeurAttendue)
+	}
+	for _, rendering := range renderingsOf(t, loadedConfig) {
+		assertNoSecret(t, rendering)
+	}
+}
+
+func TestLoadWith_sealedCrossSeedOrLibraryAPIWithoutKeyFailsWithoutTheURL(t *testing.T) {
+	for key, plain := range map[string]string{"crossSeed": sealedCrossSeedURL, "libraryApi": sealedLibraryAPIURL} {
+		reader := sealedSettingsReader(t, map[string]string{key: plain})
+
+		_, err := LoadWith(nil, lookupFrom(nil), t.TempDir(), openFake(reader))
+
+		if !errors.Is(err, ErrSealedSecretUnreadable) || strings.Contains(err.Error(), "example.com") {
+			t.Fatalf("%s: valeurObtenue %v, valeurAttendue ErrSealedSecretUnreadable without the url", key, err)
+		}
+		assertNoSecret(t, err.Error())
+	}
+}
+
+func TestLoadWith_clearCrossSeedSettingIsStillAccepted(t *testing.T) {
+	valeurAttendue := "secret-daemon-key"
+
+	loadedConfig := mustLoadStored(t, nil, nil, `{"crossSeed": "`+sealedCrossSeedURL+`"}`)
+
+	if loadedConfig.CrossSeed == nil || loadedConfig.CrossSeed.APIKey != valeurAttendue {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue the daemon read from the clear value", loadedConfig.CrossSeed)
+	}
+}
+
 func TestLoadWith_storedTorznabWithoutNameIsUsageErrorNamingTheItem(t *testing.T) {
 	element := Element{"url": "https://prowlarr.example.com/12/api?apikey=" + fakeIndexerKey}
 	reader := fakeStoredReader{overrides: []store.ConfigOverride{

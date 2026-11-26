@@ -30,7 +30,7 @@ var secretFieldsByList = map[string][]string{
 }
 
 // secretSettings liste les réglages scalaires scellés.
-var secretSettings = []string{"prowlarr"}
+var secretSettings = []string{"prowlarr", "crossSeed", "libraryApi"}
 
 // ErrSecretKeyMissing refuse d'enregistrer un secret sans clé de scellement.
 var ErrSecretKeyMissing = usageError{message: "NECROMANCIARR_SECRET_KEY is required to store a secret"}
