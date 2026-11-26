@@ -470,7 +470,7 @@ describe('ConfigView', () => {
         'HTTP://alice:dummy@Radarr.example.com:80/api?apikey=dummy',
       )
       expect(bodyElement<HTMLInputElement>('config-item-id')?.value).toBe(
-        'http://Radarr.example.com:80',
+        'http://radarr.example.com',
       )
 
       await setField('config-item-id', 'http://radarr.example.com:7878#2')

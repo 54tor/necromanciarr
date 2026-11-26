@@ -743,7 +743,7 @@
       "fsProviders": "Fournisseurs de fichiers"
     },
     "idHint": {
-      "url": "Identifiant : schéma://hôte[:port] de l’URL, sans identifiants, chemin ni requête (un suffixe #2 distingue deux instances à la même adresse).",
+      "url": "Identifiant : schéma://hôte[:port] de l’URL, en minuscules, sans le port par défaut (80 en http, 443 en https), sans identifiants, chemin ni requête (un suffixe #2 distingue deux instances à la même adresse).",
       "path": "Identifiant : le chemin du dossier.",
       "key": "Identifiant : la clé du tracker.",
       "name": "Identifiant : le nom du fournisseur."

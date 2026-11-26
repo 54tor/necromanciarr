@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import en from '@/locales/en.json'
 import fr from '@/locales/fr.json'
-import { nsToDuration } from '@/lib/configFields'
+import { addFields, itemIdDeriver, nsToDuration } from '@/lib/configFields'
 import { ELEMENT_SCHEMAS, SETTING_SCHEMAS, schemaFieldNames } from '@/lib/configSchema'
 
 // Même contenu que secretFieldsByList (internal/config/sealedfields.go) : un écart ferait afficher un secret en clair.
@@ -80,5 +80,29 @@ describe('nsToDuration', () => {
     [0, ''],
   ])('écrit %d ns en %s', (nanoseconds, valeurAttendue) => {
     expect(nsToDuration(nanoseconds)).toBe(valeurAttendue)
+  })
+})
+
+describe('itemIdDeriver', () => {
+  const derive = (rawUrl: string) => {
+    const fields = addFields('radarr')
+    fields.find((field) => field.name === 'url')!.text = rawUrl
+    return itemIdDeriver('radarr')!(fields)
+  }
+
+  it.each([
+    ['HTTP://Radarr.Example.com:80/x?apikey=k', 'http://radarr.example.com'],
+    ['https://example.com:443', 'https://example.com'],
+    ['https://example.com:8443/path', 'https://example.com:8443'],
+    ['http://alice:pw@example.com:7878', 'http://example.com:7878'],
+    ['http://[::1]:7878/a', 'http://[::1]:7878'],
+    ['http://[::1]:80', 'http://[::1]'],
+    ['pas une url', ''],
+  ])('déduit l’identifiant de %s', (rawUrl, valeurAttendue) => {
+    expect(derive(rawUrl)).toBe(valeurAttendue)
+  })
+
+  it("ne déduit rien pour une liste qui n'est pas identifiée par l'URL", () => {
+    expect(itemIdDeriver('linkDirs')).toBeUndefined()
   })
 })

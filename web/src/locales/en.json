@@ -743,7 +743,7 @@
       "fsProviders": "File providers"
     },
     "idHint": {
-      "url": "Identifier: the URL's scheme://host[:port], without credentials, path or query (a #2 suffix tells apart two instances at the same address).",
+      "url": "Identifier: the URL's scheme://host[:port], in lower case, without the default port (80 for http, 443 for https), credentials, path or query (a #2 suffix tells apart two instances at the same address).",
       "path": "Identifier: the directory path.",
       "key": "Identifier: the tracker key.",
       "name": "Identifier: the provider name."

@@ -92,7 +92,7 @@ cross-seed provides `radarr`, `sonarr`, `torrentClients` and `linkDirs`; the dat
 
 | List | Identifier |
 |---|---|
-| `radarr`, `sonarr`, `torznab`, `torrentClients` | `scheme://host[:port]` of `url`, with no path or credentials |
+| `radarr`, `sonarr`, `torznab`, `torrentClients` | `scheme://host[:port]` of `url`, in lower case, without the scheme's default port (80 for http, 443 for https), with no path or credentials |
 | `linkDirs` | `path` |
 | `trackers` | `key` |
 | `fsProviders` | `name` |

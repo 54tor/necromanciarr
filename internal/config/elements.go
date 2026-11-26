@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strings"
 
 	"necromanciarr/internal/store"
 )
@@ -62,12 +63,25 @@ func stringField(element Element, name string) string {
 	return valeur
 }
 
+// defaultPorts : un port par défaut ne distingue pas deux adresses, il n'entre donc pas dans l'identifiant.
+var defaultPorts = map[string]string{"http": "80", "https": "443"}
+
+// endpointOf rend scheme://hôte[:port] en minuscules, sans le port par défaut du schéma.
 func endpointOf(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Host == "" {
 		return rawURL
 	}
-	return parsed.Scheme + "://" + parsed.Host
+	scheme := strings.ToLower(parsed.Scheme)
+	host := strings.ToLower(parsed.Hostname())
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	port := parsed.Port()
+	if port == "" || port == defaultPorts[scheme] {
+		return scheme + "://" + host
+	}
+	return scheme + "://" + host + ":" + port
 }
 
 // IsDerivableItemID dit si itemID a la forme que ElementID et AssignIDs produisent pour une liste identifiée par l'URL :

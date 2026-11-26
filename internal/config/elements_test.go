@@ -26,6 +26,37 @@ func TestElementID_dropsCredentialsPathAndQuery(t *testing.T) {
 	}
 }
 
+func TestElementID_normalizesCaseAndDefaultPorts(t *testing.T) {
+	cases := map[string]string{
+		"HTTP://Radarr.Example.com:80/x?apikey=k": "http://radarr.example.com",
+		"https://example.com:443":                 "https://example.com",
+		"https://example.com:8443/path":           "https://example.com:8443",
+		"http://example.com:443":                  "http://example.com:443",
+		"http://[::1]:7878/a":                     "http://[::1]:7878",
+		"http://[::1]:80":                         "http://[::1]",
+	}
+	for rawURL, valeurAttendue := range cases {
+		if valeurObtenue := ElementID("radarr", radarrElement(rawURL)); valeurObtenue != valeurAttendue {
+			t.Errorf("%s: valeurAttendue %q, valeurObtenue %q", rawURL, valeurAttendue, valeurObtenue)
+		}
+	}
+}
+
+func TestIsDerivableItemID_refusesAFormThatElementIDWouldNotProduce(t *testing.T) {
+	accepted := []string{"http://example.com", "http://example.com:7878", "http://example.com#2", "https://[::1]:8443"}
+	refused := []string{"HTTP://example.com", "http://Example.com", "http://example.com:80", "https://example.com:443", "http://example.com/x"}
+	for _, itemID := range accepted {
+		if !IsDerivableItemID("radarr", itemID) {
+			t.Errorf("valeurAttendue accepté, valeurObtenue refusé: %q", itemID)
+		}
+	}
+	for _, itemID := range refused {
+		if IsDerivableItemID("radarr", itemID) {
+			t.Errorf("valeurAttendue refusé, valeurObtenue accepté: %q", itemID)
+		}
+	}
+}
+
 func TestAssignIDs_suffixesCollisionsInUpstreamOrder(t *testing.T) {
 	elements := []Element{radarrElement("http://example.com:1/a"), radarrElement("http://example.com:1/b"), radarrElement("http://example.com:1/c")}
 	valeurAttendue := []string{"http://example.com:1", "http://example.com:1#2", "http://example.com:1#3"}

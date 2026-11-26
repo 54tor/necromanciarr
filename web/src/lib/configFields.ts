@@ -64,17 +64,24 @@ export const isSecretField = (list: string, name: string) =>
 export const idHintKey = (list: string) => `config.idHint.${ID_CONVENTIONS[list] ?? 'name'}`
 
 const URL_AUTHORITY = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/([^/?#]*)/
+const HOST_AND_PORT = /^(\[[^\]]*\]|[^:]*)(?::(\d*))?$/
+const DEFAULT_PORTS: Readonly<Record<string, string>> = { http: '80', https: '443' }
 
 /**
- * endpointId rend l'identifiant que le serveur tire d'une URL (ElementID) : schéma en minuscules, `://`, hôte et port
- * tels que saisis, sans identifiants, chemin ni requête ; vide si l'URL n'a pas d'hôte.
+ * endpointId rend l'identifiant que le serveur tire d'une URL (ElementID) : schéma et hôte en minuscules, port sauf
+ * celui par défaut du schéma, sans identifiants, chemin ni requête ; vide si l'URL n'a pas d'hôte.
  */
 function endpointId(rawUrl: string): string {
   const parts = URL_AUTHORITY.exec(rawUrl.trim())
   if (!parts) return ''
-  const [, scheme = '', authority = ''] = parts
-  const host = authority.slice(authority.lastIndexOf('@') + 1)
-  return host === '' ? '' : `${scheme.toLowerCase()}://${host}`
+  const [, rawScheme = '', authority = ''] = parts
+  const scheme = rawScheme.toLowerCase()
+  const hostAndPort = HOST_AND_PORT.exec(authority.slice(authority.lastIndexOf('@') + 1))
+  const host = (hostAndPort?.[1] ?? '').toLowerCase()
+  const port = hostAndPort?.[2] ?? ''
+  if (host === '') return ''
+  const isDefaultPort = port === '' || port === DEFAULT_PORTS[scheme]
+  return isDefaultPort ? `${scheme}://${host}` : `${scheme}://${host}:${port}`
 }
 
 /** itemIdDeriver rend, pour une liste identifiée par l'URL, la déduction de l'identifiant depuis le champ `url`. */
