@@ -40,7 +40,8 @@ func putSetting(handler *Handler, request *http.Request) (any, int, error) {
 	if err := decodeBody(request, &body); err != nil {
 		return nil, 0, err
 	}
-	if body.Value == nil {
+	isValueMissing := body.Value == nil || string(body.Value) == "null"
+	if isValueMissing {
 		return nil, 0, requiredBodyField("value")
 	}
 	if err := handler.service.SetSetting(request.Context(), request.PathValue(pathConfigKey), body.Value); err != nil {

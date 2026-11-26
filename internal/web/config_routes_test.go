@@ -139,6 +139,7 @@ func TestConfigRoutes_refusesAMalformedBodyWithoutWriting(t *testing.T) {
 		name, path, body string
 	}{
 		{"setting without value", "/api/config/settings/" + configTestSettingKey, `{}`},
+		{"setting with a null value", "/api/config/settings/" + configTestSettingKey, `{"value": null}`},
 		{"setting with unknown field", "/api/config/settings/" + configTestSettingKey, `{"value": 1, "extra": 2}`},
 		{"setting with trailing data", "/api/config/settings/" + configTestSettingKey, `{"value": 1} {}`},
 		{"item without element", configTestItemPath, `{}`},
