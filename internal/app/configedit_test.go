@@ -680,3 +680,61 @@ func TestPutItem_keepsOmittedSecretsWhenTheSameProxyKeyIsRetyped(t *testing.T) {
 		t.Fatalf("valeurObtenue %q (%v), valeurAttendue la clé d'API gardée", valeurObtenue, err)
 	}
 }
+
+func TestPutItem_removesTheProxyWhenTheURLLosesItsPlaceholder(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	if err := fixture.service.PutItem(ctx, "radarr", "", proxiedRadarr()); err != nil {
+		t.Fatal(err)
+	}
+	itemID := fixture.overrides(t)[0].ItemID
+	plainElement := map[string]any{"url": "http://radarr.example.com:7476/radarr", "apiKey": configEditOtherKey, "password": configEditPassword}
+
+	err := fixture.service.PutItem(ctx, "radarr", itemID, plainElement)
+
+	var stored map[string]any
+	if unmarshalErr := json.Unmarshal(fixture.overrides(t)[0].Value, &stored); unmarshalErr != nil {
+		t.Fatal(unmarshalErr)
+	}
+	if _, hasProxyKey := stored["proxyKey"]; err != nil || hasProxyKey {
+		t.Fatalf("valeurObtenue %v (%v), valeurAttendue une ligne sans proxyKey", stored, err)
+	}
+}
+
+func TestPutItem_stillRefusesAnOmittedAPIKeyWhenTheProxyIsRemoved(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	if err := fixture.service.PutItem(ctx, "radarr", "", proxiedRadarr()); err != nil {
+		t.Fatal(err)
+	}
+	itemID := fixture.overrides(t)[0].ItemID
+
+	err := fixture.service.PutItem(ctx, "radarr", itemID, map[string]any{"url": "http://radarr.example.com:7476/radarr", "password": configEditPassword})
+
+	if !errors.Is(err, config.ErrUsage) || !strings.Contains(err.Error(), "re-enter the secrets when url changes") {
+		t.Fatalf("valeurObtenue %v, valeurAttendue le refus de destination", err)
+	}
+}
+
+func TestUnsetItem_removesTwoOldFormatRowsOneAfterTheOther(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	oldRows := []string{"http://first.example.com:7878", "http://second.example.com:7878"}
+	for _, itemID := range oldRows {
+		row := store.ConfigOverride{List: "radarr", ItemID: itemID, Value: []byte(`{"url": "sealed:v1:old-format"}`)}
+		if err := fixture.store.PutConfigOverride(ctx, row); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, itemID := range oldRows {
+		if err := fixture.service.UnsetItem(ctx, "radarr", itemID); err != nil {
+			t.Fatalf("%s: valeurObtenue %v, valeurAttendue la ligne retirée", itemID, err)
+		}
+	}
+
+	if valeurObtenue := len(fixture.overrides(t)); valeurObtenue != 0 {
+		t.Fatalf("valeurObtenue %d rows, valeurAttendue 0", valeurObtenue)
+	}
+	fixture.reload(t)
+}

@@ -62,6 +62,8 @@ type ConfigItem struct {
 type storedSnapshot struct {
 	settings  map[string][]byte
 	overrides []store.ConfigOverride
+	// removesRow dit que le changement ne fait que retirer une ligne enregistrée.
+	removesRow bool
 }
 
 func (snapshot storedSnapshot) Settings(context.Context) (map[string][]byte, error) {

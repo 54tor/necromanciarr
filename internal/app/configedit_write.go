@@ -115,11 +115,12 @@ func (svc *service) commitConfig(ctx context.Context, change func(snapshot *stor
 	if err != nil {
 		return err
 	}
+	before := snapshot.clone()
 	write, err := change(&snapshot)
 	if err != nil || write == nil {
 		return err
 	}
-	if _, err := load(snapshot); err != nil {
+	if _, err := load(snapshot); err != nil && !isRepairingRemoval(snapshot, before, load) {
 		return refusedCandidate(err)
 	}
 	if err := write(ctx, editStore); err != nil {
@@ -127,6 +128,19 @@ func (svc *service) commitConfig(ctx context.Context, change func(snapshot *stor
 	}
 	svc.restartRequired.Store(true)
 	return nil
+}
+
+// isRepairingRemoval admet le retrait d'une ligne d'une base qui ne se chargeait déjà plus : il ne l'aggrave pas.
+func isRepairingRemoval(after, before storedSnapshot, load StoredConfigLoader) bool {
+	if !after.removesRow {
+		return false
+	}
+	_, beforeErr := load(before)
+	return beforeErr != nil
+}
+
+func (snapshot storedSnapshot) clone() storedSnapshot {
+	return storedSnapshot{settings: maps.Clone(snapshot.settings), overrides: slices.Clone(snapshot.overrides)}
 }
 
 // refusedCandidate fait du refus d'une candidate une erreur d'usage, et non une base illisible.
@@ -178,6 +192,7 @@ func (snapshot *storedSnapshot) putOverride(override store.ConfigOverride) {
 }
 
 func (snapshot *storedSnapshot) removeOverride(list, itemID string) configWrite {
+	snapshot.removesRow = true
 	snapshot.overrides = slices.DeleteFunc(snapshot.overrides, func(override store.ConfigOverride) bool {
 		return override.List == list && override.ItemID == itemID
 	})

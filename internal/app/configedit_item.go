@@ -88,16 +88,21 @@ func previousElement(snapshot storedSnapshot, sealer *config.FieldSealer, list, 
 	return storedElement, nil
 }
 
-// carryOmittedSecrets reprend les secrets omis de l'élément précédent, sauf si la destination change.
+// carryOmittedSecrets reprend les secrets omis de l'élément précédent, sauf si la destination change. Sans segment
+// {proxyKey} dans la nouvelle url, la clé de proxy n'est ni reprise ni comparée : le proxy est retiré.
 func carryOmittedSecrets(list, itemID string, candidate, previous map[string]any, omitted []string) error {
+	isProxyRemoved := !hasProxyPlaceholder(candidate)
 	carried := slices.DeleteFunc(slices.Clone(omitted), func(field string) bool {
 		_, present := previous[field]
-		return !present
+		return !present || (isProxyRemoved && field == fieldProxyKey)
 	})
 	if len(carried) == 0 {
 		return nil
 	}
 	for _, field := range destinationFields[list] {
+		if isProxyRemoved && field == fieldProxyKey {
+			continue
+		}
 		value, isProvided := candidate[field]
 		if isProvided && value != previous[field] {
 			return fmt.Errorf("%w: %s item %q: re-enter the secrets when %s changes", config.ErrUsage, list, itemID, field)
@@ -105,6 +110,13 @@ func carryOmittedSecrets(list, itemID string, candidate, previous map[string]any
 	}
 	copyFields(candidate, previous, carried)
 	return nil
+}
+
+const fieldProxyKey = "proxyKey"
+
+func hasProxyPlaceholder(candidate map[string]any) bool {
+	rawURL, _ := candidate["url"].(string)
+	return config.HasProxyPlaceholder(rawURL)
 }
 
 // dropOmittedSecrets retire les secrets null et rend les champs secrets que l'élément ne fournit pas.
