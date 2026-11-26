@@ -313,11 +313,12 @@ func TestLoad_dedupeDefaultsWhenSectionAbsent(t *testing.T) {
 }
 
 func TestLoad_dedupeReadsEveryKey(t *testing.T) {
-	gotValue := mustLoadStored(t, nil, nil, `{"dedupe": {"torrentRoots": ["/home/u/torrents"], "kinds": ["hardlink", "symlink"],
+	torrentRoot := onThisSystem("/home/u/torrents")
+	gotValue := mustLoadStored(t, nil, nil, `{"dedupe": {"torrentRoots": ["`+jsonText(torrentRoot)+`"], "kinds": ["hardlink", "symlink"],
 		"relativeSymlinks": false, "minFileAge": "1h30m", "recheckAfter": false}}`).Dedupe
 
 	expectedValue := Dedupe{
-		TorrentRoots: []string{"/home/u/torrents"}, Kinds: []string{"hardlink", "symlink"},
+		TorrentRoots: []string{torrentRoot}, Kinds: []string{"hardlink", "symlink"},
 		RelativeSymlinks: false, MinFileAge: 90 * time.Minute, RecheckAfter: false, Verify: "auto",
 	}
 	if !reflect.DeepEqual(gotValue, expectedValue) {

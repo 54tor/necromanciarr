@@ -27,7 +27,7 @@ func TestConfig_rootOnUnknownSFTPProviderIsUsageError(t *testing.T) {
 }
 
 func TestConfig_rootOnRcloneProviderIsRefusedAsNotAFilesystem(t *testing.T) {
-	err := loadWithRoots(t, `{"libraryRoots": ["sftp://cloud/media"], "fsProviders": [{"type": "rclone", "name": "cloud", "mounts": ["/mnt/cloud=remote:media"]}]}`)
+	err := loadWithRoots(t, `{"libraryRoots": ["sftp://cloud/media"], "fsProviders": [{"type": "rclone", "name": "cloud", "mounts": ["`+jsonText(onThisSystem("/mnt/cloud"))+`=remote:media"]}]}`)
 
 	if !errors.Is(err, ErrUsage) || !strings.Contains(err.Error(), `"cloud"`) || !strings.Contains(err.Error(), "rclone") {
 		t.Fatalf("valeurObtenue %v, valeurAttendue a usage error saying rclone is not a filesystem", err)
@@ -46,7 +46,7 @@ func TestConfig_refusesRootsThatAreNotLocations(t *testing.T) {
 
 func TestConfig_acceptsRootOnADeclaredFilesystemProvider(t *testing.T) {
 	settings := Config{
-		LibraryRoots: []string{"sftp://seedbox/srv/media", "/srv/media"},
+		LibraryRoots: []string{"sftp://seedbox/srv/media", onThisSystem("/srv/media")},
 		LinkDirs:     []string{"sftp://seedbox/srv/links"},
 		FSProviders:  []FSProvider{{Type: "sftp", Name: "seedbox"}},
 	}
@@ -68,7 +68,7 @@ func TestConfig_overlapIsCheckedOnTheSameVolumeOnly(t *testing.T) {
 		{"same volume child", "sftp://seedbox/srv/media", "sftp://seedbox/srv/media/links", true},
 		{"same volume parent", "sftp://seedbox/srv/media", "sftp://seedbox/srv", true},
 		{"same path on another volume", "sftp://seedbox/srv/media", "sftp://other/srv/media", false},
-		{"same path on the local disk", "sftp://seedbox/srv/media", "/srv/media", false},
+		{"same path on the local disk", "sftp://seedbox/srv/media", onThisSystem("/srv/media"), false},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

@@ -72,7 +72,7 @@ func TestRawFromElement_feedsTheExistingParsers(t *testing.T) {
 		t.Fatalf("torznab obtenu %+v (%v)", indexeurs, err)
 	}
 
-	brutFournisseur, _ := RawFromElement("fsProviders", Element{"type": "rclone", "name": "remote", "rc": "http://h:5572", "mounts": []any{"/mnt/a=remote:a"}})
+	brutFournisseur, _ := RawFromElement("fsProviders", Element{"type": "rclone", "name": "remote", "rc": "http://h:5572", "mounts": []any{onThisSystem("/mnt/a") + "=remote:a"}})
 	fournisseurs, err := parseFSProviders([]json.RawMessage{brutFournisseur.(json.RawMessage)})
 	if err != nil || len(fournisseurs) != 1 || fournisseurs[0].Name != "remote" {
 		t.Fatalf("fsProviders obtenu %+v (%v)", fournisseurs, err)
