@@ -126,12 +126,28 @@ function buildField(spec: FieldSpec, value: unknown, isSet: boolean): FormField 
     options: spec.options ?? [],
     spec,
     children: spec.kind === 'group' ? (spec.fields ?? []).map((sub) => buildSub(sub, record)) : [],
-    rows: spec.kind === 'table' ? asArray(value).map((row) => buildRow(spec, row)) : [],
+    rows: buildRows(spec, value),
   }
 }
 
 const buildSub = (spec: FieldSpec, record: Record<string, unknown>): FormField =>
   buildField(spec, record[spec.name], false)
+
+function buildRows(spec: FieldSpec, value: unknown): FormField[][] {
+  if (spec.kind === 'table') return asArray(value).map((row) => buildRow(spec, row))
+  if (spec.kind === 'pairs')
+    return asArray(value).map((pair) => buildRow(spec, splitPair(spec, pair)))
+  return []
+}
+
+function splitPair(spec: FieldSpec, pair: unknown): Record<string, unknown> {
+  const [first, second] = spec.fields ?? []
+  const separator = spec.separator ?? '='
+  const text = String(pair)
+  const cut = text.indexOf(separator)
+  if (!first || !second || cut < 0) return first ? { [first.name]: text } : {}
+  return { [first.name]: text.slice(0, cut), [second.name]: text.slice(cut + separator.length) }
+}
 
 function buildRow(table: FieldSpec, row: unknown): FormField[] {
   const record = isRecord(row) ? row : {}
@@ -197,6 +213,12 @@ function readNumber(field: FormField): number {
   return number
 }
 
+function joinPair(field: FormField, row: readonly FormField[]): string {
+  const [first = '', second = ''] = row.map((column) => column.text.trim())
+  if (first === '' && second === '') return ''
+  return `${first}${field.spec.separator ?? '='}${second}`
+}
+
 function readField(field: FormField): unknown {
   switch (field.kind) {
     case 'boolean':
@@ -215,6 +237,8 @@ function readField(field: FormField): unknown {
       return field.rows
         .map((row) => readFields(row, true))
         .filter((row) => Object.keys(row).length > 0)
+    case 'pairs':
+      return field.rows.map((row) => joinPair(field, row)).filter((pair) => pair !== '')
     default:
       return field.text
   }

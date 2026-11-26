@@ -17,7 +17,10 @@ const NUMERIC_KINDS = ['number', 'numbers']
 const isRevealed = ref(false)
 
 const label = (name: string) => t(`config.field.${name}`)
-const helpOf = (name: string) => (te(`config.help.${name}`) ? t(`config.help.${name}`) : '')
+const helpOf = () => {
+  const key = `config.help.${field.value.spec.helpKey ?? field.value.name}`
+  return te(key) ? t(key) : ''
+}
 const testId = (suffix = '') => `config-field-${props.path}${suffix}`
 const isMasked = () => field.value.secret && !isRevealed.value
 const textareaClass = () => (isMasked() ? MASKED_TEXTAREA_CLASS : TEXTAREA_CLASS)
@@ -76,7 +79,7 @@ function removeRow(rowIndex: number): void {
     </fieldset>
 
     <fieldset
-      v-else-if="field.kind === 'table'"
+      v-else-if="field.kind === 'table' || field.kind === 'pairs'"
       class="grid gap-2 rounded-md border border-border p-3"
     >
       <legend class="px-1 font-medium">{{ label(field.name) }}</legend>
@@ -164,6 +167,6 @@ function removeRow(rowIndex: number): void {
     <span v-if="field.secret" :data-testid="testId('-state')" class="text-muted-foreground">
       {{ t('config.secret.state', { state: secretState() }) }}
     </span>
-    <span v-if="helpOf(field.name)" class="text-muted-foreground">{{ helpOf(field.name) }}</span>
+    <span v-if="helpOf()" class="text-muted-foreground">{{ helpOf() }}</span>
   </div>
 </template>

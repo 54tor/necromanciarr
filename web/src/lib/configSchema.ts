@@ -1,6 +1,15 @@
 /** Types de champ du formulaire de configuration : un contrôle adapté par type de valeur. */
 export type FieldKind =
-  'text' | 'number' | 'boolean' | 'lines' | 'numbers' | 'select' | 'checks' | 'group' | 'table'
+  | 'text'
+  | 'number'
+  | 'boolean'
+  | 'lines'
+  | 'numbers'
+  | 'select'
+  | 'checks'
+  | 'group'
+  | 'table'
+  | 'pairs'
 
 export interface FieldSpec {
   name: string
@@ -10,6 +19,10 @@ export interface FieldSpec {
   options?: readonly string[]
   /** Sous-champs d'un groupe, ou colonnes d'un tableau. */
   fields?: readonly FieldSpec[]
+  /** Clé de l'aide sous le champ, quand elle ne porte pas le nom du champ (`config.help.<clé>`). */
+  helpKey?: string
+  /** Tableau `pairs` : chaque ligne est écrite `colonne1<séparateur>colonne2` dans la liste de chaînes du serveur. */
+  separator?: string
   /** Le champ ne s'applique qu'à certaines valeurs d'un champ frère (type d'un fournisseur). */
   showWhen?: { field: string; values: readonly string[] }
 }
@@ -71,8 +84,16 @@ export const ELEMENT_SCHEMAS: Readonly<Record<string, readonly FieldSpec[]>> = {
   ],
   fsProviders: [
     select('type', ['rclone', 'sftp']),
-    text('name'),
-    lines('mounts'),
+    { ...text('name'), helpKey: 'fsProviderName' },
+    onlyWhen(
+      {
+        name: 'mounts',
+        kind: 'pairs',
+        separator: '=',
+        fields: [text('localPath'), text('target')],
+      },
+      rcloneOnly,
+    ),
     onlyWhen(text('rc', true), rcloneOnly),
     onlyWhen(text('binary'), rcloneOnly),
     text('timeout'),

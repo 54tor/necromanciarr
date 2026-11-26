@@ -45,6 +45,14 @@ describe('schéma de configuration', () => {
     expect(missing).toEqual([])
   })
 
+  it("traduit l'aide du nom d'un fournisseur, qui n'accepte que minuscules, chiffres et tirets", () => {
+    const name = ELEMENT_SCHEMAS.fsProviders!.find((spec) => spec.name === 'name')
+
+    expect(name?.helpKey).toBe('fsProviderName')
+    expect(fr.config.help.fsProviderName).toContain('Minuscules')
+    expect(en.config.help.fsProviderName).toContain('Lower-case')
+  })
+
   it('couvre chaque réglage du serveur, sans réglage inconnu', () => {
     expect(Object.keys(SETTING_SCHEMAS).sort()).toEqual(SETTING_KEYS_OF_THE_BACKEND)
   })

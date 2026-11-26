@@ -504,6 +504,64 @@ describe('ConfigView', () => {
       })
     })
 
+    it('ConfigView saisit les montages rclone en paires dossier local / cible', async () => {
+      const snapshot = configSnapshot({
+        lists: {
+          fsProviders: [
+            {
+              itemId: 'icue',
+              element: {
+                type: 'rclone',
+                name: 'icue',
+                mounts: ['/mnt/ICUE=icue:medias/a=b'],
+                rc: null,
+              },
+              origin: 'added',
+              drift: false,
+            },
+          ],
+        },
+      })
+      const { wrapper, calls } = await mountView({
+        'GET /api/config': snapshot,
+        'PUT /api/config/lists/{list}/{itemId}': snapshot,
+      })
+      await wrapper.get('[data-testid="edit-item-fsProviders-icue"]').trigger('click')
+      await flushPromises()
+
+      expect(bodyElement<HTMLInputElement>('config-field-mounts.0.localPath')?.value).toBe(
+        '/mnt/ICUE',
+      )
+      expect(bodyElement<HTMLInputElement>('config-field-mounts.0.target')?.value).toBe(
+        'icue:medias/a=b',
+      )
+      await clickInBody('config-field-mounts.add')
+      await setField('config-field-mounts.1.localPath', '/mnt/autre')
+      await setField('config-field-mounts.1.target', 'autre:dossier')
+      await clickInBody('config-form-submit')
+
+      expect(writeCalls(calls)[0]?.body).toEqual({
+        element: {
+          type: 'rclone',
+          name: 'icue',
+          mounts: ['/mnt/ICUE=icue:medias/a=b', '/mnt/autre=autre:dossier'],
+        },
+      })
+    })
+
+    it('ConfigView ne propose pas de montages pour un fournisseur sftp', async () => {
+      const { wrapper } = await mountView({
+        'GET /api/config': configSnapshot({ lists: { fsProviders: [] } }),
+      })
+      await wrapper.get('[data-testid="add-item-fsProviders"]').trigger('click')
+      await flushPromises()
+
+      await setField('config-field-type', 'sftp')
+
+      expect(bodyElement('config-field-mounts.add')).toBeNull()
+      expect(bodyElement('config-field-address')).not.toBeNull()
+    })
+
     it("ConfigView n'affiche aucun JSON brut pour ajouter à une liste vide", async () => {
       const { wrapper } = await mountView({
         'GET /api/config': configSnapshot({ lists: { torznab: [] } }),
