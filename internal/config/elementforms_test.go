@@ -33,7 +33,7 @@ func TestElementFromRaw_splitsClientAndLinkDir(t *testing.T) {
 func TestRawFromElement_roundTripsRadarrSonarrAndClients(t *testing.T) {
 	cas := []struct{ liste, brut string }{
 		{"radarr", "http://h:7878?apikey=dummy-key"},
-		{"sonarr", "https://alice:p%40ss%3Aw@h:8989/proxy?apikey=k%26x"},
+		{"sonarr", "https://alice:p%40ss%3Aw@h:8989/sonarr?apikey=k%26x"},
 		{"torrentClients", "qbittorrent:http://alice:p%40ss%3Aw@h:8080"},
 		{"torrentClients", "qbittorrent:readonly:http://h:8080"},
 		{"linkDirs", "/data/links"},

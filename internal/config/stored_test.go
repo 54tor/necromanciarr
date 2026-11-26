@@ -379,8 +379,8 @@ func TestLoadWith_sealedValueOutsideASecretFieldFails(t *testing.T) {
 
 	_, err := LoadWith(nil, lookupFrom(nil), t.TempDir(), openFake(reader))
 
-	if !errors.Is(err, ErrSealedSecretUnreadable) {
-		t.Fatalf("valeurObtenue %v, valeurAttendue ErrSealedSecretUnreadable", err)
+	if !errors.Is(err, ErrInvalidStoredConfig) || !strings.Contains(err.Error(), reasonOldFormat) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue ErrInvalidStoredConfig nommant un format antérieur", err)
 	}
 }
 

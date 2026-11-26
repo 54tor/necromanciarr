@@ -115,17 +115,16 @@ func requiredString(list string, element Element, field string) (string, error) 
 }
 
 func urlWithCredentials(list string, element Element) (*url.URL, error) {
-	plainURL, err := requiredString(list, element, fieldURL)
-	if err != nil {
-		return nil, err
-	}
-	rawURL, err := joinProxyKey(list, element, plainURL)
+	rawURL, err := requiredString(list, element, fieldURL)
 	if err != nil {
 		return nil, err
 	}
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, invalidElement(list, "unparsable url")
+	}
+	if err := joinProxyKey(list, element, parsedURL); err != nil {
+		return nil, err
 	}
 	user, _ := element[fieldUser].(string)
 	password, _ := element[fieldPassword].(string)

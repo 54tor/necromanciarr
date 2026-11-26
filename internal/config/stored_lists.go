@@ -115,6 +115,9 @@ func openOverride(override store.ConfigOverride, sealer *fieldSealer) (store.Con
 	if err := sealer.OpenElement(override.List, override.ItemID, element); err != nil {
 		return store.ConfigOverride{}, fmt.Errorf("stored %s item: %w", override.List, err)
 	}
+	if sealedInClearField(override.List, element) {
+		return store.ConfigOverride{}, usageError{message: fmt.Sprintf("stored %s item %q: %s", override.List, override.ItemID, reasonOldFormat)}
+	}
 	if containsSealed(element) {
 		return store.ConfigOverride{}, fmt.Errorf("stored %s item: %w", override.List, ErrSealedSecretUnreadable)
 	}
@@ -236,4 +239,19 @@ func trackersSection(resolved []ResolvedElement) (json.RawMessage, error) {
 		return nil, err
 	}
 	return TrackersSection(rawTrackers)
+}
+
+const reasonOldFormat = "sealed value in a clear field: item from an earlier format, rewrite or remove it"
+
+// sealedInClearField repère une valeur scellée hors des champs secrets de la liste : une ligne d'un format antérieur.
+func sealedInClearField(list string, element Element) bool {
+	for field, value := range element {
+		if slices.Contains(secretFieldsByList[list], field) {
+			continue
+		}
+		if containsSealed(map[string]any{field: value}) {
+			return true
+		}
+	}
+	return false
 }
