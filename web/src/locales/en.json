@@ -722,7 +722,9 @@
     "secret": {
       "set": "Set",
       "unset": "Not set",
-      "state": "{state} · leave empty to keep the stored value"
+      "state": "{state} · leave empty to keep the stored value",
+      "show": "Show",
+      "hide": "Hide"
     },
     "columns": {
       "key": "Setting",

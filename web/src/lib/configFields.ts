@@ -21,6 +21,9 @@ const SECRET_FIELDS: Readonly<Record<string, readonly string[]>> = {
   fsProviders: ['rc', 'password', 'identityPassphrase'],
 }
 
+// Champs secrets à plusieurs valeurs (le serveur lit une liste) ; les autres secrets d'élément sont du texte.
+const SECRET_LINE_FIELDS: Readonly<Record<string, readonly string[]>> = { trackers: ['announce'] }
+
 /** Réglages secrets dont la valeur est un objet JSON (les autres sont du texte). */
 const SECRET_JSON_SETTINGS = ['crossSeed']
 
@@ -93,7 +96,8 @@ export function elementFields(
   blank = false,
 ): FormField[] {
   return Object.entries(element).map(([name, value]) => {
-    const field = fieldOf(name, value, isSecretField(list, name), 'text', !blank)
+    const kindWhenSecret = SECRET_LINE_FIELDS[list]?.includes(name) ? 'lines' : 'text'
+    const field = fieldOf(name, value, isSecretField(list, name), kindWhenSecret, !blank)
     return blank ? { ...field, text: '', checked: false } : field
   })
 }

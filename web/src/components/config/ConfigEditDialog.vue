@@ -25,11 +25,14 @@ const open = defineModel<boolean>('open', { required: true })
 const emit = defineEmits<{ submit: [values: Record<string, unknown>, itemId: string] }>()
 
 const TEXTAREA_CLASS = cn(FIELD_CLASS, 'h-auto min-h-24 py-2 font-mono')
+// Un textarea n'a pas de type password : le masquage passe par text-security.
+const MASKED_TEXTAREA_CLASS = cn(TEXTAREA_CLASS, '[-webkit-text-security:disc]')
 const MULTILINE_KINDS = ['lines', 'json']
 
 const editedFields = ref<FormField[]>([])
 const itemId = ref('')
 const invalidField = ref('')
+const revealedFields = ref<string[]>([])
 
 watch(
   open,
@@ -38,6 +41,7 @@ watch(
     editedFields.value = props.fields.map((field) => ({ ...field }))
     itemId.value = ''
     invalidField.value = ''
+    revealedFields.value = []
   },
   { immediate: true },
 )
@@ -45,7 +49,16 @@ watch(
 const labelOf = (name: string) =>
   name === WHOLE_ELEMENT_FIELD ? t('config.form.wholeElement') : name
 const fieldLabel = (field: FormField) => labelOf(field.name)
-const isMultiline = (field: FormField) => !field.secret && MULTILINE_KINDS.includes(field.kind)
+const isMultiline = (field: FormField) =>
+  MULTILINE_KINDS.includes(field.kind) && (!field.secret || field.kind === 'lines')
+const isMasked = (field: FormField) => field.secret && !revealedFields.value.includes(field.name)
+const textareaClass = (field: FormField) =>
+  isMasked(field) ? MASKED_TEXTAREA_CLASS : TEXTAREA_CLASS
+
+function toggleReveal(field: FormField): void {
+  const others = revealedFields.value.filter((name) => name !== field.name)
+  revealedFields.value = isMasked(field) ? [...others, field.name] : others
+}
 const secretStateKey = (field: FormField) =>
   field.isSet ? 'config.secret.set' : 'config.secret.unset'
 
@@ -107,9 +120,23 @@ function submit(): void {
               v-if="isMultiline(field)"
               v-model="field.text"
               :data-testid="`config-field-${field.name}`"
-              :class="TEXTAREA_CLASS"
+              :data-masked="isMasked(field) ? 'true' : undefined"
+              :class="textareaClass(field)"
+              autocomplete="off"
               spellcheck="false"
             />
+            <Button
+              v-if="isMultiline(field) && field.secret"
+              type="button"
+              size="xs"
+              variant="outline"
+              class="justify-self-start"
+              :aria-pressed="!isMasked(field)"
+              :data-testid="`config-field-reveal-${field.name}`"
+              @click="toggleReveal(field)"
+            >
+              {{ isMasked(field) ? t('config.secret.show') : t('config.secret.hide') }}
+            </Button>
             <input
               v-else
               v-model="field.text"

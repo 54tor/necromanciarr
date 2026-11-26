@@ -722,7 +722,9 @@
     "secret": {
       "set": "Défini",
       "unset": "Non défini",
-      "state": "{state} · laisser vide pour conserver la valeur enregistrée"
+      "state": "{state} · laisser vide pour conserver la valeur enregistrée",
+      "show": "Afficher",
+      "hide": "Masquer"
     },
     "columns": {
       "key": "Réglage",

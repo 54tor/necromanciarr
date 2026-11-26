@@ -138,6 +138,77 @@ describe('ConfigView', () => {
     expect(written?.body).toEqual({ element: { name: 'films-4k' } })
   })
 
+  describe('annonces de tracker', () => {
+    const trackerSnapshot = () =>
+      configSnapshot({
+        lists: {
+          trackers: [
+            {
+              itemId: 'tracker-a',
+              element: { key: 'tracker-a', announce: null, aliases: ['ta'] },
+              origin: 'added',
+              drift: false,
+            },
+          ],
+        },
+      })
+
+    async function saveTrackerWithAnnounce(announceText: string): Promise<FakeCall | undefined> {
+      const { wrapper, calls } = await mountView({
+        'GET /api/config': trackerSnapshot(),
+        'PUT /api/config/lists/{list}/{itemId}': trackerSnapshot(),
+      })
+      await wrapper.get('[data-testid="edit-item-trackers-tracker-a"]').trigger('click')
+      await flushPromises()
+      const announceField = bodyElement<HTMLTextAreaElement>('config-field-announce')!
+      expect(announceField.tagName).toBe('TEXTAREA')
+      expect(announceField.value).toBe('')
+      expect(announceField.dataset.masked).toBe('true')
+      announceField.value = announceText
+      announceField.dispatchEvent(new Event('input'))
+      await clickInBody('config-form-submit')
+      return writeCalls(calls)[0]
+    }
+
+    it("ConfigView n'envoie pas une annonce de tracker laissée vide", async () => {
+      const valeurAttendue = { element: { key: 'tracker-a', aliases: ['ta'] } }
+
+      const valeurObtenue = (await saveTrackerWithAnnounce(''))?.body
+
+      expect(valeurObtenue).toEqual(valeurAttendue)
+    })
+
+    it('ConfigView envoie les annonces de tracker en tableau, une par ligne', async () => {
+      const valeurAttendue = {
+        element: {
+          key: 'tracker-a',
+          announce: [
+            'https://t.example.com/announce/fake-0000',
+            'udp://t.example.com:6969/announce',
+          ],
+          aliases: ['ta'],
+        },
+      }
+
+      const written = await saveTrackerWithAnnounce(
+        '  https://t.example.com/announce/fake-0000 \n\nudp://t.example.com:6969/announce\n',
+      )
+
+      expect(written?.path).toBe('/api/config/lists/trackers/tracker-a')
+      expect(written?.body).toEqual(valeurAttendue)
+    })
+
+    it('ConfigView révèle une annonce masquée à la demande', async () => {
+      await mountView({ 'GET /api/config': trackerSnapshot() })
+      mounted[0]!.get('[data-testid="edit-item-trackers-tracker-a"]').trigger('click')
+      await flushPromises()
+
+      await clickInBody('config-field-reveal-announce')
+
+      expect(bodyElement('config-field-announce')?.dataset.masked).toBeUndefined()
+    })
+  })
+
   it('ConfigView montre le bandeau de redémarrage après une écriture', async () => {
     const { wrapper, calls } = await mountView({
       'GET /api/config': configSnapshot(),
