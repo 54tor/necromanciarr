@@ -9,6 +9,7 @@ import (
 )
 
 func TestRemoteVolume_conformance(t *testing.T) {
+	skipOnWindows(t)
 	fsystest.Run(t, func(t *testing.T) fsystest.Subject {
 		volume := fsystest.NewRemoteVolume(t, "seedbox")
 		volume.MkdirAll(t, "/srv/media")
@@ -45,6 +46,7 @@ func TestRemoteVolume_unavailableRefusesEveryCallWithTheTypedError(t *testing.T)
 }
 
 func TestRemoteVolume_fileIdentityFollowsTheSwitch(t *testing.T) {
+	skipOnWindows(t)
 	volume := fsystest.NewRemoteVolume(t, "seedbox")
 	volume.MkdirAll(t, "/srv")
 	info, err := volume.Stat("/srv")

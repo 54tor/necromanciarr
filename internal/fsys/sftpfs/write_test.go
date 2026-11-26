@@ -235,6 +235,7 @@ func TestSFTPWriteRoot_refusesEmptySegmentNULAndOverlongPaths(t *testing.T) {
 }
 
 func TestSFTPWriteRoot_acceptsBackslashAndDotSegmentsAsOrdinaryNames(t *testing.T) {
+	skipOnWindows(t)
 	server, volume := writeVolume(t)
 	root := openLinksRoot(t, volume)
 
@@ -577,6 +578,7 @@ func TestSFTPCreateExclusive_missingParentIsNotExist(t *testing.T) {
 }
 
 func TestSFTPSymlink_storesTheRelativeTargetAsGiven(t *testing.T) {
+	skipOnWindows(t)
 	server, volume := writeVolume(t)
 	root := openLinksRoot(t, volume)
 	createThrough(t, root, "x", "intended")
@@ -662,6 +664,7 @@ func TestSFTPOpenWriteRoot_probesTheSymlinkOrderOncePerSessionAndLeavesNothing(t
 }
 
 func TestSFTPRemove_neverFollowsNorRecurses(t *testing.T) {
+	skipOnWindows(t)
 	server, volume := writeVolume(t)
 	root := openLinksRoot(t, volume)
 	if err := root.Symlink(libraryDir+"/"+fsystest.FixtureMovieName, "movie-link"); err != nil {
@@ -836,6 +839,7 @@ func TestSFTPWriteRoot_rootIsTheCanonicalLocationAndExposesNoVolume(t *testing.T
 }
 
 func TestSFTPWriteRoot_closedRootRefusesEveryOperation(t *testing.T) {
+	skipOnWindows(t)
 	server, volume := writeVolume(t)
 	root := openLinksRoot(t, volume)
 	if err := root.Close(); err != nil {
@@ -854,6 +858,7 @@ func TestSFTPWriteRoot_closedRootRefusesEveryOperation(t *testing.T) {
 }
 
 func TestSFTPCapabilities_followTheProbedFunctions(t *testing.T) {
+	skipOnWindows(t)
 	_, volume := writeVolume(t)
 	_ = mustProbeLinks(t, volume)
 
@@ -965,6 +970,7 @@ func TestSFTPMkdirAll_serverMessageNamingAConnectionLossKeepsTheVolume(t *testin
 }
 
 func TestSFTPOpenWriteRoot_transientProbeFailureIsRetriedOnTheNextOpening(t *testing.T) {
+	skipOnWindows(t)
 	server, volume := writeVolume(t, sftptest.FailMethod("Symlink", 1))
 
 	first := openLinksRoot(t, volume)

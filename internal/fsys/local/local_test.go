@@ -177,6 +177,7 @@ func TestWriteRoot_refusesSymlinkedParentPlantedBetweenOperations(t *testing.T) 
 }
 
 func TestWriteRoot_refusesEveryOperationOnceTheRootIsReplaced(t *testing.T) {
+	skipOnWindows(t)
 	tree := newTestTree(t, true)
 	writeThrough(t, tree.root, "kept", "kept")
 	if err := os.Rename(tree.linkDir, tree.linkDir+"-moved"); err != nil {

@@ -225,6 +225,7 @@ func (catcher *failureCatcher) Errorf(format string, arguments ...any) {
 }
 
 func TestAssertNoWriteUnder_catchesAWriteUnderARootOnly(t *testing.T) {
+	skipOnWindows(t)
 	libraryRoot, linkDir := t.TempDir(), t.TempDir()
 	recorder := NewRecorder(local.New())
 	root, err := recorder.OpenWriteRoot(linkDir)

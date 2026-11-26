@@ -59,6 +59,7 @@ func isUnder(remotePath, directory string) bool {
 }
 
 func TestCapabilities_probesOnlyInLinkDir(t *testing.T) {
+	skipOnWindows(t)
 	server, volume := writeVolume(t)
 	before := len(server.Requests())
 
