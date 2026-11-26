@@ -108,3 +108,10 @@ func TestElementFromRaw_errorNeverContainsTheRawValue(t *testing.T) {
 		}
 	}
 }
+
+func TestElementFromRaw_errorHidesTheFirstTokenOfAMalformedClient(t *testing.T) {
+	_, err := ElementFromRaw("torrentClients", "dummy-secret:rest")
+	if !errors.Is(err, ErrInvalidElement) || strings.Contains(err.Error(), "dummy-secret") {
+		t.Fatalf("valeurObtenue %v", err)
+	}
+}

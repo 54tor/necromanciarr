@@ -25,6 +25,8 @@ const (
 	fieldReadOnly = "readOnly"
 	fieldPath     = "path"
 	fieldKey      = "key"
+
+	reasonUnreadableRaw = "unreadable value (expected a valid url form)"
 )
 
 // ErrInvalidElement signale un élément illisible ; son message ne reprend jamais la valeur brute (elle porte la clé).
@@ -51,7 +53,7 @@ func ElementFromRaw(list, raw string) (Element, error) {
 func arrElementFromRaw(list, raw string) (Element, error) {
 	service, err := ParseArrService(list, raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidElement, err)
+		return nil, invalidElement(list, reasonUnreadableRaw)
 	}
 	element := Element{fieldURL: service.BaseURL, fieldAPIKey: service.APIKey}
 	addCredentials(element, service.User, service.Password)
@@ -61,7 +63,7 @@ func arrElementFromRaw(list, raw string) (Element, error) {
 func clientElementFromRaw(raw string) (Element, error) {
 	client, err := ParseTorrentClient(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidElement, err)
+		return nil, invalidElement(listTorrentClients, reasonUnreadableRaw)
 	}
 	element := Element{fieldType: client.Type, fieldReadOnly: client.ReadOnly, fieldURL: client.BaseURL}
 	addCredentials(element, client.User, client.Password)
