@@ -649,3 +649,34 @@ func TestLoadStoredConfig_refusesAHandWrittenRowWithASecretInTheURL(t *testing.T
 		t.Fatalf("valeurObtenue %v, valeurAttendue ErrInvalidStoredConfig sans la clé", err)
 	}
 }
+
+func TestPutItem_refusesOmittedSecretsWhenOnlyTheProxyKeyChanges(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	if err := fixture.service.PutItem(ctx, "radarr", "", proxiedRadarr()); err != nil {
+		t.Fatal(err)
+	}
+	itemID := fixture.overrides(t)[0].ItemID
+	valeurAttendue := "re-enter the secrets when proxyKey changes"
+
+	err := fixture.service.PutItem(ctx, "radarr", itemID, map[string]any{"url": configEditProxiedURL, "proxyKey": "fake-other-proxy-key"})
+
+	if !errors.Is(err, config.ErrUsage) || !strings.Contains(err.Error(), valeurAttendue) || strings.Contains(err.Error(), "fake-other") {
+		t.Fatalf("valeurObtenue %v, valeurAttendue le refus %q sans la clé", err, valeurAttendue)
+	}
+}
+
+func TestPutItem_keepsOmittedSecretsWhenTheSameProxyKeyIsRetyped(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	if err := fixture.service.PutItem(ctx, "radarr", "", proxiedRadarr()); err != nil {
+		t.Fatal(err)
+	}
+	itemID := fixture.overrides(t)[0].ItemID
+
+	err := fixture.service.PutItem(ctx, "radarr", itemID, map[string]any{"url": configEditProxiedURL, "proxyKey": configEditProxyKey})
+
+	if valeurObtenue := fixture.reload(t).Radarr[0].APIKey; err != nil || valeurObtenue != configEditRadarrKey {
+		t.Fatalf("valeurObtenue %q (%v), valeurAttendue la clé d'API gardée", valeurObtenue, err)
+	}
+}

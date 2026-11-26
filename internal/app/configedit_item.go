@@ -10,10 +10,11 @@ import (
 	"necromanciarr/internal/store"
 )
 
-// destinationFields désignent la destination des secrets d'un élément (url en clair : schéma, hôte, port et chemin) : un
-// secret omis n'y est jamais reconduit vers une autre destination.
+// destinationFields désignent la destination des secrets d'un élément (url en clair, et la clé de proxy qui choisit la
+// cible derrière le proxy) : un secret omis n'y est jamais reconduit vers une autre destination.
 var destinationFields = map[string][]string{
-	"radarr": {"url"}, "sonarr": {"url"}, "torrentClients": {"url"}, "torznab": {"url"}, "fsProviders": {"address"},
+	"radarr": {"url", "proxyKey"}, "sonarr": {"url", "proxyKey"}, "torrentClients": {"url", "proxyKey"}, "torznab": {"url"},
+	"fsProviders": {"address"},
 }
 
 // itemOverride prépare la surcharge d'un élément : un secret absent ou null garde la valeur précédente (enregistrée,
