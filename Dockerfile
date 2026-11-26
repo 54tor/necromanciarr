@@ -35,11 +35,11 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certifi
 COPY --from=builder /out/necromanciarr /usr/local/bin/necromanciarr
 # Attribution MIT/BSD/MPL exigée par les dépendances liées dans le binaire et le bundle web.
 COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/necromanciarr/
-# La base SQLite par défaut vit dans /data (clé dbPath).
+# La base SQLite par défaut, qui porte la configuration, vit dans /data.
 COPY --from=builder --chown=1000:1000 /data /data
 # UID/GID 1000 par défaut, surchargeables par user: au lancement pour coller aux droits de la bibliothèque.
 USER 1000:1000
-# config.json et .env sont lus dans le volume. L'écoute sur toutes les interfaces rend l'interface joignable depuis
+# La base et le .env sont lus dans le volume. L'écoute sur toutes les interfaces rend l'interface joignable depuis
 # l'hôte ; la configuration refuse alors de démarrer sans NECROMANCIARR_AUTH_TOKEN (32 caractères au moins).
 ENV CONFIG_DIR=/data NECROMANCIARR_LISTEN=0.0.0.0:8787
 EXPOSE 8787

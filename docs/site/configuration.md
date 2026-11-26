@@ -1,63 +1,68 @@
 # Configuration
 
+La configuration vit dans la base SQLite. Elle se modifie par la page Configuration de l'interface,
+par la commande `config` ou par les routes `/api/config`, et s'applique au prochain démarrage de `serve`.
+
 ## Sources et priorité
 
 De la plus forte à la plus faible :
 
-1. Options de ligne de commande : `--listen`, `--library-api`, `--db-path`, `--read-bytes-per-second`.
+1. Options de ligne de commande : `--listen`, `--library-api`, `--read-bytes-per-second`, `--cross-seed-mode`, `--language`.
 2. Variables d'environnement (un `.env` ne surcharge jamais l'environnement réel).
-3. `config.json` dans le dossier de configuration.
-4. Valeurs par défaut.
+3. La base.
+4. Le `config.js` de cross-seed, si `--cross-seed-config` ou `CROSS_SEED_CONFIG` le désigne.
+5. Valeurs par défaut.
 
-Le dossier de configuration se détermine par `--config-dir`, puis `CONFIG_DIR`, puis `<dossier utilisateur>/necromanciarr`.
-Un dossier choisi explicitement doit exister.
+Une valeur imposée par une option ou une variable s'affiche verrouillée dans la page Configuration.
 
-Le fichier est lu en mode strict : une clé inconnue, ou du texte après l'objet JSON, est refusé.
+## Amorçage
 
-## Secrets et interpolation
+Ce qu'il faut pour ouvrir la base reste hors base.
 
-Toute chaîne de `config.json` accepte `${VAR}`, remplacé par la variable d'environnement
-ou par une entrée du `.env`. Le `.env` est lu dans le dossier de configuration puis dans le dossier courant.
-
-| Variable | Rôle |
+| Option ou variable | Rôle |
 | --- | --- |
+| `--config-dir`, `CONFIG_DIR` | Dossier de configuration (`<dossier utilisateur>/necromanciarr` par défaut). Un dossier choisi explicitement doit exister |
+| `--db-path` | Base SQLite, `necromanciarr.db` du dossier de configuration par défaut ; toujours sur un disque local |
+| `--cross-seed-config`, `CROSS_SEED_CONFIG` | Chemin du `config.js` de cross-seed |
+| `NECROMANCIARR_SECRET_KEY` | Clé qui scelle les secrets en base ; sans elle, saisir un secret est refusé |
 | `NECROMANCIARR_AUTH_TOKEN` | Jeton de l'interface. Obligatoire si `listen` n'est pas une adresse de boucle locale |
 | `LIBRARY_PROVIDER_TOKEN` | Jeton Bearer envoyé au fournisseur de bibliothèque ([contrat](/api)) |
-| `LIBRARY_API` | URL de base du fournisseur, équivalent de `libraryApi` |
 
-## Champs de `config.json`
+Le `.env` est lu dans le dossier de configuration, à défaut dans le dossier courant.
 
-```json
-{
-  "listen": "127.0.0.1:8787",
-  "dbPath": "/data/necromanciarr.db",
-  "readBytesPerSecond": 20971520,
-  "libraryApi": "https://library.example.com",
-  "libraryRoots": ["/home/u/media/movies", "/home/u/media/tv"],
-  "pathMappings": [{ "from": "/home/u/media", "to": "/data/media" }],
-  "radarr": ["http://example.com:7878?apikey=${RADARR_API_KEY}"],
-  "sonarr": ["http://example.com:8989?apikey=${SONARR_API_KEY}"],
-  "torrentClients": ["qbittorrent:readonly:http://alice:${QBIT_PASSWORD}@example.com:8080"],
-  "dedupe": {
-    "torrentRoots": [],
-    "kinds": ["symlink"],
-    "relativeSymlinks": true,
-    "minFileAge": "10m",
-    "recheckAfter": true
-  }
-}
+## Cross-seed et surcharges
+
+Les instances Radarr et Sonarr, les clients torrent et les dossiers de liens du `config.js` servent de valeurs
+par défaut, relues à chaque démarrage. La base ne garde que les éléments que l'opérateur remplace, masque ou
+ajoute : changer l'URL d'une instance ne détache pas les autres de cross-seed. Un élément s'identifie par son URL
+sans identifiants (`http://radarr:7878`), son chemin, sa clé de tracker ou son nom de fournisseur.
+
+```sh
+necromanciarr config get radarr
+necromanciarr config item set radarr http://radarr:7878 --element-stdin < radarr.json
+necromanciarr config item delete radarr http://radarr:7878   # masque l'élément de cross-seed
+necromanciarr config item unset radarr http://radarr:7878    # retire la surcharge
+necromanciarr config set linkType '"symlink"'
 ```
 
-| Champ | Défaut | Rôle |
+`radarr.json` : `{"url": "http://radarr:7878", "apiKey": "dummy-api-key"}`.
+
+## Secrets
+
+Clés d'API, mots de passe, passkeys d'annonce, URL d'indexeur et `rc` rclone sont scellés en base (AES-256-GCM)
+et ne sont jamais rendus : la page Configuration affiche « Défini » ou « Non défini ». Passer un secret par
+`--value-stdin` ou `--element-stdin` le garde hors de l'historique du shell. Aucune valeur en base n'est
+interpolée : `${VAR}` y est refusé.
+
+## Réglages
+
+| Clé | Défaut | Rôle |
 | --- | --- | --- |
 | `listen` | `127.0.0.1:8787` | Adresse d'écoute. Hors boucle locale, `NECROMANCIARR_AUTH_TOKEN` est exigé |
-| `dbPath` | `necromanciarr.db` | Base SQLite |
 | `readBytesPerSecond` | 20 Mo/s | Plafond de lecture disque ; doit être positif |
 | `libraryApi` | vide | URL `http(s)` du fournisseur de bibliothèque, sans fragment |
 | `libraryRoots` | vide | Racines de la bibliothèque Plex |
 | `pathMappings` | vide | Traductions de préfixes `from` → `to` entre hôte, conteneur et client torrent |
-| `radarr`, `sonarr` | vide | Instances, `http://hote:port?apikey=…` ; la clé est extraite de l'URL |
-| `torrentClients` | vide | `type[:readonly]:http://utilisateur:motdepasse@hote:port` ; seul `qbittorrent` existe |
 | `dedupe.torrentRoots` | vide | Dossiers des torrents à relier. Ne doivent ni contenir ni être contenus dans une racine de bibliothèque |
 | `dedupe.kinds` | `["symlink"]` | Types de lien : `symlink`, `hardlink`, `reflink` |
 | `dedupe.relativeSymlinks` | `true` | Liens symboliques relatifs |
@@ -65,39 +70,48 @@ ou par une entrée du `.env`. Le `.env` est lu dans le dossier de configuration 
 | `dedupe.recheckAfter` | `true` | Redemande une vérification au client après remplacement |
 | `dedupe.verify` | `auto` | Mode de preuve d'identité : `auto`, `full`, `sampled`, `hash` |
 
+`dedupe` s'enregistre en un seul objet : `config set dedupe '{"kinds": ["symlink"], "minFileAge": "10m"}'`.
+
+| Liste | Élément |
+| --- | --- |
+| `radarr`, `sonarr` | `{url, apiKey, user, password}` |
+| `torrentClients` | `{type, readOnly, url, user, password}` ; seul `qbittorrent` existe |
+| `linkDirs` | `{path}` |
+| `trackers` | `{key, announce, aliases}` |
+| `torznab` | objet d'indexeur, `name` obligatoire |
+| `fsProviders` | voir ci-dessous |
+
 ### Stockage distant : `fsProviders`
 
 Pour lire les empreintes d'un stockage distant, Necromanciarr s'appuie sur des fournisseurs de système de fichiers,
-déclarés dans la liste `fsProviders`. rclone est le seul type disponible aujourd'hui ; d'autres types sont prévus.
-L'ancienne section `rclone` n'existe plus : elle est refusée au chargement, avec un message qui renvoie vers `fsProviders`.
+déclarés dans la liste `fsProviders` : `rclone` (empreintes d'un montage) et `sftp` (stockage distant, voir la
+référence). Exemple d'élément `rclone`, enregistré par
+`necromanciarr config item set fsProviders mega --element-stdin < mega.json` :
 
 ```json
-"fsProviders": [
-  {
-    "type": "rclone",
-    "name": "mega",
-    "rc": "http://user:${RCLONE_RC_PASS}@rclone:5572",
-    "timeout": "60s",
-    "mounts": ["/volumes/mega=megas4:bucket/prefix"]
-  }
-]
+{
+  "type": "rclone",
+  "name": "mega",
+  "rc": "http://user:dummy-password@rclone:5572",
+  "timeout": "60s",
+  "mounts": ["/volumes/mega=megas4:bucket/prefix"]
+}
 ```
 
 Clés communes à tous les types :
 
 | Champ | Rôle |
 | --- | --- |
-| `type` | Obligatoire. Seule valeur connue : `rclone` (un type inconnu est refusé, avec la liste des types connus) |
+| `type` | Obligatoire : `rclone` ou `sftp` (un type inconnu est refusé, avec la liste des types connus) |
 | `name` | Obligatoire, unique, `^[a-z0-9-]+$` |
-| `mounts` | Entrées `cheminLocal=cible` : chemin absolu, sans doublon exact entre fournisseurs ; l'imbrication est permise et le montage le plus long l'emporte |
 
 Clés du type `rclone` (une clé inconnue est refusée en la nommant) :
 
 | Champ | Rôle |
 | --- | --- |
-| `rc` | URL de l'API `--rc` du processus rclone qui porte le montage (identifiants masqués à l'affichage) |
+| `mounts` | Entrées `cheminLocal=remote:sousChemin` : chemin absolu, sans doublon exact entre fournisseurs ; l'imbrication est permise et le montage le plus long l'emporte |
+| `rc` | URL de l'API `--rc` du processus rclone qui porte le montage ; scellée en base |
 | `binary` | Chemin d'un binaire rclone, secours pour les installations natives |
 | `timeout` | Durée Go strictement positive |
 
-Pour le type `rclone`, la cible d'un montage s'écrit `remote:sousChemin`.
 Sans `rc` ni `binary`, aucune empreinte distante n'est demandée.

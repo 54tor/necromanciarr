@@ -71,7 +71,7 @@
 | `doctor` follows a symlink between the overlap check and the probe (TOCTOU) | a third party modifies the link directories during the diagnostic |
 | At Link, adopting an already present entry does not replay the per-segment containment check | a third party has already written in the tool's link directory |
 | Writing an annex renames over without an `fsync` of the parent folder | hard power cut at that instant |
-| A duplicated `config.json` key is not detected (the last one wins) | `encoding/json` limitation |
+| A duplicated key inside a database JSON value (setting or element) is not detected (the last one wins) | `encoding/json` limitation |
 | Development dependencies: 5 `npm audit` alerts of moderate level | dev only (the blocking threshold is `high`) |
 
 ## Troubleshooting
@@ -88,10 +88,10 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | all | `panic` | `fail` | bug: the type and a masked message are given; report it |
 | `config` | `working_dir_dotenv` | `warn` | a working-directory `.env` was read: move it to the configuration folder, or delete it |
 | `config` | `tracker_value_too_short` | `warn` | a `trackers` variable is shorter than 8 characters: its value is masked only inside URLs (any parameter name, exact match), never in free text; `config check` names it too |
-| `config` | `config_invalid` | `fail` | invalid `config.json` (`unknown field …`, `parse config.json`, `undefined variable X`, `linkDirs[i] … overlaps libraryRoots[j]`, `usage: libraryRoots[i]: … local path is not absolute` or `… contains ..`, `… provider "x" is not declared in fsProviders`, `… provider "x" has type "rclone", which does not expose a filesystem`, `fsProviders[i]: usage: type sftp: knownHosts is required …`, `… password must be a single ${VARIABLE} reference, never a literal value`, `usage: dbPath: the database stays on a local disk, never on an sftp:// location`): fix, then `config check` |
+| `config` | `config_invalid` | `fail` | invalid configuration, database included (`unknown stored setting "x"`, `stored setting "x": unreadable value`, `stored <list> item "<id>": field <field>: ${...} references are not supported`, `stored torznab item "<id>": a "name" is required`, `sealed config secrets cannot be read: NECROMANCIARR_SECRET_KEY is missing or changed`, `linkDirs[i] … overlaps libraryRoots[j]`, `usage: libraryRoots[i]: … local path is not absolute` or `… contains ..`, `… provider "x" is not declared in fsProviders`, `… provider "x" has type "rclone", which does not expose a filesystem`, `fsProviders[i]: usage: type sftp: knownHosts is required …`, `usage: dbPath: the database stays on a local disk, never on an sftp:// location`): fix with `config set` or `config item set`, then `config check` |
 | `config-dir` | `config_dir_missing` | `fail` | configuration folder missing: create it or pass `--config-dir` |
-| `config-dir` | `database_dir_unresolved` | `fail` | database folder not found: create it or fix `dbPath` |
-| `config-dir` | `database_in_library` | `fail` | `dbPath` in a library root: put it elsewhere |
+| `config-dir` | `database_dir_unresolved` | `fail` | database folder not found: create it or fix `--db-path` |
+| `config-dir` | `database_in_library` | `fail` | `--db-path` in a library root: put it elsewhere |
 | `config-dir` | `database_unwritable` | `fail` | permissions or space on the database folder; in Docker, the owner of `/data` |
 | `auth` | `loopback` | `ok` | listening on loopback |
 | `auth` | `auth_token_set` | `ok` | listening outside loopback with a token |
@@ -152,7 +152,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `link-feasibility` | `volume_alias_risk` | `warn`, `ok` | `warn`: an sftp provider points at this machine (`localhost`, `127.0.0.0/8`, `::1`) while local library roots exist; the local path and the volume can name the same disk without being matched: name the library and the links through one access only. `ok`: providers of the same address share their library roots |
 | `link-feasibility` | `mount_root_undetected` | `warn` | kernel without `STATX_ATTR_MOUNT_ROOT` (Linux before 5.8) and a local link directory: a bind mount of the same filesystem placed under it is not detected; never mount the library under a link directory |
 | `fs-providers` | `no_fs_provider` | `skipped` | no provider configured |
-| `fs-providers` | `fs_providers_build_failed` | `fail` | `fsProviders` of `config.json` |
+| `fs-providers` | `fs_providers_build_failed` | `fail` | `fsProviders` in the database |
 | `fs-providers` | `mount_ok` | `ok` | mount described |
 | `fs-providers` | `mount_advice` | `warn` | the provider's advice (`advice.mount.*` keys of `hashsource`, rendered in the language): start rclone with `--rc`, backend without MD5 or without date (the comparison rereads the files) |
 | `sftp:<name>` | `sftp_ok` | `ok` | the server answers and serves POSIX paths; address and user are shown, never a secret |

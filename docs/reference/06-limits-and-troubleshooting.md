@@ -71,7 +71,7 @@
 | `doctor` suit un lien symbolique entre le contrôle de chevauchement et la sonde (TOCTOU) | un tiers modifie les dossiers de liens pendant le diagnostic |
 | À Link, l'adoption d'une entrée déjà présente ne rejoue pas le contrôle de confinement par segments | un tiers a déjà écrit dans le dossier de liens de l'outil |
 | L'écriture d'une annexe renomme par-dessus sans `fsync` du dossier parent | coupure franche à cet instant |
-| Une clé dupliquée de `config.json` n'est pas détectée (la dernière gagne) | limite d'`encoding/json` |
+| Une clé dupliquée dans une valeur JSON de la base (réglage ou élément) n'est pas détectée (la dernière gagne) | limite d'`encoding/json` |
 | Dépendances de développement : 5 alertes `npm audit` de niveau modéré | dev seulement (le seuil bloquant est `high`) |
 
 ## Dépannage
@@ -88,10 +88,10 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | tous | `panic` | `fail` | bogue : le type et un message masqué sont donnés ; le signaler |
 | `config` | `working_dir_dotenv` | `warn` | un `.env` du dossier de travail a été lu : le déplacer dans le dossier de configuration, ou le supprimer |
 | `config` | `tracker_value_too_short` | `warn` | une variable de `trackers` fait moins de 8 caractères : sa valeur n'est masquée que dans les URL (quel que soit le nom du paramètre, à l'identique), jamais dans le texte libre ; `config check` la nomme aussi |
-| `config` | `config_invalid` | `fail` | `config.json` invalide (`unknown field …`, `parse config.json`, `undefined variable X`, `linkDirs[i] … overlaps libraryRoots[j]`, `usage: libraryRoots[i]: … local path is not absolute` ou `… contains ..`, `… provider "x" is not declared in fsProviders`, `… provider "x" has type "rclone", which does not expose a filesystem`, `fsProviders[i]: usage: type sftp: knownHosts is required …`, `… password must be a single ${VARIABLE} reference, never a literal value`, `usage: dbPath: the database stays on a local disk, never on an sftp:// location`) : corriger, puis `config check` |
+| `config` | `config_invalid` | `fail` | configuration invalide, en base comprise (`unknown stored setting "x"`, `stored setting "x": unreadable value`, `stored <list> item "<id>": field <field>: ${...} references are not supported`, `stored torznab item "<id>": a "name" is required`, `sealed config secrets cannot be read: NECROMANCIARR_SECRET_KEY is missing or changed`, `linkDirs[i] … overlaps libraryRoots[j]`, `usage: libraryRoots[i]: … local path is not absolute` ou `… contains ..`, `… provider "x" is not declared in fsProviders`, `… provider "x" has type "rclone", which does not expose a filesystem`, `fsProviders[i]: usage: type sftp: knownHosts is required …`, `usage: dbPath: the database stays on a local disk, never on an sftp:// location`) : corriger avec `config set` ou `config item set`, puis `config check` |
 | `config-dir` | `config_dir_missing` | `fail` | dossier de configuration absent : le créer ou passer `--config-dir` |
-| `config-dir` | `database_dir_unresolved` | `fail` | dossier de la base introuvable : le créer ou corriger `dbPath` |
-| `config-dir` | `database_in_library` | `fail` | `dbPath` dans une racine de bibliothèque : le placer ailleurs |
+| `config-dir` | `database_dir_unresolved` | `fail` | dossier de la base introuvable : le créer ou corriger `--db-path` |
+| `config-dir` | `database_in_library` | `fail` | `--db-path` dans une racine de bibliothèque : le placer ailleurs |
 | `config-dir` | `database_unwritable` | `fail` | droits ou espace sur le dossier de la base ; en Docker, propriétaire de `/data` |
 | `auth` | `loopback` | `ok` | écoute en boucle locale |
 | `auth` | `auth_token_set` | `ok` | écoute hors boucle locale avec jeton |
@@ -152,7 +152,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `link-feasibility` | `volume_alias_risk` | `warn`, `ok` | `warn` : un fournisseur sftp vise cette machine (`localhost`, `127.0.0.0/8`, `::1`) alors que des racines de bibliothèque locales existent ; le chemin local et le volume peuvent désigner le même disque sans être rapprochés : nommer bibliothèque et liens par un seul des deux accès. `ok` : des fournisseurs de même adresse partagent leurs racines de bibliothèque |
 | `link-feasibility` | `mount_root_undetected` | `warn` | noyau sans `STATX_ATTR_MOUNT_ROOT` (Linux avant 5.8) et dossier de liens local : un montage lié du même système de fichiers posé dessous n'est pas détecté ; ne jamais monter la bibliothèque sous un dossier de liens |
 | `fs-providers` | `no_fs_provider` | `skipped` | aucun fournisseur configuré |
-| `fs-providers` | `fs_providers_build_failed` | `fail` | `fsProviders` de `config.json` |
+| `fs-providers` | `fs_providers_build_failed` | `fail` | `fsProviders` en base |
 | `fs-providers` | `mount_ok` | `ok` | montage décrit |
 | `fs-providers` | `mount_advice` | `warn` | le conseil du fournisseur (clés `advice.mount.*` de `hashsource`, rendues dans la langue) : démarrer rclone avec `--rc`, backend sans MD5 ou sans date (la comparaison relit les fichiers) |
 | `sftp:<name>` | `sftp_ok` | `ok` | le serveur répond, serveur POSIX ; l'adresse et l'utilisateur sont affichés, jamais un secret |

@@ -20,7 +20,7 @@ The image listens on all interfaces, so **`NECROMANCIARR_AUTH_TOKEN` is required
 
 | Mount | Mode | Role |
 |---|---|---|
-| `/data` | read-write, named volume | `config.json`, `.env`, `necromanciarr.db` (relative `dbPath`, resolved from `CONFIG_DIR`) |
+| `/data` | read-write, named volume | `.env`, `necromanciarr.db` which holds the whole configuration (relative `--db-path`, resolved from `CONFIG_DIR`) |
 | library **and** link directories | read-write, **a single mount** | media files and the `linkDirs` / `dedupe.torrentRoots` folders |
 | cross-seed folder | **read-only**, whole folder | `config.js` |
 
@@ -43,17 +43,17 @@ Remote link folder (`sftp://<provider>/<absolute path>`): the links are created 
 
 ### cross-seed's `config.js`
 
-Mount the **folder** that contains `config.js`, read-only, never the file alone: a single-file mount breaks when an editor replaces the file (new inode, the container keeps the old one). Then `CROSS_SEED_CONFIG=/cross-seed/config.js` (or `crossSeedConfig`).
+Mount the **folder** that contains `config.js`, read-only, never the file alone: a single-file mount breaks when an editor replaces the file (new inode, the container keeps the old one). Then `CROSS_SEED_CONFIG=/cross-seed/config.js` (or `--cross-seed-config`).
 
-Each `process.env.NAME` that this `config.js` references must also be provided to the Necromanciarr container (environment variable or line of `/data/.env`): the file is evaluated here, with these values, not with the cross-seed container's environment. The `localhost` in `config.js` designates the cross-seed container: set `crossSeed` (`http://cross-seed:2468?apikey=${CROSS_SEED_API_KEY}`) to reach the daemon.
+Each `process.env.NAME` that this `config.js` references must also be provided to the Necromanciarr container (environment variable or line of `/data/.env`): the file is evaluated here, with these values, not with the cross-seed container's environment. The `localhost` in `config.js` designates the cross-seed container: store `crossSeed` in the database (`http://cross-seed:2468?apikey=KEY`) to reach the daemon.
 
 ### `/data`
 
-A volume name rather than a host folder: a new named volume takes on the image's `1000:1000` owner. A host folder must belong to the container's user. To put `config.json` and `.env` in it:
+A volume name rather than a host folder: a new named volume takes on the image's `1000:1000` owner. A host folder must belong to the container's user. To put `.env` in it:
 
 ```
 docker run --rm --user 1000:1000 -v necromanciarr-data:/data -v "$PWD":/src:ro \
-  --entrypoint cp necromanciarr:dev /src/config.json /src/.env /data/
+  --entrypoint cp necromanciarr:dev /src/.env /data/
 ```
 
 ### Permissions
@@ -87,22 +87,18 @@ volumes:
   necromanciarr-data:
 ```
 
-The matching `/data/config.json`:
+Matching configuration, written to the database from the container; `radarr`, `sonarr` and `torrentClients` come from `config.js`:
 
-```json
-{
-  "libraryApi": "https://library.example.com",
-  "libraryRoots": ["/media/library/movies", "/media/library/tv"],
-  "linkDirs": ["/media/links"],
-  "pathMappings": [{ "from": "/media/links", "to": "/downloads/links" }],
-  "radarr": ["http://radarr:7878?apikey=${RADARR_API_KEY}"],
-  "sonarr": ["http://sonarr:8989?apikey=${SONARR_API_KEY}"],
-  "torrentClients": ["qbittorrent:http://alice:${QBIT_PASSWORD}@qbittorrent:8080"],
-  "crossSeed": "http://cross-seed:2468?apikey=${CROSS_SEED_API_KEY}"
-}
+```
+docker compose exec necromanciarr necromanciarr config set libraryApi '"https://library.example.com"'
+docker compose exec necromanciarr necromanciarr config set libraryRoots '["/media/library/movies", "/media/library/tv"]'
+docker compose exec necromanciarr necromanciarr config item set linkDirs /media/links '{"path": "/media/links"}'
+docker compose exec necromanciarr necromanciarr config set pathMappings '[{"from": "/media/links", "to": "/downloads/links"}]'
+docker compose exec -T necromanciarr necromanciarr config set crossSeed --value-stdin < cross-seed.json
+docker compose restart necromanciarr
 ```
 
-`LIBRARY_PROVIDER_TOKEN` and `CROSS_SEED_API_KEY` go in `/data/.env`. The port is only published on the host's loopback: remote access goes through a reverse proxy (which keeps the `Bearer` token) or a tunnel.
+`cross-seed.json` holds the JSON string `"http://cross-seed:2468?apikey=dummy-api-key"`. `LIBRARY_PROVIDER_TOKEN` and `NECROMANCIARR_SECRET_KEY` (which seals `libraryApi` and `crossSeed`) go in `/data/.env`. The port is only published on the host's loopback: remote access goes through a reverse proxy (which keeps the `Bearer` token) or a tunnel.
 
 ## Running a command in the container
 
@@ -133,10 +129,10 @@ An `fsProviders` entry of type `sftp` ([02-configuration.md](02-configuration.md
 
 - Mount `known_hosts` and the private key read-only, for example `- /home/u/necromanciarr/ssh:/data/ssh:ro`, and declare `knownHosts: "/data/ssh/known_hosts"`, `identityFile: "/data/ssh/id_ed25519"` (paths as seen by the container). The key must be readable by user `1000:1000` and stay at `0600`.
 - Filling `known_hosts` without `ssh-keyscan`: `docker compose run --rm necromanciarr sftp trust seedbox` prints the host key fingerprint without writing anything or authenticating; once compared with the server's one, run it again with `--yes`. The addition needs this folder mounted without `:ro` and `known_hosts` writable by `1000:1000` for the time of the command; put `:ro` back afterwards. Never from the web interface ([04-cli-and-web.md](04-cli-and-web.md)).
-- The key passphrase or the password go through the `.env` in `/data` (`SFTP_KEY_PASSPHRASE=…`, referenced as `"${SFTP_KEY_PASSPHRASE}"`), never in clear text in `config.json`.
+- The key passphrase or the password are entered with the element (`config item set fsProviders seedbox --element-stdin`) and sealed in the database: `NECROMANCIARR_SECRET_KEY` must be set.
 - The host's SSH agent (`SSH_AUTH_SOCK`) is not forwarded to the container: `agent: true` requires mounting the socket and setting `SSH_AUTH_SOCK` yourself, which the image does not do. Prefer `identityFile`.
 - Recommended: an SFTP account with no write access to the library (ACL, group, or a read-only mount on the server side), writing only in the link folder, as defence in depth: SFTP has no folder-relative open, so write confinement relies on path checks ("Remote writes" in [02-configuration.md](02-configuration.md)). It is not required; a `doctor` check will report it.
-- The database (`dbPath`) stays in `/data`, never on the SFTP server.
+- The database (`--db-path`) stays in `/data`, never on the SFTP server.
 - Windows SFTP servers: not supported.
 - `necromanciarr doctor` checks every provider: `sftp:<name>` (connection, host key, Windows server refused), `sftp-library:<name>` (readable root, media in the first 2000 entries, `library_maybe_writable` warning when modes and owners suggest the account can write, never by a write attempt) and `sftp-exec:<name>` (remote commands), then `link-feasibility` and `path-mappings` for remote link folders ([06-limits-and-troubleshooting.md](06-limits-and-troubleshooting.md)).
 

@@ -9,7 +9,7 @@ This reference describes the behaviour of the shipped code. It is kept up to dat
 | Page | Content |
 |---|---|
 | [01-pipeline.md](01-pipeline.md) | The five stages, states, proposals, generations, verification, resumption |
-| [02-configuration.md](02-configuration.md) | `config.json`, `.env`, environment variables, priorities, cross-seed import, diagnostics |
+| [02-configuration.md](02-configuration.md) | database-backed configuration, bootstrap (`.env`, environment variables, options), priorities, per-element override of cross-seed, sealed secrets, diagnostics |
 | [03-seed-safety.md](03-seed-safety.md) | The invariants that protect the library and the ratio |
 | [04-cli-and-web.md](04-cli-and-web.md) | Commands, exit codes, web server, authentication, routes, interface |
 | [05-docker-and-volumes.md](05-docker-and-volumes.md) | Image, volumes, permissions, deployment example |
@@ -45,7 +45,7 @@ The library provider contract is in [`docs/contract/openapi.yaml`](../../contrac
 ## Conventions
 
 - A proposal, group or job identifier is a strictly positive integer.
-- `config.json` keys are in `camelCase`, the JSON fields of CLI and API outputs in `snake_case`.
+- Configuration keys, the configuration view (`config get`, `/api/config`) and `config check` are in `camelCase`, the other JSON fields of CLI and API outputs in `snake_case`.
 - `--json` outputs and the API contain no secret: tokens, API keys, passwords, the key of qui's `/proxy/` path and rc credentials are masked with `***` or `[redacted]`.
 - Texts meant for the operator (error messages, refusal reasons, `doctor` texts) follow the `language` setting; codes, JSON field names, commands and options stay in English, and a few texts are not translated yet ([04-cli-and-web.md](04-cli-and-web.md)). The pages of this reference exist in French ([../00-index.md](../00-index.md)) and in English.
 - Examples use fictitious values: `/home/u/…`, `/data/…`, `example.com`, `alice`.

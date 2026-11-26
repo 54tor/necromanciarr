@@ -1,6 +1,6 @@
 # Pipeline
 
-Five stages run in this order, each through its own command (`scan`, `match`, `verify`, `link`, `seed`) or through `POST /api/stages/{stage}/run`. Each stage reads and writes a state persisted in SQLite (`dbPath`), can be replayed without duplicates and resumes where an interruption left it. Nothing starts by itself: there is no internal scheduling.
+Five stages run in this order, each through its own command (`scan`, `match`, `verify`, `link`, `seed`) or through `POST /api/stages/{stage}/run`. Each stage reads and writes a state persisted in SQLite (`--db-path`), can be replayed without duplicates and resumes where an interruption left it. Nothing starts by itself: there is no internal scheduling.
 
 ## Acceptance rule
 

@@ -31,7 +31,13 @@ Syntax: `necromanciarr <command> [arguments] [options]`. Positional arguments co
 | `serve` | serves the interface and the API until SIGINT or SIGTERM | |
 | `healthcheck` | probes `/healthz` on loopback | |
 | `api-key` | prints a new random token; `--secret`: a sealing key | |
-| `config check` | prints the effective configuration, secrets masked | |
+| `config check` | prints the effective configuration, secrets masked, with the origin of each value ([02-configuration.md](02-configuration.md)) | |
+| `config get [key]` | the whole configuration view, or a single setting or list | |
+| `config set <key> <json>` | stores a setting (JSON value: `'"symlink"'`, `'["provider"]'`) | `--value-stdin` |
+| `config unset <key>` | removes the setting from the database (back to cross-seed or the default) | |
+| `config item set <list> <item-id> <json>` | stores a list element: override of a cross-seed element or addition | `--element-stdin` |
+| `config item delete <list> <item-id>` | hides a cross-seed element, or deletes an addition | |
+| `config item unset <list> <item-id>` | removes the override: the cross-seed element comes back | |
 
 Values: `--kind` among `full partial_annex partial_pack cross_seed conflict dedupe repair`; a proposal's `--state` among `pending accepted rejected applied failed superseded`; a link's `--state` among `ok diverged lost unreadable`; `--limit` is 200 by default and 1000 at most, `--offset` starts at 0; `--source` is `provider` or `torznab:<name>`. An unknown value is a usage error (exit 2), never an empty list.
 
@@ -47,13 +53,15 @@ Each proposal carries `details.source`, the source that supplied its candidate (
 
 `volumes commands <name>` returns `{"volume", "lines", "guard_script"}`: the exact lines, in sending order, that [remote-command-guard.sh](../remote-command-guard.sh) allows. In JSON, the tab of the `stat` line is the `\t` escape; the text output writes the lines alone on stdout, byte for byte, tabs included (`necromanciarr volumes commands seedbox > lines.txt`), and the script hint on stderr.
 
-`sftp trust <name>` is a CLI-only command: no web route, no registry action. Adding a trusted key from a browser, on a fingerprint seen remotely, would be a phishing trap. It opens neither the database nor a server and only reads `config.json`. It reaches the provider's address, reads the host key during the key exchange, then cuts before any authentication: no method is tried, no secret is read or sent. It prints "Host key fingerprint for seedbox: SHA256:…" and reminds you to check this fingerprint through another channel (hosting console, `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server).
+`sftp trust <name>` is a CLI-only command: no web route, no registry action. Adding a trusted key from a browser, on a fingerprint seen remotely, would be a phishing trap. It starts no server and reads the database read-only, for the configuration. It reaches the provider's address, reads the host key during the key exchange, then cuts before any authentication: no method is tried, no secret is read or sent. It prints "Host key fingerprint for seedbox: SHA256:…" and reminds you to check this fingerprint through another channel (hosting console, `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server).
 
 - Without `--yes`: nothing is written, exit code 2.
 - With `--yes`: the `known_hosts` line (`[host]:port` form outside port 22, not hashed) is appended at the end of `knownHosts`, never truncating the file; "Added to /data/ssh/known_hosts.". A missing file is created at `0600`; its folder must exist. A symlink, a special file or a missing folder give `known_hosts_not_writable`.
 - Key already pinned for the host: "Key already trusted", nothing is written, code 0.
 - Another key pinned for the host: `host_key_mismatch`, code 1; nothing is replaced or added, fix the file yourself after checking.
 - Unknown provider or one of another type: code 1. Unreachable server: `remote_unavailable`, code 1.
+
+`config get`, `config set|unset` and `config item set|delete|unset` go through the same layer as the Configuration page and the `/api/config` routes. A write is validated by the loader on a copy of the database before it is made: a refused value writes nothing (code 2, the message names the key or the element, never a value). Secrets are sealed on write and returned as `null` by `config get` ([02-configuration.md](02-configuration.md#sealed-secrets)). A secret passed as an argument stays in the shell history: `--value-stdin` and `--element-stdin` read the value from standard input (1 MiB at most, surrounding spaces removed); giving the value both as an argument and on stdin, or neither, is a usage error. A successful write answers `{"action", "restartRequired": true}`. Without `NECROMANCIARR_SECRET_KEY`, writing a secret exits with code 1 (`secret_key_missing`). An unknown key or list is a usage error (exit 2).
 
 `dedupe apply <id>` and `repair apply <id>` require the right kind (`wrong proposal kind`) and an applicable proposal (`ambiguous` and `lost` are not). Without `--dry-run`, a pending proposal is accepted then applied; with `--dry-run`, all checks run without creating anything. `--all-accepted` only applies the already accepted proposals of the kind, continues after a failure and combines with `--dry-run`.
 
@@ -96,7 +104,7 @@ With `--all-accepted`: 3 if a proposal was stale, otherwise 1 if one failed.
 - A token defined on a loopback listener is required too.
 - `Host` must be the listen address, `localhost`, `127.0.0.1` or `[::1]` on the same port (anti DNS rebinding); otherwise 403 `unknown host header`.
 - `Sec-Fetch-Site: cross-site`: 403 `cross-site request refused`, all methods.
-- `POST`: `Content-Type: application/json` required (415 otherwise); if `Origin` is present it must be the request's own (403 otherwise); without `Origin` and without a configured token, `X-Requested-With: necromanciarr` is required. Body of at most 64 KiB (413), strict JSON: an unknown field or text after the object gives 400 `invalid json body`; an empty body counts as an empty object.
+- `POST`, `PUT`, `DELETE`: `Content-Type: application/json` required, even without a body (415 otherwise); if `Origin` is present it must be the request's own (403 otherwise); without `Origin` and without a configured token, `X-Requested-With: necromanciarr` is required. Body of at most 64 KiB (413), strict JSON: an unknown field or text after the object gives 400 `invalid json body`; an empty body counts as an empty object.
 - No CORS header is set. Every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin` and a CSP `default-src 'self'` (no inline or external script, style or resource). The API adds `Cache-Control: no-store`.
 - `GET /healthz` is public, with no check: `200 ok` or `503 unavailable` depending on the database's answer (2 s). It returns neither version nor configuration.
 - Server timeouts: headers 10 s, read 30 s, idle 120 s, headers of at most 16 KiB.
@@ -125,6 +133,12 @@ With `--all-accepted`: 3 if a proposal was stale, otherwise 1 if one failed.
 | GET | `/api/volumes` | `volumes list` | | 200, array |
 | POST | `/api/volumes/{name}/probe` | `volumes probe` | `{}` | 200, probe result |
 | GET | `/api/volumes/{name}/commands` | `volumes commands` | | 200, lines |
+| GET | `/api/config` | `config get` | | 200, configuration view |
+| PUT | `/api/config/settings/{key}` | `config set` | `{"value": <json>}` | 200, view read again |
+| DELETE | `/api/config/settings/{key}` | `config unset` | | 200, view read again |
+| PUT | `/api/config/lists/{list}/{itemId}` | `config item-set` | `{"element": {…}}` | 200, view read again |
+| DELETE | `/api/config/lists/{list}/{itemId}` | `config item-delete` | | 200, view read again |
+| POST | `/api/config/lists/{list}/{itemId}/unset` | `config item-unset` | `{}` | 200, view read again |
 | GET | `/api/jobs`, `/api/jobs/{id}` | job tracking (outside the registry) | | 200 |
 | GET | `/healthz` | probe | | 200 or 503 |
 
@@ -151,6 +165,8 @@ Body `{"error": {"code", "message"}}`. The message is that of the recognized typ
 | `stage_running` | 409 | 1 | another stage or job is running |
 | `inspection_busy` | 409 | 1 | a link inspection is still running |
 | `refused` | 422 | 4 | business rule: conflict to choose, partial pack, proposal not accepted, not applicable, wrong kind, inconsistent group, read-only client, outside roots… |
+| `secret_key_missing` | 409 | 1 | a secret written without `NECROMANCIARR_SECRET_KEY` |
+| `invalid_stored_config` | 422 | 1 | the stored configuration does not load |
 | `failure` | 500 | 1 | untyped error |
 | `shutting_down` | 503 | | the server is stopping |
 
@@ -167,11 +183,13 @@ Vue application embedded in the binary, a single anthracite dark theme, fragment
 | Stages | `#/etapes` | `scan match verify link seed`, job tracking |
 | Sources | `#/sources` | `sources list/test` |
 | Volumes | `#/volumes` | `volumes list/probe/commands` |
+| Configuration | `#/configuration` | `config get/set/unset`, `config item set/delete/unset` |
 
-- Layout: sidebar on the left (icons only from 768 to 1023 px, drawer below), toolbar per page, dense sortable tables, state badges (icon and text, never colour alone). Below 768 px each row becomes a stacked card, with no horizontal scrolling.
+- Layout: sidebar on the left (icons only from 768 to 1023 px, drawer below), content across the whole remaining width, toolbar per page, dense sortable tables, state badges (icon and text, never colour alone). Below 768 px each row becomes a stacked card, with no horizontal scrolling.
 - Links: two tabs. "Recorded links" is paginated by the server (200 per page, `links list` with `--limit` and `--offset`), filterable by state, unsorted (server order: `links list` has no sort parameter, and sorting only the received page would give a misleading order, hence no sort by state by default); "Not compared" marks a link of which nothing was compared, and an interrupted inspection (`truncated`) is announced. "Repairs" lists the `repair` proposals; the real application of a row requires typing the confirmation word (`APPLY` in English, `APPLIQUER` in French), the dry run starts directly; ambiguous, lost rows or rows waiting for a client recheck are listed but not applicable.
 - Sources: one row per source in chain order (order, source, type, tracker, state, 24 h queries and downloads against the cap, caps cache, translated last error), unsorted. "Test a source" tests the indexer chosen in the toolbar, the row button the row's one; tests are disabled while one runs, and its translated result is shown afterwards. The provider has no test button. Proposals: the Source column and the Source filter (applied by the server) are always shown.
 - Volumes: one row per volume (volume, type, address, state, capabilities, probe date); each capability is a pill that names the feature and yes or no in text. "Probe" probes the volume chosen in the toolbar, the row button the row's one; probes are disabled while one runs, and its translated result is shown afterwards. The Commands button shows the `volumes commands` lines to copy. The tab badge counts `broken` volumes (`volumes_broken` of `GET /api/status`). `sftp trust` has no counterpart in the interface. Links: the Volume column gives the link's provider, "local" for the local disk.
+- Configuration: the settings, then one section per list and the orphaned overrides. Each value carries its origin (cross-seed, override, addition, default, environment or option, the last two locked); an element in drift carries "Drift". A secret shows as "Set" or "Not set", never its value; in the form, leaving it empty keeps the stored value. "Revert to cross-seed" removes an override, "Delete" hides a cross-seed element or deletes an addition, after confirmation. After a write, a banner reminds you to restart `serve`.
 - A dialog asks for the token on a 401; it lives in the tab's memory, never in browser storage. A refused token erases it.
 - The interface redirects to "Getting started" at first launch (no candidate or proposal) or while the diagnostic has a `fail`, unless "Skip" is chosen.
 - Force is only active for a `partial_annex` at the step `seeded_paused_incomplete`, with confirmation; accepting a `partial_pack` goes through a confirmation. `dedupe` and `repair` have a "Dry run" (dry-run) checkbox, checked by default, and a confirmation before really applying all the accepted proposals (outside a dry run). The Deduplication page goes further: "Apply accepted" always opens a window that lists the proposals (the mode, dry run or real, is frozen when it opens); a real replacement, bulk or of a single row, is only sent after typing the word `APPLY` (`APPLIQUER` in French); a single-row dry run starts without confirmation. The bytes to read are shown before any acceptance, the non-applicable rows (ambiguous, isolated copy…) stay listed with a disabled button and their reason.

@@ -9,7 +9,7 @@ Cette référence décrit le comportement du code livré. Elle est tenue à jour
 | Page | Contenu |
 |---|---|
 | [01-pipeline.md](01-pipeline.md) | Les cinq étapes, les états, les propositions, les générations, la vérification, la reprise |
-| [02-configuration.md](02-configuration.md) | `config.json`, `.env`, variables d'environnement, priorités, import cross-seed, diagnostic |
+| [02-configuration.md](02-configuration.md) | configuration en base, amorçage (`.env`, variables d'environnement, options), priorités, surcharge par élément de cross-seed, secrets scellés, diagnostic |
 | [03-seed-safety.md](03-seed-safety.md) | Les invariants qui protègent la bibliothèque et le ratio |
 | [04-cli-and-web.md](04-cli-and-web.md) | Commandes, codes de sortie, serveur web, authentification, routes, interface |
 | [05-docker-and-volumes.md](05-docker-and-volumes.md) | Image, volumes, droits, exemple de déploiement |
@@ -45,7 +45,7 @@ Le contrat du fournisseur de bibliothèque est dans [`docs/contract/openapi.yaml
 ## Conventions
 
 - Un identifiant de proposition, de groupe ou de job est un entier strictement positif.
-- Les clés de `config.json` sont en `camelCase`, les champs JSON des sorties CLI et API en `snake_case`.
+- Les clés de configuration, la vue de configuration (`config get`, `/api/config`) et `config check` sont en `camelCase`, les autres champs JSON des sorties CLI et API en `snake_case`.
 - Les sorties `--json` et l'API ne contiennent aucun secret : jetons, clés d'API, mots de passe, clé du chemin `/proxy/` de qui et identifiants rc y sont masqués par `***` ou `[redacted]`.
 - Les textes destinés à l'opérateur (messages d'erreur, motifs de refus, textes de `doctor`) suivent le réglage `language` ; les codes, noms de champs JSON, commandes et options restent en anglais, et quelques textes ne sont pas encore traduits ([04-cli-and-web.md](04-cli-and-web.md)). Les pages de cette référence existent en français et en anglais ([en/00-index.md](en/00-index.md)).
 - Les exemples utilisent des valeurs fictives : `/home/u/…`, `/data/…`, `example.com`, `alice`.

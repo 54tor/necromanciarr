@@ -17,7 +17,7 @@ make ui && make build          # interface web embarquée, puis binaire ./necrom
 ./necromanciarr serve          # API et interface sur http://127.0.0.1:8787
 ```
 
-La configuration tient dans un dossier (`--config-dir`, `CONFIG_DIR`, ou `~/.config/necromanciarr`) qui contient `config.json` (modèle : [`config.example.json`](config.example.json)) et `.env` (modèle : [`.env.example`](.env.example)). Pour seeder les torrents du fournisseur, qui n'ont pas d'annonce, la section `trackers` de `config.json` est indispensable (passkey dans `.env`, voir [`docs/reference/02-configuration.md`](docs/reference/02-configuration.md)). Le pipeline se lance étape par étape : `scan`, `match`, `verify`, puis `proposals list` et `proposals accept <id>`, puis `link` et `seed`.
+La configuration vit dans la base SQLite du dossier de configuration (`--config-dir`, `CONFIG_DIR`, ou `~/.config/necromanciarr`) ; elle se modifie par la page Configuration de l'interface ou par `necromanciarr config set` et `config item set`, et le `config.js` de cross-seed (`CROSS_SEED_CONFIG`) en fournit les valeurs par défaut, surchargeables élément par élément. Le `.env` du même dossier ne porte que l'amorçage et les jetons (modèle : [`.env.example`](.env.example)), dont `NECROMANCIARR_SECRET_KEY`, qui scelle les secrets en base. Pour seeder les torrents du fournisseur, qui n'ont pas d'annonce, la liste `trackers` est indispensable (voir [`docs/reference/02-configuration.md`](docs/reference/02-configuration.md)). Le pipeline se lance étape par étape : `scan`, `match`, `verify`, puis `proposals list` et `proposals accept <id>`, puis `link` et `seed`.
 
 `language` (`fr` ou `en`) fixe la langue de la CLI, de l'API et de l'interface web. Les indexeurs Torznab et Prowlarr (`torznab`, `prowlarr`, `sourceOrder`) complètent le fournisseur pour les fichiers qu'il ne couvre pas. Une bibliothèque ou un dossier de liens peut vivre sur un hôte distant (volume `sftp://`, voir [`docs/reference/05-docker-and-volumes.md`](docs/reference/05-docker-and-volumes.md)).
 
@@ -33,7 +33,7 @@ docker run -d -p 8787:8787 \
   necromanciarr:dev
 ```
 
-L'image écoute sur `0.0.0.0:8787` : `serve` refuse de démarrer sans jeton d'au moins 32 caractères ; les commandes ponctuelles (`config check`, `doctor`) n'en ont pas besoin. `/data` porte `config.json`, `.env` et la base. La bibliothèque et les dossiers de liens doivent être sous **un seul montage commun** (ici `/media`), sinon un hardlink échoue avec `EXDEV`.
+L'image écoute sur `0.0.0.0:8787` : `serve` refuse de démarrer sans jeton d'au moins 32 caractères ; les commandes ponctuelles (`config check`, `doctor`) n'en ont pas besoin. `/data` porte `.env` et la base, qui contient la configuration. La bibliothèque et les dossiers de liens doivent être sous **un seul montage commun** (ici `/media`), sinon un hardlink échoue avec `EXDEV`.
 
 ## Documentation
 

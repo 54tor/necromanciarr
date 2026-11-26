@@ -20,7 +20,7 @@ L'image écoute sur toutes les interfaces, donc **`NECROMANCIARR_AUTH_TOKEN` est
 
 | Montage | Mode | Rôle |
 |---|---|---|
-| `/data` | lecture-écriture, volume nommé | `config.json`, `.env`, `necromanciarr.db` (`dbPath` relatif, résolu depuis `CONFIG_DIR`) |
+| `/data` | lecture-écriture, volume nommé | `.env`, `necromanciarr.db` qui porte toute la configuration (`--db-path` relatif, résolu depuis `CONFIG_DIR`) |
 | bibliothèque **et** dossiers de liens | lecture-écriture, **un seul montage** | fichiers média et dossiers de `linkDirs` / `dedupe.torrentRoots` |
 | dossier de cross-seed | **lecture seule**, dossier entier | `config.js` |
 
@@ -43,17 +43,17 @@ Dossier de liens distant (`sftp://<provider>/<absolute path>`) : les liens sont 
 
 ### `config.js` de cross-seed
 
-Monter le **dossier** qui contient `config.js`, en lecture seule, jamais le fichier seul : un montage de fichier unique se casse quand un éditeur remplace le fichier (nouvel inode, le conteneur garde l'ancien). Puis `CROSS_SEED_CONFIG=/cross-seed/config.js` (ou `crossSeedConfig`).
+Monter le **dossier** qui contient `config.js`, en lecture seule, jamais le fichier seul : un montage de fichier unique se casse quand un éditeur remplace le fichier (nouvel inode, le conteneur garde l'ancien). Puis `CROSS_SEED_CONFIG=/cross-seed/config.js` (ou `--cross-seed-config`).
 
-Chaque `process.env.NAME` que ce `config.js` référence doit aussi être fourni au conteneur Necromanciarr (variable d'environnement ou ligne de `/data/.env`) : le fichier est évalué ici, avec ces valeurs, pas avec l'environnement du conteneur de cross-seed. Le `localhost` du `config.js` désigne le conteneur de cross-seed : renseigner `crossSeed` (`http://cross-seed:2468?apikey=${CROSS_SEED_API_KEY}`) pour joindre le démon.
+Chaque `process.env.NAME` que ce `config.js` référence doit aussi être fourni au conteneur Necromanciarr (variable d'environnement ou ligne de `/data/.env`) : le fichier est évalué ici, avec ces valeurs, pas avec l'environnement du conteneur de cross-seed. Le `localhost` du `config.js` désigne le conteneur de cross-seed : enregistrer `crossSeed` en base (`http://cross-seed:2468?apikey=KEY`) pour joindre le démon.
 
 ### `/data`
 
-Nom de volume plutôt que dossier de l'hôte : un volume nommé neuf reprend le propriétaire `1000:1000` de l'image. Un dossier de l'hôte doit appartenir à l'utilisateur du conteneur. Pour y déposer `config.json` et `.env` :
+Nom de volume plutôt que dossier de l'hôte : un volume nommé neuf reprend le propriétaire `1000:1000` de l'image. Un dossier de l'hôte doit appartenir à l'utilisateur du conteneur. Pour y déposer `.env` :
 
 ```
 docker run --rm --user 1000:1000 -v necromanciarr-data:/data -v "$PWD":/src:ro \
-  --entrypoint cp necromanciarr:dev /src/config.json /src/.env /data/
+  --entrypoint cp necromanciarr:dev /src/.env /data/
 ```
 
 ### Droits
@@ -87,22 +87,18 @@ volumes:
   necromanciarr-data:
 ```
 
-`/data/config.json` correspondant :
+Configuration correspondante, écrite en base depuis le conteneur ; `radarr`, `sonarr` et `torrentClients` viennent du `config.js` :
 
-```json
-{
-  "libraryApi": "https://library.example.com",
-  "libraryRoots": ["/media/library/movies", "/media/library/tv"],
-  "linkDirs": ["/media/links"],
-  "pathMappings": [{ "from": "/media/links", "to": "/downloads/links" }],
-  "radarr": ["http://radarr:7878?apikey=${RADARR_API_KEY}"],
-  "sonarr": ["http://sonarr:8989?apikey=${SONARR_API_KEY}"],
-  "torrentClients": ["qbittorrent:http://alice:${QBIT_PASSWORD}@qbittorrent:8080"],
-  "crossSeed": "http://cross-seed:2468?apikey=${CROSS_SEED_API_KEY}"
-}
+```
+docker compose exec necromanciarr necromanciarr config set libraryApi '"https://library.example.com"'
+docker compose exec necromanciarr necromanciarr config set libraryRoots '["/media/library/movies", "/media/library/tv"]'
+docker compose exec necromanciarr necromanciarr config item set linkDirs /media/links '{"path": "/media/links"}'
+docker compose exec necromanciarr necromanciarr config set pathMappings '[{"from": "/media/links", "to": "/downloads/links"}]'
+docker compose exec -T necromanciarr necromanciarr config set crossSeed --value-stdin < cross-seed.json
+docker compose restart necromanciarr
 ```
 
-`LIBRARY_PROVIDER_TOKEN` et `CROSS_SEED_API_KEY` vont dans `/data/.env`. Le port n'est publié que sur la boucle locale de l'hôte : l'accès distant passe par un mandataire inverse (qui garde le jeton `Bearer`) ou un tunnel.
+`cross-seed.json` contient la chaîne JSON `"http://cross-seed:2468?apikey=dummy-api-key"`. `LIBRARY_PROVIDER_TOKEN` et `NECROMANCIARR_SECRET_KEY` (qui scelle `libraryApi` et `crossSeed`) vont dans `/data/.env`. Le port n'est publié que sur la boucle locale de l'hôte : l'accès distant passe par un mandataire inverse (qui garde le jeton `Bearer`) ou un tunnel.
 
 ## Lancer une commande dans le conteneur
 
@@ -133,10 +129,10 @@ Un fournisseur `fsProviders` de type `sftp` ([02-configuration.md](02-configurat
 
 - Monter `known_hosts` et la clé privée en lecture seule, par exemple `- /home/u/necromanciarr/ssh:/data/ssh:ro`, et déclarer `knownHosts: "/data/ssh/known_hosts"`, `identityFile: "/data/ssh/id_ed25519"` (chemins vus par le conteneur). La clé doit être lisible par l'utilisateur `1000:1000` et rester en `0600`.
 - Remplir `known_hosts` sans `ssh-keyscan` : `docker compose run --rm necromanciarr sftp trust seedbox` affiche l'empreinte de la clé d'hôte sans rien écrire ni s'authentifier ; après l'avoir comparée à celle du serveur, relancer avec `--yes`. L'ajout demande ce dossier monté sans `:ro` et `known_hosts` modifiable par `1000:1000` le temps de la commande ; remettre ensuite `:ro`. Jamais depuis l'interface web ([04-cli-and-web.md](04-cli-and-web.md)).
-- La passphrase de la clé ou le mot de passe passent par le `.env` de `/data` (`SFTP_KEY_PASSPHRASE=…`, référencé par `"${SFTP_KEY_PASSPHRASE}"`), jamais en clair dans `config.json`.
+- La passphrase de la clé ou le mot de passe se saisissent avec l'élément (`config item set fsProviders seedbox --element-stdin`) et sont scellés en base : `NECROMANCIARR_SECRET_KEY` doit être définie.
 - L'agent SSH de l'hôte (`SSH_AUTH_SOCK`) n'est pas transmis au conteneur : `agent: true` exige de monter soi-même la socket et de définir `SSH_AUTH_SOCK`, ce que l'image ne fait pas. Préférer `identityFile`.
 - Recommandé : un compte SFTP sans droit d'écriture sur la bibliothèque (ACL, groupe ou montage en lecture seule côté serveur), qui n'écrit que dans le dossier de liens, en défense en profondeur : sans ouverture relative à un dossier en SFTP, le confinement des écritures repose sur des contrôles de chemin (« Écriture distante » dans [02-configuration.md](02-configuration.md)). Ce n'est pas exigé ; un contrôle de `doctor` le signalera.
-- La base (`dbPath`) reste dans `/data`, jamais sur le serveur SFTP.
+- La base (`--db-path`) reste dans `/data`, jamais sur le serveur SFTP.
 - Serveurs SFTP Windows : non pris en charge.
 - `necromanciarr doctor` vérifie chaque fournisseur : `sftp:<name>` (connexion, clé d'hôte, serveur Windows refusé), `sftp-library:<name>` (racine lisible, média dans les 2000 premières entrées, avertissement `library_maybe_writable` quand les modes et propriétaires laissent croire que le compte écrit, jamais par un essai d'écriture) et `sftp-exec:<name>` (commandes distantes), puis `link-feasibility` et `path-mappings` pour les dossiers de liens distants ([06-limits-and-troubleshooting.md](06-limits-and-troubleshooting.md)).
 

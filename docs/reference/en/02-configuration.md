@@ -1,69 +1,71 @@
 # Configuration
 
-The configuration lives in a folder (the "configuration folder") that contains `config.json`, `.env` and, by default, the SQLite database. `necromanciarr config check` prints the effective configuration, secrets masked.
+The configuration lives in the SQLite database. Only the bootstrap, what is needed to open the database, stays outside it: command-line options, environment variables and the `.env` of the configuration folder. Without a database (first run), every value takes the one from cross-seed's `config.js` or its default. `necromanciarr config check` prints the effective configuration, secrets masked, with the origin of each value; the interface's Configuration page, the `config get|set|unset` and `config item set|delete|unset` commands and the `/api/config` routes change it ([04-cli-and-web.md](04-cli-and-web.md)). Each process reads the configuration when it starts: after a change, the response carries `restartRequired: true` and `serve` must be restarted; a following one-off command already sees it.
 
 ## Sources and priority
 
-From strongest to weakest: **command-line options**, **environment variables**, **`config.json`**, **cross-seed's `config.js`** (if a path is given), **defaults**.
+From strongest to weakest: **command-line options**, **environment variables**, **database**, **cross-seed's `config.js`** (if a path is given), **defaults**. A setting forced by an option or a variable can still be changed in the database, with no effect while the option or variable is there: the configuration view marks it `locked`, with origin `env` or `flag`.
 
-| Setting | Option | Variable | `config.json` key |
+| Setting | Option | Variable | Database key |
 |---|---|---|---|
-| Configuration folder | `--config-dir` | `CONFIG_DIR` | none |
+| Configuration folder | `--config-dir` | `CONFIG_DIR` | none (bootstrap) |
 | Listen address | `--listen` | `NECROMANCIARR_LISTEN` | `listen` |
 | Library provider | `--library-api` | `LIBRARY_API` | `libraryApi` |
-| SQLite database | `--db-path` | none | `dbPath` |
+| SQLite database | `--db-path` | none | none (bootstrap) |
 | Read rate | `--read-bytes-per-second` | none | `readBytesPerSecond` |
 | cross-seed mode | `--cross-seed-mode` | `CROSS_SEED_MODE` | `crossSeedMode` |
-| cross-seed `config.js` | `--cross-seed-config` | `CROSS_SEED_CONFIG` | `crossSeedConfig` |
+| cross-seed `config.js` | `--cross-seed-config` | `CROSS_SEED_CONFIG` | none (bootstrap) |
 | Seed category | none | `NECROMANCIARR_SEED_CATEGORY` | `linkCategory` |
 | Seed tags | none | `NECROMANCIARR_SEED_TAGS` (comma-separated) | `seedTags` |
 | Display language | `--language` | `NECROMANCIARR_LANGUAGE` | `language` |
 | Cap on missing pieces | none | `NECROMANCIARR_PARTIAL_MAX_MISSING_PERCENT` | `partialMaxMissingPercent` |
-| Interface token | none | `NECROMANCIARR_AUTH_TOKEN` | none (never in a JSON file) |
-| Sealing key | none | `NECROMANCIARR_SECRET_KEY` | none (never in a JSON file) |
+| Interface token | none | `NECROMANCIARR_AUTH_TOKEN` | none (never in the database) |
+| Sealing key | none | `NECROMANCIARR_SECRET_KEY` | none (never in the database) |
 | Provider token | none | `LIBRARY_PROVIDER_TOKEN` | none |
 
 An empty variable is ignored. These options apply to every subcommand; an unknown option is a usage error (exit 2).
 
-The configuration folder must exist when it is given. With no option or variable, it is `<user config directory>/necromanciarr` (`~/.config/necromanciarr` on Linux). The Docker image sets `CONFIG_DIR=/data`.
+The configuration folder must exist when it is given. With no option or variable, it is `<user config directory>/necromanciarr` (`~/.config/necromanciarr` on Linux). The Docker image sets `CONFIG_DIR=/data`. The database is `necromanciarr.db` by default; a relative `--db-path` starts from the configuration folder. It stays on a local disk (an `sftp://` location is refused before anything is opened) and outside the library (`doctor`). A relative `config.js` path starts from the current folder.
 
-## `.env` and interpolation
+### Origins (`config check`)
+
+`config check` writes the effective configuration as JSON on stdout, secrets masked. `origins` gives the origin of each setting (`key`) and of each list element (`key` = list, `itemId`): `default`, `crossseed`, `override` (a database value that replaces a default or a cross-seed element), `added` (element added in the database), `env`, `flag`, with `drift: true` for an override whose cross-seed element has changed since. `orphanOverrides` lists the overrides with no element to replace (`List`, `ItemID`). The `sources` key of earlier versions is gone. The language line on stderr gives the origin: `Language: en (source: flag)`.
+
+## `.env`
 
 - Only one `.env` file is read: the one in the configuration folder. If it does not exist, the one in the current folder is read instead; `config check` flags it (`workingDirDotEnv: true`) and `doctor` warns (check `config`). Risk: launched from a folder that holds another tool's `.env`, Necromanciarr would pick up its variables (tokens included); placing its own `.env` in the configuration folder closes that door. The real environment always wins over `.env`.
 - Format: `NAME=value`, one per line, `#` comments, `export` prefix tolerated, single or double quotes removed. No multiline value, no interpolation in `.env`.
-- In `config.json`, any string (including in `dedupe` and `fsProviders`) can contain `${NAME}`; `$$` gives a `$`. A missing variable or an invalid name (outside `[A-Za-z_][A-Za-z0-9_]*`) is an error that quotes the name, never the value.
-- Interpolation comes before URL parsing: percent-encode the reserved characters (`@ : / # ?`) of a password placed in a URL.
-- `config.json` is read in strict mode: an unknown key is refused, and so is any text after the JSON object. A duplicated key is not detected (the last one wins). The old `rclone` section is refused with a message that points to `fsProviders`.
+- The `.env` serves the variables of the table above and those read by cross-seed's `config.js`. No database value is interpolated: `${NAME}` is refused there on write and on load (`${...} references are not supported`, the message names the list, the element and the field, never a value). A configuration that referenced an environment variable takes the value itself, sealed in the database when it is a secret ([Sealed secrets](#sealed-secrets)).
 
-## `config.json` keys
+## Database values
+
+Settings live in the `settings` table (one JSON value per key, replaced as a whole); the `radarr`, `sonarr`, `torrentClients`, `linkDirs`, `torznab`, `trackers` and `fsProviders` lists live in `list_overrides`, element by element ([Lists and per-element override](#lists-and-per-element-override)). An unknown key, an unreadable value or an invalid element blocks loading: the message names the key or the element, never the value, and `doctor` fails its `config` check. The old `rclone` section is an unknown key: declare it in `fsProviders`.
 
 | Key | Type | Default | Validation |
 |---|---|---|---|
 | `listen` | `host:port` | `127.0.0.1:8787` | outside loopback, `serve` requires `NECROMANCIARR_AUTH_TOKEN`; the other commands do not |
-| `dbPath` | path | `necromanciarr.db` | relative: resolved from the configuration folder. Must stay outside the library (`doctor`). Always local: an `sftp://` location (file or `--db-path`) is refused at load time |
 | `readBytesPerSecond` | integer (bytes/s) | `20971520` (20 MiB/s) | strictly positive |
 | `tieBreakReadBytes` | integer (bytes) | `53687091200` (50 GiB) | strictly positive. Maximum bytes read, per candidate, to tell same-size local files apart; coverage is not affected |
-| `libraryApi` | URL | empty | `http(s)`, no fragment. Empty: Match and Verify refuse (`not_configured`) |
+| `libraryApi` | URL | empty | `http(s)`, no fragment; sealed in the database. Empty: Match and Verify refuse (`not_configured`) |
 | `libraryRoots` | list of paths | empty | as seen by this process; absolute paths without a `..` segment (refused at load time). An `sftp://<provider>/<absolute path>` location targets a declared `fsProviders` entry of type `sftp` (example: `sftp://seedbox/srv/media`); an `rclone` provider is refused. The server is reached only at first use: when it is unreachable, startup, local operations and `doctor` still work; Scan then leaves its roots as they are (`remote_unavailable`) and the next stage tries once more |
 | `pathMappings` | list of `{from, to}` | empty | `from`: this process's view (a local path, or an `sftp://<provider>/<absolute path>` location of a declared provider); `to`: the view of Radarr, Sonarr and the torrent client, never an `sftp://` location |
-| `radarr`, `sonarr` | list of URLs | empty | `http(s)://host:port[/path]?apikey=KEY`, optional `user:password@` (basic-authentication proxy); only `apikey` is allowed |
-| `torrentClients` | list of strings | empty | `qbittorrent[:readonly]:http(s)://[user:password@]host:port[/path]`, no query parameter. Only the first client receives torrents (warning if there are several) |
-| `linkDirs` | list of paths | empty | absolute paths without `..`; never overlaps a `libraryRoots` root of the same volume |
+| `radarr`, `sonarr` | list of `{url, apiKey, user, password}` objects | empty | `url` as `http(s)://host:port[/path]`, `apiKey` required, `user` and `password` optional (basic-authentication proxy). cross-seed gives them as a `http(s)://[user:password@]host:port[/path]?apikey=KEY` string, split the same way; only `apikey` is allowed there |
+| `torrentClients` | list of `{type, readOnly, url, user, password}` objects | empty | `type` is `qbittorrent`, `url` as `http(s)://host:port[/path]` with no query parameter. cross-seed gives them as a `qbittorrent[:readonly]:http(s)://[user:password@]host:port[/path]` string. Only the first client receives torrents (warning if there are several) |
+| `linkDirs` | list of `{path}` objects | empty | absolute paths without `..`; never overlaps a `libraryRoots` root of the same volume |
 | `linkType` | `hardlink`, `symlink`, `reflink` | `hardlink` | a single kind, no fallback; a failure states the cause and the setting to change |
 | `skipRecheck` | boolean | `true` | see [03-seed-safety.md](03-seed-safety.md) |
 | `linkCategory` | string | empty | qBittorrent category of the added torrents; `NECROMANCIARR_SEED_CATEGORY` wins (spaces removed) |
 | `seedTags` | list of strings | `["necromanciarr"]` | tags set together with the category on each added torrent. The list **replaces** the default: without `necromanciarr`, that tag is no longer set (qui or cross-seed filters that target it no longer see these torrents). Spaces removed, duplicates ignored, empty list = default; an empty tag, one containing a comma or longer than 64 characters, and more than 20 tags are refused |
 | `language` | `fr`, `en` | `fr` | language of the displayed texts; case and spaces ignored, any other value (`fr_FR` included) is a usage error that quotes the value (20 characters at most) and the accepted values. Applied at this stage: text output, help and errors of the CLI, web API errors and descriptions of the action registry. To come: diagnostics (`doctor`), warnings and the server log. `config check` writes the effective language and its source on stderr |
 | `partialMaxMissingPercent` | number from 0 to 100 | `100` (no cap) | maximum share of missing pieces of a `partial_annex` or `partial_pack`; above it, no proposal is created (reason `missing_pieces_above_cap`, see [01-pipeline.md](01-pipeline.md)). `0` keeps only complete torrents |
-| `crossSeedConfig` | path | empty | relative: from the configuration folder |
-| `crossSeed` | URL | empty | `http(s)://host:2468?apikey=KEY`, no user credentials |
+| `crossSeed` | URL | empty | `http(s)://host:2468?apikey=KEY`, no user credentials; sealed in the database |
 | `crossSeedMode` | `auto`, `delegate`, `native`, `off` | `auto` | case and spaces ignored |
 | `dedupe` | object | see below | |
 | `fsProviders` | list of objects | empty | see below |
-| `torznab` | list of URLs or objects | empty | see "Indexers" below |
+| `torznab` | list of objects | empty | see "Indexers" below |
 | `prowlarr` | URL | empty | see "Indexers" below |
 | `sourceOrder` | list of strings | `provider`, then the `torznab` entries | see "Indexers" below |
-| `trackers` | object name → URL or object | empty | see "Tracker announces" below |
+| `trackers` | list of `{key, announce, aliases}` objects | empty | see "Tracker announces" below |
 
 ### Paths and mappings
 
@@ -84,18 +86,53 @@ The paths of the library, link directories and torrent roots are those seen by *
 - The client is called without an environment proxy and without redirection to another host; response bodies are capped.
 - Only qBittorrent is supported. A `deluge`, `transmission` or `rtorrent` client imported from cross-seed is discarded and reported by rank and type.
 
+## Lists and per-element override
+
+cross-seed provides `radarr`, `sonarr`, `torrentClients` and `linkDirs`; the database keeps only what the operator replaces, hides or adds, never a copy of the cross-seed values. Each element has an identifier (`itemId`):
+
+| List | Identifier |
+|---|---|
+| `radarr`, `sonarr`, `torznab`, `torrentClients` | `scheme://host[:port]` of `url`, with no path or credentials |
+| `linkDirs` | `path` |
+| `trackers` | `key` |
+| `fsProviders` | `name` |
+
+- Two cross-seed elements with the same identifier get `#2`, `#3`… in their order (`http://radarr:7878#2`).
+- Effective list: the cross-seed elements in their order, each replaced by its override when it has one or removed when it carries a deletion marker, then the additions in insertion order.
+- An override replaces the whole element. It follows the identifier, not the rank: it keeps the identifier of the targeted element even when it changes its `url`, and stays attached to that element if cross-seed reorders its list.
+- A fingerprint of the cross-seed element is kept with the override: if the element changes later, the override still applies and carries `drift: true`.
+- An override or a marker whose element has left cross-seed is orphaned: it is not applied, `config check` (`orphanOverrides`) and the Configuration page report it, nothing is deleted unless asked. An unreadable override leaves the cross-seed element in place and becomes orphaned.
+- `torznab`, `trackers` and `fsProviders` come from the database only: each element there is an addition, under the identifier given on write.
+
+## Sealed secrets
+
+Secret fields are sealed in the database (AES-256-GCM, key `NECROMANCIARR_SECRET_KEY`, bound to their list, element and field: a sealed value copied elsewhere does not open).
+
+| List or setting | Sealed fields |
+|---|---|
+| `radarr`, `sonarr` | `apiKey`, `password`, `url` |
+| `torrentClients` | `password`, `url` |
+| `trackers` | `announce` |
+| `torznab` | `url` |
+| `fsProviders` | `rc`, `password`, `identityPassphrase` |
+| settings | `prowlarr`, `crossSeed`, `libraryApi` |
+
+- Without `NECROMANCIARR_SECRET_KEY`, writing a secret is refused (`secret_key_missing`, HTTP 409) and nothing is written. Generate the key with `necromanciarr api-key --secret`.
+- On load, a sealed secret that does not open (missing or changed key) blocks startup: `sealed config secrets cannot be read: NECROMANCIARR_SECRET_KEY is missing or changed`. Changing the key means entering every secret again.
+- The configuration view (`config get`, `GET /api/config`, Configuration page) never returns a secret: the field is `null`, with `secret: true`, and `set` tells whether a value exists. Rewriting an element without one of its secrets keeps the stored value (or the cross-seed one), unless its destination changes (`url`, or `address` of an `fsProviders` entry): the write is then refused (`re-enter the secrets when url changes`), so a secret never leaves for another host.
+
 ## Importing cross-seed's `config.js`
 
-With `crossSeedConfig`, `CROSS_SEED_CONFIG` or `--cross-seed-config`, the file is evaluated in a JavaScript sandbox with no input/output: no `require`, no `import`, no `eval`, no `Function`; only `process.env.NAME` exists, resolved like `${NAME}` (real environment then `.env`). This tool's variables (`NECROMANCIARR_*`, `LIBRARY_PROVIDER_*`) are always absent there (`undefined`, `in` false): a `config.js` that reads them gets nothing, `config check` names them under `crossSeedImport.blockedEnvironment` and `doctor` (check `cross-seed`) warns, never showing their value. Limits: ordinary file of at most 256 KiB, 2 seconds of evaluation, 256 entries per list. A relative path from the command line or the environment starts from the current folder, one from `config.json` from the configuration folder.
+With `CROSS_SEED_CONFIG` or `--cross-seed-config`, the file is evaluated in a JavaScript sandbox with no input/output: no `require`, no `import`, no `eval`, no `Function`; only `process.env.NAME` exists, read from the real environment then the `.env`. This tool's variables (`NECROMANCIARR_*`, `LIBRARY_PROVIDER_*`) are always absent there (`undefined`, `in` false): a `config.js` that reads them gets nothing, `config check` names them under `crossSeedImport.blockedEnvironment` and `doctor` (check `cross-seed`) warns, never showing their value. Limits: ordinary file of at most 256 KiB, 2 seconds of evaluation, 256 entries per list. A relative path starts from the current folder. The file is read again at every start: its values are never copied into the database.
 
 | Imported key | Role | Merge rule |
 |---|---|---|
-| `radarr`, `sonarr`, `torrentClients`, `linkDirs` | lists | a non-empty `config.json` list replaces the imported list entirely; `[]` counts as absent |
-| `linkType`, `linkCategory` | strings | `config.json` if non-empty, otherwise the imported value |
-| `skipRecheck` | boolean | `config.json` if present, otherwise the imported value |
-| `host`, `port`, `apiKey` | cross-seed daemon | an explicit `crossSeed` wins; otherwise `http://host:port` (empty `host`, `0.0.0.0` or `::` becomes `localhost`, port 2468 by default) |
+| `radarr`, `sonarr`, `torrentClients`, `linkDirs` | lists | element by element ([Lists and per-element override](#lists-and-per-element-override)) |
+| `linkType`, `linkCategory` | strings | the database if non-empty, otherwise the imported value |
+| `skipRecheck` | boolean | the database if present, otherwise the imported value |
+| `host`, `port`, `apiKey` | cross-seed daemon | `crossSeed` in the database wins; otherwise `http://host:port` (empty `host`, `0.0.0.0` or `::` becomes `localhost`, port 2468 by default) |
 
-The other keys (indexer search rules) are ignored; `config check` lists their names (`ignoredKeys`) but never their value, and shows the origin of each list (`sources`: `config.json`, `cross-seed` or `none`). In Docker, the `localhost` in `config.js` designates the cross-seed container: set `crossSeed` explicitly.
+The other keys (indexer search rules) are ignored; `config check` lists their names (`ignoredKeys`) but never their value; the origin of each value is in `origins`. In Docker, the `localhost` in `config.js` designates the cross-seed container: store `crossSeed` in the database.
 
 ### cross-seed modes
 
@@ -156,20 +193,24 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 
 ### Type `sftp`
 
+`seedbox.json`, read from standard input so the passphrase does not stay in the shell history:
+
 ```json
-"fsProviders": [
-  {
-    "type": "sftp",
-    "name": "seedbox",
-    "address": "seedbox.example.com:22",
-    "user": "media",
-    "identityFile": "/data/ssh/id_ed25519",
-    "identityPassphrase": "${SFTP_KEY_PASSPHRASE}",
-    "knownHosts": "/data/ssh/known_hosts"
-  }
-],
-"libraryRoots": ["sftp://seedbox/srv/media"],
-"linkDirs": ["sftp://seedbox/srv/links"]
+{
+  "type": "sftp",
+  "name": "seedbox",
+  "address": "seedbox.example.com:22",
+  "user": "media",
+  "identityFile": "/data/ssh/id_ed25519",
+  "identityPassphrase": "dummy-passphrase",
+  "knownHosts": "/data/ssh/known_hosts"
+}
+```
+
+```
+necromanciarr config item set fsProviders seedbox --element-stdin < seedbox.json
+necromanciarr config set libraryRoots '["sftp://seedbox/srv/media"]'
+necromanciarr config item set linkDirs sftp://seedbox/srv/links '{"path": "sftp://seedbox/srv/links"}'
 ```
 
 | Key | Default | Rule |
@@ -180,9 +221,9 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 | `user` | required | SSH account; an account with no write access to the library is recommended |
 | `knownHosts` | required | absolute local path of an OpenSSH `known_hosts` file; the host key is always checked, no option skips it. Whether the file exists is a `doctor` matter |
 | `identityFile` | empty | absolute local path of a private key (ed25519, ecdsa or rsa ≥ 3072); a shorter RSA key is refused (`identity_key_too_weak`). Agent keys are not filtered |
-| `identityPassphrase` | empty | passphrase of `identityFile`, only as a `${VAR}` reference; needs `identityFile` |
+| `identityPassphrase` | empty | passphrase of `identityFile`, sealed in the database; needs `identityFile` |
 | `agent` | `false` | SSH agent (`SSH_AUTH_SOCK`), read at connection time only |
-| `password` | empty | only as a `${VAR}` reference; the SSH `password` method only (not `keyboard-interactive`); the least recommended method |
+| `password` | empty | sealed in the database; the SSH `password` method only (not `keyboard-interactive`); the least recommended method |
 | `readBytesPerSecond` | global rate | bytes per second; `0` or absent keeps the global `readBytesPerSecond`, both limits apply |
 | `maxConcurrentRequests` | `16` | SFTP requests in flight per file, integer from 1 to 256 |
 | `timeout` | `30s` | timeout of one SFTP operation, strictly positive Go duration |
@@ -191,9 +232,9 @@ The `rc` methods called form a closed, read-only list. Start rclone with `--rc -
 | `execHashTimeout` | `30m` | timeout of one batch of remote fingerprints, strictly positive Go duration |
 
 - At least one authentication method: `identityFile`, `agent` or `password`. They are tried in the order agent, key, password. The `~/.ssh` folder is never read implicitly.
-- `password` and `identityPassphrase` take only a whole `${VAR}` reference (value in the environment or the `.env`): a clear-text value, or text around the reference, is a usage error that names the key without quoting the value. `config check` and every output mask them; `identityFile`, `knownHosts`, `address` and `user` stay visible.
+- `password` and `identityPassphrase` are entered as they are and sealed on write; `config check` and every output mask them; `identityFile`, `knownHosts`, `address` and `user` stay visible.
 - `mounts`, `rc` and `binary` do not apply to the `sftp` type: refused.
-- The SQLite database (`dbPath`) stays on a local disk.
+- The SQLite database (`--db-path`) stays on a local disk.
 - Windows SFTP servers (`/C:/…` paths): not supported.
 - Connection: `timeout` also bounds the opening (TCP, SSH, SFTP). An operation that exceeds `timeout`, or three unanswered keepalives, closes the whole connection: the volume becomes `broken` and the stage stops (`remote_unavailable`). It reconnects on the next operation, once per stage.
 - Each agent key counts toward the server's `MaxAuthTries`: an agent holding many keys can exhaust the attempts before the `identityFile` key and the password. Set `agent: false` or load fewer keys. An agent key identical to the `identityFile` one is offered only once.
@@ -261,33 +302,36 @@ Hashed entries (`-H`) are supported. Only the key types present for the host are
 
 ## Indexers (`torznab`, `prowlarr`, `sourceOrder`)
 
-A Torznab indexer is a fallback source of `.torrent` files, after the library provider. Each entry of `torznab` is a URL string or an object:
+A Torznab indexer is a fallback source of `.torrent` files, after the library provider. Each element of `torznab` is an object; `tracker-a.json`:
 
 ```json
-"torznab": [
-  "https://prowlarr.example.com:9696/12/api?apikey=${PROWLARR_API_KEY}",
-  {
-    "url": "https://prowlarr.example.com:9696/7/api?apikey=${PROWLARR_API_KEY}",
-    "name": "tracker-a",
-    "tracker": "tracker-a",
-    "maxDownloadsPerDay": 20
-  }
-],
-"prowlarr": "https://prowlarr.example.com:9696?apikey=${PROWLARR_API_KEY}",
-"sourceOrder": ["provider", "torznab:tracker-a", "torznab:12"]
+{
+  "url": "https://prowlarr.example.com:9696/7/api?apikey=dummy-api-key",
+  "name": "tracker-a",
+  "tracker": "tracker-a",
+  "maxDownloadsPerDay": 20
+}
 ```
+
+```
+necromanciarr config item set torznab tracker-a --element-stdin < tracker-a.json
+necromanciarr config set prowlarr --value-stdin < prowlarr.json
+necromanciarr config set sourceOrder '["provider", "torznab:tracker-a"]'
+```
+
+`prowlarr.json` holds the JSON string `"https://prowlarr.example.com:9696?apikey=dummy-api-key"`.
 
 | Key | Default | Validation |
 |---|---|---|
-| `torznab[].url` | required | `http(s)`, no fragment, no user credentials, `apikey` is the only query parameter (as for `radarr`); a secret, masked everywhere (`config check`, logs, `doctor`); `${NAME}` works inside |
-| `torznab[].name` | last numeric segment of the path (`12`), else the rank in the list | `[a-z0-9-]+`, unique |
+| `torznab[].url` | required | `http(s)`, no fragment, no user credentials, `apikey` is the only query parameter (as for `radarr`); a secret, sealed in the database and masked everywhere (`config check`, logs, `doctor`) |
+| `torznab[].name` | required | `[a-z0-9-]+`, unique; an element without `name` blocks loading (`a "name" is required`) |
 | `torznab[].tracker` | empty | tracker name as the library provider writes it; used for the `.torrent` fallback and for the uniqueness (infohash, tracker); kept as written (trimmed), compared in lower case without spaces (`Tracker A` equals `trackera`), like the `trackers` keys |
 | `torznab[].categories` | those of the indexer capabilities (films, series) | positive integers |
 | `torznab[].minInterval` | `3s` | Go duration from `1s` to `1h`: minimum delay between two requests to this indexer (the `1s` floor protects the indexer from being limited or banned) |
 | `torznab[].timeout` | `30s` | Go duration from `1s` to `5m` |
 | `torznab[].maxQueriesPerRun`, `maxDownloadsPerRun` | `30`, `10` | integers from 1 to `100000` |
 | `torznab[].maxQueriesPerDay`, `maxDownloadsPerDay` | `200`, `50` | integers from 1 to `100000` |
-| `prowlarr` | empty | URL of the native API of Prowlarr (`http(s)://host:9696[/base]?apikey=KEY`, same rules as `torznab[].url`); only for `doctor` (indexer list and state), never to search |
+| `prowlarr` | empty | URL of the native API of Prowlarr (`http(s)://host:9696[/base]?apikey=KEY`, same rules as `torznab[].url`, sealed in the database); only for `doctor` (indexer list and state), never to search |
 | `sourceOrder` | `provider`, then the `torznab` entries in list order | `provider` must stay first (a misplaced or missing `provider` is refused, never reordered); every source is `provider` or `torznab:<name>` of a configured indexer, listed once |
 
 An indexer requires `NECROMANCIARR_SECRET_KEY`: without it the configuration is refused ("torznab requires NECROMANCIARR_SECRET_KEY"), because an indexer `.torrent` carries the tracker passkey and is only kept sealed ([03](03-seed-safety.md#passkeys-of-indexer-torrents)). Generate the key with `necromanciarr api-key --secret`.
@@ -300,28 +344,36 @@ With Prowlarr, give the Torznab feed of each indexer (`/<id>/api`, the `<id>` be
 
 The `.torrent` of the library provider has no announce; to seed a private torrent, qBittorrent needs the tracker announce, which carries the operator passkey. The `trackers` section gives it for each tracker, to inject it at seed time (outside the `info` dictionary: the infohash does not change). `trackers` is required to seed provider torrents (they carry no announce). Seed injects it in memory, just before the client add; without an announce, a proposal is `no_announce` ([03-seed-safety.md](03-seed-safety.md)).
 
+Two elements, one with a single announce, the other with several addresses and aliases (dummy passkeys):
+
 ```json
-"trackers": {
-  "tracker-a": "https://tracker-a.example.com/announce/${PASSKEY_TRACKER_A}",
-  "tracker-b": {
-    "announce": [
-      "https://tracker-b.example.com/${PASSKEY_TRACKER_B}/announce",
-      "udp://tracker-b.example.com:6969/announce?pk=${PASSKEY_TRACKER_B}"
-    ],
-    "aliases": ["TrackerB", "tracker-b.example.com"]
-  }
+{"key": "tracker-a", "announce": "https://tracker-a.example.com/announce/dummypasskey0001"}
+```
+
+```json
+{
+  "key": "tracker-b",
+  "announce": [
+    "https://tracker-b.example.com/dummypasskey0002/announce",
+    "udp://tracker-b.example.com:6969/announce?pk=dummypasskey0002"
+  ],
+  "aliases": ["TrackerB", "tracker-b.example.com"]
 }
+```
+
+```
+necromanciarr config item set trackers tracker-b --element-stdin < tracker-b.json
 ```
 
 | Rule | Value |
 |---|---|
-| Key | tracker name, compared with the `tracker` of a candidate and with `torznab[].tracker` in lower case without spaces, then with the `aliases` in the same form. Two entries whose key or alias match in this form are refused: the message names both keys, never a URL. Entries are sorted by key |
-| Value | a URL, or an object `{"announce": [URL…], "aliases": [name…]}` (any other key is refused, `announce` cannot be empty); several URLs form a single `announce-list` tier (same tracker, several addresses) |
-| URL | `http`, `https` or `udp`, host required, no fragment (`#`, even empty), no space (U+00A0 included, so no variable value ending with a space) or control character, at most 2048 bytes, at most 512 URLs per entry; `${NAME}` interpolated as elsewhere (missing variable: the error names the variable, never the value); a refused URL gets a generic message that never repeats it |
-| Secret | every interpolated value of at least 8 characters becomes a known secret, masked everywhere in its raw, upper-case, lower-case, percent-encoded and JSON-escaped forms; the whole URL is also rendered as `scheme://host[:port]/***`. A variable placed in the host makes the host secret too. A shorter value (a `uid` of a few digits) is masked only inside URLs, compared exactly (after decoding, case ignored) with every path segment and every parameter value whatever its name, never in free text, where it would cut ordinary words: `config check` and `doctor` (`tracker_value_too_short`) name the variable |
-| `config check` | `trackers` lists `key`, `aliases`, `announce` (each URL as `https://tracker-a.example.com/***`) and `variables` (names only, for example `PASSKEY_TRACKER_A`), never a value |
+| Key | `key`, tracker name, compared with the `tracker` of a candidate and with `torznab[].tracker` in lower case without spaces, then with the `aliases` in the same form. Two entries whose key or alias match in this form are refused: the message names both keys, never a URL. Entries are sorted by key |
+| Value | `announce`: a URL or a list of URLs, never empty; `aliases`: a list of names, optional; any other key is refused; several URLs form a single `announce-list` tier (same tracker, several addresses) |
+| URL | `http`, `https` or `udp`, host required, no fragment (`#`, even empty), no space (U+00A0 included) or control character, at most 2048 bytes, at most 512 URLs per entry; a refused URL gets a generic message that never repeats it |
+| Secret | `announce` is sealed in the database. On load, every decoded path segment and parameter value of an announce becomes a known secret, except an ordinary lower-case word (`announce`, `tracker-b`): at least 8 characters long, masked everywhere in their raw, upper-case, lower-case, percent-encoded and JSON-escaped forms; shorter (a `uid` of a few digits), masked only inside URLs, compared exactly (after decoding, case ignored), never in free text, where they would cut ordinary words. The whole URL is also rendered as `scheme://host[:port]/***` |
+| `config check` | `trackers` lists `key`, `aliases`, `announce` (each URL as `https://tracker-a.example.com/***`), never a passkey |
 
-Write the passkey through `${NAME}` (in the `.env` or the environment): a passkey written in clear in `config.json` is recognized as a secret only if it is a base64url word of at least 16 characters mixing digits and letters. A passkey that contains `&`, `#`, `%` or `;` must be percent-encoded in a query, as a `torznab` key.
+A passkey that contains `&`, `#`, `%` or `;` must be percent-encoded in a query, as a `torznab` key.
 
 ## Library provider
 
@@ -333,7 +385,7 @@ HTTP contract defined in [`docs/contract/openapi.yaml`](../../contract/openapi.y
 
 | Identifier | Checks | `fail` when |
 |---|---|---|
-| `config` | loading, origin of lists (`sources`) | invalid configuration (CLI) |
+| `config` | loading, database included; origin of each list (`none`, `cross-seed`, `database`) | invalid configuration, database included (unknown setting, unreadable value or element, sealed secret that does not open) |
 | `config-dir` | existing folder, database openable for read-write | missing folder, database not openable, database in the library |
 | `auth` | loopback listening, or token present | outside loopback without `NECROMANCIARR_AUTH_TOKEN` |
 | `library-roots` | readable root, a media file found in the first 2000 entries | root missing, not a folder or unreadable; `warn` if no root or no media found |

@@ -22,7 +22,7 @@ docker run --rm \
 
 | Élément | Valeur |
 | --- | --- |
-| Volume | `/data` : contient `config.json`, `.env`, `api-key` et la base SQLite |
+| Volume | `/data` : contient `.env` et la base SQLite, qui porte toute la configuration |
 | Variable `CONFIG_DIR` | `/data` par défaut dans l'image |
 | Utilisateur | `1000:1000` par défaut ; à aligner sur les droits de la bibliothèque avec `--user` |
 | Commande par défaut | `serve` (voir [CLI](/cli) : pas encore disponible) |
@@ -34,6 +34,6 @@ Le service (`serve`) n'est pas encore implémenté : aujourd'hui, l'image permet
 
 ## Première configuration
 
-1. Créer un dossier de configuration et y déposer un `config.json` (voir [Configuration](/configuration)).
-2. Mettre les secrets dans un `.env` du même dossier, jamais dans `config.json`.
-3. Vérifier avec `config check`, qui affiche la configuration effective, secrets masqués.
+1. Créer un dossier de configuration et y placer un `.env` avec `NECROMANCIARR_SECRET_KEY` (tirée par `necromanciarr api-key --secret`), sans laquelle aucun secret ne s'enregistre.
+2. Enregistrer les réglages par la page Configuration ou par `necromanciarr config set` et `config item set` (voir [Configuration](/configuration)).
+3. Vérifier avec `config check`, qui affiche la configuration effective, secrets masqués, avec l'origine de chaque valeur.

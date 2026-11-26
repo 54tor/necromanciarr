@@ -31,7 +31,13 @@ Syntaxe : `necromanciarr <command> [arguments] [options]`. Les arguments positio
 | `serve` | sert l'interface et l'API jusqu'à SIGINT ou SIGTERM | |
 | `healthcheck` | sonde `/healthz` sur la boucle locale | |
 | `api-key` | affiche un jeton aléatoire neuf ; `--secret` : une clé de scellement | |
-| `config check` | affiche la configuration effective, secrets masqués | |
+| `config check` | affiche la configuration effective, secrets masqués, avec l'origine de chaque valeur ([02-configuration.md](02-configuration.md)) | |
+| `config get [key]` | la vue de configuration entière, ou un seul réglage ou une seule liste | |
+| `config set <key> <json>` | enregistre un réglage (valeur JSON : `'"symlink"'`, `'["provider"]'`) | `--value-stdin` |
+| `config unset <key>` | retire le réglage de la base (retour à cross-seed ou au défaut) | |
+| `config item set <list> <item-id> <json>` | enregistre un élément de liste : surcharge d'un élément de cross-seed ou ajout | `--element-stdin` |
+| `config item delete <list> <item-id>` | masque un élément de cross-seed, ou supprime un ajout | |
+| `config item unset <list> <item-id>` | retire la surcharge : l'élément de cross-seed revient | |
 
 Valeurs : `--kind` parmi `full partial_annex partial_pack cross_seed conflict dedupe repair` ; `--state` d'une proposition parmi `pending accepted rejected applied failed superseded` ; `--state` d'un lien parmi `ok diverged lost unreadable` ; `--limit` vaut 200 par défaut et 1000 au plus, `--offset` part de 0 ; `--source` vaut `provider` ou `torznab:<name>`. Une valeur inconnue est un défaut d'usage (exit 2), jamais une liste vide.
 
@@ -47,13 +53,15 @@ Chaque proposition porte `details.source`, la source qui a fourni son candidat (
 
 `volumes commands <name>` rend `{"volume", "lines", "guard_script"}` : les lignes exactes, dans l'ordre d'envoi, que [remote-command-guard.sh](remote-command-guard.sh) admet. En JSON, la tabulation de la ligne `stat` est l'échappement `\t` ; la sortie texte écrit les lignes seules sur stdout, octet pour octet, tabulations comprises (`necromanciarr volumes commands seedbox > lines.txt`), et l'indication du script sur stderr.
 
-`sftp trust <name>` est une commande de la CLI seule : aucune route web, aucune action du registre. Ajouter une clé de confiance depuis un navigateur, sur une empreinte vue à distance, serait un piège à hameçonnage. Elle n'ouvre ni base ni serveur et ne lit que `config.json`. Elle joint l'adresse du fournisseur, lit la clé d'hôte pendant l'échange de clés puis coupe avant toute authentification : aucune méthode n'est essayée, aucun secret n'est lu ni envoyé. Elle affiche « Empreinte de la clé d'hôte de seedbox : SHA256:… » et rappelle de vérifier cette empreinte par un autre canal (console de l'hébergeur, `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` sur le serveur).
+`sftp trust <name>` est une commande de la CLI seule : aucune route web, aucune action du registre. Ajouter une clé de confiance depuis un navigateur, sur une empreinte vue à distance, serait un piège à hameçonnage. Elle ne lance aucun serveur et ne lit la base qu'en lecture seule, pour la configuration. Elle joint l'adresse du fournisseur, lit la clé d'hôte pendant l'échange de clés puis coupe avant toute authentification : aucune méthode n'est essayée, aucun secret n'est lu ni envoyé. Elle affiche « Empreinte de la clé d'hôte de seedbox : SHA256:… » et rappelle de vérifier cette empreinte par un autre canal (console de l'hébergeur, `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` sur le serveur).
 
 - Sans `--yes` : rien n'est écrit, sortie en code 2.
 - Avec `--yes` : la ligne `known_hosts` (forme `[host]:port` hors port 22, non hachée) est ajoutée en fin de `knownHosts`, sans jamais tronquer le fichier ; « Ajoutée à /data/ssh/known_hosts. ». Un fichier absent est créé en `0600` ; son dossier doit exister. Un lien symbolique, un fichier spécial ou un dossier absent donnent `known_hosts_not_writable`.
 - Clé déjà épinglée pour l'hôte : « Clé déjà approuvée », rien n'est écrit, code 0.
 - Autre clé épinglée pour l'hôte : `host_key_mismatch`, code 1 ; rien n'est remplacé ni ajouté, corriger le fichier soi-même après vérification.
 - Fournisseur inconnu ou d'un autre type : code 1. Serveur injoignable : `remote_unavailable`, code 1.
+
+`config get`, `config set|unset` et `config item set|delete|unset` passent par la même couche que la page Configuration et les routes `/api/config`. Une écriture est validée par le chargeur sur une copie de la base avant d'être faite : une valeur refusée n'écrit rien (code 2, le message nomme la clé ou l'élément, jamais une valeur). Les secrets sont scellés à l'écriture et rendus `null` par `config get` ([02-configuration.md](02-configuration.md#secrets-scellés)). Un secret passé en argument reste dans l'historique du shell : `--value-stdin` et `--element-stdin` lisent la valeur sur l'entrée standard (1 Mio au plus, espaces de bord retirés) ; donner la valeur en argument et sur stdin, ou ni l'un ni l'autre, est un défaut d'usage. Une écriture réussie répond `{"action", "restartRequired": true}`. Sans `NECROMANCIARR_SECRET_KEY`, écrire un secret sort en code 1 (`secret_key_missing`). Une clé ou une liste inconnue est un défaut d'usage (exit 2).
 
 `dedupe apply <id>` et `repair apply <id>` exigent la bonne nature (`wrong proposal kind`) et une proposition applicable (`ambiguous` et `lost` ne le sont pas). Sans `--dry-run`, une proposition en attente est acceptée puis appliquée ; avec `--dry-run`, tous les contrôles tournent sans rien créer. `--all-accepted` n'applique que les propositions déjà acceptées de la nature, continue après un échec et se combine avec `--dry-run`.
 
@@ -96,7 +104,7 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 - Un jeton défini sur une écoute en boucle locale est exigé aussi.
 - `Host` doit être l'adresse d'écoute, `localhost`, `127.0.0.1` ou `[::1]` sur le même port (anti DNS rebinding) ; sinon 403 `unknown host header`.
 - `Sec-Fetch-Site: cross-site` : 403 `cross-site request refused`, toutes méthodes.
-- `POST` : `Content-Type: application/json` obligatoire (415 sinon) ; si `Origin` est présent il doit être celui de la requête (403 sinon) ; sans `Origin` et sans jeton configuré, `X-Requested-With: necromanciarr` est exigé. Corps de 64 Kio au plus (413), JSON strict : champ inconnu ou texte après l'objet donne 400 `invalid json body` ; un corps vide vaut un objet vide.
+- `POST`, `PUT`, `DELETE` : `Content-Type: application/json` obligatoire, même sans corps (415 sinon) ; si `Origin` est présent il doit être celui de la requête (403 sinon) ; sans `Origin` et sans jeton configuré, `X-Requested-With: necromanciarr` est exigé. Corps de 64 Kio au plus (413), JSON strict : champ inconnu ou texte après l'objet donne 400 `invalid json body` ; un corps vide vaut un objet vide.
 - Aucun en-tête CORS n'est posé. Toute réponse porte `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin` et une CSP `default-src 'self'` (ni script, ni style, ni ressource inline ou externe). L'API ajoute `Cache-Control: no-store`.
 - `GET /healthz` est public, sans contrôle : `200 ok` ou `503 unavailable` selon la réponse de la base (2 s). Il ne rend ni version ni configuration.
 - Délais du serveur : en-têtes 10 s, lecture 30 s, inactivité 120 s, en-têtes de 16 Kio au plus.
@@ -125,6 +133,12 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 | GET | `/api/volumes` | `volumes list` | | 200, tableau |
 | POST | `/api/volumes/{name}/probe` | `volumes probe` | `{}` | 200, résultat de la sonde |
 | GET | `/api/volumes/{name}/commands` | `volumes commands` | | 200, lignes |
+| GET | `/api/config` | `config get` | | 200, vue de configuration |
+| PUT | `/api/config/settings/{key}` | `config set` | `{"value": <json>}` | 200, vue relue |
+| DELETE | `/api/config/settings/{key}` | `config unset` | | 200, vue relue |
+| PUT | `/api/config/lists/{list}/{itemId}` | `config item-set` | `{"element": {…}}` | 200, vue relue |
+| DELETE | `/api/config/lists/{list}/{itemId}` | `config item-delete` | | 200, vue relue |
+| POST | `/api/config/lists/{list}/{itemId}/unset` | `config item-unset` | `{}` | 200, vue relue |
 | GET | `/api/jobs`, `/api/jobs/{id}` | suivi des jobs (hors registre) | | 200 |
 | GET | `/healthz` | sonde | | 200 ou 503 |
 
@@ -151,6 +165,8 @@ Corps `{"error": {"code", "message"}}`. Le message est celui de l'erreur typée 
 | `stage_running` | 409 | 1 | une autre étape ou un autre job tourne |
 | `inspection_busy` | 409 | 1 | un examen des liens est encore en cours |
 | `refused` | 422 | 4 | règle métier : litige à choisir, pack partiel, proposition non acceptée, non applicable, mauvaise nature, groupe incohérent, client en lecture seule, hors racines… |
+| `secret_key_missing` | 409 | 1 | écriture d'un secret sans `NECROMANCIARR_SECRET_KEY` |
+| `invalid_stored_config` | 422 | 1 | la configuration en base ne se charge pas |
 | `failure` | 500 | 1 | erreur non typée |
 | `shutting_down` | 503 | | le serveur s'arrête |
 
@@ -167,11 +183,13 @@ Application Vue embarquée dans le binaire, un seul thème sombre anthracite, ro
 | Étapes | `#/etapes` | `scan match verify link seed`, suivi des jobs |
 | Sources | `#/sources` | `sources list/test` |
 | Volumes | `#/volumes` | `volumes list/probe/commands` |
+| Configuration | `#/configuration` | `config get/set/unset`, `config item set/delete/unset` |
 
-- Mise en page : barre latérale à gauche (icônes seules de 768 à 1023 px, tiroir en dessous), barre d'outils par page, tableaux denses et triables, pastilles d'état (icône et texte, jamais la couleur seule). Sous 768 px chaque ligne devient une carte empilée, sans défilement horizontal.
+- Mise en page : barre latérale à gauche (icônes seules de 768 à 1023 px, tiroir en dessous), contenu sur toute la largeur restante, barre d'outils par page, tableaux denses et triables, pastilles d'état (icône et texte, jamais la couleur seule). Sous 768 px chaque ligne devient une carte empilée, sans défilement horizontal.
 - Liens : deux onglets. « Liens enregistrés » est paginé par le serveur (200 par page, `links list` avec `--limit` et `--offset`), filtrable par état, sans tri (ordre du serveur : `links list` n'a pas de paramètre de tri, et trier la seule page reçue donnerait un ordre trompeur, donc pas de tri par état par défaut) ; « Non comparé » marque un lien dont rien n'a été comparé, et un examen interrompu (`truncated`) est annoncé. « Réparations » liste les propositions `repair` ; l'application réelle d'une ligne exige de saisir `APPLIQUER` (`APPLY` en anglais), la simulation part directement ; les lignes ambiguës, perdues ou en attente d'un recontrôle du client sont listées mais non applicables.
 - Sources : une ligne par source dans l'ordre de la chaîne (ordre, source, type, tracker, état, requêtes et téléchargements sur 24 h face au plafond, cache des capacités, dernière erreur traduite), sans tri. « Tester une source » teste l'indexeur choisi dans la barre d'outils, le bouton de ligne celui de la ligne ; les tests sont désactivés pendant qu'un test tourne, dont le résultat traduit s'affiche ensuite. Le fournisseur n'a pas de bouton de test. Propositions : la colonne Source et le filtre Source (appliqué par le serveur) sont toujours affichés.
 - Volumes : une ligne par volume (volume, type, adresse, état, capacités, date de sonde) ; chaque capacité est une pastille qui dit en texte la fonction et oui ou non. « Sonder » sonde le volume choisi dans la barre d'outils, le bouton de ligne celui de la ligne ; les sondes sont désactivées pendant qu'une sonde tourne, dont le résultat traduit s'affiche ensuite. Le bouton Commandes affiche les lignes de `volumes commands` à copier. La pastille de l'onglet compte les volumes `broken` (`volumes_broken` de `GET /api/status`). `sftp trust` n'a pas d'équivalent dans l'interface. Liens : la colonne Volume donne le fournisseur du lien, « local » pour le disque local.
+- Configuration : les réglages, puis une section par liste et les surcharges orphelines. Chaque valeur porte son origine (cross-seed, surcharge, ajout, défaut, environnement ou option, ces deux dernières verrouillées), un élément en dérive porte « Dérive ». Un secret s'affiche « Défini » ou « Non défini », jamais sa valeur ; dans le formulaire, le laisser vide garde la valeur enregistrée. « Revenir à cross-seed » retire une surcharge, « Supprimer » masque un élément de cross-seed ou supprime un ajout, après confirmation. Après une écriture, un bandeau rappelle de relancer `serve`.
 - Une boîte demande le jeton sur un 401 ; il vit en mémoire de l'onglet, jamais dans le stockage du navigateur. Un jeton refusé l'efface.
 - L'interface redirige vers « Démarrage » au premier lancement (ni candidat ni proposition) ou tant que le diagnostic a un `fail`, sauf choix « Passer ».
 - Force n'est actif que pour un `partial_annex` à l'étape `seeded_paused_incomplete`, avec confirmation ; accepter un `partial_pack` passe par une confirmation. `dedupe` et `repair` ont une case « simulation » (dry-run), cochée par défaut, et une confirmation avant d'appliquer pour de bon toutes les propositions acceptées (hors simulation). La page Déduplication va plus loin : « Appliquer les acceptées » ouvre toujours une fenêtre qui liste les propositions (le mode, simulation ou réel, est figé à l'ouverture) ; un remplacement réel, de masse ou d'une seule ligne, n'est envoyé qu'après la saisie du mot `APPLIQUER` (`APPLY` en anglais) ; une simulation d'une ligne part sans confirmation. Les octets à lire sont affichés avant toute acceptation, les lignes non applicables (ambiguë, copie isolée…) restent listées avec un bouton désactivé et leur motif.

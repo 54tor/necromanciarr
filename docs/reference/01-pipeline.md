@@ -1,6 +1,6 @@
 # Pipeline
 
-Cinq étapes s'exécutent dans cet ordre, chacune par sa commande (`scan`, `match`, `verify`, `link`, `seed`) ou par `POST /api/stages/{stage}/run`. Chaque étape lit et écrit un état persisté dans SQLite (`dbPath`), se rejoue sans doublon et reprend là où une coupure l'a laissée. Rien ne se lance seul : aucune planification interne.
+Cinq étapes s'exécutent dans cet ordre, chacune par sa commande (`scan`, `match`, `verify`, `link`, `seed`) ou par `POST /api/stages/{stage}/run`. Chaque étape lit et écrit un état persisté dans SQLite (`--db-path`), se rejoue sans doublon et reprend là où une coupure l'a laissée. Rien ne se lance seul : aucune planification interne.
 
 ## Règle d'acceptation
 
