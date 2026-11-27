@@ -614,23 +614,23 @@ func TestChangePassword_refusedAttemptsChangeNothingAndRevokeNothing(t *testing.
 	}
 }
 
-// failingSessionRevocationStore fait échouer la révocation des autres sessions.
-type failingSessionRevocationStore struct{ *store.Store }
+// failingPasswordChangeStore fait échouer la transaction qui change le mot de passe et révoque les autres sessions.
+type failingPasswordChangeStore struct{ *store.Store }
 
-func (failingSessionRevocationStore) DeleteSessionsExcept(context.Context, string) error {
+func (failingPasswordChangeStore) ChangePasswordHash(context.Context, string, string) error {
 	return errInjectedStoreFailure
 }
 
-func TestChangePassword_reportsAFailedRevocationWithoutLeakingSecrets(t *testing.T) {
+func TestChangePassword_reportsAFailedChangeWithoutLeakingSecrets(t *testing.T) {
 	openedStore := openTestStore(t)
 	healthy := newAccountFixtureOn(t, openedStore)
 	current := healthy.setup(t).Token
-	fixture := newAccountFixtureOn(t, failingSessionRevocationStore{openedStore})
+	fixture := newAccountFixtureOn(t, failingPasswordChangeStore{openedStore})
 
 	valeurObtenue := fixture.service.ChangePassword(context.Background(), current, testPassword, testNewPassword)
 
-	if !errors.Is(valeurObtenue, errInjectedStoreFailure) || !strings.Contains(valeurObtenue.Error(), "password changed") {
-		t.Fatalf("valeurAttendue l'échec de révocation après le changement, valeurObtenue %v", valeurObtenue)
+	if !errors.Is(valeurObtenue, errInjectedStoreFailure) {
+		t.Fatalf("valeurAttendue l'échec du changement, valeurObtenue %v", valeurObtenue)
 	}
 	for _, secret := range []string{testPassword, testNewPassword, current} {
 		if strings.Contains(valeurObtenue.Error(), secret) {

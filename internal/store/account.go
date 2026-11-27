@@ -11,6 +11,10 @@ import (
 // ErrAccountExists : le compte opérateur existe déjà ; la base n'en accepte qu'un.
 var ErrAccountExists = errors.New("store: account already exists")
 
+// ErrAccountChanged : le compte n'est plus celui contre lequel la preuve a été vérifiée (remis à zéro, recréé ou
+// mot de passe changé) ; aucune session n'est enregistrée.
+var ErrAccountChanged = errors.New("store: account changed since the proof was checked")
+
 // Account est le compte opérateur ; PasswordHash est l'empreinte du mot de passe, jamais le mot de passe.
 type Account struct {
 	Username, PasswordHash string
@@ -35,11 +39,13 @@ type TOTPFactor struct {
 }
 
 // SessionRecord est une session ouverte ; ID est l'empreinte hexadécimale SHA-256 du jeton, le store ne voit jamais
-// le jeton.
+// le jeton. AccountCreatedAt est la génération du compte pour laquelle la session a été émise ; une session d'avant
+// cette colonne porte l'instant zéro Unix.
 type SessionRecord struct {
 	ID                               string
 	CreatedAt, LastSeenAt, ExpiresAt time.Time
 	Address, UserAgent               string
+	AccountCreatedAt                 time.Time
 }
 
 // CreateAccount enregistre le compte ; ErrAccountExists s'il y en a déjà un, y compris sous appels concurrents.
@@ -76,10 +82,36 @@ func (openedStore *Store) Account(ctx context.Context) (Account, bool, error) {
 	return account, true, nil
 }
 
-// SetPasswordHash remplace l'empreinte du mot de passe du compte.
-func (openedStore *Store) SetPasswordHash(ctx context.Context, hash string) error {
-	if _, err := openedStore.database.ExecContext(ctx, `UPDATE account SET password_hash = ? WHERE id = 1`, hash); err != nil {
-		return fmt.Errorf("set password hash: %w", err)
+// ReplacePasswordHash remplace l'empreinte seulement si elle vaut encore previousHash ; faux si elle a changé entre-temps.
+func (openedStore *Store) ReplacePasswordHash(ctx context.Context, previousHash, newHash string) (bool, error) {
+	result, err := openedStore.database.ExecContext(ctx,
+		`UPDATE account SET password_hash = ? WHERE id = 1 AND password_hash = ?`, newHash, previousHash)
+	if err != nil {
+		return false, fmt.Errorf("replace password hash: %w", err)
+	}
+	replaced, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("replace password hash: %w", err)
+	}
+	return replaced == 1, nil
+}
+
+// ChangePasswordHash remplace l'empreinte du mot de passe et ferme toutes les sessions sauf keepSessionID, dans une
+// seule transaction.
+func (openedStore *Store) ChangePasswordHash(ctx context.Context, newHash, keepSessionID string) error {
+	transaction, err := openedStore.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("change password: %w", err)
+	}
+	defer func() { _ = transaction.Rollback() }()
+	if _, err := transaction.ExecContext(ctx, `UPDATE account SET password_hash = ? WHERE id = 1`, newHash); err != nil {
+		return fmt.Errorf("change password: %w", err)
+	}
+	if _, err := transaction.ExecContext(ctx, `DELETE FROM sessions WHERE id <> ?`, keepSessionID); err != nil {
+		return fmt.Errorf("change password: %w", err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("change password: %w", err)
 	}
 	return nil
 }
@@ -183,19 +215,28 @@ func (openedStore *Store) DeleteCredential(ctx context.Context, id []byte) error
 	return nil
 }
 
-// CreateSession enregistre une session ouverte.
-func (openedStore *Store) CreateSession(ctx context.Context, session SessionRecord) error {
-	_, err := openedStore.database.ExecContext(ctx,
-		`INSERT INTO sessions (id, created_at, last_seen_at, expires_at, address, user_agent) VALUES (?, ?, ?, ?, ?, ?)`,
+// CreateSession enregistre la session seulement si le compte est encore provenAgainst (même génération, même
+// empreinte de mot de passe), en une instruction ; ErrAccountChanged sinon.
+func (openedStore *Store) CreateSession(ctx context.Context, session SessionRecord, provenAgainst Account) error {
+	result, err := openedStore.database.ExecContext(ctx,
+		`INSERT INTO sessions (id, created_at, last_seen_at, expires_at, address, user_agent, account_created_at)
+		SELECT ?, ?, ?, ?, ?, ?, created_at FROM account WHERE id = 1 AND created_at = ? AND password_hash = ?`,
 		session.ID, session.CreatedAt.UnixNano(), session.LastSeenAt.UnixNano(), session.ExpiresAt.UnixNano(),
-		session.Address, session.UserAgent)
+		session.Address, session.UserAgent, provenAgainst.CreatedAt.UnixNano(), provenAgainst.PasswordHash)
 	if err != nil {
 		return fmt.Errorf("create session: %w", err)
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("create session: %w", err)
+	}
+	if inserted == 0 {
+		return ErrAccountChanged
 	}
 	return nil
 }
 
-const sessionColumns = `id, created_at, last_seen_at, expires_at, address, user_agent`
+const sessionColumns = `id, created_at, last_seen_at, expires_at, address, user_agent, account_created_at`
 
 type rowScanner interface {
 	Scan(destinations ...any) error
@@ -203,10 +244,11 @@ type rowScanner interface {
 
 func scanSession(row rowScanner) (SessionRecord, error) {
 	var session SessionRecord
-	var createdAt, lastSeenAt, expiresAt int64
-	if err := row.Scan(&session.ID, &createdAt, &lastSeenAt, &expiresAt, &session.Address, &session.UserAgent); err != nil {
+	var createdAt, lastSeenAt, expiresAt, accountCreatedAt int64
+	if err := row.Scan(&session.ID, &createdAt, &lastSeenAt, &expiresAt, &session.Address, &session.UserAgent, &accountCreatedAt); err != nil {
 		return SessionRecord{}, err
 	}
+	session.AccountCreatedAt = time.Unix(0, accountCreatedAt).UTC()
 	session.CreatedAt = time.Unix(0, createdAt).UTC()
 	session.LastSeenAt = time.Unix(0, lastSeenAt).UTC()
 	session.ExpiresAt = time.Unix(0, expiresAt).UTC()
@@ -269,14 +311,6 @@ func (openedStore *Store) DeleteSession(ctx context.Context, id string) error {
 func (openedStore *Store) DeleteAllSessions(ctx context.Context) error {
 	if _, err := openedStore.database.ExecContext(ctx, `DELETE FROM sessions`); err != nil {
 		return fmt.Errorf("delete all sessions: %w", err)
-	}
-	return nil
-}
-
-// DeleteSessionsExcept ferme toutes les sessions sauf keepID.
-func (openedStore *Store) DeleteSessionsExcept(ctx context.Context, keepID string) error {
-	if _, err := openedStore.database.ExecContext(ctx, `DELETE FROM sessions WHERE id <> ?`, keepID); err != nil {
-		return fmt.Errorf("delete other sessions: %w", err)
 	}
 	return nil
 }

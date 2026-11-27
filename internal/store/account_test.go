@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,8 +24,17 @@ func sampleCredential(id string, kind string) WebAuthnCredential {
 func sampleSession(id string, expiresAt time.Time) SessionRecord {
 	return SessionRecord{
 		ID: id, CreatedAt: referenceMoment, LastSeenAt: referenceMoment, ExpiresAt: expiresAt,
-		Address: "192.0.2.1", UserAgent: "agent",
+		Address: "192.0.2.1", UserAgent: "agent", AccountCreatedAt: referenceMoment,
 	}
+}
+
+func openStoreWithSampleAccount(t *testing.T) *Store {
+	t.Helper()
+	openedStore := openTestStore(t)
+	if err := openedStore.CreateAccount(context.Background(), sampleAccount()); err != nil {
+		t.Fatal(err)
+	}
+	return openedStore
 }
 
 func TestAccount_reportsAbsentOnAFreshDatabase(t *testing.T) {
@@ -83,14 +94,17 @@ func TestCreateAccount_concurrentCallsLeaveExactlyOneAccount(t *testing.T) {
 	}
 }
 
-func TestSetPasswordHash_replacesTheHash(t *testing.T) {
-	openedStore := openTestStore(t)
+func TestReplacePasswordHash_replacesOnlyTheHashThatWasVerified(t *testing.T) {
+	openedStore := openStoreWithSampleAccount(t)
 	ctx := context.Background()
-	if err := openedStore.CreateAccount(ctx, sampleAccount()); err != nil {
-		t.Fatal(err)
+
+	replacedFromStale, err := openedStore.ReplacePasswordHash(ctx, "stale-hash", "hash-2")
+	if err != nil || replacedFromStale {
+		t.Fatalf("valeurAttendue aucun remplacement depuis une empreinte périmée, valeurObtenue %v (err %v)", replacedFromStale, err)
 	}
-	if err := openedStore.SetPasswordHash(ctx, "hash-2"); err != nil {
-		t.Fatal(err)
+	replaced, err := openedStore.ReplacePasswordHash(ctx, "hash-1", "hash-2")
+	if err != nil || !replaced {
+		t.Fatalf("valeurAttendue le remplacement, valeurObtenue %v (err %v)", replaced, err)
 	}
 	account, _, err := openedStore.Account(ctx)
 	if err != nil {
@@ -110,7 +124,7 @@ func TestResetAccount_removesAccountCredentialsAndSessionsTogether(t *testing.T)
 	if err := openedStore.AddCredential(ctx, sampleCredential("c1", "passkey")); err != nil {
 		t.Fatal(err)
 	}
-	if err := openedStore.CreateSession(ctx, sampleSession("s1", referenceMoment.Add(time.Hour))); err != nil {
+	if err := openedStore.CreateSession(ctx, sampleSession("s1", referenceMoment.Add(time.Hour)), sampleAccount()); err != nil {
 		t.Fatal(err)
 	}
 	if err := openedStore.ResetAccount(ctx); err != nil {
@@ -146,12 +160,12 @@ func TestResetAccount_alsoRemovesTheTOTPSecret(t *testing.T) {
 }
 
 func TestSession_roundTripsAndPurgesExpiredOnes(t *testing.T) {
-	openedStore := openTestStore(t)
+	openedStore := openStoreWithSampleAccount(t)
 	ctx := context.Background()
 	expired := sampleSession("expired", referenceMoment.Add(time.Minute))
 	alive := sampleSession("alive", referenceMoment.Add(time.Hour))
 	for _, session := range []SessionRecord{expired, alive} {
-		if err := openedStore.CreateSession(ctx, session); err != nil {
+		if err := openedStore.CreateSession(ctx, session, sampleAccount()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -184,13 +198,13 @@ func TestSession_roundTripsAndPurgesExpiredOnes(t *testing.T) {
 }
 
 func TestSessions_listsNewestFirstAndDeleteAllEmptiesThem(t *testing.T) {
-	openedStore := openTestStore(t)
+	openedStore := openStoreWithSampleAccount(t)
 	ctx := context.Background()
 	older := sampleSession("older", referenceMoment.Add(time.Hour))
 	newer := sampleSession("newer", referenceMoment.Add(time.Hour))
 	newer.CreatedAt = referenceMoment.Add(time.Minute)
 	for _, session := range []SessionRecord{older, newer} {
-		if err := openedStore.CreateSession(ctx, session); err != nil {
+		if err := openedStore.CreateSession(ctx, session, sampleAccount()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -206,23 +220,117 @@ func TestSessions_listsNewestFirstAndDeleteAllEmptiesThem(t *testing.T) {
 	}
 }
 
-func TestDeleteSessionsExcept_keepsOnlyTheGivenSession(t *testing.T) {
-	openedStore := openTestStore(t)
+func TestChangePasswordHash_setsTheHashAndKeepsOnlyTheGivenSession(t *testing.T) {
+	openedStore := openStoreWithSampleAccount(t)
 	ctx := context.Background()
 	expiresAt := referenceMoment.Add(time.Hour)
 	for _, id := range []string{"kept", "other-1", "other-2"} {
-		if err := openedStore.CreateSession(ctx, sampleSession(id, expiresAt)); err != nil {
+		if err := openedStore.CreateSession(ctx, sampleSession(id, expiresAt), sampleAccount()); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	if err := openedStore.DeleteSessionsExcept(ctx, "kept"); err != nil {
+	if err := openedStore.ChangePasswordHash(ctx, "hash-2", "kept"); err != nil {
 		t.Fatal(err)
 	}
 
 	sessions, err := openedStore.Sessions(ctx)
 	if err != nil || len(sessions) != 1 || sessions[0].ID != "kept" {
 		t.Fatalf("valeurAttendue la seule session kept, valeurObtenue %+v (err %v)", sessions, err)
+	}
+	account, _, err := openedStore.Account(ctx)
+	if err != nil || account.PasswordHash != "hash-2" {
+		t.Fatalf("valeurAttendue hash-2, valeurObtenue %q (err %v)", account.PasswordHash, err)
+	}
+}
+
+func TestChangePasswordHash_keepsTheOldHashWhenTheRevocationFails(t *testing.T) {
+	openedStore := openStoreWithSampleAccount(t)
+	ctx := context.Background()
+	if _, err := openedStore.database.ExecContext(ctx, `DROP TABLE sessions`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := openedStore.ChangePasswordHash(ctx, "hash-2", "kept"); err == nil {
+		t.Fatal("valeurAttendue une erreur quand la révocation échoue, valeurObtenue nil")
+	}
+
+	account, _, err := openedStore.Account(ctx)
+	if err != nil || account.PasswordHash != "hash-1" {
+		t.Fatalf("valeurAttendue hash-1 conservé, valeurObtenue %q (err %v)", account.PasswordHash, err)
+	}
+}
+
+func TestCreateSession_isRefusedWhenTheAccountIsNoLongerTheOneTheProofWasCheckedAgainst(t *testing.T) {
+	newerGeneration := sampleAccount()
+	newerGeneration.CreatedAt = referenceMoment.Add(time.Second)
+	otherHash := sampleAccount()
+	otherHash.PasswordHash = "hash-2"
+	for caseName, provenAgainst := range map[string]Account{"account recreated": newerGeneration, "password changed": otherHash} {
+		t.Run(caseName, func(t *testing.T) {
+			openedStore := openStoreWithSampleAccount(t)
+
+			valeurObtenue := openedStore.CreateSession(context.Background(), sampleSession("s1", referenceMoment.Add(time.Hour)), provenAgainst)
+
+			if !errors.Is(valeurObtenue, ErrAccountChanged) {
+				t.Fatalf("valeurAttendue ErrAccountChanged, valeurObtenue %v", valeurObtenue)
+			}
+			if sessions, _ := openedStore.Sessions(context.Background()); len(sessions) != 0 {
+				t.Fatalf("valeurAttendue aucune session, valeurObtenue %+v", sessions)
+			}
+		})
+	}
+}
+
+func TestCreateSession_isRefusedWithoutAnAccount(t *testing.T) {
+	openedStore := openTestStore(t)
+
+	valeurObtenue := openedStore.CreateSession(context.Background(), sampleSession("s1", referenceMoment.Add(time.Hour)), sampleAccount())
+
+	if !errors.Is(valeurObtenue, ErrAccountChanged) {
+		t.Fatalf("valeurAttendue ErrAccountChanged, valeurObtenue %v", valeurObtenue)
+	}
+}
+
+func TestCreateSession_recordsTheAccountGenerationTheProofWasCheckedAgainst(t *testing.T) {
+	openedStore := openStoreWithSampleAccount(t)
+	ctx := context.Background()
+	if err := openedStore.CreateSession(ctx, sampleSession("s1", referenceMoment.Add(time.Hour)), sampleAccount()); err != nil {
+		t.Fatal(err)
+	}
+
+	session, found, err := openedStore.Session(ctx, "s1")
+
+	valeurAttendue := sampleAccount().CreatedAt
+	if err != nil || !found || !session.AccountCreatedAt.Equal(valeurAttendue) {
+		t.Fatalf("valeurAttendue génération %v, valeurObtenue %+v (trouvée %v, err %v)", valeurAttendue, session, found, err)
+	}
+}
+
+func TestStore_aSessionTableWithoutGenerationIsUpgradedWithAZeroGeneration(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "necromanciarr.db")
+	legacyDatabase, err := sql.Open("sqlite", dataSourceName(databasePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := legacyDatabase.Exec(`
+CREATE TABLE sessions (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, last_seen_at INTEGER NOT NULL,
+	expires_at INTEGER NOT NULL, address TEXT NOT NULL, user_agent TEXT NOT NULL);
+INSERT INTO sessions VALUES ('legacy', 1, 1, 2, '192.0.2.1', 'agent');`); err != nil {
+		t.Fatal(err)
+	}
+	_ = legacyDatabase.Close()
+
+	openedStore, err := Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = openedStore.Close() })
+	session, found, err := openedStore.Session(context.Background(), "legacy")
+
+	valeurAttendue := time.Unix(0, 0).UTC()
+	if err != nil || !found || !session.AccountCreatedAt.Equal(valeurAttendue) {
+		t.Fatalf("valeurAttendue la session gardée avec la génération %v, valeurObtenue %+v (trouvée %v, err %v)", valeurAttendue, session, found, err)
 	}
 }
 

@@ -468,7 +468,11 @@ func (svc *service) finishAssertion(ctx context.Context, instance *webauthn.WebA
 		attempt.fail()
 		return SessionGrant{}, ErrInvalidAssertion
 	}
-	grant, err := svc.recordUseAndIssueSession(ctx, credential, client)
+	grant, err := svc.recordUseAndIssueSession(ctx, account, credential, client)
+	if errors.Is(err, store.ErrAccountChanged) {
+		attempt.fail()
+		return SessionGrant{}, ErrInvalidAssertion
+	}
 	if err != nil {
 		return SessionGrant{}, err
 	}
@@ -488,7 +492,7 @@ func verifyAssertion(instance *webauthn.WebAuthn, user *accountUser, session web
 	return credential, nil
 }
 
-func (svc *service) recordUseAndIssueSession(ctx context.Context, credential *webauthn.Credential, client ClientInfo) (SessionGrant, error) {
+func (svc *service) recordUseAndIssueSession(ctx context.Context, provenAgainst store.Account, credential *webauthn.Credential, client ClientInfo) (SessionGrant, error) {
 	record, err := json.Marshal(credential)
 	if err != nil {
 		return SessionGrant{}, fmt.Errorf("encode security key record: %w", err)
@@ -496,7 +500,7 @@ func (svc *service) recordUseAndIssueSession(ctx context.Context, credential *we
 	if err := svc.deps.Store.UpdateCredential(ctx, credential.ID, record, svc.now()); err != nil {
 		return SessionGrant{}, err
 	}
-	return svc.issueSession(ctx, client)
+	return svc.issueSession(ctx, provenAgainst, client)
 }
 
 func (svc *service) ListCredentials(ctx context.Context) ([]CredentialView, error) {

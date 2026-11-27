@@ -67,7 +67,8 @@ type AuthDeps struct {
 type AccountStore interface {
 	CreateAccount(ctx context.Context, account store.Account) error
 	Account(ctx context.Context) (store.Account, bool, error)
-	SetPasswordHash(ctx context.Context, hash string) error
+	ReplacePasswordHash(ctx context.Context, previousHash, newHash string) (bool, error)
+	ChangePasswordHash(ctx context.Context, newHash, keepSessionID string) error
 	ResetAccount(ctx context.Context) error
 	Credentials(ctx context.Context) ([]store.WebAuthnCredential, error)
 	AddCredential(ctx context.Context, credential store.WebAuthnCredential) error
@@ -78,13 +79,12 @@ type AccountStore interface {
 	SetTOTP(ctx context.Context, factor store.TOTPFactor) error
 	DeleteTOTP(ctx context.Context) error
 	AdvanceTOTPStep(ctx context.Context, sealedSecret []byte, step int64) (bool, error)
-	CreateSession(ctx context.Context, session store.SessionRecord) error
+	CreateSession(ctx context.Context, session store.SessionRecord, provenAgainst store.Account) error
 	Session(ctx context.Context, id string) (store.SessionRecord, bool, error)
 	TouchSession(ctx context.Context, id string, seenAt time.Time) error
 	Sessions(ctx context.Context) ([]store.SessionRecord, error)
 	DeleteSession(ctx context.Context, id string) error
 	DeleteAllSessions(ctx context.Context) error
-	DeleteSessionsExcept(ctx context.Context, keepID string) error
 	PurgeExpiredSessions(ctx context.Context, now time.Time) (int64, error)
 }
 
@@ -283,7 +283,7 @@ func (svc *service) SetupAccount(ctx context.Context, username, password string,
 	if err := svc.deps.Store.CreateAccount(ctx, account); err != nil {
 		return SessionGrant{}, err
 	}
-	return svc.issueSession(ctx, client)
+	return svc.issueSession(ctx, account, client)
 }
 
 func (svc *service) Login(ctx context.Context, username, password string, client ClientInfo) (LoginResult, error) {
@@ -301,7 +301,8 @@ func (svc *service) Login(ctx context.Context, username, password string, client
 	sameUsername := func(account store.Account) bool {
 		return subtle.ConstantTimeCompare([]byte(account.Username), []byte(typedUsername)) == 1
 	}
-	if err := svc.matchPassword(ctx, attempt, password, sameUsername); err != nil {
+	account, err := svc.matchPassword(ctx, attempt, password, sameUsername)
+	if err != nil {
 		return LoginResult{}, err
 	}
 	factors, err := svc.secondFactors(ctx)
@@ -315,7 +316,11 @@ func (svc *service) Login(ctx context.Context, username, password string, client
 		}
 		return LoginResult{SecondFactors: factors, Ticket: ticket}, nil
 	}
-	grant, err := svc.issueSession(ctx, client)
+	grant, err := svc.issueSession(ctx, account, client)
+	if errors.Is(err, store.ErrAccountChanged) {
+		attempt.fail()
+		return LoginResult{}, ErrInvalidCredentials
+	}
 	if err != nil {
 		return LoginResult{}, err
 	}
@@ -335,46 +340,54 @@ func (svc *service) verifyPasswordThrottled(ctx context.Context, password string
 	}
 	defer attempt.end()
 	anyUsername := func(store.Account) bool { return true }
-	return svc.matchPassword(ctx, attempt, password, anyUsername)
+	_, err = svc.matchPassword(ctx, attempt, password, anyUsername)
+	return err
 }
 
-// matchPassword fait exactement un calcul argon2, que le compte existe ou non, et compte l'échec dans attempt.
-func (svc *service) matchPassword(ctx context.Context, attempt *throttledAttempt, password string, usernameMatches func(store.Account) bool) error {
+// matchPassword fait exactement un calcul argon2, que le compte existe ou non, et compte l'échec dans attempt ; il rend
+// le compte tel qu'il a été vérifié, avec l'empreinte recalculée si elle a été remplacée.
+func (svc *service) matchPassword(ctx context.Context, attempt *throttledAttempt, password string, usernameMatches func(store.Account) bool) (store.Account, error) {
 	account, found, err := svc.deps.Store.Account(ctx)
 	if err != nil {
-		return err
+		return store.Account{}, err
 	}
 	if !found || !usernameMatches(account) {
 		if err := svc.runArgon(ctx, func() { svc.deps.Auth.VerifyDummy(password) }); err != nil {
-			return err
+			return store.Account{}, err
 		}
 		attempt.fail()
-		return ErrInvalidCredentials
+		return store.Account{}, ErrInvalidCredentials
 	}
 	var matches, needsRehash bool
 	var verifyErr error
 	if err := svc.runArgon(ctx, func() { matches, needsRehash, verifyErr = auth.VerifyPassword(password, account.PasswordHash) }); err != nil {
-		return err
+		return store.Account{}, err
 	}
 	if verifyErr != nil {
-		return fmt.Errorf("verify password: %w", verifyErr)
+		return store.Account{}, fmt.Errorf("verify password: %w", verifyErr)
 	}
 	if !matches {
 		attempt.fail()
-		return ErrInvalidCredentials
+		return store.Account{}, ErrInvalidCredentials
 	}
 	if needsRehash {
-		svc.rehashBestEffort(ctx, password)
+		account.PasswordHash = svc.rehashBestEffort(ctx, account.PasswordHash, password)
 	}
-	return nil
+	return account, nil
 }
 
-func (svc *service) rehashBestEffort(ctx context.Context, password string) {
+// rehashBestEffort remplace l'empreinte seulement si elle n'a pas changé depuis la vérification et rend celle qui est
+// désormais en place pour cette vérification.
+func (svc *service) rehashBestEffort(ctx context.Context, verifiedHash, password string) string {
 	hash, err := svc.hashPassword(ctx, password)
 	if err != nil {
-		return
+		return verifiedHash
 	}
-	_ = svc.deps.Store.SetPasswordHash(ctx, hash)
+	replaced, err := svc.deps.Store.ReplacePasswordHash(ctx, verifiedHash, hash)
+	if err != nil || !replaced {
+		return verifiedHash
+	}
+	return hash
 }
 
 func (svc *service) secondFactors(ctx context.Context) ([]string, error) {
@@ -406,7 +419,9 @@ func countCredentials(credentials []store.WebAuthnCredential, kind string) int {
 	return count
 }
 
-func (svc *service) issueSession(ctx context.Context, client ClientInfo) (SessionGrant, error) {
+// issueSession enregistre la session pour provenAgainst, le compte contre lequel la preuve a été vérifiée ;
+// store.ErrAccountChanged si le compte a été remis à zéro, recréé ou a changé de mot de passe entre-temps.
+func (svc *service) issueSession(ctx context.Context, provenAgainst store.Account, client ClientInfo) (SessionGrant, error) {
 	token, id, err := auth.NewSessionToken()
 	if err != nil {
 		return SessionGrant{}, err
@@ -417,7 +432,7 @@ func (svc *service) issueSession(ctx context.Context, client ClientInfo) (Sessio
 		Address:   truncateUTF8(client.Address, maxClientAddressBytes),
 		UserAgent: truncateUTF8(client.UserAgent, maxClientUserAgentBytes),
 	}
-	if err := svc.deps.Store.CreateSession(ctx, record); err != nil {
+	if err := svc.deps.Store.CreateSession(ctx, record, provenAgainst); err != nil {
 		return SessionGrant{}, err
 	}
 	return SessionGrant{Token: token, ExpiresAt: record.ExpiresAt}, nil
@@ -434,7 +449,14 @@ func sessionExpired(session store.SessionRecord, now time.Time) bool {
 	return !now.Before(session.ExpiresAt) || now.Sub(session.LastSeenAt) >= auth.SessionIdleTimeout
 }
 
-// openSession valide le jeton et date son passage ; une session expirée ou sans compte est supprimée.
+// issuedForAccount est faux pour une session émise pour une génération antérieure du compte, ou d'avant la colonne de
+// génération.
+func issuedForAccount(session store.SessionRecord, account store.Account) bool {
+	return session.AccountCreatedAt.Equal(account.CreatedAt)
+}
+
+// openSession valide le jeton et date son passage ; une session expirée, sans compte ou d'un autre compte est
+// supprimée.
 func (svc *service) openSession(ctx context.Context, token string) (store.SessionRecord, store.Account, error) {
 	if token == "" {
 		return store.SessionRecord{}, store.Account{}, ErrSessionInvalid
@@ -452,7 +474,7 @@ func (svc *service) openSession(ctx context.Context, token string) (store.Sessio
 		return store.SessionRecord{}, store.Account{}, err
 	}
 	now := svc.now()
-	if !accountFound || sessionExpired(session, now) {
+	if !accountFound || !issuedForAccount(session, account) || sessionExpired(session, now) {
 		_ = svc.deps.Store.DeleteSession(ctx, id)
 		return store.SessionRecord{}, store.Account{}, ErrSessionInvalid
 	}
@@ -503,13 +525,7 @@ func (svc *service) ChangePassword(ctx context.Context, token, currentPassword, 
 	if err != nil {
 		return err
 	}
-	if err := svc.deps.Store.SetPasswordHash(ctx, hash); err != nil {
-		return err
-	}
-	if err := svc.deps.Store.DeleteSessionsExcept(ctx, current.ID); err != nil {
-		return fmt.Errorf("password changed, but other sessions could not be revoked: %w", err)
-	}
-	return nil
+	return svc.deps.Store.ChangePasswordHash(ctx, hash, current.ID)
 }
 
 func (svc *service) ListSessions(ctx context.Context, token string) ([]SessionView, error) {
@@ -528,7 +544,7 @@ func (svc *service) ListSessions(ctx context.Context, token string) ([]SessionVi
 			views = append(views, sessionView(current, account.Username, true))
 			continue
 		}
-		if !sessionExpired(session, now) {
+		if issuedForAccount(session, account) && !sessionExpired(session, now) {
 			views = append(views, sessionView(session, account.Username, false))
 		}
 	}

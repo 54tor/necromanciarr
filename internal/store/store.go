@@ -249,6 +249,7 @@ var columnUpgrades = []struct{ table, column, definition string }{
 	{"torrent_candidates", "torrent_sealed", "BLOB CHECK (torrent_sealed IS NULL OR length(torrent_sealed) <= 8388736)"},
 	{"verifications", "generation", "INTEGER NOT NULL DEFAULT 0"},
 	{"verifications", "mapping_fingerprint", "TEXT NOT NULL DEFAULT ''"},
+	{"sessions", "account_created_at", "INTEGER NOT NULL DEFAULT 0"},
 }
 
 func upgradeColumns(database executor) error {

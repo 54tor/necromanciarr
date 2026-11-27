@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 	last_seen_at INTEGER NOT NULL,
 	expires_at INTEGER NOT NULL,
 	address TEXT NOT NULL,
-	user_agent TEXT NOT NULL
+	user_agent TEXT NOT NULL,
+	account_created_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);`

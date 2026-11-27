@@ -222,7 +222,8 @@ func (svc *service) LoginWithTOTP(ctx context.Context, ticket, code string, clie
 		return SessionGrant{}, err
 	}
 	defer attempt.end()
-	if _, err := svc.consumeLoginTicket(ctx, ticket); err != nil {
+	account, err := svc.consumeLoginTicket(ctx, ticket)
+	if err != nil {
 		if errors.Is(err, ErrLoginTicketInvalid) {
 			attempt.fail()
 		}
@@ -234,7 +235,11 @@ func (svc *service) LoginWithTOTP(ctx context.Context, ticket, code string, clie
 		}
 		return SessionGrant{}, err
 	}
-	grant, err := svc.issueSession(ctx, client)
+	grant, err := svc.issueSession(ctx, account, client)
+	if errors.Is(err, store.ErrAccountChanged) {
+		attempt.fail()
+		return SessionGrant{}, ErrLoginTicketInvalid
+	}
 	if err != nil {
 		return SessionGrant{}, err
 	}
