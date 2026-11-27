@@ -113,5 +113,6 @@ func Keys() []Key {
 	keys = append(keys, configKeys...)
 	keys = append(keys, logKeys...)
 	keys = append(keys, webKeys...)
+	keys = append(keys, authKeys...)
 	return append(keys, warningKeys...)
 }

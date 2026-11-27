@@ -1,8 +1,9 @@
 // Copie de la table des routes du serveur (internal/web/routes.go). `action` est le nom du registre ; vide pour les
-// routes de suivi des jobs, hors registre. Le test `actions.spec.ts` la compare au fichier d'or du test Go.
+// routes de suivi des jobs et de l'authentification (/api/auth), hors registre. Le test `actions.spec.ts` la compare
+// au fichier d'or du test Go.
 
 export interface ApiRoute {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   path: string
   action: string
   mutating: boolean
@@ -79,6 +80,25 @@ export const API_ROUTES: readonly ApiRoute[] = [
   { method: 'POST', path: '/api/setup/fix/{fixId}', action: '', mutating: false },
   { method: 'GET', path: '/api/jobs', action: '', mutating: false },
   { method: 'GET', path: '/api/jobs/{id}', action: '', mutating: false },
+  { method: 'GET', path: '/api/auth/session', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/setup', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/login', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/webauthn/login/finish', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/totp/login', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/passkey/login/begin', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/passkey/login/finish', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/logout', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/logout-all', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/password', action: '', mutating: false },
+  { method: 'GET', path: '/api/auth/sessions', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/webauthn/register/begin', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/webauthn/register/finish', action: '', mutating: false },
+  { method: 'GET', path: '/api/auth/webauthn/credentials', action: '', mutating: false },
+  { method: 'PATCH', path: '/api/auth/webauthn/credentials/{id}', action: '', mutating: false },
+  { method: 'DELETE', path: '/api/auth/webauthn/credentials/{id}', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/totp/setup/begin', action: '', mutating: false },
+  { method: 'POST', path: '/api/auth/totp/setup/finish', action: '', mutating: false },
+  { method: 'DELETE', path: '/api/auth/totp', action: '', mutating: false },
 ]
 
 /** Actions du registre (une par nom, sans les routes de suivi des jobs). */

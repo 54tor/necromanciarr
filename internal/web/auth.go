@@ -3,7 +3,6 @@ package web
 import (
 	"crypto/sha256"
 	"crypto/subtle"
-	"log/slog"
 	"mime"
 	"net"
 	"net/http"
@@ -81,9 +80,9 @@ func (hosts allowedHosts) admits(host string) bool {
 }
 
 // protect applique, dans l'ordre, l'absence de cache, le contrôle de Host, le refus d'une lecture d'un autre site
-// (Sec-Fetch-Site, posé par les navigateurs), le jeton, les contrôles anti-CSRF d'un
-// POST et la borne du corps. Aucun en-tête CORS n'est jamais posé.
-func (handler *Handler) protect(next http.Handler) http.Handler {
+// (Sec-Fetch-Site, posé par les navigateurs), l'authentification de la politique de la route (authenticate), les
+// contrôles anti-CSRF d'un POST et la borne du corps. Aucun en-tête CORS n'est jamais posé.
+func (handler *Handler) protect(access accessPolicy, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Cache-Control", "no-store")
 		if !handler.hosts.admits(request.Host) {
@@ -94,19 +93,17 @@ func (handler *Handler) protect(next http.Handler) http.Handler {
 			handler.writeError(writer, newAPIError(http.StatusForbidden, errorCodeForbidden, i18n.Message{Key: i18n.KeyErrorWebCrossSite}))
 			return
 		}
-		if !handler.authorized(request) {
-			// Une ligne par échec, sans limite de débit (risque accepté en v1) ; ni jeton ni en-tête n'y figurent.
-			handler.logLine(slog.LevelWarn, LogCodeAPIUnauthorized, i18n.KeyLogAPIUnauthorized, map[string]string{"address": remoteAddress(request)})
-			writer.Header().Set("WWW-Authenticate", bearerScheme)
-			handler.writeError(writer, newAPIError(http.StatusUnauthorized, errorCodeUnauthorized, i18n.Message{Key: i18n.KeyErrorWebBearerToken}))
+		admitted, err := handler.authenticate(request, access)
+		if err != nil {
+			handler.writeError(writer, err)
 			return
 		}
-		if refusal := handler.checkUnsafeMethod(request); refusal != nil {
+		if refusal := handler.checkUnsafeMethod(admitted.request, admitted.byBearer); refusal != nil {
 			handler.writeError(writer, refusal)
 			return
 		}
-		request.Body = http.MaxBytesReader(writer, request.Body, maxBodyBytes)
-		next.ServeHTTP(writer, request)
+		admitted.request.Body = http.MaxBytesReader(writer, admitted.request.Body, maxBodyBytes)
+		next.ServeHTTP(writer, admitted.request)
 	})
 }
 
@@ -117,6 +114,10 @@ func (handler *Handler) authorized(request *http.Request) bool {
 	if handler.settings.AuthToken == "" {
 		return true
 	}
+	return handler.bearerMatches(request)
+}
+
+func (handler *Handler) bearerMatches(request *http.Request) bool {
 	scheme, presented, _ := strings.Cut(request.Header.Get("Authorization"), " ")
 	hasBearer := strings.EqualFold(scheme, bearerScheme)
 	presentedSum := sha256.Sum256([]byte(presented))
@@ -126,8 +127,9 @@ func (handler *Handler) authorized(request *http.Request) bool {
 }
 
 // checkUnsafeMethod refuse un POST qui n'est pas du JSON (un formulaire d'un autre site ne peut pas en envoyer sans
-// prévol) ou dont l'Origin n'est pas la nôtre ; sans jeton, un POST sans Origin doit porter X-Requested-With.
-func (handler *Handler) checkUnsafeMethod(request *http.Request) error {
+// prévol) ou dont l'Origin n'est pas la nôtre ; une requête que le jeton porteur n'authentifie pas (cookie de session,
+// route publique) doit, sans Origin, porter X-Requested-With.
+func (handler *Handler) checkUnsafeMethod(request *http.Request, byBearer bool) error {
 	if request.Method == http.MethodGet || request.Method == http.MethodHead {
 		return nil
 	}
@@ -136,14 +138,22 @@ func (handler *Handler) checkUnsafeMethod(request *http.Request) error {
 		return newAPIError(http.StatusUnsupportedMediaType, errorCodeUsage, i18n.Message{Key: i18n.KeyErrorWebContentType})
 	}
 	origin := request.Header.Get("Origin")
-	if origin != "" && !sameOrigin(origin, request.Host) {
+	if origin != "" && !handler.originAdmitted(origin, request.Host) {
 		return newAPIError(http.StatusForbidden, errorCodeForbidden, i18n.Message{Key: i18n.KeyErrorWebCrossSite})
 	}
 	hasCustomHeader := request.Header.Get(requestedWithHeader) == requestedWithValue
-	if origin == "" && handler.settings.AuthToken == "" && !hasCustomHeader {
+	if origin == "" && !byBearer && !hasCustomHeader {
 		return newAPIError(http.StatusForbidden, errorCodeForbidden, i18n.Message{Key: i18n.KeyErrorWebCrossSite})
 	}
 	return nil
+}
+
+// originAdmitted compare l'Origin à publicUrl quand elle est posée (un proxy peut réécrire Host), sinon à Host.
+func (handler *Handler) originAdmitted(origin, host string) bool {
+	if handler.settings.PublicURL != "" {
+		return strings.EqualFold(origin, handler.settings.PublicURL)
+	}
+	return sameOrigin(origin, host)
 }
 
 // remoteAddress ne garde de RemoteAddr qu'une adresse analysée : aucun texte arbitraire n'entre dans le journal.

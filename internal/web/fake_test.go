@@ -62,6 +62,8 @@ type fakeService struct {
 	lastList         string
 	lastItemID       string
 	lastElement      map[string]any
+	// account simule le compte opérateur (fake_account_test.go).
+	account fakeAccount
 }
 
 func (fake *fakeService) record(method string, arguments ...any) error {
@@ -299,89 +301,4 @@ func readBody(t *testing.T, recorder *httptest.ResponseRecorder) string {
 		t.Fatal(err)
 	}
 	return string(body)
-}
-
-// errAccountNotFaked : le faux service ne simule pas le compte opérateur.
-var errAccountNotFaked = errors.New("fake service: account not simulated")
-
-func (*fakeService) AuthStatus(context.Context) (app.AuthStatus, error) { return app.AuthStatus{}, nil }
-
-func (*fakeService) SetupAccount(context.Context, string, string, app.ClientInfo) (app.SessionGrant, error) {
-	return app.SessionGrant{}, errAccountNotFaked
-}
-
-func (*fakeService) Login(context.Context, string, string, app.ClientInfo) (app.LoginResult, error) {
-	return app.LoginResult{}, errAccountNotFaked
-}
-
-func (*fakeService) ResumeSession(context.Context, string) (app.SessionView, error) {
-	return app.SessionView{}, app.ErrSessionInvalid
-}
-
-func (*fakeService) Logout(context.Context, string) error { return nil }
-
-func (*fakeService) LogoutAll(context.Context) error { return nil }
-
-func (*fakeService) ChangePassword(context.Context, string, string, string) error {
-	return errAccountNotFaked
-}
-
-func (*fakeService) ListSessions(context.Context, string) ([]app.SessionView, error) {
-	return nil, app.ErrSessionInvalid
-}
-
-func (*fakeService) ResetAccount(context.Context) error { return errAccountNotFaked }
-
-func (*fakeService) AccountSummary(context.Context) (app.AccountSummary, error) {
-	return app.AccountSummary{}, nil
-}
-
-func (*fakeService) BeginWebAuthnRegistration(context.Context, string, string, string) (app.WebAuthnCeremony, error) {
-	return app.WebAuthnCeremony{}, errAccountNotFaked
-}
-
-func (*fakeService) FinishWebAuthnRegistration(context.Context, string, []byte, string, io.Reader) error {
-	return errAccountNotFaked
-}
-
-func (*fakeService) BeginWebAuthnLogin(context.Context, string) (app.WebAuthnCeremony, error) {
-	return app.WebAuthnCeremony{}, errAccountNotFaked
-}
-
-func (*fakeService) FinishWebAuthnLogin(context.Context, string, []byte, io.Reader, app.ClientInfo) (app.SessionGrant, error) {
-	return app.SessionGrant{}, errAccountNotFaked
-}
-
-func (*fakeService) BeginPasskeyLogin(context.Context) (app.WebAuthnCeremony, error) {
-	return app.WebAuthnCeremony{}, errAccountNotFaked
-}
-
-func (*fakeService) FinishPasskeyLogin(context.Context, []byte, io.Reader, app.ClientInfo) (app.SessionGrant, error) {
-	return app.SessionGrant{}, errAccountNotFaked
-}
-
-func (*fakeService) ListCredentials(context.Context) ([]app.CredentialView, error) { return nil, nil }
-
-func (*fakeService) RenameCredential(context.Context, string, string) error {
-	return errAccountNotFaked
-}
-
-func (*fakeService) DeleteCredential(context.Context, string, string, string) error {
-	return errAccountNotFaked
-}
-
-func (*fakeService) BeginTOTPSetup(context.Context, string, string) (app.TOTPEnrolment, error) {
-	return app.TOTPEnrolment{}, errAccountNotFaked
-}
-
-func (*fakeService) FinishTOTPSetup(context.Context, string, []byte, string) error {
-	return errAccountNotFaked
-}
-
-func (*fakeService) LoginWithTOTP(context.Context, string, string, app.ClientInfo) (app.SessionGrant, error) {
-	return app.SessionGrant{}, errAccountNotFaked
-}
-
-func (*fakeService) RemoveTOTP(context.Context, string, string) error {
-	return errAccountNotFaked
 }

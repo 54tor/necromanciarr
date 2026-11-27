@@ -47,12 +47,13 @@ type ErrorBody struct {
 }
 
 // apiError est une erreur du web lui-même (requête invalide, accès refusé), avec son statut et son message sûr ;
-// allow est l'en-tête Allow d'un 405.
+// allow est l'en-tête Allow d'un 405, headers les autres en-têtes de la réponse (Retry-After, WWW-Authenticate).
 type apiError struct {
 	status  int
 	allow   string
 	code    string
 	message i18n.Message
+	headers map[string]string
 }
 
 func newAPIError(status int, code string, message i18n.Message) *apiError {
@@ -91,10 +92,19 @@ func (handler *Handler) writeError(writer http.ResponseWriter, err error) {
 	if status == http.StatusInternalServerError {
 		handler.logLine(slog.LevelError, LogCodeAPIInternalError, i18n.KeyLogAPIInternalError, map[string]string{"error": err.Error()})
 	}
-	if failure, isAPIError := errors.AsType[*apiError](err); isAPIError && failure.allow != "" {
-		writer.Header().Set("Allow", failure.allow)
+	if failure, isAPIError := errors.AsType[*apiError](err); isAPIError {
+		setErrorHeaders(writer.Header(), failure)
 	}
 	handler.writeJSON(writer, status, map[string]ErrorBody{"error": body})
+}
+
+func setErrorHeaders(header http.Header, failure *apiError) {
+	if failure.allow != "" {
+		header.Set("Allow", failure.allow)
+	}
+	for name, value := range failure.headers {
+		header.Set(name, value)
+	}
 }
 
 func (handler *Handler) writeJSON(writer http.ResponseWriter, status int, value any) {
@@ -111,6 +121,9 @@ func (handler *Handler) writeJSON(writer http.ResponseWriter, status int, value 
 // endpointFunc traite une requête de l'API : valeur à encoder et statut de succès, ou erreur.
 type endpointFunc func(handler *Handler, request *http.Request) (any, int, error)
 
+// authEndpointFunc reçoit aussi la réponse, pour poser ou effacer les cookies d'authentification.
+type authEndpointFunc func(handler *Handler, writer http.ResponseWriter, request *http.Request) (any, int, error)
+
 func (handler *Handler) endpoint(handle endpointFunc) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		defer handler.recoverPanic(writer)
@@ -121,6 +134,31 @@ func (handler *Handler) endpoint(handle endpointFunc) http.Handler {
 		}
 		handler.writeJSON(writer, status, value)
 	})
+}
+
+// authEndpoint écrit le succès sans le masquage des secrets de la configuration : il défigurerait l'URI otpauth et les
+// options WebAuthn, et aucune route d'authentification ne rend un secret de la configuration.
+func (handler *Handler) authEndpoint(handle authEndpointFunc) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		defer handler.recoverPanic(writer)
+		value, status, err := handle(handler, writer, request)
+		if err != nil {
+			handler.writeError(writer, authError(err))
+			return
+		}
+		handler.writeUnredactedJSON(writer, status, value)
+	})
+}
+
+func (handler *Handler) writeUnredactedJSON(writer http.ResponseWriter, status int, value any) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		handler.writeError(writer, err)
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	writer.WriteHeader(status)
+	_, _ = writer.Write(encoded)
 }
 
 // recoverPanic change la panique d'un handler synchrone en une ligne de journal codée et une réponse d'erreur interne

@@ -45,6 +45,10 @@ type Handler struct {
 	jobs       *jobRunner
 	logger     *slog.Logger
 	hosts      allowedHosts
+	// preAuth garde l'état d'avant session (cookie de 5 min), ceremonies les états d'enregistrement par session.
+	preAuth    *heldStates
+	ceremonies *heldStates
+	now        func() time.Time
 }
 
 // NewHandler sert l'interface embarquée (ui.Assets) ; ctx est le contexte du serveur : son annulation arrête les jobs.
@@ -59,16 +63,20 @@ func NewHandlerWithAssets(ctx context.Context, service app.Service, health Healt
 	handler := &Handler{
 		mux: http.NewServeMux(), service: service, health: health, settings: settings,
 		translator: service.Translator(), hosts: hostsFor(settings.ListenAddr), logger: NewLogger(os.Stderr),
+		preAuth: newHeldStates(preAuthLifetime, time.Now), ceremonies: newHeldStates(ceremonyLifetime, time.Now), now: time.Now,
 	}
 	handler.jobs = newJobRunner(ctx, handler.describe, handler.logLine)
 	handler.mux.HandleFunc("GET /healthz", handler.serveHealth)
-	for _, apiRoute := range apiRoutes {
-		handler.mux.Handle(apiRoute.pattern(), handler.protect(handler.endpoint(apiRoute.handle)))
+	for _, apiRoute := range coreRoutes {
+		handler.mux.Handle(apiRoute.pattern(), handler.protect(accessProtected, handler.endpoint(apiRoute.handle)))
+	}
+	for _, authRoute := range authRoutes {
+		handler.mux.Handle(authRoute.pattern(), handler.protect(authRoute.access, handler.authEndpoint(authRoute.handle)))
 	}
 	for path, methods := range allowedMethods() {
-		handler.mux.Handle(path, handler.protect(handler.endpoint(methodNotAllowed(methods))))
+		handler.mux.Handle(path, handler.protect(accessProtected, handler.endpoint(methodNotAllowed(methods))))
 	}
-	handler.mux.Handle("/api/", handler.protect(handler.endpoint(unknownRoute)))
+	handler.mux.Handle("/api/", handler.protect(accessProtected, handler.endpoint(unknownRoute)))
 	handler.mux.Handle("/", assetsHandler(assets, handler.translator))
 	return handler
 }

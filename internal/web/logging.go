@@ -22,6 +22,8 @@ const (
 	LogCodeAPIUnauthorized    = "api_unauthorized"
 	LogCodeAPIPanicked        = "api_panicked"
 	LogCodeHTTPServerError    = "http_server_error"
+	LogCodeAPILoginFailed     = "api_login_failed"
+	LogCodeAPILoginSucceeded  = "api_login_succeeded"
 )
 
 // NewLogger écrit des lignes texte clé=valeur sur writer.

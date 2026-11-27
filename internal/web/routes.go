@@ -25,8 +25,12 @@ type route struct {
 
 func (apiRoute route) pattern() string { return apiRoute.method + " " + apiRoute.path }
 
-// apiRoutes est la table de l'API ; les actions longues (étapes, dedupe, repair) répondent 202 avec un job.
-var apiRoutes = []route{
+// apiRoutes est la table complète de l'API (fichier d'or, en-tête Allow) : les routes des actions, puis celles de
+// l'authentification.
+var apiRoutes = slices.Concat(coreRoutes, routesOf(authRoutes))
+
+// coreRoutes sont les routes des actions ; les actions longues (étapes, dedupe, repair) répondent 202 avec un job.
+var coreRoutes = []route{
 	{http.MethodGet, "/api/status", "status", "", getStatus},
 	{http.MethodGet, "/api/proposals", "proposals list", "", listProposals},
 	{http.MethodPost, "/api/proposals/{id}/accept", "proposals accept", "", acceptProposal},

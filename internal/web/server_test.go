@@ -492,9 +492,13 @@ func TestHealthz_exposesNoConfigurationData(t *testing.T) {
 
 // Routes sans action du registre, autorisées explicitement : /healthz (sonde du conteneur, hors /api, sans
 // authentification), le service des fichiers de l'interface (« / », hors /api) et /api/jobs, /api/jobs/{id} (suivi des
-// actions longues lancées par les routes d'action, qui portent chacune leur nom d'action). Ces dernières déclarent leur
-// justification dans la table des routes ; le test refuse toute autre route sans action.
-var nonActionRoutePrefixes = []string{"GET /api/jobs", "POST /api/setup/test", "POST /api/setup/fix/"}
+// actions longues lancées par les routes d'action, qui portent chacune leur nom d'action) et /api/auth (compte opérateur,
+// piloté côté CLI par la commande account). Ces dernières déclarent leur justification dans la table des routes ; le
+// test refuse toute autre route sans action.
+var nonActionRoutePrefixes = []string{
+	"GET /api/jobs", "POST /api/setup/test", "POST /api/setup/fix/",
+	"GET /api/auth/", "POST /api/auth/", "PATCH /api/auth/", "DELETE /api/auth/",
+}
 
 func TestWeb_everyRouteMapsToRegisteredAction(t *testing.T) {
 	registeredNames := map[string]bool{}
