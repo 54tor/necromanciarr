@@ -36,7 +36,7 @@ func arrChecks(settings config.Config, deps Deps) []Check {
 
 // CheckArrService teste une instance Radarr ou Sonarr, déjà enregistrée ou candidate.
 func CheckArrService(ctx context.Context, service config.ArrService, deps Deps) Result {
-	err := deps.NewPinger(service).Ping(ctx)
+	err := deps.withDefaults().NewPinger(service).Ping(ctx)
 	hint := message(i18n.KeyDoctorArrCheckURLHint)
 	switch {
 	case err == nil:
@@ -54,7 +54,7 @@ func CheckArrService(ctx context.Context, service config.ArrService, deps Deps) 
 
 // CheckTorrentClient teste un seul client torrent, déjà enregistré ou candidat.
 func CheckTorrentClient(ctx context.Context, client config.TorrentClient, deps Deps) Result {
-	status, code, detail, hint := inspectTorrentClient(ctx, 0, client, deps)
+	status, code, detail, hint := inspectTorrentClient(ctx, 0, client, deps.withDefaults())
 	return Result{Status: status, Code: code, Detail: detail, Hint: hint}
 }
 
