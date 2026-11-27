@@ -60,6 +60,8 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 - Verify falls back to indexers of the same tracker when the library provider has no `.torrent`: only a torrent whose computed infohash matches is kept, stored without announce and sealed with `NECROMANCIARR_SECRET_KEY` (not sealed, and no key needed, when a `trackers` entry covers the tracker); the candidate's `source` becomes the indexer; the stage result lists `searched_sources`, and new reasons `indexer_unavailable`, `indexer_access_denied`, `indexer_hostile_response`, `foreign_download_host` and `magnet_only` explain skipped indexers and items (an unavailable, refusing, hostile or unreadable indexer is set aside for the rest of the run, and like an exhausted budget leaves the candidate for the next run).
 
 ### Changed
+- Removing an overridden element or setting in the Configuration page restores the cross-seed value instead of hiding it.
+- The link feasibility check says whether no library root is configured or which configured root cannot be resolved.
 - The cross-seed daemon is set by `crossSeedUrl` (clear, `http(s)://host:port`, no credentials or query) and `crossSeedApiKey` (sealed) instead of one sealed `crossSeed` URL; each one replaces only the matching part imported from cross-seed's `config.js`. A stored `crossSeed` row blocks loading until removed with `config unset crossSeed`.
 - `serve` no longer refuses to start without `NECROMANCIARR_AUTH_TOKEN` on a non-loopback address when the config folder is writable: it generates one.
 - `config check` gives the origin of every value (`origins`) and lists orphaned overrides (`orphanOverrides`); the `sources` key is gone and the language line names its origin (`default`, `override`, `env`, `flag`).

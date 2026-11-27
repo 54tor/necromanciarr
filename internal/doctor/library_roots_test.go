@@ -5,10 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/fsys"
+	"necromanciarr/internal/i18n"
 )
 
 func TestChecks_linkFeasibilityNamesAMissingLibraryRoot(t *testing.T) {
@@ -56,4 +58,44 @@ func TestChecks_libraryRootThatCannotBeListedIsUnreadable(t *testing.T) {
 	if got.Status != Fail || got.Code != CodeRootUnreadable {
 		t.Fatalf("expectedValue fail %s, gotValue %v %s", CodeRootUnreadable, got.Status, got.Code)
 	}
+}
+
+func TestChecks_linkFeasibilityNamesNoLibraryRootConfigured(t *testing.T) {
+	settings := config.Config{LinkDirs: []string{t.TempDir()}, LinkType: "hardlink"}
+	deps := Deps{SameVolume: func(string, string) (bool, error) { return true, nil }}.withDefaults()
+
+	valeurObtenue := checkLinkFeasibility(settings, deps)
+
+	if valeurObtenue.Code != CodeLibraryRootUnavailable {
+		t.Fatalf("valeurAttendue %s, valeurObtenue %+v", CodeLibraryRootUnavailable, valeurObtenue)
+	}
+	if !hasMessageKey(valeurObtenue.Details, i18n.KeyDoctorLibraryRootNoneConfigured) {
+		t.Fatalf("valeurAttendue %s, valeurObtenue %+v", i18n.KeyDoctorLibraryRootNoneConfigured, valeurObtenue.Details)
+	}
+	if !hasMessageKey(valeurObtenue.Hints, i18n.KeyDoctorLibraryRootNoneConfiguredHint) {
+		t.Fatalf("valeurAttendue %s, valeurObtenue %+v", i18n.KeyDoctorLibraryRootNoneConfiguredHint, valeurObtenue.Hints)
+	}
+}
+
+func TestChecks_linkFeasibilityNamesTheUnresolvedLibraryRootPath(t *testing.T) {
+	mountedRoot := t.TempDir()
+	unmountedRoot := filepath.Join(t.TempDir(), "unmounted")
+	settings := config.Config{LibraryRoots: []string{mountedRoot, unmountedRoot}, LinkDirs: []string{t.TempDir()}, LinkType: "hardlink"}
+	deps := Deps{SameVolume: func(string, string) (bool, error) { return true, nil }}.withDefaults()
+
+	valeurObtenue := checkLinkFeasibility(settings, deps)
+
+	unavailable := slices.IndexFunc(valeurObtenue.Details, func(detail i18n.Message) bool {
+		return detail.Key == i18n.KeyDoctorLibraryRootUnavailable
+	})
+	if unavailable < 0 {
+		t.Fatalf("valeurAttendue %s, valeurObtenue %+v", i18n.KeyDoctorLibraryRootUnavailable, valeurObtenue.Details)
+	}
+	if valeurObtenue.Details[unavailable].Params["roots"] != unmountedRoot {
+		t.Fatalf("valeurAttendue %q, valeurObtenue %q", unmountedRoot, valeurObtenue.Details[unavailable].Params["roots"])
+	}
+}
+
+func hasMessageKey(messages []i18n.Message, key i18n.Key) bool {
+	return slices.ContainsFunc(messages, func(candidate i18n.Message) bool { return candidate.Key == key })
 }

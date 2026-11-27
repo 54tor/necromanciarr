@@ -77,7 +77,7 @@ func checkLinkFeasibility(settings config.Config, deps Deps) Result {
 				message(i18n.KeyDoctorLinkDirInLibraryHint))
 			continue
 		}
-		status, code, detail, hint := probeDirectory(directory, kinds, deps)
+		status, code, detail, hint := probeDirectory(directory, kinds, deps, settings)
 		collected.add(status, code, detail, hint)
 		for _, root := range settings.LibraryRoots {
 			status, code, detail, hint = compareVolumes(root, directory, kinds, deps)
@@ -98,11 +98,11 @@ func isCreatableLinkDir(directory string, libraryRoots []string, resolveErr erro
 }
 
 // probeDirectory crée puis supprime les entrées d'essai de linker.Probe dans directory, et nulle part ailleurs.
-func probeDirectory(directory string, kinds []linker.Kind, deps Deps) (Status, string, i18n.Message, i18n.Message) {
+func probeDirectory(directory string, kinds []linker.Kind, deps Deps, settings config.Config) (Status, string, i18n.Message, i18n.Message) {
 	capabilities, err := deps.Probe(directory)
 	if isLibraryRootUnavailable(err) {
-		return Fail, CodeLibraryRootUnavailable, message(i18n.KeyDoctorLibraryRootUnavailable, "dir", directory),
-			message(i18n.KeyDoctorLibraryRootUnavailableHint)
+		detail, hint := libraryRootUnavailableMessages(directory, settings, deps.registryFor(settings))
+		return Fail, CodeLibraryRootUnavailable, detail, hint
 	}
 	if err != nil {
 		return Fail, CodeLinkProbeFailed, message(i18n.KeyDoctorLinkProbeFailed, "dir", directory, "error", err.Error()),
@@ -118,6 +118,28 @@ func probeDirectory(directory string, kinds []linker.Kind, deps Deps) (Status, s
 	}
 	status, code := statusForKinds(accepted, kinds)
 	return status, code, detail, hint
+}
+
+// libraryRootUnavailableMessages dit si aucune racine n'est déclarée ou lesquelles ne se résolvent pas, avec la même
+// résolution que le registre (canonicalThrough).
+func libraryRootUnavailableMessages(directory string, settings config.Config, registry *fsys.Registry) (i18n.Message, i18n.Message) {
+	if len(settings.LibraryRoots) == 0 {
+		return message(i18n.KeyDoctorLibraryRootNoneConfigured, "dir", directory), message(i18n.KeyDoctorLibraryRootNoneConfiguredHint)
+	}
+	unresolved := unresolvedLibraryRoots(registry, settings.LibraryRoots)
+	return message(i18n.KeyDoctorLibraryRootUnavailable, "dir", directory, "roots", strings.Join(unresolved, ", ")),
+		message(i18n.KeyDoctorLibraryRootUnavailableHint)
+}
+
+func unresolvedLibraryRoots(registry *fsys.Registry, roots []string) []string {
+	unresolved := slices.DeleteFunc(slices.Clone(roots), func(root string) bool {
+		_, resolveErr := canonicalThrough(registry, root)
+		return resolveErr == nil
+	})
+	if len(unresolved) == 0 {
+		return roots
+	}
+	return unresolved
 }
 
 // isLibraryRootUnavailable : le registre refuse toute racine d'écriture tant qu'une racine de bibliothèque ne se
