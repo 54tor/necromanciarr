@@ -246,6 +246,9 @@ type service struct {
 	webAuthnOnce sync.Once
 	webAuthn     *webauthn.WebAuthn
 	webAuthnErr  error
+	// loginTickets garde l'empreinte des tickets du second facteur ; burnedNonces les nonces des états déjà présentés.
+	loginTickets expiringEntries[loginTicket]
+	burnedNonces expiringEntries[struct{}]
 }
 
 // New construit le Service sur ses dépendances.

@@ -112,11 +112,12 @@ type AccountService interface {
 	BeginWebAuthnRegistration(ctx context.Context, token, password, kind string) (WebAuthnCeremony, error)
 	// FinishWebAuthnRegistration vérifie l'attestation et enregistre la clé sous son nom, si la session vaut encore.
 	FinishWebAuthnRegistration(ctx context.Context, token string, state []byte, name string, body io.Reader) error
-	// BeginWebAuthnLogin ouvre l'étape second facteur, limitée aux clés second_factor ; l'appelant ne l'offre qu'après
-	// un mot de passe correct.
-	BeginWebAuthnLogin(ctx context.Context) (WebAuthnCeremony, error)
-	// FinishWebAuthnLogin vérifie l'assertion d'une clé second_factor sous le limiteur et ouvre la session.
-	FinishWebAuthnLogin(ctx context.Context, state []byte, body io.Reader, client ClientInfo) (SessionGrant, error)
+	// BeginWebAuthnLogin ouvre l'étape second facteur, limitée aux clés second_factor, sur le ticket rendu par Login
+	// (vérifié sans être consommé).
+	BeginWebAuthnLogin(ctx context.Context, ticket string) (WebAuthnCeremony, error)
+	// FinishWebAuthnLogin consomme le ticket, vérifie l'assertion d'une clé second_factor sous le limiteur et ouvre la
+	// session.
+	FinishWebAuthnLogin(ctx context.Context, ticket string, state []byte, body io.Reader, client ClientInfo) (SessionGrant, error)
 	// BeginPasskeyLogin ouvre une connexion découvrable par clé d'accès, vérification de l'utilisateur exigée.
 	BeginPasskeyLogin(ctx context.Context) (WebAuthnCeremony, error)
 	// FinishPasskeyLogin vérifie l'assertion d'une clé passkey sous le limiteur et ouvre la session sans mot de passe.
@@ -146,10 +147,12 @@ type ClientInfo struct {
 	Address, UserAgent string
 }
 
-// LoginResult porte la session émise, ou les seconds facteurs attendus (alors sans session).
+// LoginResult porte la session émise, ou les seconds facteurs attendus avec le ticket (5 min, usage unique) que l'étape
+// du second facteur exige.
 type LoginResult struct {
 	Session       *SessionGrant
 	SecondFactors []string
+	Ticket        string
 }
 
 // SessionView décrit une session ouverte.
@@ -294,7 +297,11 @@ func (svc *service) Login(ctx context.Context, username, password string, client
 		return LoginResult{}, err
 	}
 	if len(factors) > 0 {
-		return LoginResult{SecondFactors: factors}, nil
+		ticket, err := svc.issueLoginTicket(ctx)
+		if err != nil {
+			return LoginResult{}, err
+		}
+		return LoginResult{SecondFactors: factors, Ticket: ticket}, nil
 	}
 	grant, err := svc.issueSession(ctx, client)
 	if err != nil {

@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
+	"necromanciarr/internal/auth"
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/store"
 )
@@ -24,7 +26,14 @@ const (
 	webAuthnDisplayName      = "Necromanciarr"
 	webAuthnCeremonyTimeout  = 5 * time.Minute
 	webAuthnUserHandlePrefix = "necromanciarr-account:"
+	ceremonyEnvelopeVersion  = 1
+	ceremonyNonceBytes       = 16
+	purposeRegistration      = "registration"
+	purposeLoginSecondFactor = "login_second_factor"
+	purposeLoginPasskey      = "login_passkey"
 )
+
+var registrableKinds = []string{credentialKindSecondFactor, credentialKindPasskey}
 
 var (
 	// ErrWebAuthnUnavailable : sans publicUrl https (ou hors localhost), WebAuthn ne peut pas fonctionner.
@@ -113,28 +122,65 @@ func (svc *service) webAuthnUser(ctx context.Context, account store.Account, kin
 	return user, nil
 }
 
-func newCeremony(options any, session *webauthn.SessionData) (WebAuthnCeremony, error) {
+// ceremonyEnvelope est l'état rendu à l'appelant : l'usage de la cérémonie, la sorte de clé enregistrée, un nonce à
+// usage unique, l'empreinte du ticket du second facteur et la SessionData de la bibliothèque.
+type ceremonyEnvelope struct {
+	Version    int                  `json:"v"`
+	Purpose    string               `json:"purpose"`
+	Kind       string               `json:"kind,omitempty"`
+	Nonce      []byte               `json:"nonce"`
+	TicketHash string               `json:"ticketHash,omitempty"`
+	Session    webauthn.SessionData `json:"session"`
+}
+
+// ceremonyBinding dit à quoi sert un état et à quel ticket il est lié.
+type ceremonyBinding struct {
+	purpose, kind, ticketHash string
+}
+
+// newCeremony date l'expiration sur l'horloge du service, que finish contrôle en plus de la bibliothèque.
+func (svc *service) newCeremony(options any, session *webauthn.SessionData, binding ceremonyBinding) (WebAuthnCeremony, error) {
+	nonce := make([]byte, ceremonyNonceBytes)
+	if _, err := rand.Read(nonce); err != nil {
+		return WebAuthnCeremony{}, fmt.Errorf("generate webauthn nonce: %w", err)
+	}
+	session.Expires = svc.now().Add(webAuthnCeremonyTimeout)
 	optionsJSON, err := json.Marshal(options)
 	if err != nil {
 		return WebAuthnCeremony{}, fmt.Errorf("encode webauthn options: %w", err)
 	}
-	state, err := json.Marshal(session)
+	envelope := ceremonyEnvelope{
+		Version: ceremonyEnvelopeVersion, Purpose: binding.purpose, Kind: binding.kind, Nonce: nonce,
+		TicketHash: binding.ticketHash, Session: *session,
+	}
+	state, err := json.Marshal(envelope)
 	if err != nil {
 		return WebAuthnCeremony{}, fmt.Errorf("encode webauthn state: %w", err)
 	}
 	return WebAuthnCeremony{Options: optionsJSON, State: state}, nil
 }
 
-// decodeCeremonyState refuse un état illisible ou lié à un autre RP ID ou une autre origine que la configuration.
-func decodeCeremonyState(state []byte, instance *webauthn.WebAuthn) (webauthn.SessionData, error) {
-	var session webauthn.SessionData
-	if err := json.Unmarshal(state, &session); err != nil {
-		return webauthn.SessionData{}, ErrInvalidAssertion
+// openCeremony refuse un état illisible, d'un autre usage ou d'un autre ticket, expiré, lié à un autre RP ID ou une
+// autre origine, puis brûle son nonce : un état ne sert qu'une fois, que la preuve qui suit réussisse ou non.
+func (svc *service) openCeremony(state []byte, binding ceremonyBinding, instance *webauthn.WebAuthn) (ceremonyEnvelope, error) {
+	var envelope ceremonyEnvelope
+	if err := json.Unmarshal(state, &envelope); err != nil {
+		return ceremonyEnvelope{}, ErrInvalidAssertion
 	}
-	if session.RelyingPartyID != instance.Config.RPID || session.Origin != "" {
-		return webauthn.SessionData{}, ErrInvalidAssertion
+	now := svc.now()
+	expires := envelope.Session.Expires
+	wellFormed := envelope.Version == ceremonyEnvelopeVersion && len(envelope.Nonce) == ceremonyNonceBytes &&
+		envelope.Purpose == binding.purpose && envelope.TicketHash == binding.ticketHash
+	live := !expires.IsZero() && now.Before(expires) && !expires.After(now.Add(webAuthnCeremonyTimeout))
+	sameRelyingParty := envelope.Session.RelyingPartyID == instance.Config.RPID && envelope.Session.Origin == ""
+	knownKind := binding.purpose != purposeRegistration || slices.Contains(registrableKinds, envelope.Kind)
+	if !wellFormed || !live || !sameRelyingParty || !knownKind {
+		return ceremonyEnvelope{}, ErrInvalidAssertion
 	}
-	return session, nil
+	if !svc.burnedNonces.insertIfAbsent(string(envelope.Nonce), struct{}{}, expires.Add(burnedNonceMargin), now) {
+		return ceremonyEnvelope{}, ErrInvalidAssertion
+	}
+	return envelope, nil
 }
 
 func registrationOptionsFor(kind string) ([]webauthn.RegistrationOption, error) {
@@ -156,14 +202,6 @@ func registrationOptionsFor(kind string) ([]webauthn.RegistrationOption, error) 
 	default:
 		return nil, ErrInvalidCredentialKind
 	}
-}
-
-// registrationKindOf : seule une clé d'accès est enregistrée avec la vérification de l'utilisateur exigée.
-func registrationKindOf(session webauthn.SessionData) string {
-	if session.UserVerification == protocol.VerificationRequired {
-		return credentialKindPasskey
-	}
-	return credentialKindSecondFactor
 }
 
 func normalizeCredentialName(name string) (string, error) {
@@ -199,7 +237,7 @@ func (svc *service) BeginWebAuthnRegistration(ctx context.Context, token, passwo
 	if err != nil {
 		return WebAuthnCeremony{}, fmt.Errorf("begin webauthn registration: %w", err)
 	}
-	return newCeremony(creation, session)
+	return svc.newCeremony(creation, session, ceremonyBinding{purpose: purposeRegistration, kind: kind})
 }
 
 func (svc *service) FinishWebAuthnRegistration(ctx context.Context, token string, state []byte, name string, body io.Reader) error {
@@ -211,7 +249,7 @@ func (svc *service) FinishWebAuthnRegistration(ctx context.Context, token string
 	if err != nil {
 		return err
 	}
-	session, err := decodeCeremonyState(state, instance)
+	envelope, err := svc.openCeremony(state, ceremonyBinding{purpose: purposeRegistration}, instance)
 	if err != nil {
 		return err
 	}
@@ -223,8 +261,8 @@ func (svc *service) FinishWebAuthnRegistration(ctx context.Context, token string
 	if err != nil {
 		return err
 	}
-	kind := registrationKindOf(session)
-	credential, err := createCredential(instance, user, session, body, kind)
+	kind := envelope.Kind
+	credential, err := createCredential(instance, user, envelope.Session, body, kind)
 	if err != nil {
 		return err
 	}
@@ -258,17 +296,14 @@ func createCredential(instance *webauthn.WebAuthn, user *accountUser, session we
 	return credential, nil
 }
 
-func (svc *service) BeginWebAuthnLogin(ctx context.Context) (WebAuthnCeremony, error) {
+func (svc *service) BeginWebAuthnLogin(ctx context.Context, ticket string) (WebAuthnCeremony, error) {
 	instance, err := svc.webAuthnInstance()
 	if err != nil {
 		return WebAuthnCeremony{}, err
 	}
-	account, found, err := svc.deps.Store.Account(ctx)
+	account, err := svc.peekLoginTicket(ctx, ticket)
 	if err != nil {
 		return WebAuthnCeremony{}, err
-	}
-	if !found {
-		return WebAuthnCeremony{}, ErrCredentialNotFound
 	}
 	user, err := svc.webAuthnUser(ctx, account, credentialKindSecondFactor)
 	if err != nil {
@@ -281,7 +316,7 @@ func (svc *service) BeginWebAuthnLogin(ctx context.Context) (WebAuthnCeremony, e
 	if err != nil {
 		return WebAuthnCeremony{}, fmt.Errorf("begin webauthn login: %w", err)
 	}
-	return newCeremony(assertion, session)
+	return svc.newCeremony(assertion, session, ceremonyBinding{purpose: purposeLoginSecondFactor, ticketHash: auth.SessionIDOf(ticket)})
 }
 
 func (svc *service) BeginPasskeyLogin(context.Context) (WebAuthnCeremony, error) {
@@ -293,7 +328,7 @@ func (svc *service) BeginPasskeyLogin(context.Context) (WebAuthnCeremony, error)
 	if err != nil {
 		return WebAuthnCeremony{}, fmt.Errorf("begin passkey login: %w", err)
 	}
-	return newCeremony(assertion, session)
+	return svc.newCeremony(assertion, session, ceremonyBinding{purpose: purposeLoginPasskey})
 }
 
 // assertionValidator vérifie une assertion déjà lue pour l'utilisateur, limité aux clés de la bonne sorte.
@@ -312,12 +347,53 @@ func validatePasskeyAssertion(instance *webauthn.WebAuthn, user *accountUser, se
 	return credential, err
 }
 
-func (svc *service) FinishWebAuthnLogin(ctx context.Context, state []byte, body io.Reader, client ClientInfo) (SessionGrant, error) {
-	return svc.finishAssertion(ctx, state, body, client, credentialKindSecondFactor, validateSecondFactorAssertion)
+// assertionStep décrit une connexion par clé : l'état attendu, la sorte de clé admise et sa vérification.
+type assertionStep struct {
+	binding  ceremonyBinding
+	kind     string
+	validate assertionValidator
+}
+
+// FinishWebAuthnLogin brûle le ticket sous le limiteur avant toute vérification ; un essai refusé par le limiteur ne
+// l'atteint pas et le garde.
+func (svc *service) FinishWebAuthnLogin(ctx context.Context, ticket string, state []byte, body io.Reader, client ClientInfo) (SessionGrant, error) {
+	instance, err := svc.webAuthnInstance()
+	if err != nil {
+		return SessionGrant{}, err
+	}
+	attempt, err := svc.beginAttempt()
+	if err != nil {
+		return SessionGrant{}, err
+	}
+	defer attempt.end()
+	if _, err := svc.consumeLoginTicket(ctx, ticket); err != nil {
+		if errors.Is(err, ErrLoginTicketInvalid) {
+			attempt.fail()
+		}
+		return SessionGrant{}, err
+	}
+	step := assertionStep{
+		binding:  ceremonyBinding{purpose: purposeLoginSecondFactor, ticketHash: auth.SessionIDOf(ticket)},
+		kind:     credentialKindSecondFactor,
+		validate: validateSecondFactorAssertion,
+	}
+	return svc.finishAssertion(ctx, instance, attempt, step, state, body, client)
 }
 
 func (svc *service) FinishPasskeyLogin(ctx context.Context, state []byte, body io.Reader, client ClientInfo) (SessionGrant, error) {
-	return svc.finishAssertion(ctx, state, body, client, credentialKindPasskey, validatePasskeyAssertion)
+	instance, err := svc.webAuthnInstance()
+	if err != nil {
+		return SessionGrant{}, err
+	}
+	attempt, err := svc.beginAttempt()
+	if err != nil {
+		return SessionGrant{}, err
+	}
+	defer attempt.end()
+	step := assertionStep{
+		binding: ceremonyBinding{purpose: purposeLoginPasskey}, kind: credentialKindPasskey, validate: validatePasskeyAssertion,
+	}
+	return svc.finishAssertion(ctx, instance, attempt, step, state, body, client)
 }
 
 var errUnknownUserHandle = errors.New("unknown user handle")
@@ -331,29 +407,25 @@ func singleUserHandler(user *accountUser) webauthn.DiscoverableUserHandler {
 	}
 }
 
-// finishAssertion passe par le limiteur : une preuve refusée compte un échec, une erreur interne annule l'essai, seule
-// une session émise remet les échecs à zéro.
-func (svc *service) finishAssertion(ctx context.Context, state []byte, body io.Reader, client ClientInfo, kind string, validate assertionValidator) (SessionGrant, error) {
-	instance, err := svc.webAuthnInstance()
+// finishAssertion vérifie une assertion dans un essai admis : un état refusé ou rejoué, une preuve refusée ou un
+// compteur en recul comptent un échec, une erreur interne annule l'essai, seule une session émise remet à zéro.
+func (svc *service) finishAssertion(ctx context.Context, instance *webauthn.WebAuthn, attempt *throttledAttempt, step assertionStep, state []byte, body io.Reader, client ClientInfo) (SessionGrant, error) {
+	envelope, err := svc.openCeremony(state, step.binding, instance)
 	if err != nil {
+		attempt.fail()
 		return SessionGrant{}, err
 	}
-	attempt, err := svc.beginAttempt()
-	if err != nil {
-		return SessionGrant{}, err
-	}
-	defer attempt.end()
 	account, found, err := svc.deps.Store.Account(ctx)
 	if err != nil {
 		return SessionGrant{}, err
 	}
 	user := &accountUser{}
 	if found {
-		if user, err = svc.webAuthnUser(ctx, account, kind); err != nil {
+		if user, err = svc.webAuthnUser(ctx, account, step.kind); err != nil {
 			return SessionGrant{}, err
 		}
 	}
-	credential, verifyErr := verifyAssertion(instance, user, state, body, validate)
+	credential, verifyErr := verifyAssertion(instance, user, envelope.Session, body, step.validate)
 	if !found || verifyErr != nil || credential.Authenticator.CloneWarning {
 		attempt.fail()
 		return SessionGrant{}, ErrInvalidAssertion
@@ -366,11 +438,7 @@ func (svc *service) finishAssertion(ctx context.Context, state []byte, body io.R
 	return grant, nil
 }
 
-func verifyAssertion(instance *webauthn.WebAuthn, user *accountUser, state []byte, body io.Reader, validate assertionValidator) (*webauthn.Credential, error) {
-	session, err := decodeCeremonyState(state, instance)
-	if err != nil {
-		return nil, err
-	}
+func verifyAssertion(instance *webauthn.WebAuthn, user *accountUser, session webauthn.SessionData, body io.Reader, validate assertionValidator) (*webauthn.Credential, error) {
 	parsed, err := protocol.ParseCredentialRequestResponseBody(body)
 	if err != nil {
 		return nil, ErrInvalidAssertion

@@ -288,6 +288,9 @@ func TestLogin_returnsTheSecondFactorsAndNoSessionWhenOneIsRegistered(t *testing
 			if !slices.Equal(result.SecondFactors, cas.valeurAttendue) {
 				t.Fatalf("valeurAttendue %v, valeurObtenue %v", cas.valeurAttendue, result.SecondFactors)
 			}
+			if ticketIssued := result.Ticket != ""; ticketIssued != (len(cas.valeurAttendue) > 0) {
+				t.Fatalf("valeurAttendue un ticket exactement avec des facteurs, valeurObtenue %+v", result)
+			}
 			sessionsAfter, _ := fixture.store.Sessions(ctx)
 			sessionIssued := len(sessionsAfter) > len(sessionsBefore)
 			if wantSession := len(cas.valeurAttendue) == 0; (result.Session != nil) != wantSession || sessionIssued != wantSession {
@@ -310,7 +313,7 @@ func TestLogin_correctPasswordWithAPendingSecondFactorDoesNotResetTheThrottle(t 
 	fixture.clock.advance(time.Second)
 
 	result, err := fixture.service.Login(ctx, testUsername, testPassword, testClient)
-	if err != nil || result.Session != nil || len(result.SecondFactors) == 0 {
+	if err != nil || result.Session != nil || len(result.SecondFactors) == 0 || result.Ticket == "" {
 		t.Fatalf("valeurObtenue %+v err=%v", result, err)
 	}
 	if _, err := fixture.service.Login(ctx, testUsername, testWrong, testClient); !errors.Is(err, ErrInvalidCredentials) {

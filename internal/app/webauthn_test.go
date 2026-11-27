@@ -28,6 +28,8 @@ var testWebAuthnConfig = config.Config{PublicURL: testRelyingParty.Origin}
 type virtualKey struct {
 	authenticator virtualwebauthn.Authenticator
 	credential    virtualwebauthn.Credential
+	// counterStaysZero imite une clé d'accès synchronisée, qui annonce toujours un compteur nul.
+	counterStaysZero bool
 }
 
 func newVirtualKey(options virtualwebauthn.AuthenticatorOptions) *virtualKey {
@@ -59,7 +61,9 @@ func (key *virtualKey) assert(t *testing.T, options json.RawMessage, relyingPart
 	if err != nil {
 		t.Fatal(err)
 	}
-	key.credential.Counter++
+	if !key.counterStaysZero {
+		key.credential.Counter++
+	}
 	return virtualwebauthn.CreateAssertionResponse(relyingParty, key.authenticator, key.credential, *parsedOptions)
 }
 
@@ -102,14 +106,31 @@ func (fixture *webAuthnFixture) register(t *testing.T, key *virtualKey, kind str
 	}
 }
 
-func (fixture *webAuthnFixture) secondFactorLogin(t *testing.T, key *virtualKey) (SessionGrant, error) {
+// loginTicket passe l'étape du mot de passe et rend le ticket du second facteur.
+func (fixture *webAuthnFixture) loginTicket(t *testing.T) string {
 	t.Helper()
-	ceremony, err := fixture.service.BeginWebAuthnLogin(context.Background())
+	result, err := fixture.service.Login(context.Background(), testUsername, testPassword, testClient)
+	if err != nil || result.Ticket == "" || result.Session != nil {
+		t.Fatalf("valeurAttendue un ticket sans session, valeurObtenue %+v err=%v", result, err)
+	}
+	return result.Ticket
+}
+
+func (fixture *webAuthnFixture) beginSecondFactor(t *testing.T, ticket string) WebAuthnCeremony {
+	t.Helper()
+	ceremony, err := fixture.service.BeginWebAuthnLogin(context.Background(), ticket)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return ceremony
+}
+
+func (fixture *webAuthnFixture) secondFactorLogin(t *testing.T, key *virtualKey) (SessionGrant, error) {
+	t.Helper()
+	ticket := fixture.loginTicket(t)
+	ceremony := fixture.beginSecondFactor(t, ticket)
 	body := key.assert(t, ceremony.Options, testRelyingParty)
-	return fixture.service.FinishWebAuthnLogin(context.Background(), ceremony.State, strings.NewReader(body), testClient)
+	return fixture.service.FinishWebAuthnLogin(context.Background(), ticket, ceremony.State, strings.NewReader(body), testClient)
 }
 
 func (fixture *webAuthnFixture) passkeyLogin(t *testing.T, key *virtualKey) (SessionGrant, error) {
@@ -147,18 +168,23 @@ func expectInvalidAssertion(t *testing.T, err error) {
 	}
 }
 
-func rewriteState(t *testing.T, state []byte, change func(session *webauthn.SessionData)) []byte {
+func rewriteEnvelope(t *testing.T, state []byte, change func(envelope *ceremonyEnvelope)) []byte {
 	t.Helper()
-	var session webauthn.SessionData
-	if err := json.Unmarshal(state, &session); err != nil {
+	var envelope ceremonyEnvelope
+	if err := json.Unmarshal(state, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	change(&session)
-	rewritten, err := json.Marshal(session)
+	change(&envelope)
+	rewritten, err := json.Marshal(envelope)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return rewritten
+}
+
+func rewriteState(t *testing.T, state []byte, change func(session *webauthn.SessionData)) []byte {
+	t.Helper()
+	return rewriteEnvelope(t, state, func(envelope *ceremonyEnvelope) { change(&envelope.Session) })
 }
 
 func TestWebAuthnRegistration_storesTheCredentialForTheAccount(t *testing.T) {
@@ -242,23 +268,20 @@ func TestWebAuthnLogin_refusesAForgedChallengeAndAWrongOrigin(t *testing.T) {
 	ctx := context.Background()
 	sessionsBefore := fixture.sessionCount(t)
 
-	genuine, err := fixture.service.BeginWebAuthnLogin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	other, err := fixture.service.BeginWebAuthnLogin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ticket := fixture.loginTicket(t)
+	genuine := fixture.beginSecondFactor(t, ticket)
+	other := fixture.beginSecondFactor(t, ticket)
 	forgedChallenge := key.assert(t, other.Options, testRelyingParty)
-	_, err = fixture.service.FinishWebAuthnLogin(ctx, genuine.State, strings.NewReader(forgedChallenge), testClient)
+	_, err := fixture.service.FinishWebAuthnLogin(ctx, ticket, genuine.State, strings.NewReader(forgedChallenge), testClient)
 	expectInvalidAssertion(t, err)
 
 	fixture.passThrottleDelay()
+	ticket = fixture.loginTicket(t)
+	genuine = fixture.beginSecondFactor(t, ticket)
 	wrongOrigin := testRelyingParty
 	wrongOrigin.Origin = "https://evil.example.com"
 	wrongOriginBody := key.assert(t, genuine.Options, wrongOrigin)
-	_, err = fixture.service.FinishWebAuthnLogin(ctx, genuine.State, strings.NewReader(wrongOriginBody), testClient)
+	_, err = fixture.service.FinishWebAuthnLogin(ctx, ticket, genuine.State, strings.NewReader(wrongOriginBody), testClient)
 	expectInvalidAssertion(t, err)
 
 	if valeurObtenue := fixture.sessionCount(t); valeurObtenue != sessionsBefore {
@@ -313,9 +336,9 @@ func TestWebAuthn_isUnavailableOverPlainHttp(t *testing.T) {
 	ctx := context.Background()
 	body := func() *strings.Reader { return strings.NewReader("{}") }
 	_, beginRegistrationErr := fixture.service.BeginWebAuthnRegistration(ctx, grant.Token, testPassword, credentialKindPasskey)
-	_, beginLoginErr := fixture.service.BeginWebAuthnLogin(ctx)
+	_, beginLoginErr := fixture.service.BeginWebAuthnLogin(ctx, "")
 	_, beginPasskeyErr := fixture.service.BeginPasskeyLogin(ctx)
-	_, finishLoginErr := fixture.service.FinishWebAuthnLogin(ctx, []byte("{}"), body(), testClient)
+	_, finishLoginErr := fixture.service.FinishWebAuthnLogin(ctx, "", []byte("{}"), body(), testClient)
 	_, finishPasskeyErr := fixture.service.FinishPasskeyLogin(ctx, []byte("{}"), body(), testClient)
 	finishRegistrationErr := fixture.service.FinishWebAuthnRegistration(ctx, grant.Token, []byte("{}"), testKeyName, body())
 
@@ -550,10 +573,8 @@ func TestPasskeyCredential_cannotSatisfyTheSecondFactorStep(t *testing.T) {
 	fixture.register(t, passkey, credentialKindPasskey)
 	ctx := context.Background()
 
-	ceremony, err := fixture.service.BeginWebAuthnLogin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ticket := fixture.loginTicket(t)
+	ceremony := fixture.beginSecondFactor(t, ticket)
 	var options requestOptionsAllowList
 	if err := json.Unmarshal(ceremony.Options, &options); err != nil {
 		t.Fatal(err)
@@ -565,7 +586,7 @@ func TestPasskeyCredential_cannotSatisfyTheSecondFactorStep(t *testing.T) {
 	sessionsBefore := fixture.sessionCount(t)
 
 	body := passkey.assert(t, ceremony.Options, testRelyingParty)
-	_, err = fixture.service.FinishWebAuthnLogin(ctx, ceremony.State, strings.NewReader(body), testClient)
+	_, err := fixture.service.FinishWebAuthnLogin(ctx, ticket, ceremony.State, strings.NewReader(body), testClient)
 
 	expectInvalidAssertion(t, err)
 	if valeurObtenue := fixture.sessionCount(t); valeurObtenue != sessionsBefore {
@@ -575,24 +596,41 @@ func TestPasskeyCredential_cannotSatisfyTheSecondFactorStep(t *testing.T) {
 
 func TestWebAuthnLogin_isRefusedWithoutAnySecondFactorKey(t *testing.T) {
 	fixture := newWebAuthnFixture(t)
-	passkey := newVirtualKey(virtualwebauthn.AuthenticatorOptions{})
-	fixture.register(t, passkey, credentialKindPasskey)
+	securityKey := newVirtualKey(virtualwebauthn.AuthenticatorOptions{})
+	fixture.register(t, securityKey, credentialKindSecondFactor)
 	ctx := context.Background()
+	ticket := fixture.loginTicket(t)
+	if err := fixture.service.DeleteCredential(ctx, fixture.grant.Token, securityKey.encodedID(), testPassword); err != nil {
+		t.Fatal(err)
+	}
 
-	if _, err := fixture.service.BeginWebAuthnLogin(ctx); !errors.Is(err, ErrCredentialNotFound) {
+	_, err := fixture.service.BeginWebAuthnLogin(ctx, ticket)
+
+	if !errors.Is(err, ErrCredentialNotFound) {
 		t.Fatalf("valeurAttendue ErrCredentialNotFound, valeurObtenue %v", err)
 	}
+}
+
+func TestWebAuthnLogin_aPasskeyStateCannotFinishTheSecondFactorStep(t *testing.T) {
+	fixture := newWebAuthnFixture(t)
+	securityKey := newVirtualKey(virtualwebauthn.AuthenticatorOptions{})
+	passkey := newVirtualKey(virtualwebauthn.AuthenticatorOptions{})
+	fixture.register(t, securityKey, credentialKindSecondFactor)
+	fixture.register(t, passkey, credentialKindPasskey)
+	ctx := context.Background()
+	ticket := fixture.loginTicket(t)
 	passkeyCeremony, err := fixture.service.BeginPasskeyLogin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := passkey.assert(t, passkeyCeremony.Options, testRelyingParty)
-	_, err = fixture.service.FinishWebAuthnLogin(ctx, passkeyCeremony.State, strings.NewReader(body), testClient)
+
+	_, err = fixture.service.FinishWebAuthnLogin(ctx, ticket, passkeyCeremony.State, strings.NewReader(body), testClient)
 
 	expectInvalidAssertion(t, err)
 }
 
-func TestWebAuthn_aWrongOriginOrReplayedStateFailsWithoutStoringAnything(t *testing.T) {
+func TestWebAuthnRegistration_aTamperedStateAReplayOrADuplicateKeyStoresNothing(t *testing.T) {
 	fixture := newWebAuthnFixture(t)
 	ctx := context.Background()
 	key := newVirtualKey(virtualwebauthn.AuthenticatorOptions{})
@@ -613,6 +651,7 @@ func TestWebAuthn_aWrongOriginOrReplayedStateFailsWithoutStoringAnything(t *test
 			key.attestFor(t, ceremony.Options, evilRelyingParty),
 		},
 		{[]byte("not json"), key.attest(t, ceremony.Options)},
+		{[]byte(`{"v":1,"purpose":"registration","nonce":null,"session":null}`), key.attest(t, ceremony.Options)},
 	}
 	for _, tampered := range tamperedCeremonies {
 		err := fixture.service.FinishWebAuthnRegistration(ctx, fixture.grant.Token, tampered.state, testKeyName, strings.NewReader(tampered.body))
@@ -627,23 +666,10 @@ func TestWebAuthn_aWrongOriginOrReplayedStateFailsWithoutStoringAnything(t *test
 	}
 	replayErr := fixture.service.FinishWebAuthnRegistration(ctx, fixture.grant.Token, ceremony.State, "Replayed", strings.NewReader(body))
 	expectInvalidAssertion(t, replayErr)
+	expectInvalidAssertion(t, fixture.tryRegister(t, key, credentialKindSecondFactor))
+
 	if valeurObtenue := len(fixture.storedCredentials(t)); valeurObtenue != 1 {
 		t.Fatalf("valeurAttendue une seule clé, valeurObtenue %d", valeurObtenue)
-	}
-
-	loginCeremony, err := fixture.service.BeginWebAuthnLogin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertion := key.assert(t, loginCeremony.Options, testRelyingParty)
-	if _, err := fixture.service.FinishWebAuthnLogin(ctx, loginCeremony.State, strings.NewReader(assertion), testClient); err != nil {
-		t.Fatal(err)
-	}
-	sessionsBefore := fixture.sessionCount(t)
-	_, err = fixture.service.FinishWebAuthnLogin(ctx, loginCeremony.State, strings.NewReader(assertion), testClient)
-	expectInvalidAssertion(t, err)
-	if valeurObtenue := fixture.sessionCount(t); valeurObtenue != sessionsBefore {
-		t.Fatalf("valeurAttendue %d sessions après le rejeu, valeurObtenue %d", sessionsBefore, valeurObtenue)
 	}
 }
 

@@ -14,8 +14,6 @@ const (
 	schemeHTTPS       = "https"
 	defaultHTTPPort   = "80"
 	defaultHTTPSPort  = "443"
-	loopbackHostIPv4  = "127.0.0.1"
-	loopbackHostIPv6  = "::1"
 	errPublicURLShape = settingPublicURL + ": expected http(s)://host[:port] without path, query, fragment or credentials"
 )
 
@@ -51,7 +49,7 @@ func originOfURL(parsedURL *url.URL) string {
 }
 
 // WebAuthnOrigin rend l'origine et le RP ID de WebAuthn. Sans publicUrl, une écoute en boucle locale garde la
-// première utilisation possible sur http://localhost:<port>.
+// première utilisation possible sur http://localhost:<port>. Une adresse IP ne peut pas servir de RP ID.
 func (loadedConfig Config) WebAuthnOrigin() (origin string, rpID string, available bool) {
 	if loadedConfig.PublicURL == "" {
 		return loopbackListenOrigin(loadedConfig.ListenAddr)
@@ -61,7 +59,8 @@ func (loadedConfig Config) WebAuthnOrigin() (origin string, rpID string, availab
 		return "", "", false
 	}
 	host := parsedURL.Hostname()
-	if parsedURL.Scheme != schemeHTTPS && !isLoopbackHost(host) {
+	isIPAddress := net.ParseIP(host) != nil
+	if isIPAddress || (parsedURL.Scheme != schemeHTTPS && host != localhostName) {
 		return "", "", false
 	}
 	return loadedConfig.PublicURL, host, true
@@ -76,8 +75,4 @@ func loopbackListenOrigin(listenAddr string) (origin string, rpID string, availa
 		return "", "", false
 	}
 	return schemeHTTP + "://" + net.JoinHostPort(localhostName, port), localhostName, true
-}
-
-func isLoopbackHost(host string) bool {
-	return host == localhostName || host == loopbackHostIPv4 || host == loopbackHostIPv6
 }

@@ -91,8 +91,7 @@ func TestWebAuthnOrigin_availableOverHttps(t *testing.T) {
 func TestWebAuthnOrigin_availableOnLocalhostOverHttp(t *testing.T) {
 	testCases := []struct{ publicURL, valeurAttendueOrigin, valeurAttendueRPID string }{
 		{"http://localhost:8787", "http://localhost:8787", "localhost"},
-		{"http://127.0.0.1:9000", "http://127.0.0.1:9000", "127.0.0.1"},
-		{"http://[::1]:9000", "http://[::1]:9000", "::1"},
+		{"https://localhost:8443", "https://localhost:8443", "localhost"},
 	}
 	for _, testCase := range testCases {
 		loadedConfig := Config{ListenAddr: "0.0.0.0:8787", PublicURL: testCase.publicURL}
@@ -101,6 +100,18 @@ func TestWebAuthnOrigin_availableOnLocalhostOverHttp(t *testing.T) {
 
 		if !available || origin != testCase.valeurAttendueOrigin || rpID != testCase.valeurAttendueRPID {
 			t.Fatalf("%s: valeurObtenue (%q, %q, %v)", testCase.publicURL, origin, rpID, available)
+		}
+	}
+}
+
+func TestWebAuthnOrigin_unavailableWhenTheHostIsAnIPAddress(t *testing.T) {
+	for _, publicURL := range []string{"http://127.0.0.1:9000", "http://[::1]:9000", "https://192.0.2.1", "https://[2001:db8::1]:8443"} {
+		loadedConfig := Config{ListenAddr: "127.0.0.1:8787", PublicURL: publicURL}
+
+		origin, rpID, available := loadedConfig.WebAuthnOrigin()
+
+		if available || origin != "" || rpID != "" {
+			t.Fatalf("%s: valeurObtenue (%q, %q, %v), valeurAttendue unavailable, an IP address cannot be an RP ID", publicURL, origin, rpID, available)
 		}
 	}
 }

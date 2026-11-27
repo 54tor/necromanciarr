@@ -344,11 +344,11 @@ func (*fakeService) FinishWebAuthnRegistration(context.Context, string, []byte, 
 	return errAccountNotFaked
 }
 
-func (*fakeService) BeginWebAuthnLogin(context.Context) (app.WebAuthnCeremony, error) {
+func (*fakeService) BeginWebAuthnLogin(context.Context, string) (app.WebAuthnCeremony, error) {
 	return app.WebAuthnCeremony{}, errAccountNotFaked
 }
 
-func (*fakeService) FinishWebAuthnLogin(context.Context, []byte, io.Reader, app.ClientInfo) (app.SessionGrant, error) {
+func (*fakeService) FinishWebAuthnLogin(context.Context, string, []byte, io.Reader, app.ClientInfo) (app.SessionGrant, error) {
 	return app.SessionGrant{}, errAccountNotFaked
 }
 
