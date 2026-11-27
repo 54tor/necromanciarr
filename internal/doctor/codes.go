@@ -22,6 +22,8 @@ const (
 	CodeAuthTokenOK = "auth_token_set"
 	// CodeAuthPublicURLMissing : écoute hors boucle locale sans publicUrl en https.
 	CodeAuthPublicURLMissing = "auth_public_url_missing"
+	// CodeAuthPublicURLUnusable : publicUrl en https dont l'hôte ne peut pas servir de RP ID WebAuthn (adresse IP).
+	CodeAuthPublicURLUnusable = "auth_public_url_unusable"
 
 	CodeNoLibraryRoot  = "no_library_root"
 	CodeRootNotFound   = "root_not_found"

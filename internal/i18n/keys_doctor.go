@@ -38,6 +38,8 @@ const (
 	KeyDoctorAuthToken                     Key = "doctor.auth.token"
 	KeyDoctorAuthPublicURLMissing          Key = "doctor.auth.public_url_missing"
 	KeyDoctorAuthPublicURLMissingHint      Key = "doctor.auth.public_url_missing.hint"
+	KeyDoctorAuthPublicURLUnusable         Key = "doctor.auth.public_url_unusable"
+	KeyDoctorAuthPublicURLUnusableHint     Key = "doctor.auth.public_url_unusable.hint"
 	KeyDoctorRootsNone                     Key = "doctor.roots.none"
 	KeyDoctorRootsNoneHint                 Key = "doctor.roots.none.hint"
 	KeyDoctorRootNotFound                  Key = "doctor.roots.not_found"
@@ -184,7 +186,7 @@ var doctorKeys = []Key{
 	KeyDoctorConfigDirMissing, KeyDoctorConfigDirMissingHint, KeyDoctorDatabaseDirUnresolved,
 	KeyDoctorDatabaseDirUnresolvedHint, KeyDoctorDatabaseInLibrary, KeyDoctorDatabaseInLibraryHint,
 	KeyDoctorDatabaseUnwritable, KeyDoctorDatabaseUnwritableHint, KeyDoctorDatabaseOK, KeyDoctorAuthLoopback,
-	KeyDoctorAuthNoToken, KeyDoctorAuthNoTokenHint, KeyDoctorAuthToken, KeyDoctorAuthPublicURLMissing, KeyDoctorAuthPublicURLMissingHint, KeyDoctorRootsNone, KeyDoctorRootsNoneHint,
+	KeyDoctorAuthNoToken, KeyDoctorAuthNoTokenHint, KeyDoctorAuthToken, KeyDoctorAuthPublicURLMissing, KeyDoctorAuthPublicURLMissingHint, KeyDoctorAuthPublicURLUnusable, KeyDoctorAuthPublicURLUnusableHint, KeyDoctorRootsNone, KeyDoctorRootsNoneHint,
 	KeyDoctorRootNotFound, KeyDoctorRootNotFoundHint, KeyDoctorRootNotDirectory, KeyDoctorRootNotReadable,
 	KeyDoctorRootNotReadableHint, KeyDoctorRootMediaFound, KeyDoctorRootMediaFoundSkipped, KeyDoctorRootNoMedia,
 	KeyDoctorRootNoMediaSkipped, KeyDoctorRootNoMediaHint, KeyDoctorAPINotConfigured, KeyDoctorAPINotConfiguredHint,

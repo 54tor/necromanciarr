@@ -8,6 +8,13 @@ import (
 )
 
 func checkAuth(settings config.Config) Result {
+	if hasHTTPSPublicURL(settings) && !webAuthnAvailable(settings) {
+		return Result{
+			Status: Warn, Code: CodeAuthPublicURLUnusable,
+			Detail: message(i18n.KeyDoctorAuthPublicURLUnusable, "publicUrl", settings.PublicURL),
+			Hint:   message(i18n.KeyDoctorAuthPublicURLUnusableHint),
+		}
+	}
 	if config.IsLoopbackAddress(settings.ListenAddr) {
 		return Result{Status: OK, Code: CodeLoopback, Detail: message(i18n.KeyDoctorAuthLoopback, "address", settings.ListenAddr)}
 	}
@@ -25,6 +32,11 @@ func checkAuth(settings config.Config) Result {
 		}
 	}
 	return Result{Status: OK, Code: CodeAuthTokenOK, Detail: message(i18n.KeyDoctorAuthToken, "address", settings.ListenAddr)}
+}
+
+func webAuthnAvailable(settings config.Config) bool {
+	_, _, available := settings.WebAuthnOrigin()
+	return available
 }
 
 func hasHTTPSPublicURL(settings config.Config) bool {

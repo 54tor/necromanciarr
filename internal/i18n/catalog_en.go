@@ -212,6 +212,8 @@ var english = map[Key]string{
 	KeyDoctorAuthToken:                      "listening on {address} with an auth token",
 	KeyDoctorAuthPublicURLMissing:           "the session cookie will not be marked Secure and WebAuthn is disabled: listening on {address} without an https publicUrl",
 	KeyDoctorAuthPublicURLMissingHint:       "set publicUrl to the https address users reach, for example https://necromanciarr.example.com",
+	KeyDoctorAuthPublicURLUnusable:          "security keys and passkeys are unavailable for this address: {publicUrl} is not a host name",
+	KeyDoctorAuthPublicURLUnusableHint:      "set publicUrl to the https host name users reach, for example https://necromanciarr.example.com",
 	KeyDoctorRootsNone:                      "no library root configured",
 	KeyDoctorRootsNoneHint:                  "set libraryRoots: Configuration page or necromanciarr config set libraryRoots",
 	KeyDoctorRootNotFound:                   "{root}: not found or not accessible",

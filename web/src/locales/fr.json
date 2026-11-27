@@ -108,6 +108,7 @@
       "no_auth_token": "Aucun jeton d’accès",
       "auth_token_set": "Jeton d’accès défini",
       "auth_public_url_missing": "Adresse publique HTTPS absente",
+      "auth_public_url_unusable": "Adresse publique HTTPS inutilisable",
       "no_library_root": "Aucune racine de bibliothèque",
       "root_not_found": "Racine introuvable",
       "root_not_directory": "Racine qui n’est pas un dossier",

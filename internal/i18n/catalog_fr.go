@@ -212,6 +212,8 @@ var french = map[Key]string{
 	KeyDoctorAuthToken:                      "écoute sur {address} avec un jeton d'authentification",
 	KeyDoctorAuthPublicURLMissing:           "le cookie de session ne sera pas marqué Secure et WebAuthn est désactivé : écoute sur {address} sans publicUrl en https",
 	KeyDoctorAuthPublicURLMissingHint:       "régler publicUrl sur l'adresse https que les utilisateurs atteignent (https://necromanciarr.example.com)",
+	KeyDoctorAuthPublicURLUnusable:          "les clés de sécurité et les clés d'accès sont indisponibles pour cette adresse : {publicUrl} n'est pas un nom d'hôte",
+	KeyDoctorAuthPublicURLUnusableHint:      "régler publicUrl sur le nom d'hôte https que les utilisateurs atteignent (https://necromanciarr.example.com)",
 	KeyDoctorRootsNone:                      "aucune racine de bibliothèque configurée",
 	KeyDoctorRootsNoneHint:                  "définir libraryRoots : page Configuration ou necromanciarr config set libraryRoots",
 	KeyDoctorRootNotFound:                   "{root} : introuvable ou inaccessible",

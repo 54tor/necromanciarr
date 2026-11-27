@@ -67,3 +67,30 @@ func TestAuthCheck_runsFromBuildWithZeroValueDeps(t *testing.T) {
 	}
 	t.Fatal("no check with id auth")
 }
+
+func TestAuthCheck_warnsWhenThePublicUrlIsAnIpAddress(t *testing.T) {
+	got := checkAuth(config.Config{ListenAddr: "0.0.0.0:8787", AuthToken: "t", PublicURL: "https://203.0.113.7"})
+
+	if got.Status != Warn || got.Code != CodeAuthPublicURLUnusable {
+		t.Fatalf("valeurObtenue %v %q, valeurAttendue warn %q", got.Status, got.Code, CodeAuthPublicURLUnusable)
+	}
+	if !strings.Contains(hintOf(got), "publicUrl") {
+		t.Fatalf("valeurObtenue hint %q, valeurAttendue a hint naming publicUrl", hintOf(got))
+	}
+}
+
+func TestAuthCheck_staysOkForAnHttpsHostName(t *testing.T) {
+	got := checkAuth(config.Config{ListenAddr: "0.0.0.0:8787", AuthToken: "t", PublicURL: "https://necro.example.com"})
+
+	if got.Status != OK || got.Code != CodeAuthTokenOK {
+		t.Fatalf("valeurObtenue %v %q, valeurAttendue ok %q", got.Status, got.Code, CodeAuthTokenOK)
+	}
+}
+
+func TestAuthCheck_staysQuietOnLoopbackWithoutPublicUrl(t *testing.T) {
+	got := checkAuth(config.Config{ListenAddr: "127.0.0.1:8787"})
+
+	if got.Status != OK || got.Code != CodeLoopback {
+		t.Fatalf("valeurObtenue %v %q, valeurAttendue ok %q", got.Status, got.Code, CodeLoopback)
+	}
+}
