@@ -177,6 +177,10 @@ func (fake *fakeService) TestCandidate(_ context.Context, candidate app.SetupCan
 	return app.SetupTestResult{Status: doctor.Fail, Code: "arr_key_rejected", Detail: "key rejected"}, err
 }
 
+func (fake *fakeService) ApplyFix(_ context.Context, fixID, target string) error {
+	return fake.record("ApplyFix", fixID+" "+target)
+}
+
 func (fake *fakeService) ListVolumes(context.Context) ([]app.VolumeRow, error) {
 	return fake.volumeRows, fake.record("ListVolumes")
 }

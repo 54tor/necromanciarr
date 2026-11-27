@@ -100,6 +100,42 @@ describe('OnboardingView', () => {
     expect(wrapper.get('[data-row-key="config"]').text()).toContain('Configuration valide.')
   })
 
+  it('OnboardingView_offersCreateFolderOnAFailingCheckWithAFixAndRerunsItAfterSuccess', async () => {
+    const failingLinks = {
+      id: 'links',
+      code: 'link_dir_unresolved',
+      title: 'Liens',
+      status: 'fail' as const,
+      detail: 'Dossier introuvable.',
+      fixId: 'create_link_dir',
+      fixTarget: '/home/bob/links',
+      durationMs: 2,
+    }
+    const calls = installFakeApi({
+      'POST /api/doctor/run': { worst: 'fail', checks: [failingLinks] },
+      'GET /api/status': busyStatus,
+      'POST /api/setup/fix/{fixId}': {},
+      'POST /api/doctor/checks/{checkId}': {
+        worst: 'ok',
+        checks: [{ ...failingLinks, status: 'ok', fixId: undefined, fixTarget: undefined }],
+      },
+    })
+    const wrapper = mount(OnboardingView)
+    await flushPromises()
+
+    const createButton = wrapper
+      .findAll('[data-row-key="links"] button')
+      .find((button) => button.text() === 'Créer le dossier')
+    expect(createButton).toBeDefined()
+    await createButton!.trigger('click')
+    await flushPromises()
+
+    const fixCall = calls.find((call) => call.path === '/api/setup/fix/create_link_dir')
+    expect(fixCall?.body).toEqual({ target: '/home/bob/links' })
+    expect(calls.some((call) => call.path === '/api/doctor/checks/links')).toBe(true)
+    expect(wrapper.get('[data-row-key="links"]').text()).not.toContain('Créer le dossier')
+  })
+
   it('OnboardingView_showsServerRenderedDetailWithoutRetranslating', async () => {
     const detail = 'Connection refused by 127.0.0.1:8080 (rendu serveur)'
     const hint = 'Check the client address.'

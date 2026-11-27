@@ -162,6 +162,12 @@
     "mutating": false
   },
   {
+    "method": "POST",
+    "path": "/api/setup/fix/{fixId}",
+    "action": "",
+    "mutating": false
+  },
+  {
     "method": "GET",
     "path": "/api/jobs",
     "action": "",

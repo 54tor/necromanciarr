@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -66,6 +67,9 @@ func checkLinkFeasibility(settings config.Config, deps Deps) Result {
 		if _, resolveErr := canonicalThrough(registry, directory); resolveErr != nil {
 			collected.add(Fail, CodeLinkDirUnresolved, message(i18n.KeyDoctorLinkDirUnresolved, "dir", directory),
 				message(i18n.KeyDoctorLinkDirUnresolvedHint))
+			if isCreatableLinkDir(directory, settings.LibraryRoots, resolveErr) {
+				collected.offerFix(FixCreateLinkDir, directory)
+			}
 			continue
 		}
 		if root, inside := insideLibraryRoot(registry, directory, settings.LibraryRoots); inside {
@@ -83,6 +87,14 @@ func checkLinkFeasibility(settings config.Config, deps Deps) Result {
 	addVolumeAliasFindings(&collected, settings)
 	addMountRootFinding(context.Background(), &collected, registry, settings)
 	return collected.result()
+}
+
+// isCreatableLinkDir : dossier local absent et hors des racines de bibliothèque, seul cas où « Créer le dossier » a un sens.
+func isCreatableLinkDir(directory string, libraryRoots []string, resolveErr error) bool {
+	if !errors.Is(resolveErr, fs.ErrNotExist) || !filepath.IsAbs(directory) {
+		return false
+	}
+	return !slices.ContainsFunc(libraryRoots, func(root string) bool { return config.PathsOverlap(directory, root) })
 }
 
 // probeDirectory crée puis supprime les entrées d'essai de linker.Probe dans directory, et nulle part ailleurs.

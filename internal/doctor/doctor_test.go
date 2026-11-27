@@ -745,3 +745,26 @@ func TestChecks_qbittorrentShowsTheSeedCategoryAndTags(t *testing.T) {
 		t.Fatalf("gotValue %+v, expectedValue a detail containing %q", gotValue, expectedValue)
 	}
 }
+
+func TestChecks_linkFeasibilityOffersCreateLinkDirFixForAMissingLocalDirectory(t *testing.T) {
+	missingDirectory := filepath.Join(t.TempDir(), "links")
+	deps := Deps{}.withDefaults()
+
+	valeurObtenue := checkLinkFeasibility(config.Config{LinkDirs: []string{missingDirectory}, LinkType: "hardlink"}, deps)
+
+	if valeurObtenue.FixID != FixCreateLinkDir || valeurObtenue.FixTarget != missingDirectory {
+		t.Fatalf("valeurObtenue %q %q, valeurAttendue %q %q", valeurObtenue.FixID, valeurObtenue.FixTarget, FixCreateLinkDir, missingDirectory)
+	}
+}
+
+func TestChecks_linkFeasibilityOffersNoFixForAMissingDirectoryUnderALibraryRoot(t *testing.T) {
+	libraryRoot := t.TempDir()
+	deps := Deps{}.withDefaults()
+	settings := config.Config{LibraryRoots: []string{libraryRoot}, LinkDirs: []string{filepath.Join(libraryRoot, "links")}, LinkType: "hardlink"}
+
+	valeurObtenue := checkLinkFeasibility(settings, deps)
+
+	if valeurObtenue.FixID != "" {
+		t.Fatalf("valeurObtenue %q, valeurAttendue no fix", valeurObtenue.FixID)
+	}
+}

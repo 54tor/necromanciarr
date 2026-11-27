@@ -88,6 +88,8 @@ export const api = {
   volumeCommands: (name: string) =>
     request<VolumeCommands>('GET', `/api/volumes/${encodeURIComponent(name)}/commands`),
   testCandidate: (candidate: SetupCandidate) => post<SetupTestResult>('/api/setup/test', candidate),
+  applyFix: (fixId: string, target: string) =>
+    post<Record<string, never>>(`/api/setup/fix/${encodeURIComponent(fixId)}`, { target }),
   getConfig: () => request<ConfigSnapshot>('GET', '/api/config'),
   putConfigSetting: (key: string, value: unknown) =>
     request<ConfigSnapshot>('PUT', `/api/config/settings/${encoded(key)}`, { value }),

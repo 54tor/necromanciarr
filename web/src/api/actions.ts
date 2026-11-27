@@ -76,6 +76,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
     mutating: true,
   },
   { method: 'POST', path: '/api/setup/test', action: '', mutating: false },
+  { method: 'POST', path: '/api/setup/fix/{fixId}', action: '', mutating: false },
   { method: 'GET', path: '/api/jobs', action: '', mutating: false },
   { method: 'GET', path: '/api/jobs/{id}', action: '', mutating: false },
 ]

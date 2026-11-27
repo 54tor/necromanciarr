@@ -38,3 +38,27 @@ func TestSetupTestRoute_refusesCrossSiteAndGet(t *testing.T) {
 		t.Fatalf("valeurObtenue %d and %d, valeurAttendue 403 and 405", refused.Code, byGet.Code)
 	}
 }
+
+func TestSetupFixRoute_forwardsFixIDAndTargetToTheService(t *testing.T) {
+	fake := &fakeService{}
+	handler := newTestHandler(t, fake, loopbackSettings())
+
+	answered := serve(handler, apiRequest(http.MethodPost, "/api/setup/fix/create_link_dir", `{"target":"/home/bob/links"}`))
+
+	if answered.Code != http.StatusOK || !fake.called("ApplyFix create_link_dir /home/bob/links") {
+		t.Fatalf("valeurObtenue %d calls %v, valeurAttendue 200 and ApplyFix with the target", answered.Code, fake.calls)
+	}
+}
+
+func TestSetupFixRoute_refusesCrossSiteAndGet(t *testing.T) {
+	handler := newTestHandler(t, &fakeService{}, loopbackSettings())
+	crossSite := apiRequest(http.MethodPost, "/api/setup/fix/create_link_dir", `{}`)
+	crossSite.Header.Del("X-Requested-With")
+
+	refused := serve(handler, crossSite)
+	byGet := serve(handler, apiRequest(http.MethodGet, "/api/setup/fix/create_link_dir", ""))
+
+	if refused.Code != http.StatusForbidden || byGet.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("valeurObtenue %d and %d, valeurAttendue 403 and 405", refused.Code, byGet.Code)
+	}
+}

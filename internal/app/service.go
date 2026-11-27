@@ -85,6 +85,9 @@ type Service interface {
 	// TestCandidate teste une valeur saisie (radarr, sonarr, qbittorrent) avant son enregistrement ; une valeur invalide
 	// est une erreur d'usage, sans requête sortante.
 	TestCandidate(ctx context.Context, candidate SetupCandidate) (SetupTestResult, error)
+	// ApplyFix applique un correctif en un clic proposé par le diagnostic ; une cible hors de la configuration est une
+	// erreur d'usage, sans rien créer.
+	ApplyFix(ctx context.Context, fixID string, target string) error
 	// DedupePlan reprend les remplacements interrompus puis propose de remplacer, côté torrent, les copies de fichiers
 	// de la bibliothèque par des liens (propositions en attente, jamais appliquées d'office).
 	DedupePlan(ctx context.Context) ([]DedupeProposal, error)

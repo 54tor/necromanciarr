@@ -169,10 +169,19 @@ func redactingRun(run func(context.Context) Result, secrets []string) func(conte
 // findings rassemble les constats d'un contrôle qui examine plusieurs éléments ; le statut est le pire constaté et le
 // code celui du premier constat de ce statut.
 type findings struct {
-	status  Status
-	code    string
-	details []i18n.Message
-	hints   []i18n.Message
+	status    Status
+	code      string
+	details   []i18n.Message
+	hints     []i18n.Message
+	fixID     string
+	fixTarget string
+}
+
+// offerFix garde le premier correctif proposé.
+func (collected *findings) offerFix(fixID, target string) {
+	if collected.fixID == "" {
+		collected.fixID, collected.fixTarget = fixID, target
+	}
 }
 
 func (collected *findings) add(status Status, code string, detail, hint i18n.Message) {
@@ -190,7 +199,8 @@ func (collected *findings) result() Result {
 	if code == "" {
 		code = CodeOK
 	}
-	return Result{Status: collected.status, Code: code, Details: collected.details, Hints: collected.hints}
+	return Result{Status: collected.status, Code: code, Details: collected.details, Hints: collected.hints,
+		FixID: collected.fixID, FixTarget: collected.fixTarget}
 }
 
 // checkConfig rend l'état de la configuration.

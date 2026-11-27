@@ -234,6 +234,9 @@ export interface DoctorCheck {
   code: string
   detail: string
   hint?: string
+  /** Correctif en un clic proposé par le serveur (`create_link_dir`), appliqué à `fixTarget`. */
+  fixId?: string
+  fixTarget?: string
   durationMs: number
 }
 

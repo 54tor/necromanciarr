@@ -54,6 +54,7 @@ var apiRoutes = []route{
 	{http.MethodDelete, "/api/config/lists/{list}/{itemId}", "config item-delete", "", deleteItem},
 	{http.MethodPost, "/api/config/lists/{list}/{itemId}/unset", "config item-unset", "", unsetItem},
 	{http.MethodPost, "/api/setup/test", "", "test a value typed in the first-launch wizard before it is saved", testSetupCandidate},
+	{http.MethodPost, "/api/setup/fix/{fixId}", "", "apply a one-click fix offered by the doctor, such as creating a missing link folder", applySetupFix},
 	{http.MethodGet, "/api/jobs", "", "follow the long actions started by the action routes", listJobs},
 	{http.MethodGet, "/api/jobs/{id}", "", "follow one long action started by an action route", getJob},
 }
@@ -400,6 +401,17 @@ func testSetupCandidate(handler *Handler, request *http.Request) (any, int, erro
 	}
 	result, err := handler.service.TestCandidate(request.Context(), candidate)
 	return result, http.StatusOK, err
+}
+
+func applySetupFix(handler *Handler, request *http.Request) (any, int, error) {
+	var body struct {
+		Target string `json:"target"`
+	}
+	if err := decodeBody(request, &body); err != nil {
+		return nil, 0, err
+	}
+	err := handler.service.ApplyFix(request.Context(), request.PathValue("fixId"), body.Target)
+	return struct{}{}, http.StatusOK, err
 }
 
 func listSources(handler *Handler, request *http.Request) (any, int, error) {

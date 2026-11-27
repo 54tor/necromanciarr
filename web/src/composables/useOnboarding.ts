@@ -1,7 +1,8 @@
 import { computed, ref } from 'vue'
+import { toast } from 'vue-sonner'
 import { api } from '@/api/endpoints'
 import type { DoctorCheck, DoctorReport, DoctorStatus, Status } from '@/api/types'
-import { setLanguage } from '@/i18n'
+import { setLanguage, t } from '@/i18n'
 import { onboardingSkipped } from '@/state/session'
 import { useApi } from './useApi'
 
@@ -56,6 +57,15 @@ export function useOnboarding() {
     checks.value = checks.value.map((check) => fresh.get(check.id) ?? check)
   }
 
+  async function applyFix(check: DoctorCheck): Promise<void> {
+    if (!check.fixId || !check.fixTarget) return
+    const fixTarget = check.fixTarget
+    const applied = await call(() => api.applyFix(check.fixId!, fixTarget))
+    if (applied === undefined) return
+    toast.success(t('onboarding.fix.created', { target: fixTarget }))
+    await rerunCheck(check.id)
+  }
+
   async function refreshStatus(): Promise<void> {
     const currentStatus = await call(() => api.status())
     if (currentStatus) applyStatus(currentStatus)
@@ -74,6 +84,7 @@ export function useOnboarding() {
     pending,
     loadAll,
     rerunCheck,
+    applyFix,
     refreshStatus,
     skip,
   }

@@ -66,6 +66,9 @@ func (status Status) severity() int {
 	}
 }
 
+// FixCreateLinkDir : correctif proposé par le contrôle des dossiers de liens quand un dossier est absent.
+const FixCreateLinkDir = "create_link_dir"
+
 // Result est le constat d'un contrôle. Code est stable et jamais traduit ; Detail et Hint sont des messages rendus à
 // l'affichage (Hint.Key vide : aucun conseil). Un contrôle qui examine plusieurs éléments remplit Details et Hints,
 // rendus joints par « ; » ; Code est alors celui du pire constat.
@@ -76,6 +79,9 @@ type Result struct {
 	Hint    i18n.Message
 	Details []i18n.Message
 	Hints   []i18n.Message
+	// FixID et FixTarget proposent un correctif en un clic (FixID vide : aucun) ; FixTarget est la cible à corriger.
+	FixID     string
+	FixTarget string
 }
 
 // Check est un contrôle nommé par un identifiant stable ; son titre est une clé du catalogue.
@@ -109,6 +115,8 @@ type NamedResult struct {
 	Code                 string `json:"code"`
 	Detail               string `json:"detail"`
 	Hint                 string `json:"hint,omitempty"`
+	FixID                string `json:"fixId,omitempty"`
+	FixTarget            string `json:"fixTarget,omitempty"`
 	DurationMilliseconds int64  `json:"durationMs"`
 }
 
@@ -207,7 +215,7 @@ func Render(report Report, translator i18n.Translator) RenderedReport {
 		rendered.Checks = append(rendered.Checks, NamedResult{
 			ID: outcome.ID, Title: translator.Text(outcome.TitleKey, outcome.TitleParams), Status: result.Status, Code: result.Code,
 			Detail: joinMessages(translator, result.Detail, result.Details), Hint: joinMessages(translator, result.Hint, result.Hints),
-			DurationMilliseconds: outcome.DurationMilliseconds,
+			FixID: result.FixID, FixTarget: result.FixTarget, DurationMilliseconds: outcome.DurationMilliseconds,
 		})
 	}
 	return rendered

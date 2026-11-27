@@ -13,8 +13,18 @@ import type { DataColumn } from '@/lib/dataTable'
 import { warningText } from '@/lib/warnings'
 import { navigate } from '@/router'
 
-const { checks, status, worst, firstLaunch, pending, loadAll, rerunCheck, refreshStatus, skip } =
-  useOnboarding()
+const {
+  checks,
+  status,
+  worst,
+  firstLaunch,
+  pending,
+  loadAll,
+  rerunCheck,
+  applyFix,
+  refreshStatus,
+  skip,
+} = useOnboarding()
 
 onMounted(() => {
   if (checks.value.length === 0) void loadAll()
@@ -25,6 +35,7 @@ function skipOnboarding(): void {
   navigate('/propositions')
 }
 
+const CREATE_LINK_DIR_FIX = 'create_link_dir'
 const PILL_TONES = { ok: 'ok', warn: 'warn', fail: 'fail', skipped: 'muted' } as const
 const EMPTY_CELL = '—'
 
@@ -148,6 +159,14 @@ function checkKey(check: DoctorCheck): string {
       empty-key="onboarding.noChecks"
     >
       <template #row-actions="{ row }">
+        <Button
+          v-if="row.fixId === CREATE_LINK_DIR_FIX && row.status === 'fail'"
+          size="sm"
+          :disabled="pending"
+          @click="applyFix(row)"
+        >
+          {{ t('onboarding.fix.createLinkDir') }}
+        </Button>
         <Button
           size="sm"
           variant="outline"

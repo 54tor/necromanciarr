@@ -251,6 +251,10 @@
       "hint": "Conseil",
       "duration": "Durée"
     },
+    "fix": {
+      "createLinkDir": "Créer le dossier",
+      "created": "Dossier créé : {target}"
+    },
     "rerun": "Relancer",
     "rerunCheck": "Relancer le contrôle : {title}",
     "durationMs": "{ms} ms",

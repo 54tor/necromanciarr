@@ -251,6 +251,10 @@
       "hint": "Hint",
       "duration": "Duration"
     },
+    "fix": {
+      "createLinkDir": "Create the folder",
+      "created": "Folder created: {target}"
+    },
     "rerun": "Rerun",
     "rerunCheck": "Rerun check: {title}",
     "durationMs": "{ms} ms",

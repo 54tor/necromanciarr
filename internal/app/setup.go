@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"necromanciarr/internal/config"
@@ -79,4 +82,49 @@ func validateCandidate(candidate SetupCandidate) error {
 		return fmt.Errorf("%w: %s: invalid url (expected http(s)://host[:port])", config.ErrUsage, candidate.Kind)
 	}
 	return nil
+}
+
+const linkDirPermissions = 0o750
+
+// ApplyFix crée un dossier de liens absent, et seulement si la cible est un dossier de liens configuré hors de toute
+// racine de bibliothèque.
+func (svc *service) ApplyFix(_ context.Context, fixID string, target string) error {
+	if fixID != doctor.FixCreateLinkDir {
+		return fmt.Errorf("%w: unknown fix %q (valid: %s)", config.ErrUsage, fixID, doctor.FixCreateLinkDir)
+	}
+	if !slices.ContainsFunc(svc.deps.Config.LinkDirs, func(linkDir string) bool { return sameCleanPath(linkDir, target) }) {
+		return fmt.Errorf("%w: the target is not a configured link directory", config.ErrUsage)
+	}
+	if svc.isUnderLibraryRoot(target) {
+		return fmt.Errorf("%w: the target is inside a library root", config.ErrUsage)
+	}
+	return os.MkdirAll(target, linkDirPermissions)
+}
+
+func sameCleanPath(first, second string) bool {
+	return filepath.IsAbs(first) && filepath.Clean(first) == filepath.Clean(second)
+}
+
+func (svc *service) isUnderLibraryRoot(target string) bool {
+	resolvedTarget := resolveThroughExistingAncestor(target)
+	return slices.ContainsFunc(svc.deps.Config.LibraryRoots, func(root string) bool {
+		return config.PathsOverlap(target, root) || config.PathsOverlap(resolvedTarget, resolveThroughExistingAncestor(root))
+	})
+}
+
+// resolveThroughExistingAncestor suit les liens symboliques du plus proche ancêtre existant, puis rajoute la
+// partie absente : c'est là que MkdirAll écrirait.
+func resolveThroughExistingAncestor(path string) string {
+	cleaned := filepath.Clean(path)
+	missingParts := []string{}
+	for existing := cleaned; ; existing = filepath.Dir(existing) {
+		resolved, err := filepath.EvalSymlinks(existing)
+		if err == nil {
+			return filepath.Join(append([]string{resolved}, missingParts...)...)
+		}
+		if filepath.Dir(existing) == existing {
+			return cleaned
+		}
+		missingParts = append([]string{filepath.Base(existing)}, missingParts...)
+	}
 }
