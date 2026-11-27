@@ -8,6 +8,7 @@ export interface AppRoute {
 
 /** Pages de l'application, dans l'ordre d'affichage. */
 export const ROUTES: readonly AppRoute[] = [
+  { path: '/assistant', navKey: 'assistant' },
   { path: '/demarrage', navKey: 'demarrage' },
   { path: '/propositions', navKey: 'propositions' },
   { path: '/deduplication', navKey: 'deduplication' },

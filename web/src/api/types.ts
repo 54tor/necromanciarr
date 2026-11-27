@@ -242,6 +242,23 @@ export interface DoctorReport {
   worst: DoctorStatus
 }
 
+/** Valeur saisie dans l'assistant, testée avant d'être enregistrée. */
+export interface SetupCandidate {
+  kind: 'radarr' | 'sonarr' | 'qbittorrent'
+  url: string
+  apiKey: string
+  username: string
+  password: string
+}
+
+/** Verdict de `POST /api/setup/test` ; détail et conseil sont déjà rendus dans la langue du serveur. */
+export interface SetupTestResult {
+  status: DoctorStatus
+  code: string
+  detail: string
+  hint?: string
+}
+
 export interface ApiErrorBody {
   code: string
   message: string

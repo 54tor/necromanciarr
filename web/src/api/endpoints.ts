@@ -10,6 +10,8 @@ import type {
   LinkPage,
   Proposal,
   ProposalFilters,
+  SetupCandidate,
+  SetupTestResult,
   SourceRow,
   SourceTestResult,
   VolumeCommands,
@@ -85,6 +87,7 @@ export const api = {
     post<VolumeProbeResult>(`/api/volumes/${encodeURIComponent(name)}/probe`, {}),
   volumeCommands: (name: string) =>
     request<VolumeCommands>('GET', `/api/volumes/${encodeURIComponent(name)}/commands`),
+  testCandidate: (candidate: SetupCandidate) => post<SetupTestResult>('/api/setup/test', candidate),
   getConfig: () => request<ConfigSnapshot>('GET', '/api/config'),
   putConfigSetting: (key: string, value: unknown) =>
     request<ConfigSnapshot>('PUT', `/api/config/settings/${encoded(key)}`, { value }),

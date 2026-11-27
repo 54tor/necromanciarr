@@ -23,7 +23,7 @@ describe('App', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders the product name and the eight tabs', async () => {
+  it('renders the product name and the nine tabs', async () => {
     installFakeApi({
       'POST /api/doctor/run': okReport,
       'GET /api/status': busyStatus,
@@ -36,6 +36,7 @@ describe('App', () => {
 
     expect(wrapper.get('aside img').attributes('alt')).toContain('Necromanciarr')
     expect(gotTabs).toEqual([
+      'Assistant',
       'Démarrage',
       'Propositions',
       'Déduplication',
@@ -59,6 +60,7 @@ describe('App', () => {
     const gotTabs = wrapper.findAll('nav [data-testid="nav-label"]').map((label) => label.text())
 
     expect(gotTabs).toEqual([
+      'Assistant',
       'Getting started',
       'Proposals',
       'Deduplication',

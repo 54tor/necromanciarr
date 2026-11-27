@@ -71,7 +71,7 @@ const DEFAULT_PORTS: Readonly<Record<string, string>> = { http: '80', https: '44
  * endpointId rend l'identifiant que le serveur tire d'une URL (ElementID) : schéma et hôte en minuscules, port sauf
  * celui par défaut du schéma, sans identifiants, chemin ni requête ; vide si l'URL n'a pas d'hôte.
  */
-function endpointId(rawUrl: string): string {
+export function endpointId(rawUrl: string): string {
   const parts = URL_AUTHORITY.exec(rawUrl.trim())
   if (!parts) return ''
   const [, rawScheme = '', authority = ''] = parts

@@ -8,6 +8,7 @@ import {
   ListChecks,
   Rocket,
   SlidersHorizontal,
+  WandSparkles,
 } from '@lucide/vue'
 import { computed, onMounted, ref, watch, type Component } from 'vue'
 import { authToken, loginRequired } from '@/api/client'
@@ -17,6 +18,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import { Toaster } from '@/components/ui/sonner'
 import type { NavItem } from '@/lib/nav'
 import { useOnboarding } from '@/composables/useOnboarding'
+import { useSetup } from '@/composables/useSetup'
 import { ROUTES, currentPath, navigate, useHashRouter } from '@/router'
 import ConfigView from '@/views/ConfigView.vue'
 import DedupeView from '@/views/DedupeView.vue'
@@ -24,10 +26,12 @@ import LinksView from '@/views/LinksView.vue'
 import OnboardingView from '@/views/OnboardingView.vue'
 import ProposalsView from '@/views/ProposalsView.vue'
 import SourcesView from '@/views/SourcesView.vue'
+import SetupView from '@/views/SetupView.vue'
 import StagesView from '@/views/StagesView.vue'
 import VolumesView from '@/views/VolumesView.vue'
 
 const VIEWS: Record<string, Component> = {
+  '/assistant': SetupView,
   '/demarrage': OnboardingView,
   '/propositions': ProposalsView,
   '/deduplication': DedupeView,
@@ -39,6 +43,7 @@ const VIEWS: Record<string, Component> = {
 }
 
 const NAV_ICONS: Record<string, Component> = {
+  '/assistant': WandSparkles,
   '/demarrage': Rocket,
   '/propositions': Inbox,
   '/deduplication': Copy,
@@ -51,6 +56,7 @@ const NAV_ICONS: Record<string, Component> = {
 
 useHashRouter()
 const { needsOnboarding, loadAll, checks, status } = useOnboarding()
+const setup = useSetup()
 const currentView = computed(() => VIEWS[currentPath.value])
 const currentRoute = computed(() => ROUTES.find((route) => route.path === currentPath.value))
 
@@ -74,21 +80,28 @@ const viewKey = ref(0)
 const REDIRECTED_PATHS = ['/propositions', '/deduplication', '/liens']
 
 // Tant qu'un contrôle échoue (ou au premier lancement), toute autre vue ramène à « Démarrage » sauf choix « passer ».
+// Configuration vide : l'assistant passe avant « Démarrage ».
 watch(
-  [currentPath, needsOnboarding],
+  [currentPath, needsOnboarding, setup.needsSetup],
   () => {
-    if (needsOnboarding.value && REDIRECTED_PATHS.includes(currentPath.value))
-      navigate('/demarrage')
+    const isRedirectable = REDIRECTED_PATHS.includes(currentPath.value)
+    if (setup.needsSetup.value && (isRedirectable || currentPath.value === '/demarrage'))
+      navigate('/assistant')
+    else if (needsOnboarding.value && isRedirectable) navigate('/demarrage')
   },
   { immediate: true },
 )
 
-onMounted(loadAll)
+onMounted(() => {
+  void loadAll()
+  void setup.load()
+})
 // Après la saisie du jeton, on recharge le diagnostic qui avait échoué en 401.
 watch(loginRequired, (required) => {
   if (required || !authToken.value) return
   viewKey.value += 1
   void loadAll()
+  void setup.load()
 })
 </script>
 

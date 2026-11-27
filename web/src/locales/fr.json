@@ -2,6 +2,7 @@
   "nav": {
     "logoAlt": "Logo de Necromanciarr",
     "label": "Navigation principale",
+    "assistant": "Assistant",
     "demarrage": "Démarrage",
     "propositions": "Propositions",
     "deduplication": "Déduplication",
@@ -853,5 +854,52 @@
       "target": "Remote rclone et sous-chemin : remote:chemin.",
       "timeout": "Durée : 500ms, 30s, 10m, 2h."
     }
+  },
+  "setup": {
+    "stepOf": "Étape {current} sur {total}",
+    "steps": {
+      "arr": "Radarr ou Sonarr",
+      "torrentClient": "Client qBittorrent",
+      "folders": "Dossiers",
+      "provider": "Fournisseur et trackers"
+    },
+    "fields": {
+      "arrKind": "Service",
+      "arrUrl": "Adresse",
+      "arrApiKey": "Clé d’API",
+      "clientUrl": "Adresse",
+      "clientUsername": "Utilisateur",
+      "clientPassword": "Mot de passe",
+      "libraryRoots": "Racines de la bibliothèque",
+      "linkDir": "Dossier des liens",
+      "libraryApi": "API du fournisseur",
+      "libraryToken": "Jeton du fournisseur",
+      "trackerKey": "Nom du tracker",
+      "trackerAnnounce": "Annonce du tracker"
+    },
+    "help": {
+      "arrKind": "Le service à connecter en premier ; l’autre s’ajoute ensuite dans Configuration.",
+      "arrUrl": "Adresse du service telle que Necromanciarr la joint, par exemple depuis un autre conteneur.",
+      "arrApiKey": "Clé d’API affichée dans les réglages du service, rubrique Général.",
+      "clientUrl": "Adresse de l’interface web de qBittorrent.",
+      "clientUsername": "Laissez vide si l’interface web n’exige pas de connexion.",
+      "clientPassword": "Mot de passe de l’interface web ; il est scellé en base.",
+      "libraryRoots": "Un chemin absolu par ligne, tel que ce processus le voit.",
+      "linkDir": "Dossier où seront créés les liens, sur le même système de fichiers que la bibliothèque.",
+      "libraryApi": "Adresse de l’API de votre fournisseur de bibliothèque.",
+      "libraryToken": "Jeton envoyé au fournisseur, si son API en demande un.",
+      "trackerKey": "Nom du tracker tel que le fournisseur l’écrit.",
+      "trackerAnnounce": "Adresse d’annonce du tracker, avec votre passkey ; une par ligne."
+    },
+    "test": "Tester",
+    "save": "Enregistrer",
+    "finish": "Terminer",
+    "skip": "Passer",
+    "trackerRequired": "Ajoutez au moins un tracker avec son annonce : sans elle, les torrents du fournisseur ne peuvent pas être mis en seed.",
+    "finishedTitle": "Configuration enregistrée",
+    "restartTitle": "Redémarrez Necromanciarr",
+    "restartDocker": "Avec Docker :",
+    "restartBinary": "Avec le binaire, arrêtez le processus puis relancez-le :",
+    "noRestart": "Aucun redémarrage n’est nécessaire."
   }
 }

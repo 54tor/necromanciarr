@@ -3,6 +3,7 @@ import { vi } from 'vitest'
 import { authToken, loginRejected, loginRequired } from '@/api/client'
 import { onboardingState } from '@/composables/useOnboarding'
 import { jobs } from '@/composables/useJobs'
+import { resetSetupState } from '@/composables/useSetup'
 import { onboardingSkipped } from '@/state/session'
 
 export interface FakeCall {
@@ -63,6 +64,7 @@ export function resetAppState(): void {
   onboardingState.status.value = undefined
   onboardingState.loaded.value = false
   jobs.value = []
+  resetSetupState()
   setLanguage('fr')
   window.location.hash = ''
 }

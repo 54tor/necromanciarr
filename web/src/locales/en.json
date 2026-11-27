@@ -2,6 +2,7 @@
   "nav": {
     "logoAlt": "Necromanciarr logo",
     "label": "Main navigation",
+    "assistant": "Assistant",
     "demarrage": "Getting started",
     "propositions": "Proposals",
     "deduplication": "Deduplication",
@@ -853,5 +854,52 @@
       "target": "rclone remote and sub-path: remote:path.",
       "timeout": "Duration: 500ms, 30s, 10m, 2h."
     }
+  },
+  "setup": {
+    "stepOf": "Step {current} of {total}",
+    "steps": {
+      "arr": "Radarr or Sonarr",
+      "torrentClient": "qBittorrent client",
+      "folders": "Folders",
+      "provider": "Provider and trackers"
+    },
+    "fields": {
+      "arrKind": "Service",
+      "arrUrl": "Address",
+      "arrApiKey": "API key",
+      "clientUrl": "Address",
+      "clientUsername": "User",
+      "clientPassword": "Password",
+      "libraryRoots": "Library roots",
+      "linkDir": "Link folder",
+      "libraryApi": "Provider API",
+      "libraryToken": "Provider token",
+      "trackerKey": "Tracker name",
+      "trackerAnnounce": "Tracker announce"
+    },
+    "help": {
+      "arrKind": "The service to connect first; the other one is added later in Configuration.",
+      "arrUrl": "Address of the service as Necromanciarr reaches it, for example from another container.",
+      "arrApiKey": "API key shown in the service settings, General section.",
+      "clientUrl": "Address of the qBittorrent web interface.",
+      "clientUsername": "Leave empty if the web interface needs no login.",
+      "clientPassword": "Web interface password; it is sealed in the database.",
+      "libraryRoots": "One absolute path per line, as this process sees it.",
+      "linkDir": "Folder where links are created, on the same filesystem as the library.",
+      "libraryApi": "Address of your library provider API.",
+      "libraryToken": "Token sent to the provider, if its API requires one.",
+      "trackerKey": "Tracker name as the provider writes it.",
+      "trackerAnnounce": "Tracker announce address, with your passkey; one per line."
+    },
+    "test": "Test",
+    "save": "Save",
+    "finish": "Finish",
+    "skip": "Skip",
+    "trackerRequired": "Add at least one tracker with its announce: without it, provider torrents cannot be seeded.",
+    "finishedTitle": "Configuration saved",
+    "restartTitle": "Restart Necromanciarr",
+    "restartDocker": "With Docker:",
+    "restartBinary": "With the binary, stop the process then start it again:",
+    "noRestart": "No restart is needed."
   }
 }
