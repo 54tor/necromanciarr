@@ -49,6 +49,7 @@ const finished = ref(false)
 const testResult = ref<SetupTestResult>()
 const trackerMissing = ref(false)
 const isPrefilled = ref(false)
+const arrSaved = ref(false)
 const form = reactive<SetupForm>(emptyForm())
 
 /** Exposé pour que les tests remettent l'état partagé à zéro entre deux cas. */
@@ -59,8 +60,16 @@ export function resetSetupState(): void {
   testResult.value = undefined
   trackerMissing.value = false
   isPrefilled.value = false
+  arrSaved.value = false
   setupSkipped.value = false
   Object.assign(form, emptyForm())
+}
+
+function clearSecrets(): void {
+  form.arrApiKey = ''
+  form.clientPassword = ''
+  form.libraryToken = ''
+  form.trackerAnnounce = ''
 }
 
 const TESTED_FIELDS = (): string[] => [
@@ -100,12 +109,28 @@ function prefillFromCrossSeed(): void {
   if (linkDir) form.linkDir = textOf(linkDir.element.path)
 }
 
+const SECRET_FIELD_OF_LIST: Record<string, string> = {
+  radarr: 'apiKey',
+  sonarr: 'apiKey',
+  torrentClients: 'password',
+}
+const SETUP_LISTS = Object.keys(SECRET_FIELD_OF_LIST)
+
 const isConfigEmpty = computed(
+  () => snapshot.value !== undefined && SETUP_LISTS.every((list) => itemsOf(list).length === 0),
+)
+// Le serveur garde la clé d'un secret posé (valeur null) et omet celle d'un secret absent.
+const hasUnsetSecret = computed(() =>
+  SETUP_LISTS.some((list) =>
+    itemsOf(list).some((item) => !(SECRET_FIELD_OF_LIST[list]! in item.element)),
+  ),
+)
+const needsSetup = computed(
   () =>
     snapshot.value !== undefined &&
-    ['radarr', 'sonarr', 'torrentClients'].every((list) => itemsOf(list).length === 0),
+    (isConfigEmpty.value || hasUnsetSecret.value) &&
+    !setupSkipped.value,
 )
-const needsSetup = computed(() => isConfigEmpty.value && !setupSkipped.value)
 const currentStep = computed<SetupStepId>(() => SETUP_STEPS[stepIndex.value] ?? 'provider')
 const restartRequired = computed(() => snapshot.value?.restartRequired === true)
 const isTestPassed = computed(
@@ -221,8 +246,27 @@ export function useSetup() {
     if (!canSave.value) return
     if (!(await SAVERS[currentStep.value]())) return
     testResult.value = undefined
+    clearSecrets()
+    if (currentStep.value === 'arr') arrSaved.value = true
+    else advance()
+  }
+
+  function advance(): void {
     if (stepIndex.value === SETUP_STEPS.length - 1) finished.value = true
     else stepIndex.value += 1
+  }
+
+  function continueAfterArr(): void {
+    arrSaved.value = false
+    advance()
+  }
+
+  function addAnotherArr(): void {
+    form.arrKind = 'radarr'
+    form.arrUrl = ''
+    form.arrApiKey = ''
+    testResult.value = undefined
+    arrSaved.value = false
   }
 
   return {
@@ -234,6 +278,7 @@ export function useSetup() {
     trackerMissing,
     finished,
     restartRequired,
+    arrSaved,
     needsSetup,
     needsTest,
     canSave,
@@ -242,6 +287,9 @@ export function useSetup() {
     testCandidate,
     runTest,
     saveStep,
+    continueAfterArr,
+    addAnotherArr,
+    clearSecrets,
     skip: () => {
       setupSkipped.value = true
     },

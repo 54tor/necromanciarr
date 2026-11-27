@@ -5,6 +5,7 @@ import type { ConfigSnapshot, SetupTestResult } from '@/api/types'
 import { busyStatus, okReport } from '@/test/fixtures'
 import { installFakeApi, resetAppState } from '@/test/fakeApi'
 import { stubViewport } from '@/test/viewport'
+import { useSetup } from '@/composables/useSetup'
 import SetupView from './SetupView.vue'
 
 const emptySnapshot: ConfigSnapshot = {
@@ -86,6 +87,7 @@ describe('SetupView', () => {
     const gotWrite = calls.find((call) => call.method === 'PUT')
     expect(gotWrite?.path).toBe('/api/config/lists/radarr/http%3A%2F%2Fradarr%3A7878')
     expect(gotWrite?.body).toEqual({ element: { url: 'http://radarr:7878', apiKey: 'key' } })
+    await wrapper.get('[data-testid="continue"]').trigger('click')
     expect(wrapper.get('[data-testid="step-indicator"]').text()).toContain('2')
     expect(wrapper.find('[data-testid="field-clientUrl"]').exists()).toBe(true)
   })
@@ -116,6 +118,7 @@ describe('SetupView', () => {
     await flushPromises()
     await wrapper.get('[data-testid="save"]').trigger('click')
     await flushPromises()
+    await wrapper.get('[data-testid="continue"]').trigger('click')
 
     await fill(wrapper, 'field-clientUrl', 'http://qbittorrent:8080')
     await wrapper.get('[data-testid="test"]').trigger('click')
@@ -240,12 +243,144 @@ describe('SetupView', () => {
   })
 })
 
+function importedRadarr(element: Record<string, unknown>): ConfigSnapshot {
+  return {
+    ...emptySnapshot,
+    lists: {
+      radarr: [{ itemId: 'http://radarr:7878', element, origin: 'cross-seed', drift: false }],
+    },
+  }
+}
+
+async function readNeedsSetup(snapshot: ConfigSnapshot, isSkipped = false): Promise<boolean> {
+  installFakeApi({ 'GET /api/config': snapshot })
+  const setup = useSetup()
+  if (isSkipped) setup.skip()
+  await setup.load()
+  return setup.needsSetup.value
+}
+
+describe('needsSetup', () => {
+  beforeEach(() => resetAppState())
+
+  it('needsSetup_isTrueWhenTheConfigurationIsEmpty', async () => {
+    expect(await readNeedsSetup(emptySnapshot)).toBe(true)
+  })
+
+  it('needsSetup_isTrueWhenAnImportedServiceHasNoApiKey', async () => {
+    expect(await readNeedsSetup(importedRadarr({ url: 'http://radarr:7878' }))).toBe(true)
+  })
+
+  it('needsSetup_isTrueWhenATorrentClientHasNoPassword', async () => {
+    const snapshot: ConfigSnapshot = {
+      ...emptySnapshot,
+      lists: {
+        radarr: [
+          {
+            itemId: 'http://radarr:7878',
+            element: { url: 'http://radarr:7878', apiKey: null },
+            origin: 'override',
+            drift: false,
+          },
+        ],
+        torrentClients: [
+          {
+            itemId: 'http://qbittorrent:8080',
+            element: { url: 'http://qbittorrent:8080' },
+            origin: 'cross-seed',
+            drift: false,
+          },
+        ],
+      },
+    }
+    expect(await readNeedsSetup(snapshot)).toBe(true)
+  })
+
+  it('needsSetup_isFalseWhenEverySecretIsSet', async () => {
+    const snapshot = importedRadarr({ url: 'http://radarr:7878', apiKey: null })
+    expect(await readNeedsSetup(snapshot)).toBe(false)
+  })
+
+  it('needsSetup_isFalseOnceSkipped', async () => {
+    expect(await readNeedsSetup(emptySnapshot, true)).toBe(false)
+  })
+})
+
+describe('SetupView secrets and services', () => {
+  beforeEach(() => {
+    resetAppState()
+    stubViewport(1280)
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('SetupView_clearsTheTypedSecretsOnceTheStepIsSaved', async () => {
+    installFakeApi({
+      'GET /api/config': emptySnapshot,
+      'POST /api/setup/test': okTest,
+      'PUT /api/config/lists/radarr/{id}': emptySnapshot,
+    })
+    const wrapper = mount(SetupView)
+    await flushPromises()
+    await fill(wrapper, 'field-arrUrl', 'http://radarr:7878')
+    await fill(wrapper, 'field-arrApiKey', 'key')
+    await wrapper.get('[data-testid="test"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="save"]').trigger('click')
+    await flushPromises()
+
+    expect(useSetup().form.arrApiKey).toBe('')
+  })
+
+  it('SetupView_clearsTheTypedSecretsWhenLeavingTheWizard', async () => {
+    installFakeApi({ 'GET /api/config': emptySnapshot })
+    const wrapper = mount(SetupView)
+    await flushPromises()
+    await fill(wrapper, 'field-arrApiKey', 'key')
+
+    wrapper.unmount()
+
+    expect(useSetup().form.arrApiKey).toBe('')
+  })
+
+  it('SetupView_addAnotherServiceClearsTheFormAndTheSecondSaveWritesItsOwnItem', async () => {
+    const calls = installFakeApi({
+      'GET /api/config': emptySnapshot,
+      'POST /api/setup/test': okTest,
+      'PUT /api/config/lists/{list}/{id}': emptySnapshot,
+    })
+    const wrapper = mount(SetupView)
+    await flushPromises()
+    await fill(wrapper, 'field-arrUrl', 'http://radarr:7878')
+    await wrapper.get('[data-testid="test"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="save"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="add-another"]').trigger('click')
+
+    const gotUrl = (wrapper.get('[data-testid="field-arrUrl"]').element as HTMLInputElement).value
+    expect(gotUrl).toBe('')
+    await fill(wrapper, 'field-arrKind', 'sonarr')
+    await fill(wrapper, 'field-arrUrl', 'http://sonarr:8989')
+    await wrapper.get('[data-testid="test"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="save"]').trigger('click')
+    await flushPromises()
+    const gotPaths = calls.filter((call) => call.method === 'PUT').map((call) => call.path)
+    expect(gotPaths).toEqual([
+      '/api/config/lists/radarr/http%3A%2F%2Fradarr%3A7878',
+      '/api/config/lists/sonarr/http%3A%2F%2Fsonarr%3A8989',
+    ])
+  })
+})
+
 async function goToProviderStep(wrapper: ReturnType<typeof mount>) {
   await fill(wrapper, 'field-arrUrl', 'http://radarr:7878')
   await wrapper.get('[data-testid="test"]').trigger('click')
   await flushPromises()
   await wrapper.get('[data-testid="save"]').trigger('click')
   await flushPromises()
+  await wrapper.get('[data-testid="continue"]').trigger('click')
   await fill(wrapper, 'field-clientUrl', 'http://qbittorrent:8080')
   await wrapper.get('[data-testid="test"]').trigger('click')
   await flushPromises()

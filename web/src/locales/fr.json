@@ -895,6 +895,8 @@
       "trackerKey": "Nom du tracker tel que le fournisseur l’écrit.",
       "trackerAnnounce": "Adresse d’annonce du tracker, avec votre passkey ; une par ligne."
     },
+    "continue": "Continuer",
+    "addAnother": "Ajouter un autre service",
     "test": "Tester",
     "save": "Enregistrer",
     "finish": "Terminer",

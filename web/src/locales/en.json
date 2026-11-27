@@ -895,6 +895,8 @@
       "trackerKey": "Tracker name as the provider writes it.",
       "trackerAnnounce": "Tracker announce address, with your passkey; one per line."
     },
+    "continue": "Continue",
+    "addAnother": "Add another service",
     "test": "Test",
     "save": "Save",
     "finish": "Finish",

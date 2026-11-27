@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import StatusPill from '@/components/StatusPill.vue'
 import { Button } from '@/components/ui/button'
 import { displayDetail, useSetup, type SetupStepId } from '@/composables/useSetup'
@@ -75,6 +75,7 @@ function skipSetup(): void {
 }
 
 onMounted(setup.load)
+onUnmounted(setup.clearSecrets)
 </script>
 
 <template>
@@ -172,7 +173,21 @@ onMounted(setup.load)
         >
           {{ t('setup.test') }}
         </Button>
+        <template v-if="setup.arrSaved.value && setup.currentStep.value === 'arr'">
+          <Button type="button" data-testid="continue" @click="setup.continueAfterArr">
+            {{ t('setup.continue') }}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="add-another"
+            @click="setup.addAnotherArr"
+          >
+            {{ t('setup.addAnother') }}
+          </Button>
+        </template>
         <Button
+          v-else
           type="button"
           data-testid="save"
           :disabled="setup.pending.value || !setup.canSave.value"
