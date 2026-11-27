@@ -66,6 +66,17 @@ linters:
       - path: '^internal/fsys/sftpfs/trust\.go$'
         linters: [forbidigo]
         text: write to disk only through
+      # Amorçage du premier lancement : seul ajout des secrets générés au .env du dossier de configuration de
+      # l'opérateur (ou au .env du dossier courant déjà lu), hors bibliothèque et hors dossiers de liens.
+      - path: '^internal/config/bootstrap\.go$'
+        linters: [forbidigo]
+        text: write to disk only through
+      # Correctif un clic du diagnostic : crée un dossier de liens configuré et absent. Le registre refuserait son
+      # parent, qui contient la bibliothèque ; ApplyFix contrôle lui-même la cible (liste des dossiers de liens, hors
+      # racines de bibliothèque, liens symboliques résolus).
+      - path: '^internal/app/setup\.go$'
+        linters: [forbidigo]
+        text: write to disk only through
       # Tests qui posent leurs fixtures sur le disque, paquet par paquet (liste explicite, jamais internal/**).
       - path: '^(cmd/necromanciarr|internal/(app|config|crossseed|dedupe|doctor|hashsource|library|linker|pipeline|repair|web))/[^/]+_test\.go$'
         linters: [forbidigo]
