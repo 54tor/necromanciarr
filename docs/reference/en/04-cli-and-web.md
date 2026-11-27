@@ -97,7 +97,7 @@ With `--all-accepted`: 3 if a proposal was stale, otherwise 1 if one failed.
 
 ### Authentication
 
-`NECROMANCIARR_AUTH_TOKEN` (at least 32 characters) is the only source of the token: `serve` generates one in the `.env` on first start when it is missing (shown once on stderr); `necromanciarr api-key` draws one to set yourself.
+Without an account, the API opens with a `Bearer` token; with an account, with a session cookie alone (see [02](02-configuration.md#account-and-authentication) and [Account and session](#account-and-session-apiauth)). The lines below describe the token, which also creates the account. `NECROMANCIARR_AUTH_TOKEN` (at least 32 characters) is the only source of the token: `serve` generates one in the `.env` on first start when it is missing (shown once on stderr); `necromanciarr api-key` draws one to set yourself.
 
 | Listening | Token | `Host` check |
 |---|---|---|
@@ -106,12 +106,67 @@ With `--all-accepted`: 3 if a proposal was stale, otherwise 1 if one failed.
 
 - The token is only read from `Authorization: Bearer <token>` (scheme case-insensitive), never from the URL or a cookie. SHA-256 fingerprints compared in constant time. A refused token: 401, `WWW-Authenticate: Bearer`, a log line `api: unauthorized request from <address>`, with no rate limit.
 - A token defined on a loopback listener is required too.
-- `Host` must be the listen address, `localhost`, `127.0.0.1` or `[::1]` on the same port (anti DNS rebinding); otherwise 403 `unknown host header`.
+- As soon as an account exists, the token is refused everywhere (401 `bearer_disabled`); `account reset` reopens it with no restart.
+- `Host` must be the listen address, `localhost`, `127.0.0.1` or `[::1]` on the same port, or the `publicUrl` host when it is set (anti DNS rebinding); otherwise 403 `unknown host header`.
 - `Sec-Fetch-Site: cross-site`: 403 `cross-site request refused`, all methods.
-- `POST`, `PUT`, `DELETE`: `Content-Type: application/json` required, even without a body (415 otherwise); if `Origin` is present it must be the request's own (403 otherwise); without `Origin` and without a configured token, `X-Requested-With: necromanciarr` is required. Body of at most 64 KiB (413), strict JSON: an unknown field or text after the object gives 400 `invalid json body`; an empty body counts as an empty object.
+- `POST`, `PUT`, `PATCH`, `DELETE`: `Content-Type: application/json` required, even without a body (415 otherwise); if `Origin` is present it must be the request's own, or `publicUrl` when it is set (403 otherwise); without `Origin` and without authentication by the `Bearer` token, `X-Requested-With: necromanciarr` is required. Body of at most 64 KiB (413), strict JSON: an unknown field or text after the object gives 400 `invalid json body`; an empty body counts as an empty object.
 - No CORS header is set. Every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin` and a CSP `default-src 'self'` (no inline or external script, style or resource). The API adds `Cache-Control: no-store`.
 - `GET /healthz` is public, with no check: `200 ok` or `503 unavailable` depending on the database's answer (2 s). It returns neither version nor configuration.
 - Server timeouts: headers 10 s, read 30 s, idle 120 s, headers of at most 16 KiB.
+
+### Account and session (`/api/auth`)
+
+These routes carry the operator account (see [02](02-configuration.md#account-and-authentication)). Access: **public** (no token, no session), **token** (the `Bearer` token, to create the account), **session** (session cookie). JSON bodies are strict: an unknown field gives 400 `usage`.
+
+| Method | Path | Access | Body | Response |
+|---|---|---|---|---|
+| GET | `/api/auth/session` | public | | 200 `{state, webauthnAvailable}`; `state` is `no_account`, `logged_out` or `authenticated`; `username` and `secondFactors` (`{keys, passkeys, totp}`) only when `authenticated` |
+| POST | `/api/auth/setup` | token | `{username, password}` | 201 `{state: "authenticated"}` + session cookie; 403 `setup_token_required`, 401 `unauthorized`, 409 `account_exists` |
+| POST | `/api/auth/login` | public | `{username, password}` | 200 `{state: "authenticated"}` + session cookie, or 200 `{state: "second_factor_required", factors, webauthn}` + pre-auth cookie, with no session; `factors` holds `webauthn` and `totp` |
+| POST | `/api/auth/webauthn/login/finish` | public + pre-auth cookie | `{credential}` | 200 `{state: "authenticated"}` + session cookie |
+| POST | `/api/auth/totp/login` | public + pre-auth cookie | `{code}` | same |
+| POST | `/api/auth/passkey/login/begin` | public | `{}` | 200 `{state: "logged_out", webauthn}` + pre-auth cookie |
+| POST | `/api/auth/passkey/login/finish` | public + pre-auth cookie | `{credential}` | 200 `{state: "authenticated"}` + session cookie |
+| POST | `/api/auth/logout` | session | `{}` | 200 `{state: "logged_out"}`, cookie cleared |
+| POST | `/api/auth/logout-all` | session | `{}` | same, every session revoked |
+| POST | `/api/auth/password` | session | `{currentPassword, newPassword}` | 200 `{}`, the other sessions are revoked |
+| GET | `/api/auth/sessions` | session | | 200, array of `{current, createdAt, lastSeenAt, address}` |
+| POST | `/api/auth/webauthn/register/begin` | session | `{password, kind}`; `kind` is `second_factor` or `passkey` | 200 `{webauthn}` |
+| POST | `/api/auth/webauthn/register/finish` | session | `{name, credential}` | 201 `{}` |
+| GET | `/api/auth/webauthn/credentials` | session | | 200, array of `{id, name, kind, createdAt, lastUsedAt}` |
+| PATCH | `/api/auth/webauthn/credentials/{id}` | session | `{name}` | 200 `{}` |
+| DELETE | `/api/auth/webauthn/credentials/{id}` | session | `{password}` | 200 `{}` |
+| POST | `/api/auth/totp/setup/begin` | session | `{password}` | 200 `{otpauthUri, secret, qrPngBase64}` (`qrPngBase64` may be `null`) |
+| POST | `/api/auth/totp/setup/finish` | session | `{code}` | 201 `{}` |
+| DELETE | `/api/auth/totp` | session | `{password}` | 200 `{}` |
+
+A session route without a valid session answers 401 `session_required`. `credential` is the `toJSON()` of the `PublicKeyCredential` the browser returns; `webauthn` carries the `{publicKey: …}` options to hand to it. These routes are not in the action registry: they have no CLI equivalent, apart from `account status` and `account reset`.
+
+Error codes of these routes (body `{"error": {"code", "message"}}`):
+
+| Code | HTTP | Case |
+|---|---|---|
+| `bearer_disabled` | 401 | an `Authorization` header while an account exists |
+| `session_required` | 401 | session cookie missing, unknown or expired |
+| `setup_token_required` | 403 | account creation without a configured `NECROMANCIARR_AUTH_TOKEN` |
+| `account_exists` | 409 | `setup` while an account exists |
+| `invalid_username`, `password_too_short`, `password_too_long` | 400 | username outside 1 to 64 characters, password outside 12 characters and 128 bytes |
+| `invalid_credentials` | 401 | unknown username, wrong password (same answer), or wrong current password |
+| `throttled` | 429 | limiter; `Retry-After` gives the seconds to wait |
+| `step_expired` | 401 | pre-auth or ceremony state missing, expired or already used |
+| `login_ticket_invalid` | 401 | sign-in ticket expired, already used or bound to a changed password |
+| `invalid_assertion` | 401 | key refused (signature, origin, counter, user verification) |
+| `invalid_code` | 401 | wrong or already used TOTP code |
+| `webauthn_unavailable` | 503 | WebAuthn unavailable for `publicUrl` |
+| `totp_unavailable` | 503 | `NECROMANCIARR_SECRET_KEY` missing |
+| `totp_secret_unreadable` | 500 | the stored TOTP secret no longer unseals (sealing key changed) |
+| `credential_not_found` | 404 | unknown key |
+| `invalid_credential_name` | 400 | empty key name, or over 64 characters |
+| `usage` | 400 | field too long (code over 16 bytes, key id over 256 bytes), unknown `kind`, invalid body |
+
+Only these routes set cookies; `necromanciarr-session` (`__Host-necromanciarr-session` over https) lives until the session expires, `necromanciarr-preauth` (`__Secure-necromanciarr-preauth` over https) 5 minutes, and only under `/api/auth`. The session token is only read from the cookie, never from a header or the URL.
+
+For an API client: only 401 `session_required` and 401 `bearer_disabled` mean the session is lost and a new sign-in is needed. Any other 401 (`invalid_credentials`, `invalid_code`, `invalid_assertion`, `step_expired`, `login_ticket_invalid`) is a form error, not a sign-out. A request not authenticated by the `Bearer` token (session cookie, public route) must carry `Origin` or `X-Requested-With: necromanciarr` on a `POST`, `PUT`, `PATCH` or `DELETE`.
 
 ### Routes
 
@@ -162,7 +217,7 @@ Body `{"error": {"code", "message"}}`. The message is that of the recognized typ
 |---|---|---|---|
 | `usage` | 400 (415 content type, 413 body) | 2 | invalid request or value |
 | `confirmation_required` | 400 | 2 | `force` without `confirm` |
-| `unauthorized` | 401 | | missing or wrong token |
+| `unauthorized` | 401 | | missing or wrong token (no account) |
 | `forbidden` | 403 | | `Host`, `Origin`, `Sec-Fetch-Site`, `X-Requested-With` |
 | `not_found` | 404 | 1 | proposal, group, job, route |
 | `method_not_allowed` | 405 | | |
@@ -197,7 +252,7 @@ Vue application embedded in the binary, a single anthracite dark theme, fragment
 - Sources: one row per source in chain order (order, source, type, tracker, state, 24 h queries and downloads against the cap, caps cache, translated last error), unsorted. "Test a source" tests the indexer chosen in the toolbar, the row button the row's one; tests are disabled while one runs, and its translated result is shown afterwards. The provider has no test button. Proposals: the Source column and the Source filter (applied by the server) are always shown.
 - Volumes: one row per volume (volume, type, address, state, capabilities, probe date); each capability is a pill that names the feature and yes or no in text. "Probe" probes the volume chosen in the toolbar, the row button the row's one; probes are disabled while one runs, and its translated result is shown afterwards. The Commands button shows the `volumes commands` lines to copy. The tab badge counts `broken` volumes (`volumes_broken` of `GET /api/status`). `sftp trust` has no counterpart in the interface. Links: the Volume column gives the link's provider, "local" for the local disk.
 - Configuration: the settings, then one section per list and the orphaned overrides. Each value carries its origin (cross-seed, override, addition, default, environment or option, the last two locked); an element in drift carries "Drift". A secret shows as "Set" or "Not set", never its value; in the form, leaving it empty keeps the stored value. "Revert to cross-seed" removes an override, "Delete" on an override restores the cross-seed value, on a cross-seed element hides it, on an addition deletes it, after confirmation. After a write, a banner reminds you to restart `serve`.
-- A dialog asks for the token on a 401; it lives in the tab's memory, never in browser storage. A refused token erases it.
+- With no account, the interface shows the account creation screen and asks for the token; it lives in the tab's memory, never in browser storage, and a refused token erases it. With an account, it shows the sign-in screen (password, then a security key or TOTP code if the account has one; a passkey sign-in button). The Account page (`#/compte`) changes the password, manages security keys and passkeys (add, rename, delete), the TOTP (secret and QR shown once, confirmed by a code) and the sessions ("Sign out", "Sign out everywhere"). A 401 `session_required` goes back to the sign-in; a form error (`invalid_credentials`, `invalid_code`…) stays in the form, and a 429 `throttled` shows the `Retry-After` countdown.
 - The interface redirects to the Assistant while `radarr`, `sonarr` and `torrentClients` are all empty (unless "Skip" is chosen), then to "Getting started" at first launch (no candidate or proposal) or while the diagnostic has a `fail`, unless "Skip" is chosen.
 - Force is only active for a `partial_annex` at the step `seeded_paused_incomplete`, with confirmation; accepting a `partial_pack` goes through a confirmation. `dedupe` and `repair` have a "Dry run" (dry-run) checkbox, checked by default, and a confirmation before really applying all the accepted proposals (outside a dry run). The Deduplication page goes further: "Apply accepted" always opens a window that lists the proposals (the mode, dry run or real, is frozen when it opens); a real replacement, bulk or of a single row, is only sent after typing the word `APPLY` (`APPLIQUER` in French); a single-row dry run starts without confirmation. The bytes to read are shown before any acceptance, the non-applicable rows (ambiguous, isolated copy…) stay listed with a disabled button and their reason.
 - Language of the rendered texts: `language` (`fr` by default, or `en`) sets the language of the texts meant for the operator. Error codes, reasons (`reason`), states, and the names of JSON fields, commands and options stay in English and never change with the language; only the texts change: the `message` of errors (CLI `--json` and API), the CLI's text output and its usage help, the `description` of the action registry. `GET /api/status` carries `language`, which the interface reads before any rendering. An untyped error has a fixed message: "internal error (details in the server log)" on the API side, whose detail goes to the log; the CLI, which has no log, writes "internal error" followed by the detail (in English) in parentheses. The CLI's `error:` and `warning:` prefixes stay in English: they are markers readable by a script. The `doctor` report (CLI `--json` and `POST /api/doctor/…`) carries `id`, `status`, `code` (stable) and `title`, `detail`, `hint` (translated). Proposal warnings (`GET /api/proposals`, `proposals list`, results of `force`, `dedupe plan` and `repair scan`) are objects `{"code", "text"}`: `code` is the message's stable key (`warning.sources_changed`, `warning.application_failed.cross_device`…, `legacy.text` for a line recorded before the catalogue, rendered as is), `text` its rendering in the language. Reasons keep their code in `reason` and `reasons`; the translated label is added alongside: `reason_labels` (`{code: label}`) next to `reasons` in a stage result, `label` next to `reason` in `held` of `status`, in `excluded_files` of a proposal and in the dedupe and repair details; a code without a label is rendered as is. The CLI's text output shows the label in parentheses after the code. The reason codes of `links list` are stable (`link_missing`, `link_target_missing`, `link_inode_diverged`, `link_target_renamed`, `link_not_compared`, `link_replaced`, `link_resized`, `link_target_unreadable`, `link_inspection_failed`); `label` carries their translated label, and the CLI shows `code (label)`. The reasons of a dedupe proposal without replacement (`details.reason`) are `isolated_copy`, `hash_unavailable`, `no_link_kind`, `cross_device`, `link_kind_unsupported`, `link_probe_failed`, `remote_exec_required` and `no_atomic_replace`, with `details.label`; `details.warnings` lists the full keys of the plan's warnings (`warning.dedupe.unreliable_inode`…, `warning.no_client_recheck`; the short value `no_client_recheck` of old lines is still read), whose text is in the proposal's `warnings`; the `maintenance` detail of a proposal (`GET /api/proposals`) carries the same `label`. `warnings` of `status`, of a stage result (cross-seed mode, `warning.crossseed.*`, `warning.multiple_clients`) and of the result of `dedupe apply` and `repair apply` are objects `{"code", "text"}`. The diagnostic's mount provider advice (`advice.mount.*`) is rendered in the language. Lines already recorded before this version keep their original text (`legacy.text`; an old `details.reason` is an English sentence rendered as is).

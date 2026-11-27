@@ -23,7 +23,7 @@ docker compose up -d
 docker compose logs necromanciarr                           # le jeton d'accès s'affiche ici, une seule fois
 ```
 
-Ouvrir `http://127.0.0.1:8787`, saisir le jeton : l'assistant de configuration prend la suite (voir [Configuration](/configuration#premier-demarrage)). Une fois les réglages enregistrés, `docker restart necromanciarr` les applique.
+Ouvrir `http://127.0.0.1:8787` : le premier écran demande le jeton, puis un identifiant et un mot de passe qui créent le compte. Le jeton est ensuite refusé ; l'assistant de configuration prend la suite (voir [Configuration](/configuration#premier-demarrage)). Une fois les réglages enregistrés, `docker restart necromanciarr` les applique.
 
 | Élément | Valeur |
 | --- | --- |
@@ -33,7 +33,7 @@ Ouvrir `http://127.0.0.1:8787`, saisir le jeton : l'assistant de configuration p
 | Port | `8787`, publié sur `127.0.0.1` dans l'exemple |
 | Commande par défaut | `serve` ; toute autre sous-commande la remplace (`docker compose run --rm necromanciarr doctor`) |
 
-L'image écoute sur toutes les interfaces : `serve` exige donc un jeton, qu'il génère au premier démarrage dans `/data/.env`.
+L'image écoute sur toutes les interfaces : `serve` exige donc un jeton, qu'il génère au premier démarrage dans `/data/.env`. Pour un accès distant, placer un proxy HTTPS devant le port et régler `publicUrl` sur son adresse : les clés de sécurité WebAuthn et les cookies `Secure` l'exigent (exemple Caddy dans `docs/reference/05-docker-and-volumes.md` du dépôt).
 
 ## Sans Docker
 

@@ -4,7 +4,7 @@
 necromanciarr <commande> [arguments] [options]
 ```
 
-Les arguments positionnels viennent **avant** les options (`--nom valeur` ou `--nom=valeur`). Une ligne invalide affiche l'usage et sort avec le code 2 ; une erreur d'exécution sort avec le code 1. Les options de [configuration](/configuration) (`--config-dir`, `--listen`, `--language`, …) s'appliquent à toutes les commandes. Chaque action de l'interface web a sa commande.
+Les arguments positionnels viennent **avant** les options (`--nom valeur` ou `--nom=valeur`). Une option de commande n'est reconnue que sous la forme `--nom` : un mot nu ou à un seul tiret (`yes`, `-json`) est refusé avec le code 2, si bien que `account reset yes` ne supprime rien. Une ligne invalide affiche l'usage et sort avec le code 2 ; une erreur d'exécution sort avec le code 1. Les options de [configuration](/configuration) (`--config-dir`, `--listen`, `--language`, …) s'appliquent à toutes les commandes. Chaque action de l'interface web a sa commande.
 
 ## Pipeline
 
@@ -31,6 +31,8 @@ Rien n'est lié, ajouté au client ou modifié sans proposition acceptée.
 | `sources list`, `sources test <nom>` | chaîne de sources et test d'un indexeur Torznab |
 | `volumes list`, `volumes probe <nom>`, `volumes commands <nom>` | volumes locaux nommés et sftp : état, sonde des liens, lignes que la garde distante doit admettre |
 | `sftp trust <nom> --yes` | ajoute la clé d'hôte d'un fournisseur sftp à `knownHosts` (CLI seulement) |
+| `account status` | état du compte : existence, identifiant, clés de sécurité, clés d'accès, TOTP (CLI seulement) |
+| `account reset --yes` | efface le compte, ses clés, son TOTP et ses sessions ; le jeton du `.env` rouvre la création du compte (CLI seulement) |
 
 ## Service et configuration
 

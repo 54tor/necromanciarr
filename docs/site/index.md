@@ -16,4 +16,4 @@ vérifie les empreintes SHA-1, crée les liens nécessaires et ajoute le résult
 
 ## Démarrer
 
-[Installation](/installation) : `docker compose up -d`, puis l'assistant de l'interface configure Radarr, Sonarr, le client torrent et les dossiers, en testant chaque service avant de l'enregistrer.
+[Installation](/installation) : `docker compose up -d`, création du compte opérateur au premier écran (mot de passe, clés de sécurité, TOTP), puis l'assistant de l'interface configure Radarr, Sonarr, le client torrent et les dossiers, en testant chaque service avant de l'enregistrer.

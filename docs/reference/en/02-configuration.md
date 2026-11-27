@@ -42,13 +42,72 @@ The configuration folder must exist when it is given. With no option or variable
 `serve` (and only `serve`) completes the `.env` of the configuration folder before loading the configuration:
 
 - Generated one by one, and only when missing (neither in the real environment nor in the `.env`, an empty value such as the one in `.env.example` counting as missing): `NECROMANCIARR_SECRET_KEY` and `NECROMANCIARR_AUTH_TOKEN`. A value that is already present is never modified or replaced; the lines are appended to the end of the file, created with mode `0600` if it does not exist, and tightened to `0600` if it was more open. When only the current folder's `.env` exists (see above), that one is completed. The default folder is created (`0700`) when absent; a folder given by `--config-dir` or `CONFIG_DIR` must exist.
-- The new token is shown once, on stderr ("API access token (shown once, also stored in .env): …"), after the line "first start: … generated in the config folder .env". It stays readable in the `.env` and in the container logs (`docker logs`): anyone who can read those logs or that file has it. To rotate it, delete the `NECROMANCIARR_AUTH_TOKEN` line from the `.env` and restart; or set it yourself (`necromanciarr api-key`).
+- The new token is shown once, on stderr ("API access token (shown once, also stored in .env): …"), after the line "first start: … generated in the config folder .env". It stays readable in the `.env` and in the container logs (`docker logs`): anyone who can read those logs or that file has it. It is only used to create the operator account, then refused (see [Account and authentication](#account-and-authentication)). To rotate it, delete the `NECROMANCIARR_AUTH_TOKEN` line from the `.env` and restart; or set it yourself (`necromanciarr api-key`).
 - Refused when a database already exists but `NECROMANCIARR_SECRET_KEY` is absent: a new key would make the sealed secrets unreadable. Restore the original key; deleting it to get a new one is only safe when the database holds no secret.
 - Refused, with an actionable message, when the configuration folder is not writable: make it writable, or define both variables yourself (`necromanciarr api-key`, `api-key --secret`).
 
 Consequence: outside loopback, `serve` no longer exits with an error for lack of `NECROMANCIARR_AUTH_TOKEN` when the folder is writable; it generates one. The other commands never write the `.env`.
 
 The interface then offers the first-launch assistant (see [04](04-cli-and-web.md#first-launch-assistant)).
+
+## Account and authentication
+
+A single operator account (username and password, hashed with argon2id) replaces the `NECROMANCIARR_AUTH_TOKEN` token for web access. The state is read again on every request: switching from one to the other needs no restart.
+
+| State | What the API accepts |
+|---|---|
+| no account | the `Bearer` token on every protected route, as before; `POST /api/auth/setup` creates the account and requires this token, even on loopback |
+| account | the session cookie only; any `Authorization` header, on a protected route as on a public one, gets 401 `bearer_disabled` |
+
+`necromanciarr account reset --yes` returns to the no-account state and reopens the token at once (see [04](04-cli-and-web.md#commands)).
+
+### `publicUrl`
+
+`publicUrl` (`http(s)://host[:port]`) is the address users reach. It fixes:
+
+- the WebAuthn origin and relying-party ID (RP ID), available over https or on `localhost`. Without `publicUrl`, a loopback listener uses `http://localhost:<port>`; any other listener has no WebAuthn.
+- the cookies: over https they carry `Secure` and the `__Host-` (session) and `__Secure-` (pre-auth state) prefixes, otherwise they are named `necromanciarr-session` and `necromanciarr-preauth`. The choice follows `publicUrl`, not the request: behind a proxy the application only sees http. Both are `HttpOnly` and `SameSite=Strict`; the session applies to the whole site, the pre-auth state to `/api/auth` only.
+- the `Origin` check on writes: when set, `publicUrl` is the only admitted origin (a proxy may rewrite `Host`).
+- the `Host` check: on a loopback listener, the `publicUrl` host is added to the admitted hosts; outside loopback there is no `Host` check.
+
+A host that is an IP address (`https://203.0.113.7`) or ends with a dot cannot be a WebAuthn identifier: security keys and passkeys are unavailable and `doctor` warns (`auth_public_url_unusable`).
+
+### First launch
+
+`serve` generates the token (see [Bootstrap](#first-launch-bootstrap)). With no account, the interface asks for this token, then a username (1 to 64 characters) and a password, and opens the session. The token is only used on that screen: once the account exists it is refused (`bearer_disabled`) until an `account reset`. The interface then offers, without forcing it, to add a second factor.
+
+### Factors
+
+| Factor | Role | Notes |
+|---|---|---|
+| password | first factor | at least 12 characters, at most 128 bytes |
+| security key (`second_factor`) | second factor | never signs in alone |
+| passkey (`passkey`) | sign-in without a password | requires user verification (PIN or biometrics) and a resident key; opens the session directly |
+| TOTP | second factor | requires `NECROMANCIARR_SECRET_KEY`, which seals the secret (without it: 503 `totp_unavailable`); 6 digits, 30 s, one step of tolerance each side; a code works once per step |
+
+As soon as a security key or a TOTP exists, the password alone no longer opens a session: the sign-in answers `second_factor_required` and the session is only issued after the key or the code. Adding or removing a factor, or changing the password, asks for the current password. Cancelling the browser prompt keeps the choice of factor; a refusal by the server (wrong code, key refused) goes back to the password, because the step state is consumed on the first try. Likewise, a wrong confirmation code when adding a TOTP, or a failed key ceremony, means starting the addition again with the password.
+
+### Limiter and password
+
+The limiter counts per account, with no permanent lock-out: 1 s wait after the first failure, doubled on each failure, capped at 60 s. Password, TOTP, keys, passkeys and password entries to change a setting all share it. An attempt made too early gets 429 `throttled` with `Retry-After` in seconds. A correct password that still waits for a second factor does not reset the counter; only a successful sign-in does. An unknown username and a wrong password give the same answer (401 `invalid_credentials`) at the same computing cost. A password over 128 bytes is refused before any computation and is not counted. `account reset` does not clear a running delay (60 s at most).
+
+### Sessions
+
+A session lasts 14 days at most and expires after 24 h without a request. The database only keeps a fingerprint of the token. "Sign out everywhere" revokes all of them; changing the password revokes the other sessions and keeps the current one; `account reset` deletes them all.
+
+### In-memory state and accepted limits
+
+Sign-in tickets and pre-auth states (5 min), and key or TOTP enrolment states (10 min) live in memory and work once; the web server's tables are bounded to 1024 entries, the oldest being evicted. A restart loses them: sign in again or restart the addition. Sessions are in the database and survive.
+
+Accepted v1 limits:
+
+- A single process is assumed: these states are not shared.
+- `POST /api/auth/passkey/login/begin` is public and unthrottled; its flood is bounded by its own table (which never evicts a pending second factor) and by the throttled finishes.
+- About 1024 passkey sign-in begins followed by invalid finishes fill the set of consumed nonces for about 6 min; the real user then gets a failure counted by the limiter.
+
+### WebAuthn unavailable
+
+If `publicUrl` becomes http (outside `localhost`) or an IP address, keys no longer work: passkey sign-in answers 503 `webauthn_unavailable`, and so does password sign-in when keys are the only second factor. With a TOTP registered, sign-in continues with the code. Otherwise put `publicUrl` back on the https name, or run `necromanciarr account reset --yes` and recreate the account.
 
 ## Database values
 

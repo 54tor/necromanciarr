@@ -25,7 +25,7 @@ Ce qu'il faut pour ouvrir la base reste hors base.
 | `--db-path` | Base SQLite, `necromanciarr.db` du dossier de configuration par défaut ; toujours sur un disque local |
 | `--cross-seed-config`, `CROSS_SEED_CONFIG` | Chemin du `config.js` de cross-seed |
 | `NECROMANCIARR_SECRET_KEY` | Clé qui scelle les secrets en base ; sans elle, saisir un secret est refusé. Générée au premier `serve` |
-| `NECROMANCIARR_AUTH_TOKEN` | Jeton de l'interface. Obligatoire si `listen` n'est pas une adresse de boucle locale ; généré au premier `serve` |
+| `NECROMANCIARR_AUTH_TOKEN` | Jeton qui crée le compte au premier lancement, puis refusé. Obligatoire si `listen` n'est pas une adresse de boucle locale ; généré au premier `serve` |
 | `LIBRARY_PROVIDER_TOKEN` | Jeton Bearer envoyé au fournisseur de bibliothèque ([contrat](/api)) ; facultatif, le réglage `libraryToken` de la base sert sinon |
 
 Le `.env` est lu dans le dossier de configuration, à défaut dans le dossier courant.
@@ -37,6 +37,12 @@ Le `.env` est lu dans le dossier de configuration, à défaut dans le dossier co
 `serve` refuse de démarrer si une base existe alors que `NECROMANCIARR_SECRET_KEY` manque (une clé neuve rendrait les secrets scellés illisibles : restaurer la clé d'origine), et si le dossier n'est pas inscriptible (le rendre modifiable ou définir les deux variables, `api-key` et `api-key --secret` en tirent les valeurs).
 
 L'interface ouvre ensuite l'assistant (onglet Assistant) tant que Radarr, Sonarr et les clients torrent sont tous vides : il teste Radarr, Sonarr et qBittorrent avant d'enregistrer, puis demande un redémarrage. Il passe par `POST /api/setup/test` ; le diagnostic propose de créer un dossier de liens absent par `POST /api/setup/fix/create_link_dir`.
+
+### Compte
+
+L'interface s'ouvre avec un compte unique (identifiant, mot de passe d'au moins 12 caractères), créé au premier lancement avec le jeton ci-dessus ; le jeton est ensuite refusé. Un second facteur est facultatif : clé de sécurité WebAuthn, code TOTP (qui exige `NECROMANCIARR_SECRET_KEY`), ou clé d'accès pour se connecter sans mot de passe. Dès qu'un second facteur existe, le mot de passe seul ne suffit plus. Après un échec, le limiteur impose 1 s d'attente, doublée à chaque échec jusqu'à 60 s, sans verrouillage définitif. Une session dure 14 jours au plus et expire après 24 h d'inactivité. Les clés WebAuthn exigent `publicUrl` en https (ou `localhost`), avec un nom d'hôte et non une adresse IP.
+
+Accès perdu : `necromanciarr account reset --yes` efface le compte et ses facteurs, et le jeton rouvre la création.
 
 ## Cross-seed et surcharges
 
@@ -68,6 +74,7 @@ interpolée : `${VAR}` y est refusé.
 | Clé | Défaut | Rôle |
 | --- | --- | --- |
 | `listen` | `127.0.0.1:8787` | Adresse d'écoute. Hors boucle locale, `NECROMANCIARR_AUTH_TOKEN` est exigé |
+| `publicUrl` | vide | Adresse `http(s)://host[:port]` que les utilisateurs atteignent. Fixe l'origine WebAuthn (https, ou `localhost`), les cookies `Secure` et l'`Origin` admis ; à régler derrière un proxy HTTPS |
 | `readBytesPerSecond` | 20 Mo/s | Plafond de lecture disque ; doit être positif |
 | `libraryApi` | vide | URL `http(s)` du fournisseur de bibliothèque, sans fragment |
 | `libraryRoots` | vide | Racines de la bibliothèque Plex |

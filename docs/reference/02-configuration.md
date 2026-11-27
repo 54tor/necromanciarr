@@ -42,13 +42,72 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 `serve` (et lui seul) complète le `.env` du dossier de configuration avant de charger la configuration :
 
 - Sont générés, un par un et seulement s'ils manquent (ni dans l'environnement réel, ni dans le `.env`, une valeur vide comme celle de `.env.example` comptant pour absente) : `NECROMANCIARR_SECRET_KEY` et `NECROMANCIARR_AUTH_TOKEN`. Une valeur déjà présente n'est jamais modifiée ni remplacée ; les lignes sont ajoutées à la fin du fichier, créé au mode `0600` s'il n'existe pas, et ramené à `0600` s'il était plus ouvert. Si seul le `.env` du dossier courant existe (voir ci-dessus), c'est lui qui est complété. Le dossier par défaut est créé (`0700`) s'il manque ; un dossier donné par `--config-dir` ou `CONFIG_DIR` doit exister.
-- Le jeton neuf est affiché une seule fois, sur stderr (« jeton d'accès à l'API (affiché une seule fois, aussi dans le .env) : … »), précédé de la ligne « premier lancement : … généré dans le .env du dossier de configuration ». Il reste lisible dans le `.env` et dans les journaux du conteneur (`docker logs`) : quiconque lit ces journaux ou ce fichier l'a. Pour le renouveler, supprimer la ligne `NECROMANCIARR_AUTH_TOKEN` du `.env` et redémarrer ; ou le définir soi-même (`necromanciarr api-key`).
+- Le jeton neuf est affiché une seule fois, sur stderr (« jeton d'accès à l'API (affiché une seule fois, aussi dans le .env) : … »), précédé de la ligne « premier lancement : … généré dans le .env du dossier de configuration ». Il reste lisible dans le `.env` et dans les journaux du conteneur (`docker logs`) : quiconque lit ces journaux ou ce fichier l'a. Il ne sert qu'à créer le compte opérateur, puis il est refusé (voir [Compte et authentification](#compte-et-authentification)). Pour le renouveler, supprimer la ligne `NECROMANCIARR_AUTH_TOKEN` du `.env` et redémarrer ; ou le définir soi-même (`necromanciarr api-key`).
 - Refus si une base existe déjà alors que `NECROMANCIARR_SECRET_KEY` est absente : une clé neuve rendrait illisibles les secrets scellés. Restaurer la clé d'origine ; la supprimer pour en générer une neuve n'est sûr que si la base ne contient aucun secret.
 - Refus, avec un message actionnable, si le dossier de configuration n'est pas inscriptible : le rendre modifiable, ou définir les deux variables soi-même (`necromanciarr api-key`, `api-key --secret`).
 
 Conséquence : hors boucle locale, `serve` ne sort plus en erreur faute de `NECROMANCIARR_AUTH_TOKEN` quand le dossier est inscriptible, il en génère un. Les autres commandes n'écrivent jamais le `.env`.
 
 L'interface propose ensuite l'assistant du premier démarrage (voir [04](04-cli-and-web.md#assistant-de-premier-démarrage)).
+
+## Compte et authentification
+
+Un compte opérateur unique (identifiant et mot de passe, haché en argon2id) remplace le jeton `NECROMANCIARR_AUTH_TOKEN` pour l'accès web. L'état est relu à chaque requête : passer de l'un à l'autre ne demande aucun redémarrage.
+
+| État | Ce que l'API accepte |
+|---|---|
+| sans compte | le jeton `Bearer` sur toutes les routes protégées, comme avant ; `POST /api/auth/setup` crée le compte et exige ce jeton, même en boucle locale |
+| avec compte | le cookie de session seul ; tout en-tête `Authorization`, sur une route protégée comme sur une route publique, reçoit 401 `bearer_disabled` |
+
+`necromanciarr account reset --yes` ramène à l'état sans compte et rouvre le jeton aussitôt (voir [04](04-cli-and-web.md#commandes)).
+
+### `publicUrl`
+
+`publicUrl` (`http(s)://host[:port]`) est l'adresse que les utilisateurs atteignent. Elle fixe :
+
+- l'origine et l'identifiant de partie de confiance (RP ID) de WebAuthn, disponibles en https ou sur `localhost`. Sans `publicUrl`, une écoute en boucle locale utilise `http://localhost:<port>` ; une autre écoute n'a pas de WebAuthn.
+- les cookies : en https ils portent `Secure` et les préfixes `__Host-` (session) et `__Secure-` (état d'avant session), sinon ils s'appellent `necromanciarr-session` et `necromanciarr-preauth`. Le choix suit `publicUrl`, pas la requête : derrière un proxy, l'application ne voit que du http. Les deux sont `HttpOnly` et `SameSite=Strict` ; la session vaut pour tout le site, l'état d'avant session pour `/api/auth` seulement.
+- le contrôle d'`Origin` des écritures : posée, `publicUrl` est la seule origine admise (un proxy peut réécrire `Host`).
+- le contrôle de `Host` : sur une écoute en boucle locale, l'hôte de `publicUrl` s'ajoute aux hôtes admis ; hors boucle locale il n'y a pas de contrôle de `Host`.
+
+Un hôte qui est une adresse IP (`https://203.0.113.7`) ou qui se termine par un point ne peut pas servir d'identifiant WebAuthn : clés de sécurité et clés d'accès sont indisponibles et `doctor` avertit (`auth_public_url_unusable`).
+
+### Premier lancement
+
+`serve` génère le jeton (voir [Amorçage](#amorçage-au-premier-démarrage)). Sans compte, l'interface demande ce jeton, puis un identifiant (1 à 64 caractères) et un mot de passe, et ouvre la session. Le jeton ne sert qu'à cet écran : le compte créé, il est refusé (`bearer_disabled`) jusqu'à un `account reset`. L'interface propose ensuite, sans l'imposer, d'ajouter un second facteur.
+
+### Facteurs
+
+| Facteur | Rôle | Particularités |
+|---|---|---|
+| mot de passe | premier facteur | 12 caractères au moins, 128 octets au plus |
+| clé de sécurité (`second_factor`) | second facteur | ne permet jamais de se connecter seule |
+| clé d'accès (`passkey`) | connexion sans mot de passe | exige la vérification de l'utilisateur (PIN ou biométrie) et une clé résidente ; ouvre la session directement |
+| TOTP | second facteur | exige `NECROMANCIARR_SECRET_KEY`, qui scelle le secret (sans elle : 503 `totp_unavailable`) ; 6 chiffres, 30 s, un pas de tolérance de chaque côté ; un code ne sert qu'une fois par pas |
+
+Dès qu'une clé de sécurité ou un TOTP existe, le mot de passe seul n'ouvre plus de session : la connexion répond `second_factor_required` et la session n'est émise qu'après la clé ou le code. Ajouter, supprimer un facteur ou changer le mot de passe demande le mot de passe actuel. Annuler l'invite du navigateur garde le choix du facteur ; un refus du serveur (code faux, clé refusée) ramène au mot de passe, car l'état de l'étape est consommé dès le premier essai. De même, un code de confirmation faux à l'ajout d'un TOTP, ou une cérémonie de clé échouée, oblige à recommencer l'ajout avec le mot de passe.
+
+### Limiteur et mot de passe
+
+Le limiteur compte par compte, sans verrouillage définitif : 1 s d'attente après le premier échec, doublée à chaque échec, plafonnée à 60 s. Mot de passe, TOTP, clés, clés d'accès et saisies du mot de passe pour changer un réglage le partagent. Une tentative trop tôt reçoit 429 `throttled` avec `Retry-After` en secondes. Un mot de passe correct qui attend encore un second facteur ne remet pas le compteur à zéro ; seule une connexion réussie le fait. Un identifiant inconnu et un mauvais mot de passe donnent la même réponse (401 `invalid_credentials`) au même coût de calcul. Un mot de passe de plus de 128 octets est refusé avant tout calcul et n'est pas compté. `account reset` ne remet pas à zéro un délai en cours (60 s au plus).
+
+### Sessions
+
+Une session dure 14 jours au plus et expire après 24 h sans requête. La base ne garde que l'empreinte du jeton. « Déconnecter partout » les révoque toutes ; changer le mot de passe révoque les autres sessions et garde la courante ; `account reset` les supprime toutes.
+
+### État en mémoire et limites acceptées
+
+Les billets de connexion et les états d'avant session (5 min), les états d'ajout d'une clé ou d'un TOTP (10 min) vivent en mémoire et ne servent qu'une fois ; les tables du serveur web sont bornées à 1024 entrées, la plus ancienne étant évincée. Un redémarrage les perd : il suffit de se reconnecter ou de recommencer l'ajout. Les sessions, elles, sont en base et survivent.
+
+Limites de la v1, acceptées :
+
+- Un processus unique est supposé : ces états ne sont pas partagés.
+- `POST /api/auth/passkey/login/begin` est public et sans limiteur ; son flot est borné par sa propre table (qui n'évince jamais un second facteur en attente) et par les fins d'étape limitées.
+- Environ 1024 débuts de connexion par clé d'accès suivis de fins invalides remplissent pendant environ 6 min l'ensemble des nonces consommés ; le vrai utilisateur reçoit alors un échec compté par le limiteur.
+
+### WebAuthn indisponible
+
+Si `publicUrl` passe en http (hors `localhost`) ou sur une adresse IP, les clés ne servent plus : la connexion par clé d'accès répond 503 `webauthn_unavailable`, et celle par mot de passe aussi quand les clés sont le seul second facteur. Avec un TOTP enregistré, la connexion continue par le code. Sinon, remettre `publicUrl` sur le nom https, ou lancer `necromanciarr account reset --yes` et recréer le compte.
 
 ## Valeurs en base
 

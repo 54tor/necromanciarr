@@ -56,7 +56,7 @@
 
 ### API security
 
-- **No rate limit on authentication**: a failure writes a log line (address, no token) and nothing else. Keep the token long (at least 32 characters, `api-key` draws 43) and do not expose the port without a proxy.
+- **No rate limit on the `Bearer` token** (no account): a failure writes a log line (address, no token) and nothing else. With an account, the per-account limiter applies (see [02](02-configuration.md#account-and-authentication)). Keep the token long (at least 32 characters, `api-key` draws 43) and do not expose the port without a proxy.
 - **Optional token on loopback**: on a machine shared between several users, any local user reaches the `127.0.0.1` API without a token. Set `NECROMANCIARR_AUTH_TOKEN` even on loopback.
 
 ### Database and platforms
@@ -186,6 +186,16 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `dedupe` | `torrent_root_missing` | `warn` | folder not found on this machine |
 | `dedupe` | `torrent_root_ok` | `ok` | usable root |
 
+### Sign-in and account
+
+| Symptom | Cause and action |
+|---|---|
+| sign-in answers 429 `throttled` | too many failures: the delay doubles from 1 s to 60 s; wait `Retry-After`, then enter the right values (a success resets the counter) |
+| password or key lost | `necromanciarr account reset --yes` (in Docker: `docker compose exec necromanciarr necromanciarr account reset --yes`), then create the account with the `.env` token; `account status` first says what exists |
+| "WebAuthn unavailable" when adding a key or signing in | `publicUrl` must be https (or `localhost`) and name a host, not an IP address: set `publicUrl` to the https name users reach; `doctor` flags it (`auth_public_url_missing`, `auth_public_url_unusable`) |
+| the TOTP refuses a code that looks right | the server or device clock drifts by more than 30 s (one step of tolerance each side), or the same code was already used within this 30 s step: wait for the next code |
+| 403 `forbidden`, "unknown host header" | loopback listener behind a proxy that rewrites `Host`: set `publicUrl` to the public host or forward the original `Host` |
+
 ### By stage reason (`reasons`) and failed proposals
 
 | Reason | Stage | Cause and action |
@@ -304,5 +314,13 @@ Reason why remote commands are disabled on an `sftp` volume, in the volume capab
 | `pipeline: run lock lost` | the lock was taken over: rerun the stage |
 | `inspection_busy` | a link inspection is running: retry |
 | `confirmation_required` | `proposals force` without `--yes`, or `force` without `{"confirm": true}` |
-| `unauthorized` | `Authorization: Bearer <token>` missing or wrong |
+| `unauthorized` | `Authorization: Bearer <token>` missing or wrong (no account) |
 | `forbidden` | unknown `Host` (proxy that rewrites `Host` on a loopback listener), foreign `Origin`, `Sec-Fetch-Site: cross-site` |
+| `bearer_disabled` | an account exists: the `Bearer` token is worthless, sign in through the interface; an API client authenticates with the session cookie, or run `account reset --yes` to go back to the token |
+| `session_required` | session missing, expired (14 days, or 24 h without a request) or revoked: sign in again |
+| `throttled` | account limiter: wait the `Retry-After` seconds (60 s at most) |
+| `setup_token_required` | account creation without `NECROMANCIARR_AUTH_TOKEN`: set it in the `.env` and restart |
+| `account_exists` | the account already exists: sign in; if lost, `account reset --yes` |
+| `webauthn_unavailable` | `publicUrl` is http outside `localhost`, or an IP host: see "Sign-in and account" |
+| `invalid_code` | wrong or already used TOTP code: see "Sign-in and account" |
+| `totp_secret_unreadable` | `NECROMANCIARR_SECRET_KEY` changed since the TOTP was added: restore the original key, or sign in with a security key then delete and re-register the TOTP, or `account reset --yes` |

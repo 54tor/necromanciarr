@@ -68,7 +68,7 @@ Fichier prêt à copier : [`compose.example.yaml`](../../compose.example.yaml). 
 
 ```yaml
 # Copier en compose.yaml, puis : docker compose up -d && docker compose logs necromanciarr
-# Le jeton d'accès est généré au premier démarrage et affiché une seule fois dans ces logs.
+# Le jeton d'accès est généré au premier démarrage et affiché une seule fois dans ces logs : il crée le compte au premier écran.
 services:
   necromanciarr:
     image: necromanciarr:dev # make docker-build
@@ -77,6 +77,7 @@ services:
     # Même UID:GID que le propriétaire de la bibliothèque (id -u / id -g sur l'hôte) : PUID=… PGID=… dans .env.
     user: "${PUID:-1000}:${PGID:-1000}"
     ports:
+      # Derrière un proxy https : régler publicUrl (voir docs/reference/05-docker-and-volumes.md).
       - "127.0.0.1:8787:8787"
     volumes:
       # Dossier de l'hôte appartenant à PUID:PGID (mkdir data && chown PUID:PGID data) : il porte .env et la base.
@@ -97,7 +98,36 @@ docker compose exec -T necromanciarr necromanciarr config set crossSeedApiKey --
 docker compose restart necromanciarr
 ```
 
-`cross-seed-key.json` contient la chaîne JSON `"dummy-api-key"`. `NECROMANCIARR_SECRET_KEY` (qui scelle `libraryApi`, `libraryToken` et `crossSeedApiKey`) va dans `/data/.env` ; le jeton du fournisseur se saisit dans le réglage `libraryToken` (`LIBRARY_PROVIDER_TOKEN` reste possible). Le port n'est publié que sur la boucle locale de l'hôte : l'accès distant passe par un mandataire inverse (qui garde le jeton `Bearer`) ou un tunnel.
+`cross-seed-key.json` contient la chaîne JSON `"dummy-api-key"`. `NECROMANCIARR_SECRET_KEY` (qui scelle `libraryApi`, `libraryToken` et `crossSeedApiKey`) va dans `/data/.env` ; le jeton du fournisseur se saisit dans le réglage `libraryToken` (`LIBRARY_PROVIDER_TOKEN` reste possible). Le port n'est publié que sur la boucle locale de l'hôte : l'accès distant passe par un mandataire inverse (voir [Derrière un proxy HTTPS](#derrière-un-proxy-https)) ou un tunnel.
+
+## Derrière un proxy HTTPS
+
+WebAuthn et les cookies `Secure` exigent https. Placer un proxy devant le port publié sur `127.0.0.1`, puis régler `publicUrl` sur l'adresse https publique et relancer :
+
+```
+docker compose exec necromanciarr necromanciarr config set publicUrl '"https://necromanciarr.example.com"'
+docker compose restart necromanciarr
+```
+
+- L'application ne lit aucun `X-Forwarded-*` : `publicUrl` lui dit qu'elle est servie en https, donc `X-Forwarded-Proto` est inutile. Les adresses des journaux et de la liste des sessions sont celles du proxy.
+- Le proxy transmet le chemin intact (`/api` compris) et laisse passer `Origin` et les cookies. Dans l'image, qui écoute sur `0.0.0.0`, aucun `Host` n'est contrôlé. Sur une écoute en boucle locale, `Host` doit être l'adresse d'écoute ou l'hôte de `publicUrl` : garder le `Host` d'origine convient.
+- Les écritures venues du navigateur portent `Origin: https://necromanciarr.example.com` ; toute autre origine reçoit 403 `forbidden`.
+
+Exemple pour Caddy, à adapter (Caddy garde le `Host` d'origine et pose les certificats) :
+
+```
+necromanciarr.example.com {
+    reverse_proxy 127.0.0.1:8787
+}
+```
+
+Au premier lancement, le jeton d'accès s'affiche dans `docker compose logs necromanciarr` ; il sert une fois, à créer le compte sur le premier écran, puis il est refusé. Accès perdu (mot de passe ou clé) :
+
+```
+docker compose exec necromanciarr necromanciarr account reset --yes
+```
+
+Le jeton du `.env` rouvre alors la création du compte, sans redémarrage.
 
 ## Lancer une commande dans le conteneur
 

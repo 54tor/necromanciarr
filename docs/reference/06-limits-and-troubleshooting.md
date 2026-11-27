@@ -56,7 +56,7 @@
 
 ### Sécurité de l'API
 
-- **Aucune limite de débit sur l'authentification** : un échec écrit une ligne de journal (adresse, sans jeton) et rien d'autre. Garder le jeton long (32 caractères au moins, `api-key` en tire 43) et ne pas exposer le port sans mandataire.
+- **Aucune limite de débit sur le jeton `Bearer`** (sans compte) : un échec écrit une ligne de journal (adresse, sans jeton) et rien d'autre. Avec un compte, le limiteur par compte s'applique (voir [02](02-configuration.md#compte-et-authentification)). Garder le jeton long (32 caractères au moins, `api-key` en tire 43) et ne pas exposer le port sans mandataire.
 - **Jeton facultatif en boucle locale** : sur une machine partagée entre plusieurs utilisateurs, tout utilisateur local atteint l'API de `127.0.0.1` sans jeton. Définir `NECROMANCIARR_AUTH_TOKEN` même en boucle locale.
 
 ### Base et plateformes
@@ -186,6 +186,16 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `dedupe` | `torrent_root_missing` | `warn` | dossier introuvable sur cette machine |
 | `dedupe` | `torrent_root_ok` | `ok` | racine utilisable |
 
+### Connexion et compte
+
+| Symptôme | Cause et action |
+|---|---|
+| la connexion répond 429 `throttled` | trop d'échecs : le délai double de 1 s à 60 s ; attendre `Retry-After`, puis saisir les bons éléments (un succès remet le compteur à zéro) |
+| mot de passe ou clé perdus | `necromanciarr account reset --yes` (dans Docker : `docker compose exec necromanciarr necromanciarr account reset --yes`), puis créer le compte avec le jeton du `.env` ; `account status` dit d'abord ce qui existe |
+| « WebAuthn indisponible » à l'ajout d'une clé ou à la connexion | `publicUrl` doit être en https (ou `localhost`) et nommer un hôte, pas une adresse IP : régler `publicUrl` sur le nom https que les utilisateurs atteignent ; `doctor` le signale (`auth_public_url_missing`, `auth_public_url_unusable`) |
+| le TOTP refuse un code qui semble juste | l'horloge du serveur ou de l'appareil dérive de plus de 30 s (un pas de tolérance de chaque côté), ou le même code a déjà servi dans ce pas de 30 s : attendre le code suivant |
+| 403 `forbidden`, « unknown host header » | écoute en boucle locale derrière un proxy qui réécrit `Host` : régler `publicUrl` sur l'hôte public ou transmettre le `Host` d'origine |
+
 ### Par raison d'étape (`reasons`) et propositions échouées
 
 | Raison | Étape | Cause et action |
@@ -304,5 +314,13 @@ Raison de coupure des commandes distantes d'un volume `sftp`, dans les capacité
 | `pipeline: run lock lost` | le verrou a été repris : relancer l'étape |
 | `inspection_busy` | un examen des liens est en cours : réessayer |
 | `confirmation_required` | `proposals force` sans `--yes`, ou `force` sans `{"confirm": true}` |
-| `unauthorized` | `Authorization: Bearer <token>` absent ou faux |
+| `unauthorized` | `Authorization: Bearer <token>` absent ou faux (sans compte) |
 | `forbidden` | `Host` inconnu (proxy qui réécrit `Host` sur une écoute en boucle locale), `Origin` étranger, `Sec-Fetch-Site: cross-site` |
+| `bearer_disabled` | un compte existe : le jeton `Bearer` ne vaut plus rien, se connecter par l'interface ; un client de l'API s'authentifie par le cookie de session, ou on lance `account reset --yes` pour revenir au jeton |
+| `session_required` | session absente, expirée (14 jours, ou 24 h sans requête) ou révoquée : se reconnecter |
+| `throttled` | limiteur du compte : attendre les secondes de `Retry-After` (60 s au plus) |
+| `setup_token_required` | création du compte sans `NECROMANCIARR_AUTH_TOKEN` : le définir dans le `.env` et relancer |
+| `account_exists` | le compte existe déjà : se connecter ; en cas de perte, `account reset --yes` |
+| `webauthn_unavailable` | `publicUrl` en http hors `localhost`, ou hôte IP : voir « Connexion et compte » |
+| `invalid_code` | code TOTP faux ou déjà utilisé : voir « Connexion et compte » |
+| `totp_secret_unreadable` | `NECROMANCIARR_SECRET_KEY` a changé depuis l'ajout du TOTP : restaurer la clé d'origine, ou se connecter avec une clé de sécurité puis supprimer et réenregistrer le TOTP, ou `account reset --yes` |

@@ -97,7 +97,7 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 
 ### Authentification
 
-`NECROMANCIARR_AUTH_TOKEN` (32 caractères au moins) est la seule source du jeton : `serve` en génère un dans le `.env` au premier démarrage s'il manque (affiché une fois sur stderr) ; `necromanciarr api-key` en tire un à définir soi-même.
+Sans compte, l'API s'ouvre par un jeton `Bearer` ; avec un compte, par un cookie de session seul (voir [02](02-configuration.md#compte-et-authentification) et [Compte et session](#compte-et-session-apiauth)). Les lignes ci-dessous décrivent le jeton, qui sert aussi à créer le compte. `NECROMANCIARR_AUTH_TOKEN` (32 caractères au moins) est la seule source du jeton : `serve` en génère un dans le `.env` au premier démarrage s'il manque (affiché une fois sur stderr) ; `necromanciarr api-key` en tire un à définir soi-même.
 
 | Écoute | Jeton | Contrôle de `Host` |
 |---|---|---|
@@ -106,12 +106,67 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 
 - Le jeton ne se lit que dans `Authorization: Bearer <token>` (schéma insensible à la casse), jamais dans l'URL ni un cookie. Comparaison des empreintes SHA-256 en temps constant. Un jeton refusé : 401, `WWW-Authenticate: Bearer`, une ligne de journal `api: unauthorized request from <address>`, sans limite de débit.
 - Un jeton défini sur une écoute en boucle locale est exigé aussi.
-- `Host` doit être l'adresse d'écoute, `localhost`, `127.0.0.1` ou `[::1]` sur le même port (anti DNS rebinding) ; sinon 403 `unknown host header`.
+- Dès qu'un compte existe, le jeton est refusé partout (401 `bearer_disabled`) ; `account reset` le rouvre sans redémarrage.
+- `Host` doit être l'adresse d'écoute, `localhost`, `127.0.0.1` ou `[::1]` sur le même port, ou l'hôte de `publicUrl` quand elle est posée (anti DNS rebinding) ; sinon 403 `unknown host header`.
 - `Sec-Fetch-Site: cross-site` : 403 `cross-site request refused`, toutes méthodes.
-- `POST`, `PUT`, `DELETE` : `Content-Type: application/json` obligatoire, même sans corps (415 sinon) ; si `Origin` est présent il doit être celui de la requête (403 sinon) ; sans `Origin` et sans jeton configuré, `X-Requested-With: necromanciarr` est exigé. Corps de 64 Kio au plus (413), JSON strict : champ inconnu ou texte après l'objet donne 400 `invalid json body` ; un corps vide vaut un objet vide.
+- `POST`, `PUT`, `PATCH`, `DELETE` : `Content-Type: application/json` obligatoire, même sans corps (415 sinon) ; si `Origin` est présent il doit être celui de la requête, ou `publicUrl` quand elle est posée (403 sinon) ; sans `Origin` et sans authentification par le jeton `Bearer`, `X-Requested-With: necromanciarr` est exigé. Corps de 64 Kio au plus (413), JSON strict : champ inconnu ou texte après l'objet donne 400 `invalid json body` ; un corps vide vaut un objet vide.
 - Aucun en-tête CORS n'est posé. Toute réponse porte `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin` et une CSP `default-src 'self'` (ni script, ni style, ni ressource inline ou externe). L'API ajoute `Cache-Control: no-store`.
 - `GET /healthz` est public, sans contrôle : `200 ok` ou `503 unavailable` selon la réponse de la base (2 s). Il ne rend ni version ni configuration.
 - Délais du serveur : en-têtes 10 s, lecture 30 s, inactivité 120 s, en-têtes de 16 Kio au plus.
+
+### Compte et session (`/api/auth`)
+
+Ces routes portent le compte opérateur (voir [02](02-configuration.md#compte-et-authentification)). Accès : **public** (ni jeton ni session), **jeton** (le jeton `Bearer`, pour créer le compte), **session** (cookie de session). Les corps JSON sont stricts : un champ inconnu donne 400 `usage`.
+
+| Méthode | Chemin | Accès | Corps | Réponse |
+|---|---|---|---|---|
+| GET | `/api/auth/session` | public | | 200 `{state, webauthnAvailable}` ; `state` vaut `no_account`, `logged_out` ou `authenticated` ; `username` et `secondFactors` (`{keys, passkeys, totp}`) seulement si `authenticated` |
+| POST | `/api/auth/setup` | jeton | `{username, password}` | 201 `{state: "authenticated"}` + cookie de session ; 403 `setup_token_required`, 401 `unauthorized`, 409 `account_exists` |
+| POST | `/api/auth/login` | public | `{username, password}` | 200 `{state: "authenticated"}` + cookie de session, ou 200 `{state: "second_factor_required", factors, webauthn}` + cookie d'avant session, sans session ; `factors` contient `webauthn` et `totp` |
+| POST | `/api/auth/webauthn/login/finish` | public + cookie d'avant session | `{credential}` | 200 `{state: "authenticated"}` + cookie de session |
+| POST | `/api/auth/totp/login` | public + cookie d'avant session | `{code}` | idem |
+| POST | `/api/auth/passkey/login/begin` | public | `{}` | 200 `{state: "logged_out", webauthn}` + cookie d'avant session |
+| POST | `/api/auth/passkey/login/finish` | public + cookie d'avant session | `{credential}` | 200 `{state: "authenticated"}` + cookie de session |
+| POST | `/api/auth/logout` | session | `{}` | 200 `{state: "logged_out"}`, cookie effacé |
+| POST | `/api/auth/logout-all` | session | `{}` | idem, toutes les sessions révoquées |
+| POST | `/api/auth/password` | session | `{currentPassword, newPassword}` | 200 `{}`, les autres sessions sont révoquées |
+| GET | `/api/auth/sessions` | session | | 200, tableau `{current, createdAt, lastSeenAt, address}` |
+| POST | `/api/auth/webauthn/register/begin` | session | `{password, kind}` ; `kind` vaut `second_factor` ou `passkey` | 200 `{webauthn}` |
+| POST | `/api/auth/webauthn/register/finish` | session | `{name, credential}` | 201 `{}` |
+| GET | `/api/auth/webauthn/credentials` | session | | 200, tableau `{id, name, kind, createdAt, lastUsedAt}` |
+| PATCH | `/api/auth/webauthn/credentials/{id}` | session | `{name}` | 200 `{}` |
+| DELETE | `/api/auth/webauthn/credentials/{id}` | session | `{password}` | 200 `{}` |
+| POST | `/api/auth/totp/setup/begin` | session | `{password}` | 200 `{otpauthUri, secret, qrPngBase64}` (`qrPngBase64` peut être `null`) |
+| POST | `/api/auth/totp/setup/finish` | session | `{code}` | 201 `{}` |
+| DELETE | `/api/auth/totp` | session | `{password}` | 200 `{}` |
+
+Une route de session sans session valide répond 401 `session_required`. `credential` est le `toJSON()` du `PublicKeyCredential` renvoyé par le navigateur ; `webauthn` porte les options `{publicKey: …}` à lui passer. Ces routes ne sont pas dans le registre des actions : elles n'ont pas d'équivalent CLI, hormis `account status` et `account reset`.
+
+Codes d'erreur de ces routes (corps `{"error": {"code", "message"}}`) :
+
+| Code | HTTP | Cas |
+|---|---|---|
+| `bearer_disabled` | 401 | un en-tête `Authorization` alors qu'un compte existe |
+| `session_required` | 401 | cookie de session absent, inconnu ou expiré |
+| `setup_token_required` | 403 | création du compte sans `NECROMANCIARR_AUTH_TOKEN` configuré |
+| `account_exists` | 409 | `setup` alors qu'un compte existe |
+| `invalid_username`, `password_too_short`, `password_too_long` | 400 | identifiant hors de 1 à 64 caractères, mot de passe hors de 12 caractères et 128 octets |
+| `invalid_credentials` | 401 | identifiant inconnu, mauvais mot de passe (même réponse), ou mot de passe actuel faux |
+| `throttled` | 429 | limiteur ; `Retry-After` donne les secondes à attendre |
+| `step_expired` | 401 | état d'avant session ou de cérémonie absent, expiré ou déjà utilisé |
+| `login_ticket_invalid` | 401 | billet de connexion expiré, déjà utilisé ou lié à un mot de passe changé |
+| `invalid_assertion` | 401 | clé refusée (signature, origine, compteur, vérification de l'utilisateur) |
+| `invalid_code` | 401 | code TOTP faux ou déjà utilisé |
+| `webauthn_unavailable` | 503 | WebAuthn indisponible pour `publicUrl` |
+| `totp_unavailable` | 503 | `NECROMANCIARR_SECRET_KEY` absente |
+| `totp_secret_unreadable` | 500 | le secret TOTP enregistré ne se descelle plus (clé de scellement changée) |
+| `credential_not_found` | 404 | clé inconnue |
+| `invalid_credential_name` | 400 | nom de clé vide ou de plus de 64 caractères |
+| `usage` | 400 | champ trop long (code de plus de 16 octets, identifiant de clé de plus de 256 octets), `kind` inconnu, corps invalide |
+
+Les cookies sont posés par ces routes seules ; `necromanciarr-session` (`__Host-necromanciarr-session` en https) vit jusqu'à l'échéance de la session, `necromanciarr-preauth` (`__Secure-necromanciarr-preauth` en https) 5 minutes, et seulement sous `/api/auth`. Le jeton de session n'est lu que dans le cookie, jamais dans un en-tête ni dans l'URL.
+
+Pour un client de l'API : seuls 401 `session_required` et 401 `bearer_disabled` disent que la session est perdue et qu'il faut se reconnecter. Tout autre 401 (`invalid_credentials`, `invalid_code`, `invalid_assertion`, `step_expired`, `login_ticket_invalid`) est l'erreur d'un formulaire, pas une déconnexion. Une requête qui n'est pas authentifiée par le jeton `Bearer` (cookie de session, route publique) doit porter `Origin` ou `X-Requested-With: necromanciarr` sur un `POST`, `PUT`, `PATCH` ou `DELETE`.
 
 ### Routes
 
@@ -162,7 +217,7 @@ Corps `{"error": {"code", "message"}}`. Le message est celui de l'erreur typée 
 |---|---|---|---|
 | `usage` | 400 (415 type de contenu, 413 corps) | 2 | requête ou valeur invalide |
 | `confirmation_required` | 400 | 2 | `force` sans `confirm` |
-| `unauthorized` | 401 | | jeton absent ou faux |
+| `unauthorized` | 401 | | jeton absent ou faux (sans compte) |
 | `forbidden` | 403 | | `Host`, `Origin`, `Sec-Fetch-Site`, `X-Requested-With` |
 | `not_found` | 404 | 1 | proposition, groupe, job, route |
 | `method_not_allowed` | 405 | | |
@@ -197,7 +252,7 @@ Application Vue embarquée dans le binaire, un seul thème sombre anthracite, ro
 - Sources : une ligne par source dans l'ordre de la chaîne (ordre, source, type, tracker, état, requêtes et téléchargements sur 24 h face au plafond, cache des capacités, dernière erreur traduite), sans tri. « Tester une source » teste l'indexeur choisi dans la barre d'outils, le bouton de ligne celui de la ligne ; les tests sont désactivés pendant qu'un test tourne, dont le résultat traduit s'affiche ensuite. Le fournisseur n'a pas de bouton de test. Propositions : la colonne Source et le filtre Source (appliqué par le serveur) sont toujours affichés.
 - Volumes : une ligne par volume (volume, type, adresse, état, capacités, date de sonde) ; chaque capacité est une pastille qui dit en texte la fonction et oui ou non. « Sonder » sonde le volume choisi dans la barre d'outils, le bouton de ligne celui de la ligne ; les sondes sont désactivées pendant qu'une sonde tourne, dont le résultat traduit s'affiche ensuite. Le bouton Commandes affiche les lignes de `volumes commands` à copier. La pastille de l'onglet compte les volumes `broken` (`volumes_broken` de `GET /api/status`). `sftp trust` n'a pas d'équivalent dans l'interface. Liens : la colonne Volume donne le fournisseur du lien, « local » pour le disque local.
 - Configuration : les réglages, puis une section par liste et les surcharges orphelines. Chaque valeur porte son origine (cross-seed, surcharge, ajout, défaut, environnement ou option, ces deux dernières verrouillées), un élément en dérive porte « Dérive ». Un secret s'affiche « Défini » ou « Non défini », jamais sa valeur ; dans le formulaire, le laisser vide garde la valeur enregistrée. « Revenir à cross-seed » retire une surcharge, « Supprimer » sur une surcharge rend la valeur de cross-seed, masque un élément de cross-seed ou supprime un ajout, après confirmation. Après une écriture, un bandeau rappelle de relancer `serve`.
-- Une boîte demande le jeton sur un 401 ; il vit en mémoire de l'onglet, jamais dans le stockage du navigateur. Un jeton refusé l'efface.
+- Sans compte, l'interface affiche l'écran de création du compte et demande le jeton ; il vit en mémoire de l'onglet, jamais dans le stockage du navigateur, et un jeton refusé l'efface. Avec un compte, elle affiche l'écran de connexion (mot de passe, puis clé de sécurité ou code TOTP si le compte en a ; bouton de connexion par clé d'accès). La page Compte (`#/compte`) change le mot de passe, gère les clés de sécurité et clés d'accès (ajout, renommage, suppression), le TOTP (secret et QR affichés une seule fois, confirmés par un code) et les sessions (« Se déconnecter », « Déconnecter partout »). Un 401 `session_required` ramène à la connexion ; une erreur de formulaire (`invalid_credentials`, `invalid_code`…) reste dans le formulaire, et un 429 `throttled` affiche le décompte de `Retry-After`.
 - L'interface redirige vers l'Assistant tant que `radarr`, `sonarr` et `torrentClients` sont tous vides (sauf choix « Passer »), puis vers « Démarrage » au premier lancement (ni candidat ni proposition) ou tant que le diagnostic a un `fail`, sauf choix « Passer ».
 - Force n'est actif que pour un `partial_annex` à l'étape `seeded_paused_incomplete`, avec confirmation ; accepter un `partial_pack` passe par une confirmation. `dedupe` et `repair` ont une case « simulation » (dry-run), cochée par défaut, et une confirmation avant d'appliquer pour de bon toutes les propositions acceptées (hors simulation). La page Déduplication va plus loin : « Appliquer les acceptées » ouvre toujours une fenêtre qui liste les propositions (le mode, simulation ou réel, est figé à l'ouverture) ; un remplacement réel, de masse ou d'une seule ligne, n'est envoyé qu'après la saisie du mot `APPLIQUER` (`APPLY` en anglais) ; une simulation d'une ligne part sans confirmation. Les octets à lire sont affichés avant toute acceptation, les lignes non applicables (ambiguë, copie isolée…) restent listées avec un bouton désactivé et leur motif.
 - Langue des textes rendus : `language` (`fr` par défaut, ou `en`) fixe la langue des textes destinés à l'opérateur. Les codes d'erreur, les motifs (`reason`), les états, les noms de champs JSON, de commandes et d'options restent en anglais et ne changent jamais avec la langue ; seuls les textes changent : le `message` des erreurs (CLI `--json` et API), la sortie texte de la CLI et son aide d'usage, la `description` du registre des actions. `GET /api/status` porte `language`, que l'interface lit avant tout rendu. Une erreur non typée a un message fixe : « erreur interne (détail dans le journal du serveur) » côté API, dont le détail va au journal ; la CLI, qui n'a pas de journal, écrit « erreur interne » suivi du détail (en anglais) entre parenthèses. Les préfixes `error:` et `warning:` de la CLI restent en anglais : ce sont des marqueurs lisibles par un script. Le rapport de `doctor` (CLI `--json` et `POST /api/doctor/…`) porte `id`, `status`, `code` (stables) et `title`, `detail`, `hint` (traduits). Les avertissements de proposition (`GET /api/proposals`, `proposals list`, résultats de `force`, de `dedupe plan` et de `repair scan`) sont des objets `{"code", "text"}` : `code` est la clé stable du message (`warning.sources_changed`, `warning.application_failed.cross_device`…, `legacy.text` pour une ligne enregistrée avant le catalogue, rendue telle quelle), `text` son rendu dans la langue. Les motifs gardent leur code dans `reason` et `reasons` ; le libellé traduit est ajouté à côté : `reason_labels` (`{code: label}`) à côté de `reasons` dans le résultat d'une étape, `label` à côté de `reason` dans `held` de `status`, dans `excluded_files` d'une proposition et dans les détails dedupe et repair ; un code sans libellé est rendu tel quel. La sortie texte de la CLI affiche le libellé entre parenthèses après le code. Les codes de motif de `links list` sont stables (`link_missing`, `link_target_missing`, `link_inode_diverged`, `link_target_renamed`, `link_not_compared`, `link_replaced`, `link_resized`, `link_target_unreadable`, `link_inspection_failed`) ; `label` porte leur libellé traduit, et la CLI affiche `code (label)`. Les motifs d'une proposition dedupe sans remplacement (`details.reason`) sont `isolated_copy`, `hash_unavailable`, `no_link_kind`, `cross_device`, `link_kind_unsupported`, `link_probe_failed`, `remote_exec_required` et `no_atomic_replace`, avec `details.label` ; `details.warnings` liste les clés complètes des avertissements du plan (`warning.dedupe.unreliable_inode`…, `warning.no_client_recheck` ; la valeur courte `no_client_recheck` des anciennes lignes est encore lue), dont le texte est dans `warnings` de la proposition ; le détail `maintenance` d'une proposition (`GET /api/proposals`) porte le même `label`. `warnings` de `status`, du résultat d'une étape (mode cross-seed, `warning.crossseed.*`, `warning.multiple_clients`) et du résultat de `dedupe apply` et de `repair apply` sont des objets `{"code", "text"}`. Les conseils des fournisseurs de montage du diagnostic (`advice.mount.*`) sont rendus dans la langue. Les lignes déjà enregistrées avant cette version gardent leur texte d'origine (`legacy.text` ; un `details.reason` ancien est une phrase anglaise rendue telle quelle).
