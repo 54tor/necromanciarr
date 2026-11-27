@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -175,5 +176,149 @@ func TestEnsureBootstrap_concurrentCallsLeaveOneKey(t *testing.T) {
 
 	if nombreObtenu := strings.Count(readEnvFile(t, configDir), "NECROMANCIARR_SECRET_KEY="); nombreObtenu != 1 {
 		t.Errorf("nombreAttendu 1, nombreObtenu %d", nombreObtenu)
+	}
+}
+
+func TestEnsureBootstrap_generatesBothWhenEnvExampleLinesAreBlank(t *testing.T) {
+	configDir := t.TempDir()
+	contenuInitial := "# copied from .env.example\nLIBRARY_PROVIDER_TOKEN=x\nNECROMANCIARR_SECRET_KEY=\nNECROMANCIARR_AUTH_TOKEN=\n"
+	if err := os.WriteFile(filepath.Join(configDir, ".env"), []byte(contenuInitial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := EnsureBootstrap(bootstrapArgs(configDir), noEnvironment, configDir)
+	if err != nil {
+		t.Fatalf("EnsureBootstrap: %v", err)
+	}
+
+	if len(result.Created) != 2 {
+		t.Errorf("Created attendu 2 noms, obtenu %v", result.Created)
+	}
+	if !strings.HasPrefix(readEnvFile(t, configDir), contenuInitial) {
+		t.Error("contenu initial modifié")
+	}
+	variables, err := readDotEnv(filepath.Join(configDir, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if variables["NECROMANCIARR_SECRET_KEY"] == "" || variables["NECROMANCIARR_AUTH_TOKEN"] == "" {
+		t.Errorf("secrets encore vides : %v", variables)
+	}
+}
+
+func TestEnsureBootstrap_createsMissingDefaultConfigDirMode0700(t *testing.T) {
+	defaultDir := filepath.Join(t.TempDir(), "absent", "necromanciarr")
+
+	if _, err := EnsureBootstrap(nil, noEnvironment, defaultDir); err != nil {
+		t.Fatalf("EnsureBootstrap: %v", err)
+	}
+
+	info, err := os.Stat(defaultDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if modeObtenu := info.Mode().Perm(); modeObtenu != 0o700 {
+		t.Errorf("modeAttendu 0700, modeObtenu %o", modeObtenu)
+	}
+	if _, err := os.Stat(filepath.Join(defaultDir, ".env")); err != nil {
+		t.Errorf(".env absent : %v", err)
+	}
+}
+
+func TestEnsureBootstrap_explicitMissingConfigDirStillFails(t *testing.T) {
+	missingDir := filepath.Join(t.TempDir(), "absent")
+	environment := func(name string) (string, bool) { return missingDir, name == "CONFIG_DIR" }
+	cases := map[string]func() error{
+		"flag": func() error {
+			_, err := EnsureBootstrap(bootstrapArgs(missingDir), noEnvironment, missingDir)
+			return err
+		},
+		"environment": func() error {
+			_, err := EnsureBootstrap(nil, environment, missingDir)
+			return err
+		},
+	}
+	for name, run := range cases {
+		t.Run(name, func(t *testing.T) {
+			if err := run(); err == nil || errors.Is(err, ErrBootstrapNotWritable) {
+				t.Errorf("erreur de dossier inexistant attendue, obtenue %v", err)
+			}
+			if _, statErr := os.Stat(missingDir); !errors.Is(statErr, os.ErrNotExist) {
+				t.Errorf("dossier explicite créé : %v", statErr)
+			}
+		})
+	}
+}
+
+func TestEnsureBootstrap_tightensLooseEnvFileMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX modes only")
+	}
+	configDir := t.TempDir()
+	envPath := filepath.Join(configDir, ".env")
+	if err := os.WriteFile(envPath, []byte("OTHER=1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(envPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := EnsureBootstrap(bootstrapArgs(configDir), noEnvironment, configDir); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if modeObtenu := info.Mode().Perm(); modeObtenu != 0o600 {
+		t.Errorf("modeAttendu 0600, modeObtenu %o", modeObtenu)
+	}
+}
+
+func TestEnsureBootstrap_appendsToWorkingDirEnvWhenConfigDirHasNone(t *testing.T) {
+	configDir := t.TempDir()
+	workingDir := t.TempDir()
+	contenuInitial := "NECROMANCIARR_SECRET_KEY=existing\nOTHER=1\n"
+	if err := os.WriteFile(filepath.Join(workingDir, ".env"), []byte(contenuInitial), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(workingDir)
+
+	result, err := EnsureBootstrap(bootstrapArgs(configDir), noEnvironment, configDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Created) != 1 || result.Created[0] != "NECROMANCIARR_AUTH_TOKEN" {
+		t.Errorf("Created obtenu %v", result.Created)
+	}
+	if _, statErr := os.Stat(filepath.Join(configDir, ".env")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf(".env créé dans le dossier de configuration : %v", statErr)
+	}
+	if contenuObtenu := readEnvFile(t, workingDir); !strings.HasPrefix(contenuObtenu, contenuInitial) || !strings.Contains(contenuObtenu, "NECROMANCIARR_AUTH_TOKEN=") {
+		t.Errorf("contenuObtenu %q", contenuObtenu)
+	}
+}
+
+func TestEnsureBootstrap_doesNotGlueLinesWhenEnvLacksTrailingNewline(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, ".env"), []byte("OTHER=1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := EnsureBootstrap(bootstrapArgs(configDir), noEnvironment, configDir); err != nil {
+		t.Fatal(err)
+	}
+
+	variables, err := readDotEnv(filepath.Join(configDir, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if valeurObtenue := variables["OTHER"]; valeurObtenue != "1" {
+		t.Errorf("valeurAttendue \"1\", valeurObtenue %q", valeurObtenue)
+	}
+	if variables["NECROMANCIARR_SECRET_KEY"] == "" || variables["NECROMANCIARR_AUTH_TOKEN"] == "" {
+		t.Errorf("secrets collés à la ligne précédente : %v", variables)
 	}
 }

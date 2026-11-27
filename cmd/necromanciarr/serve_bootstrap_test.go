@@ -81,3 +81,21 @@ func TestServeBootstrap_unwritableConfigDirFailsWithActionableMessage(t *testing
 		t.Fatalf("valeurObtenue %+v, valeurAttendue a failure naming the folder and NECROMANCIARR_AUTH_TOKEN", result)
 	}
 }
+
+func TestServeBootstrap_databaseWithoutKeyRefusesWithTranslatedMessageAndWritesNoEnv(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "necromanciarr.db"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	useServeHarness(t)
+
+	result := <-startServe(context.Background(), []string{"--config-dir", configDir, "--language", "en"})
+
+	messageAttendu := "a database exists but NECROMANCIARR_SECRET_KEY is missing"
+	if result.exitCode == successExitCode || !strings.Contains(result.stderr, messageAttendu) {
+		t.Fatalf("valeurObtenue %+v, valeurAttendue a failure containing %q", result, messageAttendu)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, ".env")); !os.IsNotExist(err) {
+		t.Errorf(".env créé malgré le refus : %v", err)
+	}
+}

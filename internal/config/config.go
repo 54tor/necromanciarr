@@ -345,13 +345,16 @@ func parseCommandLine(args []string) (commandLine, error) {
 	return options, nil
 }
 
-func resolveConfigDir(options commandLine, lookupEnv func(string) (string, bool), defaultConfigDir string) (string, error) {
-	explicitDir := ""
+func explicitConfigDir(options commandLine, lookupEnv func(string) (string, bool)) string {
 	if options.set["config-dir"] {
-		explicitDir = options.configDir
-	} else if environmentDir, found := lookupEnv(envConfigDir); found {
-		explicitDir = environmentDir
+		return options.configDir
 	}
+	environmentDir, _ := lookupEnv(envConfigDir)
+	return environmentDir
+}
+
+func resolveConfigDir(options commandLine, lookupEnv func(string) (string, bool), defaultConfigDir string) (string, error) {
+	explicitDir := explicitConfigDir(options, lookupEnv)
 	if explicitDir == "" {
 		if defaultConfigDir == "" {
 			return "", errors.New("config dir unknown: set --config-dir or " + envConfigDir)

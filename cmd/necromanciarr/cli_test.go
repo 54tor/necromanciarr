@@ -111,6 +111,16 @@ func (fake *fakeService) Doctor(_ context.Context, options app.DoctorOptions) (d
 	return doctor.Report{Checks: []doctor.Outcome{{ID: "config", TitleKey: i18n.KeyDoctorTitleConfig, Result: doctor.Result{Code: doctor.CodeOK}}}}, fake.err
 }
 
+func (fake *fakeService) TestCandidate(_ context.Context, candidate app.SetupCandidate) (app.SetupTestResult, error) {
+	fake.record("TestCandidate", candidate.Kind)
+	return app.SetupTestResult{}, fake.err
+}
+
+func (fake *fakeService) ApplyFix(_ context.Context, fixID, target string) error {
+	fake.record("ApplyFix", fixID+" "+target)
+	return fake.err
+}
+
 func (fake *fakeService) DedupePlan(context.Context) ([]app.DedupeProposal, error) {
 	fake.record("DedupePlan")
 	if fake.dedupePlan != nil {

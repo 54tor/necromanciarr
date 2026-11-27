@@ -14,7 +14,7 @@ Built by `make docker-build` (Node stage for the interface, static Go stage, fin
 | Health probe | `necromanciarr healthcheck` every 30 s, timeout 5 s, start period 20 s, 3 retries |
 | Contents | base `debian:trixie-slim` (dated tag), the binary and the TLS certificates; time zones embedded in the binary |
 
-The image listens on all interfaces, so `serve` (the default command) requires `NECROMANCIARR_AUTH_TOKEN`. On first start it generates it in `/data/.env` and shows it once on stderr (`docker logs`); `/data` must therefore be writable by the container user. With no token and no writable folder, the container exits with code 1 and `listen "0.0.0.0:8787" is not loopback: set NECROMANCIARR_AUTH_TOKEN (at least 32 characters, generate one with necromanciarr api-key)`. To set your own token: `docker run --rm necromanciarr:dev api-key`, then `-e NECROMANCIARR_AUTH_TOKEN=…`. A database present without `NECROMANCIARR_SECRET_KEY` also blocks startup ([02](02-configuration.md#first-launch-bootstrap)).
+The image listens on all interfaces, so `serve` (the default command) requires `NECROMANCIARR_AUTH_TOKEN`. On first start it generates it in `/data/.env` and shows it once on stderr (`docker logs`); `/data` must therefore be writable by the container user. If `/data` is not writable, the container exits with code 1 and "cannot write .env in /data: …", unless `NECROMANCIARR_SECRET_KEY` and `NECROMANCIARR_AUTH_TOKEN` are already defined. To set your own token: `docker run --rm necromanciarr:dev api-key`, then `-e NECROMANCIARR_AUTH_TOKEN=…`. A database present without `NECROMANCIARR_SECRET_KEY` also blocks startup ([02](02-configuration.md#first-launch-bootstrap)).
 
 ## Volumes
 

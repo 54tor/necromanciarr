@@ -11,7 +11,10 @@ import (
 	"sync"
 )
 
-const dotEnvFileMode = 0o600
+const (
+	dotEnvFileMode       = 0o600
+	defaultConfigDirMode = 0o700
+)
 
 var (
 	ErrBootstrapNotWritable        = errors.New("bootstrap: config dir not writable")
@@ -32,6 +35,7 @@ func (notWritable *NotWritableError) Is(target error) bool { return target == Er
 
 func (notWritable *NotWritableError) Unwrap() error { return notWritable.Cause }
 
+// ponytail: in-process lock only; add flock if two serve processes may share a config dir
 var bootstrapLock sync.Mutex
 
 type BootstrapResult struct {
@@ -53,19 +57,33 @@ func EnsureBootstrap(args []string, lookupEnv func(string) (string, bool), defau
 	bootstrapLock.Lock()
 	defer bootstrapLock.Unlock()
 
-	lookup, _, err := loadDotEnvLookup(configDir, lookupEnv)
+	if explicitConfigDir(options, lookupEnv) == "" {
+		if err := os.MkdirAll(configDir, defaultConfigDirMode); err != nil {
+			return BootstrapResult{}, &NotWritableError{Dir: configDir, Cause: err}
+		}
+	}
+	lookup, fromWorkingDir, err := loadDotEnvLookup(configDir, lookupEnv)
 	if err != nil {
 		return BootstrapResult{}, err
 	}
-	_, hasKey := lookup(envSecretKey)
-	_, hasToken := lookup(envAuthToken)
+	hasKey := hasNonEmptyValue(lookup, envSecretKey)
+	hasToken := hasNonEmptyValue(lookup, envAuthToken)
 	if hasKey && hasToken {
 		return BootstrapResult{}, nil
 	}
 	if !hasKey && databaseExists(configDir, options) {
 		return BootstrapResult{}, ErrBootstrapWouldOrphanSecrets
 	}
-	return writeMissingSecrets(configDir, !hasKey, !hasToken)
+	dotEnvPath := filepath.Join(configDir, dotEnvFileName)
+	if fromWorkingDir {
+		dotEnvPath = dotEnvFileName
+	}
+	return writeMissingSecrets(dotEnvPath, !hasKey, !hasToken)
+}
+
+func hasNonEmptyValue(lookup func(string) (string, bool), name string) bool {
+	value, found := lookup(name)
+	return found && value != ""
 }
 
 func databaseExists(configDir string, options commandLine) bool {
@@ -77,7 +95,7 @@ func databaseExists(configDir string, options commandLine) bool {
 	return err == nil
 }
 
-func writeMissingSecrets(configDir string, needKey, needToken bool) (BootstrapResult, error) {
+func writeMissingSecrets(dotEnvPath string, needKey, needToken bool) (BootstrapResult, error) {
 	var result BootstrapResult
 	var lines strings.Builder
 	if needKey {
@@ -97,8 +115,8 @@ func writeMissingSecrets(configDir string, needKey, needToken bool) (BootstrapRe
 		result.Created = append(result.Created, envAuthToken)
 		result.AuthToken = authToken
 	}
-	if err := appendToDotEnv(filepath.Join(configDir, dotEnvFileName), lines.String()); err != nil {
-		return BootstrapResult{}, &NotWritableError{Dir: configDir, Cause: err}
+	if err := appendToDotEnv(dotEnvPath, lines.String()); err != nil {
+		return BootstrapResult{}, &NotWritableError{Dir: filepath.Dir(dotEnvPath), Cause: err}
 	}
 	return result, nil
 }
@@ -113,6 +131,10 @@ func appendToDotEnv(path, lines string) error {
 	}
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, dotEnvFileMode) // #nosec G304 -- idem
 	if err != nil {
+		return err
+	}
+	if err := file.Chmod(dotEnvFileMode); err != nil {
+		_ = file.Close()
 		return err
 	}
 	if _, err := file.WriteString(lines); err != nil {
