@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -204,14 +205,53 @@ func TestAccountCommands_doNotRunTheSecretBootstrap(t *testing.T) {
 	}
 }
 
-func TestAccountCommands_areCLIOnlyAndListedInTheUsage(t *testing.T) {
+func TestAccountCommands_areCLIOnlyWithNoActionNorWebRouteAndListedInTheUsage(t *testing.T) {
 	registeredActions := app.Actions(i18n.New(i18n.English, nil))
+	routes := goldenRoutes(t)
 	usage := usageText(i18n.New(i18n.English, nil))
 
-	for _, name := range []string{"account status", "account reset"} {
+	for _, spec := range accountCommands {
+		name := spec.name()
 		hasAction := slices.ContainsFunc(registeredActions, func(action app.Action) bool { return action.Name == name })
-		if hasAction || !strings.Contains(usage, name) {
-			t.Fatalf("%q: valeurObtenue action %v, usage %v, valeurAttendue une commande de la CLI seule listée", name, hasAction, strings.Contains(usage, name))
+		hasRoute := slices.ContainsFunc(routes, func(route routeEntry) bool {
+			return route.Action == name || slices.Contains(strings.Split(route.Path, "/"), spec.path[0])
+		})
+		if hasAction || hasRoute || !strings.Contains(usage, name) {
+			t.Fatalf("%q: valeurObtenue action %v, route %v, usage %v, valeurAttendue une commande de la CLI seule listée", name, hasAction, hasRoute, strings.Contains(usage, name))
 		}
+	}
+}
+
+func TestAccountReset_onlyTheExactYesFlagConfirms(t *testing.T) {
+	fixture := createAccountWithFactors(t)
+	configDirArguments := []string{"--config-dir", fixture.configDir}
+	refusedInvocations := [][]string{
+		{"--json", "yes"},
+		{"--config-dir", fixture.configDir, "yes"},
+		{"-yes"},
+		{"--yes=false"},
+		{"--yes=0"},
+		{"--yes=true"},
+		{"-y"},
+		{"--ye"},
+		{"yes"},
+	}
+
+	for _, invocationArguments := range refusedInvocations {
+		var stdout, stderr bytes.Buffer
+		arguments := append([]string{"account", "reset"}, invocationArguments...)
+		exitCodeObtained := run(append(arguments, append(configDirArguments, "--language", "en")...), &stdout, &stderr)
+
+		if exitCodeObtained != usageExitCode {
+			t.Fatalf("%v: valeurObtenue exit %d, valeurAttendue %d", invocationArguments, exitCodeObtained, usageExitCode)
+		}
+		statusObtained := runCli(t, fixture.configDir, "account", "status")
+		if !strings.Contains(statusObtained.stdout, "Account: alice") {
+			t.Fatalf("%v: valeurObtenue %q, valeurAttendue le compte intact", invocationArguments, statusObtained.stdout)
+		}
+	}
+	accepted := runCli(t, fixture.configDir, "account", "reset", "--yes")
+	if accepted.exitCode != successExitCode {
+		t.Fatalf("valeurObtenue exit %d, valeurAttendue 0 pour --yes", accepted.exitCode)
 	}
 }

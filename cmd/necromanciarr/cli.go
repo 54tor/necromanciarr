@@ -160,7 +160,10 @@ func parseInvocation(spec command, args []string) (*invocation, error) {
 		return nil, fmt.Errorf("%w: missing %s", config.ErrUsage, strings.Join(spec.arguments[position:], ", "))
 	}
 	for ; position < len(args); position++ {
-		name, inlineValue, hasInlineValue := strings.Cut(strings.TrimLeft(args[position], "-"), "=")
+		name, inlineValue, hasInlineValue := "", "", false
+		if strings.HasPrefix(args[position], "--") {
+			name, inlineValue, hasInlineValue = strings.Cut(strings.TrimPrefix(args[position], "--"), "=")
+		}
 		switch {
 		case slices.Contains(spec.boolFlags, name) && !hasInlineValue:
 			call.flags[name] = append(call.flags[name], "true")
