@@ -23,7 +23,16 @@ func readEnvFile(t *testing.T, configDir string) string {
 	return string(contenu)
 }
 
+// skipWithoutUnixPermissions : sous Windows, chmod ne pose ni le mode 0600 ni un dossier non inscriptible.
+func skipWithoutUnixPermissions(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("les modes Unix n'existent pas sous Windows")
+	}
+}
+
 func TestEnsureBootstrap_createsEnvFileWithBothSecretsMode0600(t *testing.T) {
+	skipWithoutUnixPermissions(t)
 	configDir := t.TempDir()
 
 	result, err := EnsureBootstrap(bootstrapArgs(configDir), noEnvironment, configDir)
@@ -143,6 +152,7 @@ func TestEnsureBootstrap_refusesWhenDatabaseExistsWithoutKey(t *testing.T) {
 }
 
 func TestEnsureBootstrap_reportsUnwritableDirectory(t *testing.T) {
+	skipWithoutUnixPermissions(t)
 	configDir := t.TempDir()
 	if err := os.Chmod(configDir, 0o500); err != nil {
 		t.Fatal(err)
@@ -207,6 +217,7 @@ func TestEnsureBootstrap_generatesBothWhenEnvExampleLinesAreBlank(t *testing.T) 
 }
 
 func TestEnsureBootstrap_createsMissingDefaultConfigDirMode0700(t *testing.T) {
+	skipWithoutUnixPermissions(t)
 	defaultDir := filepath.Join(t.TempDir(), "absent", "necromanciarr")
 
 	if _, err := EnsureBootstrap(nil, noEnvironment, defaultDir); err != nil {
@@ -251,9 +262,7 @@ func TestEnsureBootstrap_explicitMissingConfigDirStillFails(t *testing.T) {
 }
 
 func TestEnsureBootstrap_tightensLooseEnvFileMode(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("POSIX modes only")
-	}
+	skipWithoutUnixPermissions(t)
 	configDir := t.TempDir()
 	envPath := filepath.Join(configDir, ".env")
 	if err := os.WriteFile(envPath, []byte("OTHER=1\n"), 0o644); err != nil {
