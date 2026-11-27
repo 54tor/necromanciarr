@@ -40,3 +40,6 @@ func DeviceKey(path string) (string, error) {
 	}
 	return strconv.FormatUint(uint64(stat.Dev), 10), nil //nolint:unconvert // le type de Dev varie selon l'OS
 }
+
+// symlinkTarget rend la cible telle que le noyau la lit : inchangée sous unix.
+func symlinkTarget(target string) string { return target }

@@ -66,7 +66,7 @@ func (root *writeRoot) Symlink(target, relative string) error {
 		return err
 	}
 	defer destination.close()
-	return ClassifyLinkError(destination.parent.Symlink(target, destination.name))
+	return ClassifyLinkError(destination.parent.Symlink(symlinkTarget(target), destination.name))
 }
 
 // Hardlink lie source (chemin complet du même volume) à relative ; la source n'est jamais ouverte.

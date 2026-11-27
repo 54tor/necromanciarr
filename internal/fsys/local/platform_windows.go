@@ -41,3 +41,28 @@ func DeviceKey(path string) (string, error) {
 	}
 	return strings.ToUpper(filepath.VolumeName(absolutePath)), nil
 }
+
+const (
+	ntPathPrefix    = `\??\`
+	ntUNCPathPrefix = `\??\UNC\`
+	uncPathPrefix   = `\\`
+)
+
+// symlinkTarget préfixe d'un « \??\ » une cible absolue : os.Root.Symlink écrit le texte reçu tel quel comme nom
+// de substitution, que le noyau ne sait ouvrir qu'avec ce préfixe, là où os.Symlink (CreateSymbolicLinkW) l'ajoute
+// seul. os.Readlink retire le préfixe, la cible relue reste celle d'origine.
+func symlinkTarget(target string) string {
+	target = filepath.FromSlash(target)
+	switch {
+	case strings.HasPrefix(target, ntPathPrefix):
+		return target
+	case strings.HasPrefix(target, uncPathPrefix+"?"+`\`) || strings.HasPrefix(target, uncPathPrefix+"."+`\`):
+		return ntPathPrefix + target[len(uncPathPrefix)+2:]
+	case strings.HasPrefix(target, uncPathPrefix):
+		return ntUNCPathPrefix + target[len(uncPathPrefix):]
+	case filepath.IsAbs(target):
+		return ntPathPrefix + target
+	default:
+		return target
+	}
+}
