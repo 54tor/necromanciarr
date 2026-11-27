@@ -45,10 +45,13 @@ type Handler struct {
 	jobs       *jobRunner
 	logger     *slog.Logger
 	hosts      allowedHosts
-	// preAuth garde l'état d'avant session (cookie de 5 min), ceremonies les états d'enregistrement par session.
-	preAuth    *heldStates
-	ceremonies *heldStates
-	now        func() time.Time
+	// preAuth garde les seconds facteurs en attente (mot de passe vérifié), passkeyPreAuth les connexions par clé
+	// d'accès (publiques, sans limite : une avalanche n'y évince que d'autres clés d'accès) ; ceremonies les états
+	// d'enregistrement par session.
+	preAuth        *heldStates
+	passkeyPreAuth *heldStates
+	ceremonies     *heldStates
+	now            func() time.Time
 }
 
 // NewHandler sert l'interface embarquée (ui.Assets) ; ctx est le contexte du serveur : son annulation arrête les jobs.
@@ -62,8 +65,8 @@ func NewHandler(ctx context.Context, service app.Service, health HealthChecker, 
 func NewHandlerWithAssets(ctx context.Context, service app.Service, health HealthChecker, settings config.Config, assets fs.FS) *Handler {
 	handler := &Handler{
 		mux: http.NewServeMux(), service: service, health: health, settings: settings,
-		translator: service.Translator(), hosts: hostsFor(settings.ListenAddr), logger: NewLogger(os.Stderr),
-		preAuth: newHeldStates(preAuthLifetime, time.Now), ceremonies: newHeldStates(ceremonyLifetime, time.Now), now: time.Now,
+		translator: service.Translator(), hosts: hostsFor(settings.ListenAddr, settings.PublicURL), logger: NewLogger(os.Stderr),
+		preAuth: newHeldStates(preAuthLifetime, time.Now), passkeyPreAuth: newHeldStates(preAuthLifetime, time.Now), ceremonies: newHeldStates(ceremonyLifetime, time.Now), now: time.Now,
 	}
 	handler.jobs = newJobRunner(ctx, handler.describe, handler.logLine)
 	handler.mux.HandleFunc("GET /healthz", handler.serveHealth)

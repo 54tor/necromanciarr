@@ -178,11 +178,11 @@ func listCredentials(handler *Handler, _ http.ResponseWriter, request *http.Requ
 	return items, http.StatusOK, nil
 }
 
-// credentialIDOf borne l'identifiant du chemin : au-delà, aucune clé ne peut correspondre.
+// credentialIDOf borne l'identifiant du chemin avant tout appel au Service.
 func credentialIDOf(request *http.Request) (string, error) {
 	id := request.PathValue(pathCredentialID)
 	if len(id) > maxCredentialIDBytes {
-		return "", app.ErrCredentialNotFound
+		return "", fieldTooLong(pathCredentialID)
 	}
 	return id, nil
 }
@@ -242,7 +242,7 @@ func finishTOTPSetup(handler *Handler, _ http.ResponseWriter, request *http.Requ
 		return nil, 0, err
 	}
 	if len(body.Code) > maxCodeBytes {
-		return nil, 0, app.ErrInvalidCode
+		return nil, 0, fieldTooLong("code")
 	}
 	return struct{}{}, http.StatusCreated, handler.service.FinishTOTPSetup(request.Context(), sessionTokenOf(request), held.state, body.Code)
 }

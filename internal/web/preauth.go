@@ -100,6 +100,13 @@ func (states *heldStates) take(key, purpose string) (heldState, bool) {
 	return entry, true
 }
 
+// forget oublie l'état de key, quel que soit son usage.
+func (states *heldStates) forget(key string) {
+	states.mutex.Lock()
+	defer states.mutex.Unlock()
+	delete(states.entries, key)
+}
+
 // dropPrefix oublie les états dont la clé commence par prefix ; un préfixe vide les oublie tous.
 func (states *heldStates) dropPrefix(prefix string) {
 	states.mutex.Lock()

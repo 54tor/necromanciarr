@@ -43,6 +43,7 @@ const (
 	loginReasonStepExpired = "step_expired"
 	loginReasonThrottled   = "throttled"
 	loginReasonInternal    = "internal"
+	loginReasonUnavailable = "webauthn_unavailable"
 )
 
 // authErrorClass donne le statut, le code et le message d'une sentinelle du Service ou du paquet auth.
@@ -96,6 +97,10 @@ func authRefusal(status int, code string, key i18n.Key) *apiError {
 	return newAPIError(status, code, i18n.Message{Key: key})
 }
 
+func fieldTooLong(name string) *apiError {
+	return newAPIError(http.StatusBadRequest, errorCodeUsage, named(i18n.KeyErrorAuthFieldTooLong, name))
+}
+
 func stepExpired() *apiError {
 	return authRefusal(http.StatusUnauthorized, errorCodeStepExpired, i18n.KeyErrorAuthStepExpired)
 }
@@ -108,6 +113,9 @@ func invalidCredentials() *apiError {
 func loginFailureReason(err error, stepReason string) string {
 	if errors.Is(err, app.ErrThrottled) {
 		return loginReasonThrottled
+	}
+	if errors.Is(err, app.ErrWebAuthnUnavailable) {
+		return loginReasonUnavailable
 	}
 	apiFailure, isAPIError := errors.AsType[*apiError](authError(err))
 	switch {

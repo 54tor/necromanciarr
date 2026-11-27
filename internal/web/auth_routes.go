@@ -171,7 +171,7 @@ func setupAccount(handler *Handler, writer http.ResponseWriter, request *http.Re
 func loginWithPassword(handler *Handler, writer http.ResponseWriter, request *http.Request) (any, int, error) {
 	var body credentialsBody
 	if err := decodeBody(request, &body); err != nil {
-		return nil, 0, err
+		return handler.loginStepFailed(request, err, loginReasonPassword)
 	}
 	if tooManyRunes(body.Username, maxUsernameRunes) || len(body.Password) > auth.MaxPasswordBytes {
 		handler.logLoginFailed(request, loginReasonPassword)
@@ -184,7 +184,11 @@ func loginWithPassword(handler *Handler, writer http.ResponseWriter, request *ht
 	if result.Session != nil {
 		return handler.signedIn(writer, request, *result.Session)
 	}
-	return handler.secondFactorRequired(writer, request, result)
+	pending, err := handler.secondFactorRequired(writer, request, result)
+	if err != nil {
+		return handler.loginStepFailed(request, err, loginReasonPassword)
+	}
+	return pending, http.StatusOK, nil
 }
 
 func (handler *Handler) passwordStepFailure(request *http.Request, err error) error {
@@ -207,7 +211,7 @@ func (handler *Handler) signedIn(writer http.ResponseWriter, request *http.Reque
 
 // secondFactorRequired garde le ticket (et l'état WebAuthn) côté serveur, lié au navigateur par le cookie d'avant
 // session ; aucune session n'est émise. Sans WebAuthn utilisable, seul le TOTP reste proposé.
-func (handler *Handler) secondFactorRequired(writer http.ResponseWriter, request *http.Request, result app.LoginResult) (any, int, error) {
+func (handler *Handler) secondFactorRequired(writer http.ResponseWriter, request *http.Request, result app.LoginResult) (loginBody, error) {
 	held := heldState{purpose: purposeLogin, ticket: result.Ticket}
 	body := loginBody{State: stateSecondFactorRequired}
 	for _, factor := range result.SecondFactors {
@@ -220,28 +224,34 @@ func (handler *Handler) secondFactorRequired(writer http.ResponseWriter, request
 			continue
 		}
 		if err != nil {
-			return nil, 0, err
+			return loginBody{}, err
 		}
 		held.state, body.WebAuthn = ceremony.State, ceremony.Options
 		body.Factors = append(body.Factors, factor)
 	}
 	if len(body.Factors) == 0 {
-		return nil, 0, app.ErrWebAuthnUnavailable
+		return loginBody{}, app.ErrWebAuthnUnavailable
 	}
 	id := newPreAuthID()
 	handler.preAuth.put(id, held)
 	handler.setPreAuthCookie(writer, id)
-	return body, http.StatusOK, nil
+	return body, nil
 }
 
-// takePreAuth consomme l'état d'avant session du cookie, quel que soit l'issue de l'étape, et efface le cookie.
+// takePreAuth consomme l'état d'avant session du cookie dans les deux tables, quelle que soit l'issue de l'étape ou
+// la route qui le présente, et efface le cookie.
 func (handler *Handler) takePreAuth(writer http.ResponseWriter, request *http.Request, purpose string) (heldState, bool) {
 	id, found := cookieValue(request, handler.preAuthCookieName())
 	if !found {
 		return heldState{}, false
 	}
 	handler.clearPreAuthCookie(writer)
-	return handler.preAuth.take(id, purpose)
+	target, other := handler.preAuth, handler.passkeyPreAuth
+	if purpose == purposePasskey {
+		target, other = other, target
+	}
+	other.forget(id)
+	return target.take(id, purpose)
 }
 
 func decodeAssertion(request *http.Request) (*bytes.Reader, error) {
@@ -267,7 +277,7 @@ func finishWebAuthnLogin(handler *Handler, writer http.ResponseWriter, request *
 	}
 	assertion, err := decodeAssertion(request)
 	if err != nil {
-		return nil, 0, err
+		return handler.loginStepFailed(request, err, loginReasonWebAuthn)
 	}
 	grant, err := handler.service.FinishWebAuthnLogin(request.Context(), held.ticket, held.state, assertion, clientOf(request))
 	if err != nil {
@@ -283,10 +293,10 @@ func loginWithTOTP(handler *Handler, writer http.ResponseWriter, request *http.R
 	}
 	var body codeBody
 	if err := decodeBody(request, &body); err != nil {
-		return nil, 0, err
+		return handler.loginStepFailed(request, err, loginReasonTOTP)
 	}
 	if len(body.Code) > maxCodeBytes {
-		return handler.loginStepFailed(request, app.ErrInvalidCode, loginReasonTOTP)
+		return handler.loginStepFailed(request, fieldTooLong("code"), loginReasonTOTP)
 	}
 	grant, err := handler.service.LoginWithTOTP(request.Context(), held.ticket, body.Code, clientOf(request))
 	if err != nil {
@@ -295,6 +305,8 @@ func loginWithTOTP(handler *Handler, writer http.ResponseWriter, request *http.R
 	return handler.signedIn(writer, request, grant)
 }
 
+// beginPasskeyLogin : une avalanche d'appels n'évince que d'autres clés d'accès en attente, risque accepté en v1 (le
+// Service limite les finish).
 func beginPasskeyLogin(handler *Handler, writer http.ResponseWriter, request *http.Request) (any, int, error) {
 	if err := decodeBody(request, &struct{}{}); err != nil {
 		return nil, 0, err
@@ -304,7 +316,7 @@ func beginPasskeyLogin(handler *Handler, writer http.ResponseWriter, request *ht
 		return nil, 0, err
 	}
 	id := newPreAuthID()
-	handler.preAuth.put(id, heldState{purpose: purposePasskey, state: ceremony.State})
+	handler.passkeyPreAuth.put(id, heldState{purpose: purposePasskey, state: ceremony.State})
 	handler.setPreAuthCookie(writer, id)
 	return loginBody{State: stateLoggedOut, WebAuthn: ceremony.Options}, http.StatusOK, nil
 }
@@ -316,7 +328,7 @@ func finishPasskeyLogin(handler *Handler, writer http.ResponseWriter, request *h
 	}
 	assertion, err := decodeAssertion(request)
 	if err != nil {
-		return nil, 0, err
+		return handler.loginStepFailed(request, err, loginReasonPasskey)
 	}
 	grant, err := handler.service.FinishPasskeyLogin(request.Context(), held.state, assertion, clientOf(request))
 	if err != nil {

@@ -631,4 +631,5 @@ var english = map[Key]string{
 	KeyErrorAuthInvalidCredentialKind:       "invalid key kind: second_factor or passkey",
 	KeyLogAPILoginFailed:                    "sign-in failed from {address} ({reason})",
 	KeyLogAPILoginSucceeded:                 "signed in from {address}",
+	KeyErrorAuthFieldTooLong:                "the field {name} is too long",
 }

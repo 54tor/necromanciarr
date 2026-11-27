@@ -50,8 +50,9 @@ type allowedHosts []string
 
 // hostsFor dérive la liste de l'adresse d'écoute en boucle locale : l'adresse elle-même et localhost, 127.0.0.1 et
 // [::1] sur le même port. Une page d'un autre domaine qui se fait résoudre en 127.0.0.1 (rebinding DNS) envoie son
-// propre nom dans Host et est refusée.
-func hostsFor(listenAddr string) allowedHosts {
+// propre nom dans Host et est refusée. L'hôte de publicUrl (port compris s'il n'est pas celui par défaut) s'y ajoute :
+// un proxy local transmet le Host public à une écoute en boucle locale.
+func hostsFor(listenAddr, publicURL string) allowedHosts {
 	if !config.IsLoopbackAddress(listenAddr) {
 		return nil
 	}
@@ -63,6 +64,9 @@ func hostsFor(listenAddr string) allowedHosts {
 		if port == defaultHTTPPort {
 			hosts = append(hosts, strings.ToLower(bareHost(host)))
 		}
+	}
+	if parsedPublicURL, err := url.Parse(publicURL); publicURL != "" && err == nil {
+		hosts = append(hosts, strings.ToLower(parsedPublicURL.Host))
 	}
 	return hosts
 }

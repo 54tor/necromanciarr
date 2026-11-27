@@ -387,3 +387,36 @@ func TestLogin_unknownUserAndWrongPasswordGiveTheSameBodyAndStatus(t *testing.T)
 		t.Fatalf("valeurObtenue %d %s and %d %s, valeurAttendue the same 401 body", unknownUser.status, unknownUser.body, wrongPassword.status, wrongPassword.body)
 	}
 }
+
+func TestPasskeyLogin_neverReusesTheSessionOfAPasswordLogin(t *testing.T) {
+	server := newE2EServer(t)
+	operator := server.createAccount(t)
+	passkey, securityKey := newE2EKey(), newE2EKey()
+	operator.registerKey(t, passkey, "passkey")
+	operator.registerKey(t, securityKey, "second_factor")
+	expectStatus(t, "logout", operator.call(t, http.MethodPost, "/api/auth/logout", `{}`), http.StatusOK)
+
+	passwordBrowser, passkeyBrowser := server.newBrowser(), server.newBrowser()
+	passwordBrowser.passwordLogin(t)
+	passkeyBegin := passkeyBrowser.call(t, http.MethodPost, "/api/auth/passkey/login/begin", `{}`)
+	passkeyAssertion := `{"credential":` + passkey.assert(t, server.relyingParty, passkeyBegin.field(t, "webauthn")) + `}`
+	passwordBrowser.cookies[preAuthCookieBase], passkeyBrowser.cookies[preAuthCookieBase] =
+		passkeyBrowser.cookies[preAuthCookieBase], passwordBrowser.cookies[preAuthCookieBase]
+	loginStateAtPasskeyFinish := passkeyBrowser.call(t, http.MethodPost, "/api/auth/passkey/login/finish", passkeyAssertion)
+	passkeyStateAtKeyFinish := passwordBrowser.call(t, http.MethodPost, "/api/auth/webauthn/login/finish", passkeyAssertion)
+	if loginStateAtPasskeyFinish.errorCode(t) != errorCodeStepExpired || passkeyStateAtKeyFinish.errorCode(t) != errorCodeStepExpired {
+		t.Fatalf("valeurObtenue %s and %s, valeurAttendue step_expired for each swapped state", loginStateAtPasskeyFinish.body, passkeyStateAtKeyFinish.body)
+	}
+
+	login := operator.passwordLogin(t)
+	keyAssertion := securityKey.assert(t, server.relyingParty, login.field(t, "webauthn"))
+	expectStatus(t, "key finish", operator.call(t, http.MethodPost, "/api/auth/webauthn/login/finish", `{"credential":`+keyAssertion+`}`), http.StatusOK)
+	passwordSession := operator.cookies[sessionCookieBase]
+	begin := operator.call(t, http.MethodPost, "/api/auth/passkey/login/begin", `{}`)
+	finish := `{"credential":` + passkey.assert(t, server.relyingParty, begin.field(t, "webauthn")) + `}`
+	expectStatus(t, "passkey finish", operator.call(t, http.MethodPost, "/api/auth/passkey/login/finish", finish), http.StatusOK)
+
+	if passkeySession := operator.cookies[sessionCookieBase]; passkeySession == "" || passkeySession == passwordSession {
+		t.Fatalf("valeurObtenue the same session %q for both logins, valeurAttendue a new session for the passkey", passkeySession)
+	}
+}

@@ -21,6 +21,7 @@ const (
 	KeyErrorAuthCredentialNotFound    Key = "error.auth.credential_not_found"
 	KeyErrorAuthInvalidCredentialName Key = "error.auth.invalid_credential_name"
 	KeyErrorAuthInvalidCredentialKind Key = "error.auth.invalid_credential_kind"
+	KeyErrorAuthFieldTooLong          Key = "error.auth.field_too_long"
 
 	KeyLogAPILoginFailed    Key = "log.api_login_failed"
 	KeyLogAPILoginSucceeded Key = "log.api_login_succeeded"
@@ -32,5 +33,5 @@ var authKeys = []Key{
 	KeyErrorAuthPasswordTooShort, KeyErrorAuthPasswordTooLong, KeyErrorAuthWebAuthnUnavailable,
 	KeyErrorAuthInvalidAssertion, KeyErrorAuthLoginTicketInvalid, KeyErrorAuthInvalidCode, KeyErrorAuthTOTPUnavailable,
 	KeyErrorAuthTOTPSecretUnreadable, KeyErrorAuthCredentialNotFound, KeyErrorAuthInvalidCredentialName,
-	KeyErrorAuthInvalidCredentialKind, KeyLogAPILoginFailed, KeyLogAPILoginSucceeded,
+	KeyErrorAuthInvalidCredentialKind, KeyErrorAuthFieldTooLong, KeyLogAPILoginFailed, KeyLogAPILoginSucceeded,
 }

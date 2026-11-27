@@ -33,7 +33,7 @@ type admittedRequest struct {
 func (handler *Handler) authenticate(request *http.Request, access accessPolicy) (admittedRequest, error) {
 	switch access {
 	case accessPublic:
-		return admittedRequest{request: request}, nil
+		return admittedRequest{request: request}, handler.refuseBearerOnceAnAccountExists(request)
 	case accessSetupBearer:
 		return admittedRequest{request: request, byBearer: true}, handler.requireSetupBearer(request)
 	}
@@ -50,6 +50,23 @@ func (handler *Handler) authenticate(request *http.Request, access accessPolicy)
 	return admittedRequest{request: request, byBearer: handler.settings.AuthToken != ""}, nil
 }
 
+// refuseBearerOnceAnAccountExists : une route publique n'ignore pas un jeton porteur en mode compte, elle le refuse.
+func (handler *Handler) refuseBearerOnceAnAccountExists(request *http.Request) error {
+	if request.Header.Get("Authorization") == "" {
+		return nil
+	}
+	status, err := handler.service.AuthStatus(request.Context())
+	if err != nil || !status.AccountExists {
+		return err
+	}
+	return handler.bearerDisabled(request)
+}
+
+func (handler *Handler) bearerDisabled(request *http.Request) *apiError {
+	handler.logUnauthorized(request)
+	return authRefusal(http.StatusUnauthorized, errorCodeBearerDisabled, i18n.KeyErrorAuthBearerDisabled)
+}
+
 func (handler *Handler) requireSetupBearer(request *http.Request) error {
 	if handler.settings.AuthToken == "" {
 		return authRefusal(http.StatusForbidden, errorCodeSetupTokenRequired, i18n.KeyErrorAuthSetupTokenRequired)
@@ -64,8 +81,7 @@ func (handler *Handler) requireSetupBearer(request *http.Request) error {
 // que dans son cookie.
 func (handler *Handler) requireSession(request *http.Request) (admittedRequest, error) {
 	if request.Header.Get("Authorization") != "" {
-		handler.logUnauthorized(request)
-		return admittedRequest{}, authRefusal(http.StatusUnauthorized, errorCodeBearerDisabled, i18n.KeyErrorAuthBearerDisabled)
+		return admittedRequest{}, handler.bearerDisabled(request)
 	}
 	token, found := cookieValue(request, handler.sessionCookieName())
 	if !found {
