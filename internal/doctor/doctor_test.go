@@ -380,7 +380,7 @@ func TestChecks_authFailsOnPublicListenWithoutToken(t *testing.T) {
 		expected Status
 	}{
 		{"public without token", config.Config{ListenAddr: "0.0.0.0:8787"}, Fail},
-		{"public with token", config.Config{ListenAddr: "0.0.0.0:8787", AuthToken: "t"}, OK},
+		{"public with token and https url", config.Config{ListenAddr: "0.0.0.0:8787", AuthToken: "t", PublicURL: "https://necro.example.com"}, OK},
 		{"loopback without token", config.Config{ListenAddr: "127.0.0.1:8787"}, OK},
 	}
 	for _, testCase := range testCases {

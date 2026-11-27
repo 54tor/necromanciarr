@@ -95,6 +95,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `auth` | `loopback` | `ok` | écoute en boucle locale |
 | `auth` | `auth_token_set` | `ok` | écoute hors boucle locale avec jeton |
 | `auth` | `no_auth_token` | `fail` | écoute hors boucle locale sans jeton, que `serve` refusera : `necromanciarr api-key`, puis `.env` |
+| `auth` | `auth_public_url_missing` | `warn` | écoute hors boucle locale sans `publicUrl` en https : le cookie de session n'est pas `Secure` et WebAuthn est désactivé ; régler `publicUrl` sur l'adresse https des utilisateurs |
 | `library-roots` | `no_library_root` | `warn` | `libraryRoots` vide |
 | `library-roots` | `root_not_found` | `fail` | montage absent ou chemin faux |
 | `library-roots` | `root_not_directory` | `fail` | la racine n'est pas un dossier |

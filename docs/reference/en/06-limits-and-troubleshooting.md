@@ -95,6 +95,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `auth` | `loopback` | `ok` | listening on loopback |
 | `auth` | `auth_token_set` | `ok` | listening outside loopback with a token |
 | `auth` | `no_auth_token` | `fail` | listening outside loopback without a token, which `serve` will refuse: `necromanciarr api-key`, then `.env` |
+| `auth` | `auth_public_url_missing` | `warn` | listening outside loopback without an https `publicUrl`: the session cookie is not `Secure` and WebAuthn is disabled; set `publicUrl` to the https address users reach |
 | `library-roots` | `no_library_root` | `warn` | `libraryRoots` empty |
 | `library-roots` | `root_not_found` | `fail` | mount missing or wrong path |
 | `library-roots` | `root_not_directory` | `fail` | the root is not a folder |

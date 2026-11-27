@@ -74,6 +74,7 @@ Les réglages sont dans la table `settings` (une valeur JSON par clé, remplacé
 | `partialMaxMissingPercent` | nombre de 0 à 100 | `100` (sans plafond) | part maximale de pièces manquantes d'un `partial_annex` ou `partial_pack` ; au-delà, aucune proposition n'est créée (raison `missing_pieces_above_cap`, voir [01-pipeline.md](01-pipeline.md)). `0` ne garde que les torrents complets |
 | `crossSeedUrl` | URL | vide | `http(s)://host:2468`, sans identifiants, sans paramètres ni fragment ; en clair en base ; la clé va dans `crossSeedApiKey` |
 | `crossSeedApiKey` | chaîne | vide | clé d'API du démon cross-seed ; scellée en base, jamais renvoyée ; exige `crossSeedUrl` ou un `host`/`port` importé |
+| `publicUrl` | URL | vide | `http(s)://host[:port]` que les utilisateurs atteignent, sans chemin, paramètres, fragment ni identifiants ; en clair en base. Minuscules, barre finale et port par défaut retirés. Fixe l'origine et le RP ID de WebAuthn (disponible en https, ou sur `localhost`) et l'attribut `Secure` du cookie de session ; sans lui, l'écoute en boucle locale utilise `http://localhost:<port>` |
 | `crossSeedMode` | `auto`, `delegate`, `native`, `off` | `auto` | casse et espaces ignorés |
 | `dedupe` | objet | voir plus bas | |
 | `fsProviders` | liste d'objets | vide | voir plus bas |

@@ -99,6 +99,9 @@ type Config struct {
 	PartialMaxMissingPercent float64 `json:"partialMaxMissingPercent"`
 	// Language est la langue d'affichage (fr par défaut) ; son origine est dans Origins.
 	Language i18n.Language `json:"language"`
+	// PublicURL est l'origine http(s) que les utilisateurs atteignent (vide : inconnue) ; elle fixe l'origine de WebAuthn
+	// et l'attribut Secure du cookie de session.
+	PublicURL string `json:"publicUrl"`
 
 	AuthToken            string `json:"-"`
 	LibraryProviderToken string `json:"-"`
@@ -133,6 +136,7 @@ type fileConfig struct {
 	LinkCategory       string            `json:"linkCategory"`
 	CrossSeedURL       string            `json:"crossSeedUrl"`
 	CrossSeedAPIKey    string            `json:"crossSeedApiKey"`
+	PublicURL          string            `json:"publicUrl"`
 	CrossSeedMode      string            `json:"crossSeedMode"`
 	SeedTags           []string          `json:"seedTags"`
 	// PartialMaxMissingPercent : nil distingue une clé absente de 0, qui est accepté.
@@ -388,6 +392,9 @@ func buildConfig(rawFile fileConfig) (Config, error) {
 		loadedConfig.PartialMaxMissingPercent = *rawFile.PartialMaxMissingPercent
 	}
 	var err error
+	if loadedConfig.PublicURL, err = normalizePublicURL(rawFile.PublicURL); err != nil {
+		return Config{}, err
+	}
 	if loadedConfig.Dedupe, err = parseDedupe(rawFile.Dedupe); err != nil {
 		return Config{}, err
 	}

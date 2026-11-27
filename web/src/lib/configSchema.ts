@@ -149,6 +149,7 @@ export const SETTING_SCHEMAS: Readonly<Record<string, FieldSpec>> = {
   crossSeedMode: select('crossSeedMode', CROSS_SEED_MODES),
   seedTags: lines('seedTags'),
   partialMaxMissingPercent: number('partialMaxMissingPercent'),
+  publicUrl: text('publicUrl'),
   language: select('language', LANGUAGES),
 }
 

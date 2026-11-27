@@ -20,6 +20,8 @@ const (
 	CodeLoopback    = "loopback"
 	CodeNoAuthToken = "no_auth_token"
 	CodeAuthTokenOK = "auth_token_set"
+	// CodeAuthPublicURLMissing : écoute hors boucle locale sans publicUrl en https.
+	CodeAuthPublicURLMissing = "auth_public_url_missing"
 
 	CodeNoLibraryRoot  = "no_library_root"
 	CodeRootNotFound   = "root_not_found"

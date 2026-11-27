@@ -74,6 +74,7 @@ Settings live in the `settings` table (one JSON value per key, replaced as a who
 | `partialMaxMissingPercent` | number from 0 to 100 | `100` (no cap) | maximum share of missing pieces of a `partial_annex` or `partial_pack`; above it, no proposal is created (reason `missing_pieces_above_cap`, see [01-pipeline.md](01-pipeline.md)). `0` keeps only complete torrents |
 | `crossSeedUrl` | URL | empty | `http(s)://host:2468`, no credentials, query or fragment; clear in the database; the key goes in `crossSeedApiKey` |
 | `crossSeedApiKey` | string | empty | API key of the cross-seed daemon; sealed in the database, never returned; needs `crossSeedUrl` or an imported `host`/`port` |
+| `publicUrl` | URL | empty | `http(s)://host[:port]` that users reach, without path, query, fragment or credentials; clear in the database. Lower-cased, trailing slash and default port dropped. Pins the WebAuthn origin and RP ID (available over https, or on `localhost`) and the `Secure` attribute of the session cookie; without it, a loopback listen uses `http://localhost:<port>` |
 | `crossSeedMode` | `auto`, `delegate`, `native`, `off` | `auto` | case and spaces ignored |
 | `dedupe` | object | see below | |
 | `fsProviders` | list of objects | empty | see below |

@@ -302,19 +302,6 @@ func refuseDatabasePath(registry *fsys.Registry, databasePath string, libraryRoo
 	return Result{}, false
 }
 
-func checkAuth(settings config.Config) Result {
-	if config.IsLoopbackAddress(settings.ListenAddr) {
-		return Result{Status: OK, Code: CodeLoopback, Detail: message(i18n.KeyDoctorAuthLoopback, "address", settings.ListenAddr)}
-	}
-	if settings.AuthToken == "" {
-		return Result{
-			Status: Fail, Code: CodeNoAuthToken,
-			Detail: message(i18n.KeyDoctorAuthNoToken, "address", settings.ListenAddr), Hint: message(i18n.KeyDoctorAuthNoTokenHint),
-		}
-	}
-	return Result{Status: OK, Code: CodeAuthTokenOK, Detail: message(i18n.KeyDoctorAuthToken, "address", settings.ListenAddr)}
-}
-
 func checkPathMappings(settings config.Config, deps Deps) Result {
 	var collected findings
 	addUnmappedRemoteLinkDirs(&collected, settings)

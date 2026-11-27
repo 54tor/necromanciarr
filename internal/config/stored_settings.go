@@ -27,7 +27,7 @@ var settingKeys = []string{
 	settingListen, "readBytesPerSecond", "tieBreakReadBytes", settingLibraryAPI, "libraryToken", "libraryRoots", "pathMappings",
 	"prowlarr", "sourceOrder", "dedupe", settingLinkType, settingSkipRecheck, settingLinkCategory, settingCrossSeedURL,
 	settingCrossSeedAPIKey,
-	"crossSeedMode", "seedTags", "partialMaxMissingPercent", settingLanguage,
+	"crossSeedMode", "seedTags", "partialMaxMissingPercent", settingLanguage, settingPublicURL,
 }
 
 // settingEnvironment nomme la variable d'environnement qui l'emporte sur chaque réglage, quand elle existe.
@@ -61,6 +61,7 @@ func settingTargets(rawFile *fileConfig) map[string]any {
 		settingSkipRecheck: &rawFile.SkipRecheck, settingLinkCategory: &rawFile.LinkCategory,
 		settingCrossSeedURL: &rawFile.CrossSeedURL, settingCrossSeedAPIKey: &rawFile.CrossSeedAPIKey, "crossSeedMode": &rawFile.CrossSeedMode, "seedTags": &rawFile.SeedTags,
 		"partialMaxMissingPercent": &rawFile.PartialMaxMissingPercent, settingLanguage: &rawFile.Language,
+		settingPublicURL: &rawFile.PublicURL,
 	}
 }
 

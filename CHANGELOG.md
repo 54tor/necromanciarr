@@ -5,6 +5,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- A `publicUrl` setting (`http(s)://host[:port]`, clear in the database) gives the address users reach: it pins the WebAuthn origin and relying-party ID, available over https or on `localhost` (without it, a loopback listen uses `http://localhost:<port>`). `doctor` warns (`auth_public_url_missing`) when the listen address is not loopback and `publicUrl` is empty or not https.
 - A named `local` volume (`fsProviders` type `local`) appears in `volumes list` with its folders, and `volumes probe <name>` measures hardlink, symlink and reflink for real in the first link folder under it, without leaving a file.
 - A `snapshot` container image (`linux/amd64`, `linux/arm64`, also tagged `sha-<commit>`) is published to the GitHub container registry on every push to `main`, and `compose.example.yaml` shows a deployment with `PUID` and `PGID`.
 - First launch: `serve` generates the secret key and the auth token into the `.env` of the config folder (mode `0600`, an existing value is never replaced) and prints the token once on stderr; it refuses to generate a key when a database already exists without `NECROMANCIARR_SECRET_KEY`, and fails with an explicit message when the folder is not writable.
