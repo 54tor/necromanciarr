@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -195,7 +197,87 @@ func TestThrottle_evictsStaleEntries(t *testing.T) {
 	throttle.RecordFailure("alice")
 	clock.current = clock.current.Add(3 * ThrottleMaxDelay)
 	throttle.Allow("bob")
-	if valeurObtenue := len(throttle.states); valeurObtenue != 0 {
-		t.Fatalf("valeurAttendue 0, valeurObtenue %d", valeurObtenue)
+	if _, found := throttle.states["alice"]; found {
+		t.Fatal("l'entrée périmée d'alice n'a pas été évincée")
+	}
+}
+
+func TestThrottle_zeroValueIsUsable(t *testing.T) {
+	var throttle Throttle
+	if _, allowed := throttle.Allow("alice"); !allowed {
+		t.Fatal("premier essai refusé")
+	}
+	throttle.RecordFailure("alice")
+	if _, allowed := throttle.Allow("alice"); allowed {
+		t.Fatal("alice devrait être limitée")
+	}
+	throttle.Cancel("alice")
+	throttle.RecordSuccess("alice")
+	if _, allowed := throttle.Allow("alice"); !allowed {
+		t.Fatal("le succès aurait dû libérer alice")
+	}
+}
+
+func TestThrottle_concurrentAttemptsOnOneKeyAdmitExactlyOne(t *testing.T) {
+	clock := &fakeClock{current: time.Unix(1_000_000, 0)}
+	throttle := NewThrottle(clock.now)
+	const attempts = 64
+	var admitted atomic.Int32
+	var group sync.WaitGroup
+	for range attempts {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			retryAfter, allowed := throttle.Allow("alice")
+			if allowed {
+				admitted.Add(1)
+			} else if retryAfter <= 0 {
+				t.Errorf("retryAfter doit être positif, valeurObtenue %v", retryAfter)
+			}
+		}()
+	}
+	group.Wait()
+	if valeurObtenue := admitted.Load(); valeurObtenue != 1 {
+		t.Fatalf("valeurAttendue 1, valeurObtenue %d", valeurObtenue)
+	}
+}
+
+func TestThrottle_reservationIsReleasedByFailureSuccessAndCancel(t *testing.T) {
+	clock := &fakeClock{current: time.Unix(1_000_000, 0)}
+	releases := map[string]func(*Throttle){
+		"success": func(throttle *Throttle) { throttle.RecordSuccess("alice") },
+		"cancel":  func(throttle *Throttle) { throttle.Cancel("alice") },
+		"failure": func(throttle *Throttle) { throttle.RecordFailure("alice") },
+	}
+	for name, release := range releases {
+		t.Run(name, func(t *testing.T) {
+			throttle := NewThrottle(clock.now)
+			if _, allowed := throttle.Allow("alice"); !allowed {
+				t.Fatal("premier essai refusé")
+			}
+			if retryAfter, allowed := throttle.Allow("alice"); allowed || retryAfter < ThrottleBaseDelay {
+				t.Fatalf("essai concurrent admis ou retryAfter trop court : %v", retryAfter)
+			}
+			release(throttle)
+			clock.current = clock.current.Add(ThrottleBaseDelay)
+			if _, allowed := throttle.Allow("alice"); !allowed {
+				t.Fatal("la réservation n'a pas été libérée")
+			}
+			clock.current = clock.current.Add(time.Hour)
+		})
+	}
+}
+
+func TestThrottle_aStaleReservationExpires(t *testing.T) {
+	clock := &fakeClock{current: time.Unix(1_000_000, 0)}
+	throttle := NewThrottle(clock.now)
+	throttle.Allow("alice")
+	clock.current = clock.current.Add(throttleReservationTTL - time.Second)
+	if _, allowed := throttle.Allow("alice"); allowed {
+		t.Fatal("réservation expirée trop tôt")
+	}
+	clock.current = clock.current.Add(time.Second)
+	if _, allowed := throttle.Allow("alice"); !allowed {
+		t.Fatal("la réservation périmée verrouille le compte")
 	}
 }
