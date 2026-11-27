@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS list_overrides (
 	value BLOB,
 	upstream_fingerprint TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (list, item_id)
-);` + pipelineSchema
+);` + pipelineSchema + accountSchema
 
 // MediaFile est un fichier média de la bibliothèque, identifié par son chemin ; TMDBID et TVDBID valent 0 si inconnus.
 type MediaFile struct {
