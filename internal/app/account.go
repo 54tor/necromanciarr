@@ -68,7 +68,7 @@ type AccountStore interface {
 	CreateAccount(ctx context.Context, account store.Account) error
 	Account(ctx context.Context) (store.Account, bool, error)
 	ReplacePasswordHash(ctx context.Context, previousHash, newHash string) (bool, error)
-	ChangePasswordHash(ctx context.Context, newHash, keepSessionID string) error
+	ChangePasswordHash(ctx context.Context, verified store.Account, newHash, keepSessionID string) error
 	ResetAccount(ctx context.Context) error
 	Credentials(ctx context.Context) ([]store.WebAuthnCredential, error)
 	AddCredential(ctx context.Context, credential store.WebAuthnCredential) error
@@ -331,6 +331,12 @@ func (svc *service) Login(ctx context.Context, username, password string, client
 // verifyPasswordThrottled vérifie une ressaisie du mot de passe sous le limiteur ; un succès ne remet pas les échecs
 // à zéro (seule une session émise le fait).
 func (svc *service) verifyPasswordThrottled(ctx context.Context, password string) error {
+	return svc.withVerifiedPassword(ctx, password, func(*throttledAttempt, store.Account) error { return nil })
+}
+
+// withVerifiedPassword vérifie une ressaisie du mot de passe sous le limiteur, puis lance then dans le même essai
+// avec le compte vérifié.
+func (svc *service) withVerifiedPassword(ctx context.Context, password string, then func(attempt *throttledAttempt, verified store.Account) error) error {
 	if len(password) > auth.MaxPasswordBytes {
 		return ErrInvalidCredentials
 	}
@@ -340,8 +346,11 @@ func (svc *service) verifyPasswordThrottled(ctx context.Context, password string
 	}
 	defer attempt.end()
 	anyUsername := func(store.Account) bool { return true }
-	_, err = svc.matchPassword(ctx, attempt, password, anyUsername)
-	return err
+	verified, err := svc.matchPassword(ctx, attempt, password, anyUsername)
+	if err != nil {
+		return err
+	}
+	return then(attempt, verified)
 }
 
 // matchPassword fait exactement un calcul argon2, que le compte existe ou non, et compte l'échec dans attempt ; il rend
@@ -518,14 +527,28 @@ func (svc *service) ChangePassword(ctx context.Context, token, currentPassword, 
 	if err := auth.ValidatePassword(newPassword); err != nil {
 		return err
 	}
-	if err := svc.verifyPasswordThrottled(ctx, currentPassword); err != nil {
-		return err
-	}
+	return svc.withVerifiedPassword(ctx, currentPassword, func(attempt *throttledAttempt, verified store.Account) error {
+		return svc.commitPasswordChange(ctx, attempt, verified, newPassword, current.ID)
+	})
+}
+
+// commitPasswordChange écrit le nouveau mot de passe seulement si le compte est encore celui vérifié ; sinon la
+// ressaisie compte comme un échec.
+func (svc *service) commitPasswordChange(ctx context.Context, attempt *throttledAttempt, verified store.Account, newPassword, keepSessionID string) error {
 	hash, err := svc.hashPassword(ctx, newPassword)
 	if err != nil {
 		return err
 	}
-	return svc.deps.Store.ChangePasswordHash(ctx, hash, current.ID)
+	err = svc.deps.Store.ChangePasswordHash(ctx, verified, hash, keepSessionID)
+	switch {
+	case errors.Is(err, store.ErrAccountChanged):
+		attempt.fail()
+		return ErrInvalidCredentials
+	case errors.Is(err, store.ErrSessionNotFound):
+		return ErrSessionInvalid
+	default:
+		return err
+	}
 }
 
 func (svc *service) ListSessions(ctx context.Context, token string) ([]SessionView, error) {

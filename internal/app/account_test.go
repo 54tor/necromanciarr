@@ -617,7 +617,7 @@ func TestChangePassword_refusedAttemptsChangeNothingAndRevokeNothing(t *testing.
 // failingPasswordChangeStore fait échouer la transaction qui change le mot de passe et révoque les autres sessions.
 type failingPasswordChangeStore struct{ *store.Store }
 
-func (failingPasswordChangeStore) ChangePasswordHash(context.Context, string, string) error {
+func (failingPasswordChangeStore) ChangePasswordHash(context.Context, store.Account, string, string) error {
 	return errInjectedStoreFailure
 }
 

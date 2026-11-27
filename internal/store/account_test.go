@@ -230,7 +230,7 @@ func TestChangePasswordHash_setsTheHashAndKeepsOnlyTheGivenSession(t *testing.T)
 		}
 	}
 
-	if err := openedStore.ChangePasswordHash(ctx, "hash-2", "kept"); err != nil {
+	if err := openedStore.ChangePasswordHash(ctx, sampleAccount(), "hash-2", "kept"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -251,13 +251,65 @@ func TestChangePasswordHash_keepsTheOldHashWhenTheRevocationFails(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	if err := openedStore.ChangePasswordHash(ctx, "hash-2", "kept"); err == nil {
+	if err := openedStore.ChangePasswordHash(ctx, sampleAccount(), "hash-2", "kept"); err == nil {
 		t.Fatal("valeurAttendue une erreur quand la révocation échoue, valeurObtenue nil")
 	}
 
 	account, _, err := openedStore.Account(ctx)
 	if err != nil || account.PasswordHash != "hash-1" {
 		t.Fatalf("valeurAttendue hash-1 conservé, valeurObtenue %q (err %v)", account.PasswordHash, err)
+	}
+}
+
+func TestChangePasswordHash_isRefusedWhenTheAccountChangedSinceTheVerification(t *testing.T) {
+	newerGeneration := sampleAccount()
+	newerGeneration.CreatedAt = referenceMoment.Add(time.Second)
+	otherHash := sampleAccount()
+	otherHash.PasswordHash = "hash-0"
+	for caseName, verified := range map[string]Account{"account recreated": newerGeneration, "password changed": otherHash} {
+		t.Run(caseName, func(t *testing.T) {
+			openedStore := openStoreWithSampleAccount(t)
+			ctx := context.Background()
+			for _, id := range []string{"kept", "other"} {
+				if err := openedStore.CreateSession(ctx, sampleSession(id, referenceMoment.Add(time.Hour)), sampleAccount()); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			valeurObtenue := openedStore.ChangePasswordHash(ctx, verified, "hash-2", "kept")
+
+			if !errors.Is(valeurObtenue, ErrAccountChanged) {
+				t.Fatalf("valeurAttendue ErrAccountChanged, valeurObtenue %v", valeurObtenue)
+			}
+			expectPasswordChangeUndone(t, openedStore, 2)
+		})
+	}
+}
+
+func TestChangePasswordHash_isRefusedWhenTheKeptSessionIsGone(t *testing.T) {
+	openedStore := openStoreWithSampleAccount(t)
+	ctx := context.Background()
+	if err := openedStore.CreateSession(ctx, sampleSession("other", referenceMoment.Add(time.Hour)), sampleAccount()); err != nil {
+		t.Fatal(err)
+	}
+
+	valeurObtenue := openedStore.ChangePasswordHash(ctx, sampleAccount(), "hash-2", "kept")
+
+	if !errors.Is(valeurObtenue, ErrSessionNotFound) {
+		t.Fatalf("valeurAttendue ErrSessionNotFound, valeurObtenue %v", valeurObtenue)
+	}
+	expectPasswordChangeUndone(t, openedStore, 1)
+}
+
+func expectPasswordChangeUndone(t *testing.T, openedStore *Store, sessionCount int) {
+	t.Helper()
+	account, _, err := openedStore.Account(context.Background())
+	if err != nil || account.PasswordHash != "hash-1" {
+		t.Fatalf("valeurAttendue hash-1 conservé, valeurObtenue %q (err %v)", account.PasswordHash, err)
+	}
+	sessions, err := openedStore.Sessions(context.Background())
+	if err != nil || len(sessions) != sessionCount {
+		t.Fatalf("valeurAttendue %d sessions gardées, valeurObtenue %d (err %v)", sessionCount, len(sessions), err)
 	}
 }
 

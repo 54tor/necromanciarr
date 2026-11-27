@@ -384,10 +384,18 @@ func validatePasskeyAssertion(instance *webauthn.WebAuthn, user *accountUser, se
 }
 
 // assertionStep décrit une connexion par clé : l'état attendu, la sorte de clé admise et sa vérification.
+// assertionStep décrit une étape d'assertion ; ticketAccount, posé pour l'étape second facteur, est le compte que le
+// ticket consommé a validé : l'assertion n'est acceptée que contre lui.
 type assertionStep struct {
-	binding  ceremonyBinding
-	kind     string
-	validate assertionValidator
+	binding       ceremonyBinding
+	kind          string
+	validate      assertionValidator
+	ticketAccount *store.Account
+}
+
+// sameAccountSnapshot est vrai si le compte relu est encore la génération et l'empreinte de expected.
+func sameAccountSnapshot(current store.Account, found bool, expected store.Account) bool {
+	return found && current.CreatedAt.Equal(expected.CreatedAt) && current.PasswordHash == expected.PasswordHash
 }
 
 // FinishWebAuthnLogin brûle le ticket sous le limiteur avant toute vérification ; un essai refusé par le limiteur ne
@@ -402,16 +410,18 @@ func (svc *service) FinishWebAuthnLogin(ctx context.Context, ticket string, stat
 		return SessionGrant{}, err
 	}
 	defer attempt.end()
-	if _, err := svc.consumeLoginTicket(ctx, ticket); err != nil {
+	ticketAccount, err := svc.consumeLoginTicket(ctx, ticket)
+	if err != nil {
 		if errors.Is(err, ErrLoginTicketInvalid) {
 			attempt.fail()
 		}
 		return SessionGrant{}, err
 	}
 	step := assertionStep{
-		binding:  ceremonyBinding{purpose: purposeLoginSecondFactor, ticketHash: auth.SessionIDOf(ticket)},
-		kind:     credentialKindSecondFactor,
-		validate: validateSecondFactorAssertion,
+		binding:       ceremonyBinding{purpose: purposeLoginSecondFactor, ticketHash: auth.SessionIDOf(ticket)},
+		kind:          credentialKindSecondFactor,
+		validate:      validateSecondFactorAssertion,
+		ticketAccount: &ticketAccount,
 	}
 	return svc.finishAssertion(ctx, instance, attempt, step, state, body, client)
 }
@@ -456,6 +466,10 @@ func (svc *service) finishAssertion(ctx context.Context, instance *webauthn.WebA
 	account, found, err := svc.deps.Store.Account(ctx)
 	if err != nil {
 		return SessionGrant{}, err
+	}
+	if step.ticketAccount != nil && !sameAccountSnapshot(account, found, *step.ticketAccount) {
+		attempt.fail()
+		return SessionGrant{}, ErrInvalidAssertion
 	}
 	user := &accountUser{}
 	if found {

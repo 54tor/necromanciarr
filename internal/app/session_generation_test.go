@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,12 +16,46 @@ import (
 	"necromanciarr/internal/store"
 )
 
-// accountChangeBeforeSessionStore applique, une fois armé, un changement du compte juste avant l'insertion de la
-// session : entre la vérification de la preuve et CreateSession.
+// accountChangeBeforeSessionStore applique, une fois armé, un changement du compte juste avant l'écriture qui suit la
+// preuve (CreateSession, ChangePasswordHash), ou avant la lecture du compte ou du TOTP qui suit le ticket.
 type accountChangeBeforeSessionStore struct {
 	*store.Store
-	armed  atomic.Bool
-	change func(ctx context.Context) error
+	armed               atomic.Bool
+	accountReadsToSkip  atomic.Int32
+	armedBeforeAccount  atomic.Bool
+	armedBeforeTOTPRead atomic.Bool
+	change              func(ctx context.Context) error
+}
+
+func (interleaving *accountChangeBeforeSessionStore) changeIfArmed(ctx context.Context, armed *atomic.Bool) error {
+	if armed.CompareAndSwap(true, false) {
+		return interleaving.change(ctx)
+	}
+	return nil
+}
+
+func (interleaving *accountChangeBeforeSessionStore) ChangePasswordHash(ctx context.Context, verified store.Account, newHash, keepSessionID string) error {
+	if err := interleaving.changeIfArmed(ctx, &interleaving.armed); err != nil {
+		return err
+	}
+	return interleaving.Store.ChangePasswordHash(ctx, verified, newHash, keepSessionID)
+}
+
+// Account applique le changement avant la lecture qui suit les accountReadsToSkip premières.
+func (interleaving *accountChangeBeforeSessionStore) Account(ctx context.Context) (store.Account, bool, error) {
+	if interleaving.armedBeforeAccount.Load() && interleaving.accountReadsToSkip.Add(-1) < 0 {
+		if err := interleaving.changeIfArmed(ctx, &interleaving.armedBeforeAccount); err != nil {
+			return store.Account{}, false, err
+		}
+	}
+	return interleaving.Store.Account(ctx)
+}
+
+func (interleaving *accountChangeBeforeSessionStore) TOTP(ctx context.Context) (store.TOTPFactor, bool, error) {
+	if err := interleaving.changeIfArmed(ctx, &interleaving.armedBeforeTOTPRead); err != nil {
+		return store.TOTPFactor{}, false, err
+	}
+	return interleaving.Store.TOTP(ctx)
 }
 
 func (interleaving *accountChangeBeforeSessionStore) CreateSession(ctx context.Context, session store.SessionRecord, provenAgainst store.Account) error {
@@ -53,6 +88,33 @@ func resetAndRecreate(fixture *accountFixture) func(ctx context.Context) error {
 		}
 		recreated := store.Account{Username: "bob", PasswordHash: hash, CreatedAt: fixture.clock.now().Add(time.Hour)}
 		return fixture.store.CreateAccount(ctx, recreated)
+	}
+}
+
+// resetAndRecreateKeepingFactors fait comme resetAndRecreate, puis réenregistre sur le nouveau compte les clés et le
+// TOTP de l'ancien : seule la génération du compte distingue alors la preuve de l'ancien compte.
+func resetAndRecreateKeepingFactors(fixture *accountFixture) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		credentials, err := fixture.store.Credentials(ctx)
+		if err != nil {
+			return err
+		}
+		factor, hasTOTP, err := fixture.store.TOTP(ctx)
+		if err != nil {
+			return err
+		}
+		if err := resetAndRecreate(fixture)(ctx); err != nil {
+			return err
+		}
+		for _, credential := range credentials {
+			if err := fixture.store.AddCredential(ctx, credential); err != nil {
+				return err
+			}
+		}
+		if hasTOTP {
+			return fixture.store.SetTOTP(ctx, factor)
+		}
+		return nil
 	}
 }
 
@@ -93,7 +155,11 @@ func TestLogin_aPasswordChangeBetweenTheOldPasswordCheckAndTheSessionIssuesNoSes
 		t.Fatal(err)
 	}
 	interleaving.change = func(ctx context.Context) error {
-		return fixture.store.ChangePasswordHash(ctx, newHash, auth.SessionIDOf(kept.Token))
+		account, _, err := fixture.store.Account(ctx)
+		if err != nil {
+			return err
+		}
+		return fixture.store.ChangePasswordHash(ctx, account, newHash, auth.SessionIDOf(kept.Token))
 	}
 	interleaving.armed.Store(true)
 
@@ -231,5 +297,101 @@ func TestResumeSession_aSessionFromBeforeTheGenerationColumnDoesNotResume(t *tes
 	}
 	if valeurObtenue := storedSessionCount(t, openedStore); valeurObtenue != 0 {
 		t.Fatalf("valeurAttendue la session d'avant la mise à jour supprimée, valeurObtenue %d", valeurObtenue)
+	}
+}
+
+func TestWebAuthnLogin_anAccountResetBetweenTheTicketAndTheAssertionIssuesNoSession(t *testing.T) {
+	accountFixture, interleaving := newInterleavedAccountFixture(t)
+	accountFixture.service.deps.Config = testWebAuthnConfig
+	fixture := &webAuthnFixture{accountFixture: accountFixture, grant: accountFixture.setup(t)}
+	key := newVirtualKey(virtualwebauthn.AuthenticatorOptions{})
+	fixture.register(t, key, credentialKindSecondFactor)
+	ticket := fixture.loginTicket(t)
+	ceremony := fixture.beginSecondFactor(t, ticket)
+	body := key.assert(t, ceremony.Options, testRelyingParty)
+	interleaving.change = resetAndRecreateKeepingFactors(accountFixture)
+	interleaving.accountReadsToSkip.Store(1)
+	interleaving.armedBeforeAccount.Store(true)
+
+	grant, err := fixture.service.FinishWebAuthnLogin(context.Background(), ticket, ceremony.State, strings.NewReader(body), testClient)
+
+	if interleaving.armedBeforeAccount.Load() {
+		t.Fatal("valeurAttendue la remise à zéro faite entre le ticket et l'assertion, valeurObtenue jamais faite")
+	}
+	expectInvalidAssertion(t, err)
+	if grant.Token != "" || fixture.sessionCount(t) != 0 {
+		t.Fatalf("valeurAttendue aucune session pour le nouveau compte, valeurObtenue %+v et %d sessions", grant, fixture.sessionCount(t))
+	}
+}
+
+func TestTOTPLogin_anAccountResetBetweenTheTicketAndTheCodeIssuesNoSession(t *testing.T) {
+	accountFixture, interleaving := newInterleavedAccountFixture(t)
+	accountFixture.service.deps.Config = testTOTPSettings
+	fixture := &totpFixture{accountFixture: accountFixture, grant: accountFixture.setup(t)}
+	fixture.enrol(t)
+	fixture.clock.advance(stepsAfterEnrolment * totpPeriod)
+	ticket := fixture.ticket(t)
+	interleaving.change = resetAndRecreateKeepingFactors(accountFixture)
+	interleaving.armedBeforeTOTPRead.Store(true)
+
+	grant, err := fixture.service.LoginWithTOTP(context.Background(), ticket, fixture.codeAtOffset(t, 0), testClient)
+
+	if interleaving.armedBeforeTOTPRead.Load() {
+		t.Fatal("valeurAttendue la remise à zéro faite entre le ticket et le code, valeurObtenue jamais faite")
+	}
+	if !errors.Is(err, ErrLoginTicketInvalid) || grant.Token != "" {
+		t.Fatalf("valeurAttendue ErrLoginTicketInvalid sans session, valeurObtenue %+v err=%v", grant, err)
+	}
+	if valeurObtenue := storedSessionCount(t, fixture.store); valeurObtenue != 0 {
+		t.Fatalf("valeurAttendue aucune session pour le nouveau compte, valeurObtenue %d", valeurObtenue)
+	}
+}
+
+func TestChangePassword_aResetBetweenTheVerificationAndTheCommitChangesNothing(t *testing.T) {
+	fixture, interleaving := newInterleavedAccountFixture(t)
+	current := fixture.setup(t).Token
+	interleaving.change = resetAndRecreate(fixture)
+	interleaving.armed.Store(true)
+
+	err := fixture.service.ChangePassword(context.Background(), current, testPassword, "a third horse battery")
+
+	if !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("valeurAttendue ErrInvalidCredentials, valeurObtenue %v", err)
+	}
+	account, _, readErr := fixture.store.Account(context.Background())
+	if matches, _, _ := auth.VerifyPassword(testNewPassword, account.PasswordHash); readErr != nil || account.Username != "bob" || !matches {
+		t.Fatalf("valeurAttendue le nouveau compte intact, valeurObtenue %+v (err %v)", account, readErr)
+	}
+}
+
+func TestChangePassword_aCompetingPasswordChangeBetweenTheVerificationAndTheCommitRevokesNothing(t *testing.T) {
+	fixture, interleaving := newInterleavedAccountFixture(t)
+	current := fixture.setup(t).Token
+	other := fixture.loginTokens(t, 1)[0]
+	competingHash, err := auth.HashPassword(testNewPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	interleaving.change = func(ctx context.Context) error {
+		account, _, readErr := fixture.store.Account(ctx)
+		if readErr != nil {
+			return readErr
+		}
+		_, replaceErr := fixture.store.ReplacePasswordHash(ctx, account.PasswordHash, competingHash)
+		return replaceErr
+	}
+	interleaving.armed.Store(true)
+
+	changeErr := fixture.service.ChangePassword(context.Background(), current, testPassword, "a third horse battery")
+
+	if !errors.Is(changeErr, ErrInvalidCredentials) {
+		t.Fatalf("valeurAttendue ErrInvalidCredentials, valeurObtenue %v", changeErr)
+	}
+	if _, resumeErr := fixture.service.ResumeSession(context.Background(), other); resumeErr != nil {
+		t.Fatalf("valeurAttendue l'autre session gardée, valeurObtenue %v", resumeErr)
+	}
+	account, _, _ := fixture.store.Account(context.Background())
+	if account.PasswordHash != competingHash {
+		t.Fatal("valeurAttendue le mot de passe concurrent conservé, valeurObtenue remplacé")
 	}
 }

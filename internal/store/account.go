@@ -96,21 +96,58 @@ func (openedStore *Store) ReplacePasswordHash(ctx context.Context, previousHash,
 	return replaced == 1, nil
 }
 
-// ChangePasswordHash remplace l'empreinte du mot de passe et ferme toutes les sessions sauf keepSessionID, dans une
-// seule transaction.
-func (openedStore *Store) ChangePasswordHash(ctx context.Context, newHash, keepSessionID string) error {
+// ErrSessionNotFound : la session à garder n'existe plus pour ce compte ; rien n'a changé.
+var ErrSessionNotFound = errors.New("store: session to keep not found")
+
+// ChangePasswordHash remplace l'empreinte vérifiée de verified et ferme toutes les sessions sauf keepSessionID, dans
+// une seule transaction ; ErrAccountChanged si le compte n'est plus verified, ErrSessionNotFound si keepSessionID
+// n'est plus une session de ce compte ; dans les deux cas rien ne change.
+func (openedStore *Store) ChangePasswordHash(ctx context.Context, verified Account, newHash, keepSessionID string) error {
 	transaction, err := openedStore.database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("change password: %w", err)
 	}
 	defer func() { _ = transaction.Rollback() }()
-	if _, err := transaction.ExecContext(ctx, `UPDATE account SET password_hash = ? WHERE id = 1`, newHash); err != nil {
-		return fmt.Errorf("change password: %w", err)
+	if err := replaceVerifiedHash(ctx, transaction, verified, newHash); err != nil {
+		return err
+	}
+	if err := requireKeptSession(ctx, transaction, verified, keepSessionID); err != nil {
+		return err
 	}
 	if _, err := transaction.ExecContext(ctx, `DELETE FROM sessions WHERE id <> ?`, keepSessionID); err != nil {
 		return fmt.Errorf("change password: %w", err)
 	}
 	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("change password: %w", err)
+	}
+	return nil
+}
+
+func replaceVerifiedHash(ctx context.Context, transaction *sql.Tx, verified Account, newHash string) error {
+	result, err := transaction.ExecContext(ctx,
+		`UPDATE account SET password_hash = ? WHERE id = 1 AND created_at = ? AND password_hash = ?`,
+		newHash, verified.CreatedAt.UnixNano(), verified.PasswordHash)
+	if err != nil {
+		return fmt.Errorf("change password: %w", err)
+	}
+	replaced, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("change password: %w", err)
+	}
+	if replaced == 0 {
+		return ErrAccountChanged
+	}
+	return nil
+}
+
+func requireKeptSession(ctx context.Context, transaction *sql.Tx, verified Account, keepSessionID string) error {
+	var present int
+	err := transaction.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE id = ? AND account_created_at = ?`,
+		keepSessionID, verified.CreatedAt.UnixNano()).Scan(&present)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrSessionNotFound
+	}
+	if err != nil {
 		return fmt.Errorf("change password: %w", err)
 	}
 	return nil
