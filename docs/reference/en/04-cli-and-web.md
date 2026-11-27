@@ -128,7 +128,7 @@ With `--all-accepted`: 3 if a proposal was stale, otherwise 1 if one failed.
 | GET | `/api/links` | `links list` | `state`, `limit`, `offset` | 200, page |
 | POST | `/api/doctor/run` | `doctor` | `{"checks": ["config", …]}` (empty: all) | 200, report |
 | POST | `/api/doctor/checks/{checkId}` | `doctor` | `{}` | 200, report |
-| POST | `/api/setup/test` | | `{"kind": "radarr\|sonarr\|qbittorrent", "url", "apiKey", "username", "password"}` | 200, verdict `status`, `code`, `detail`, `hint`; 400 on an invalid value (no outbound request) |
+| POST | `/api/setup/test` | | `{"kind": "radarr\|sonarr\|qbittorrent\|torznab", "url", "apiKey", "username", "password", "name"}` | 200, verdict `status`, `code`, `detail`, `hint`; 400 on an invalid value (no outbound request) |
 | POST | `/api/setup/fix/{fixId}` | | `{"target": "<path>"}`; `fixId` is `create_link_dir` | 200 `{}`; 400 if the fix is unknown, the target is not a configured link folder, or it is under a library root |
 | GET | `/api/sources` | `sources list` | | 200, array |
 | POST | `/api/sources/{name}/test` | `sources test` | `{}` | 200, test result |
@@ -203,6 +203,6 @@ Vue application embedded in the binary, a single anthracite dark theme, fragment
 
 ### First-launch assistant
 
-Four steps, with an "n/4" indicator: a Radarr or Sonarr service, a qBittorrent client, folders, the library provider. The Radarr/Sonarr and qBittorrent steps have a "Test" button (`POST /api/setup/test`, on the typed values, nothing saved); "Save" is only enabled after a test returns `ok` or `warn`. The folders and provider steps save without a test. The provider step requires a tracker key and its announce. The assistant opens by itself when `radarr`, `sonarr` and `torrentClients` are empty, or from the Assistant tab. Saved settings only apply after a restart: the final screen shows `docker restart necromanciarr` (container named `necromanciarr`) or, for the binary, stop then `necromanciarr serve`.
+Five steps, with an "n/5" indicator: a Radarr or Sonarr service, a qBittorrent client, folders, the library provider, indexers. The Radarr/Sonarr, qBittorrent and indexers steps have a "Test" button (`POST /api/setup/test`, on the typed values, nothing saved); "Save" is only enabled after a test returns `ok` or `warn`. The folders and provider steps save without a test. The provider step requires a tracker key and its announce. The indexers step is optional ("Skip this step"): the test of `kind` `torznab` only reads the capabilities (`t=caps`) of the typed indexer (`name`, `url` without key, `apiKey`), with no search, download or quota; saving writes `torznab/<name>`, extends `sourceOrder` only when it is stored, and can set `prowlarr` (diagnostic only). The assistant opens by itself when `radarr`, `sonarr` and `torrentClients` are empty, or from the Assistant tab. Saved settings only apply after a restart: the final screen shows `docker restart necromanciarr` (container named `necromanciarr`) or, for the binary, stop then `necromanciarr serve`.
 
 On the Getting started page, a missing local link folder reported by the diagnostic offers a "Create the folder" button (`POST /api/setup/fix/create_link_dir`, `mkdir -p` with mode `0750`), then reruns the check.

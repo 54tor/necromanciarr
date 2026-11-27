@@ -90,6 +90,12 @@ interpolée : `${VAR}` y est refusé.
 | `torznab` | objet d'indexeur, `name` obligatoire |
 | `fsProviders` | voir ci-dessous |
 
+### Indexeurs : `torznab`, `prowlarr`, `sourceOrder`
+
+Un indexeur Torznab est une source de secours de `.torrent`, interrogée après le fournisseur de bibliothèque. Avec Prowlarr, donnez le flux Torznab de chaque indexeur (`https://prowlarr.example.com:9696/7/api`, `7` étant son identifiant dans Prowlarr) dans `url`, sa clé dans `apiKey` et un `name` en `[a-z0-9-]+` ; la clé est scellée en base, ce qui exige `NECROMANCIARR_SECRET_KEY`. L'assistant de premier démarrage propose cette étape (facultative) et teste l'indexeur en ne lisant que ses capacités.
+
+Le réglage `prowlarr` (`http(s)://host:9696[/base]?apikey=KEY`) ne sert qu'au diagnostic, qui compare vos indexeurs à ceux de Prowlarr ; il n'est jamais utilisé pour chercher. Sans `sourceOrder`, la chaîne est le fournisseur puis tous les indexeurs `torznab` : un nouvel indexeur est donc interrogé tout de suite. Un `sourceOrder` enregistré doit commencer par `provider` et citer chaque indexeur en `torznab:<name>` ; un indexeur absent de cette liste n'est jamais interrogé.
+
 ### Stockage distant : `fsProviders`
 
 Pour lire les empreintes d'un stockage distant, Necromanciarr s'appuie sur des fournisseurs de système de fichiers,

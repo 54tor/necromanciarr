@@ -197,6 +197,7 @@ describe('SetupView', () => {
     await fill(wrapper, 'field-trackerAnnounce', 'https://tracker.example.com/announce/passkey')
     await wrapper.get('[data-testid="save"]').trigger('click')
     await flushPromises()
+    await wrapper.get('[data-testid="skip-step"]').trigger('click')
 
     const gotText = wrapper.get('[data-testid="finished"]').text()
     expect(gotText).toContain('Redémarrez Necromanciarr')
@@ -219,6 +220,7 @@ describe('SetupView', () => {
     await fill(wrapper, 'field-trackerAnnounce', 'https://tracker.example.com/announce/passkey')
     await wrapper.get('[data-testid="save"]').trigger('click')
     await flushPromises()
+    await wrapper.get('[data-testid="skip-step"]').trigger('click')
 
     expect(wrapper.get('[data-testid="finished"]').text()).not.toContain('docker restart')
   })
@@ -374,6 +376,35 @@ describe('SetupView secrets and services', () => {
   })
 })
 
+async function goToIndexersStep(wrapper: ReturnType<typeof mount>) {
+  await goToProviderStep(wrapper)
+  await fill(wrapper, 'field-trackerKey', 'tracker')
+  await fill(wrapper, 'field-trackerAnnounce', 'https://tracker.example.com/announce/passkey')
+  await wrapper.get('[data-testid="save"]').trigger('click')
+  await flushPromises()
+}
+
+async function fillIndexer(wrapper: ReturnType<typeof mount>) {
+  await fill(wrapper, 'field-indexerName', 'alpha')
+  await fill(wrapper, 'field-indexerUrl', 'https://prowlarr.example.com:9696/7/api')
+  await fill(wrapper, 'field-indexerApiKey', 'dummy-api-key')
+  await fill(wrapper, 'field-indexerTracker', 'Alpha')
+}
+
+async function testAndSaveIndexer(wrapper: ReturnType<typeof mount>) {
+  await wrapper.get('[data-testid="test"]').trigger('click')
+  await flushPromises()
+  await wrapper.get('[data-testid="save"]').trigger('click')
+  await flushPromises()
+}
+
+const indexerRoutes = (snapshot: ConfigSnapshot) => ({
+  'GET /api/config': snapshot,
+  'POST /api/setup/test': okTest,
+  'PUT /api/config/lists/{list}/{id}': snapshot,
+  'PUT /api/config/settings/{key}': snapshot,
+})
+
 async function goToProviderStep(wrapper: ReturnType<typeof mount>) {
   await fill(wrapper, 'field-arrUrl', 'http://radarr:7878')
   await wrapper.get('[data-testid="test"]').trigger('click')
@@ -391,3 +422,144 @@ async function goToProviderStep(wrapper: ReturnType<typeof mount>) {
   await wrapper.get('[data-testid="save"]').trigger('click')
   await flushPromises()
 }
+
+describe('SetupView indexers step', () => {
+  beforeEach(() => {
+    resetAppState()
+    stubViewport(1280)
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('SetupView_indexersStepIsTheFifthAndLastStepWithOneHelpSentencePerField', async () => {
+    installFakeApi(indexerRoutes(emptySnapshot))
+    const wrapper = mount(SetupView)
+    await flushPromises()
+
+    await goToIndexersStep(wrapper)
+
+    expect(wrapper.get('[data-testid="step-indicator"]').text()).toContain('5')
+    const gotHelps = wrapper.findAll('[data-testid^="help-indexer"], [data-testid="help-prowlarr"]')
+    expect(gotHelps).toHaveLength(5)
+    gotHelps.forEach((help) => expect(help.text()).not.toBe(''))
+    expect(wrapper.get('[data-testid="field-indexerApiKey"]').attributes('type')).toBe('password')
+    expect(wrapper.get('[data-testid="save"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('SetupView_skippingTheIndexersStepWritesNothingAndShowsTheFinalScreen', async () => {
+    const calls = installFakeApi(indexerRoutes(emptySnapshot))
+    const wrapper = mount(SetupView)
+    await flushPromises()
+    await goToIndexersStep(wrapper)
+    const writesBefore = calls.filter((call) => call.method === 'PUT').length
+
+    await wrapper.get('[data-testid="skip-step"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="finished"]').exists()).toBe(true)
+    expect(calls.filter((call) => call.method === 'PUT')).toHaveLength(writesBefore)
+  })
+
+  it('SetupView_indexerIsTestedWithTheTorznabKindThenSavedByNameWithoutSourceOrder', async () => {
+    const calls = installFakeApi(indexerRoutes(emptySnapshot))
+    const wrapper = mount(SetupView)
+    await flushPromises()
+    await goToIndexersStep(wrapper)
+    await fillIndexer(wrapper)
+
+    await testAndSaveIndexer(wrapper)
+
+    const gotTest = calls.filter((call) => call.method === 'POST').at(-1)
+    expect(gotTest?.body).toEqual({
+      kind: 'torznab',
+      name: 'alpha',
+      url: 'https://prowlarr.example.com:9696/7/api',
+      apiKey: 'dummy-api-key',
+      username: '',
+      password: '',
+    })
+    const gotWrites = calls.filter((call) => call.method === 'PUT').slice(-1)
+    expect(gotWrites.map((call) => call.path)).toEqual(['/api/config/lists/torznab/alpha'])
+    expect(gotWrites[0]?.body).toEqual({
+      element: {
+        url: 'https://prowlarr.example.com:9696/7/api',
+        apiKey: 'dummy-api-key',
+        name: 'alpha',
+        tracker: 'Alpha',
+      },
+    })
+    expect(calls.some((call) => call.path.endsWith('/settings/sourceOrder'))).toBe(false)
+    expect(useSetup().form.indexerApiKey).toBe('')
+  })
+
+  it('SetupView_indexerSaveAppendsToAStoredSourceOrder', async () => {
+    const storedOrder: ConfigSnapshot = {
+      ...emptySnapshot,
+      settings: {
+        sourceOrder: {
+          value: ['provider', 'torznab:beta'],
+          origin: 'added',
+          locked: false,
+          secret: false,
+          set: true,
+        },
+      },
+    }
+    const calls = installFakeApi(indexerRoutes(storedOrder))
+    const wrapper = mount(SetupView)
+    await flushPromises()
+    await goToIndexersStep(wrapper)
+    await fillIndexer(wrapper)
+
+    await testAndSaveIndexer(wrapper)
+
+    const gotOrderWrite = calls.find((call) => call.path === '/api/config/settings/sourceOrder')
+    expect(gotOrderWrite?.body).toEqual({ value: ['provider', 'torznab:beta', 'torznab:alpha'] })
+  })
+
+  it('SetupView_indexerSaveWritesTheDiagnosticOnlyProwlarrSettingWhenFilled', async () => {
+    const calls = installFakeApi(indexerRoutes(emptySnapshot))
+    const wrapper = mount(SetupView)
+    await flushPromises()
+    await goToIndexersStep(wrapper)
+    await fillIndexer(wrapper)
+    await fill(wrapper, 'field-prowlarr', 'http://prowlarr:9696?apikey=dummy-api-key')
+
+    await testAndSaveIndexer(wrapper)
+
+    const gotWrite = calls.find((call) => call.path === '/api/config/settings/prowlarr')
+    expect(gotWrite?.body).toEqual({ value: 'http://prowlarr:9696?apikey=dummy-api-key' })
+    expect(useSetup().form.prowlarr).toBe('')
+  })
+
+  it('SetupView_addAnotherIndexerResetsTheFormAndContinueShowsTheFinalScreen', async () => {
+    installFakeApi(indexerRoutes(emptySnapshot))
+    const wrapper = mount(SetupView)
+    await flushPromises()
+    await goToIndexersStep(wrapper)
+    await fillIndexer(wrapper)
+    await testAndSaveIndexer(wrapper)
+
+    await wrapper.get('[data-testid="add-another"]').trigger('click')
+
+    const gotName = (wrapper.get('[data-testid="field-indexerName"]').element as HTMLInputElement)
+      .value
+    expect(gotName).toBe('')
+    await fillIndexer(wrapper)
+    await testAndSaveIndexer(wrapper)
+    await wrapper.get('[data-testid="continue"]').trigger('click')
+    expect(wrapper.find('[data-testid="finished"]').exists()).toBe(true)
+  })
+
+  it('SetupView_editingAnIndexerFieldAfterATestDisablesSaveAgain', async () => {
+    installFakeApi(indexerRoutes(emptySnapshot))
+    const wrapper = mount(SetupView)
+    await flushPromises()
+    await goToIndexersStep(wrapper)
+    await fillIndexer(wrapper)
+    await wrapper.get('[data-testid="test"]').trigger('click')
+    await flushPromises()
+
+    await fill(wrapper, 'field-indexerUrl', 'https://prowlarr.example.com:9696/8/api')
+
+    expect(wrapper.get('[data-testid="save"]').attributes('disabled')).toBeDefined()
+  })
+})

@@ -247,7 +247,9 @@ export interface DoctorReport {
 
 /** Valeur saisie dans l'assistant, testée avant d'être enregistrée. */
 export interface SetupCandidate {
-  kind: 'radarr' | 'sonarr' | 'qbittorrent'
+  kind: 'radarr' | 'sonarr' | 'qbittorrent' | 'torznab'
+  /** Nom de l'indexeur, pour `torznab` seulement. */
+  name?: string
   url: string
   apiKey: string
   username: string

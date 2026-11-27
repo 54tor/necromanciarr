@@ -21,6 +21,11 @@ type FormKey =
   | 'libraryToken'
   | 'trackerKey'
   | 'trackerAnnounce'
+  | 'indexerName'
+  | 'indexerUrl'
+  | 'indexerApiKey'
+  | 'indexerTracker'
+  | 'prowlarr'
 
 interface FieldDefinition {
   name: FormKey
@@ -58,16 +63,33 @@ const FIELDS: Record<SetupStepId, () => FieldDefinition[]> = {
     { name: 'trackerKey', control: 'text' },
     { name: 'trackerAnnounce', control: 'textarea' },
   ],
+  indexers: () => [
+    { name: 'indexerName', control: 'text', placeholder: 'tracker-a' },
+    {
+      name: 'indexerUrl',
+      control: 'text',
+      placeholder: 'https://prowlarr.example.com:9696/7/api',
+    },
+    { name: 'indexerApiKey', control: 'password' },
+    { name: 'indexerTracker', control: 'text' },
+    { name: 'prowlarr', control: 'text', placeholder: 'http://prowlarr:9696?apikey=KEY' },
+  ],
 }
 
 const fields = computed(() => FIELDS[setup.currentStep.value]())
 const saveLabelKey = computed(() =>
-  setup.currentStep.value === 'provider' ? 'setup.finish' : 'setup.save',
+  setup.currentStep.value === 'indexers' ? 'setup.finish' : 'setup.save',
 )
 const resultTone = computed(() => {
   const status = setup.testResult.value?.status
   return status === 'ok' || status === 'warn' ? status : 'fail'
 })
+
+const isRepeatable = computed(() => ['arr', 'indexers'].includes(setup.currentStep.value))
+
+const addAnotherLabelKey = computed(() =>
+  setup.currentStep.value === 'indexers' ? 'setup.addAnotherIndexer' : 'setup.addAnother',
+)
 
 function skipSetup(): void {
   setup.skip()
@@ -173,17 +195,17 @@ onUnmounted(setup.clearSecrets)
         >
           {{ t('setup.test') }}
         </Button>
-        <template v-if="setup.arrSaved.value && setup.currentStep.value === 'arr'">
-          <Button type="button" data-testid="continue" @click="setup.continueAfterArr">
+        <template v-if="setup.itemSaved.value && isRepeatable">
+          <Button type="button" data-testid="continue" @click="setup.continueAfterItem">
             {{ t('setup.continue') }}
           </Button>
           <Button
             type="button"
             variant="outline"
             data-testid="add-another"
-            @click="setup.addAnotherArr"
+            @click="setup.addAnotherItem"
           >
-            {{ t('setup.addAnother') }}
+            {{ t(addAnotherLabelKey) }}
           </Button>
         </template>
         <Button
@@ -194,6 +216,15 @@ onUnmounted(setup.clearSecrets)
           @click="setup.saveStep"
         >
           {{ t(saveLabelKey) }}
+        </Button>
+        <Button
+          v-if="setup.currentStep.value === 'indexers' && !setup.itemSaved.value"
+          type="button"
+          variant="outline"
+          data-testid="skip-step"
+          @click="setup.skipStep"
+        >
+          {{ t('setup.skipStep') }}
         </Button>
         <Button type="button" variant="link" data-testid="skip" @click="skipSetup">
           {{ t('setup.skip') }}

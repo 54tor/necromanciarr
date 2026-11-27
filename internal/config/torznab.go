@@ -346,3 +346,24 @@ func torznabSecrets(rawURLs ...string) []string {
 	}
 	return secrets
 }
+
+// NewTorznabCandidate construit l'indexeur d'un élément saisi (nom, url sans clé, clé d'API) comme la configuration
+// relit un élément enregistré : mêmes contrôles, clé jointe à l'url. Les refus sont des erreurs d'usage sans la clé.
+func NewTorznabCandidate(name, rawURL, apiKey string) (TorznabIndexer, error) {
+	if name == "" || apiKey == "" {
+		return TorznabIndexer{}, usageError{message: "torznab: a name and an API key are required"}
+	}
+	element := Element{fieldURL: rawURL, fieldAPIKey: apiKey, "name": name}
+	if err := RejectSecretInURL(listTorznab, element); err != nil {
+		return TorznabIndexer{}, err
+	}
+	rawEntry, err := torznabRawFromElement(element)
+	if err != nil {
+		return TorznabIndexer{}, usageError{message: "torznab: invalid element"}
+	}
+	indexer, err := parseTorznabEntry(rawEntry.(json.RawMessage), 0)
+	if err != nil {
+		return TorznabIndexer{}, usageError{message: "torznab: " + err.Error()}
+	}
+	return indexer, nil
+}

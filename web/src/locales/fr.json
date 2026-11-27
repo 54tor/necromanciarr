@@ -865,7 +865,8 @@
       "arr": "Radarr ou Sonarr",
       "torrentClient": "Client qBittorrent",
       "folders": "Dossiers",
-      "provider": "Fournisseur et trackers"
+      "provider": "Fournisseur et trackers",
+      "indexers": "Indexeurs (facultatif)"
     },
     "fields": {
       "arrKind": "Service",
@@ -879,7 +880,12 @@
       "libraryApi": "API du fournisseur",
       "libraryToken": "Jeton du fournisseur",
       "trackerKey": "Nom du tracker",
-      "trackerAnnounce": "Annonce du tracker"
+      "trackerAnnounce": "Annonce du tracker",
+      "indexerName": "Nom de l’indexeur",
+      "indexerUrl": "Adresse Torznab",
+      "indexerApiKey": "Clé d’API de l’indexeur",
+      "indexerTracker": "Tracker de l’indexeur",
+      "prowlarr": "URL de l’API Prowlarr (diagnostic seulement)"
     },
     "help": {
       "arrKind": "Le service à connecter. Après l’enregistrement, « Ajouter un autre service » permet de configurer l’autre.",
@@ -893,10 +899,16 @@
       "libraryApi": "Adresse de l’API de votre fournisseur de bibliothèque.",
       "libraryToken": "Jeton envoyé au fournisseur, si son API en demande un.",
       "trackerKey": "Nom du tracker tel que le fournisseur l’écrit.",
-      "trackerAnnounce": "Adresse d’annonce du tracker, avec votre passkey ; une par ligne."
+      "trackerAnnounce": "Adresse d’annonce du tracker, avec votre passkey ; une par ligne.",
+      "indexerName": "Lettres minuscules, chiffres et tirets (64 au plus) : c’est l’identifiant de l’indexeur dans sourceOrder.",
+      "indexerUrl": "Flux Torznab de l’indexeur, par exemple https://prowlarr.example.com:9696/7/api, sans clé ni paramètre.",
+      "indexerApiKey": "Clé d’API de Prowlarr ou de l’indexeur ; elle est scellée en base.",
+      "indexerTracker": "Facultatif : le nom du tracker tel que le fournisseur de bibliothèque l’écrit.",
+      "prowlarr": "Facultatif : adresse de l’API de Prowlarr avec ?apikey=…, lue seulement par le diagnostic, jamais pour chercher."
     },
     "continue": "Continuer",
     "addAnother": "Ajouter un autre service",
+    "addAnotherIndexer": "Ajouter un autre indexeur",
     "test": "Tester",
     "save": "Enregistrer",
     "finish": "Terminer",
@@ -906,6 +918,7 @@
     "restartTitle": "Redémarrez Necromanciarr",
     "restartDocker": "Avec Docker :",
     "restartBinary": "Avec le binaire, arrêtez le processus puis relancez-le :",
-    "noRestart": "Aucun redémarrage n’est nécessaire."
+    "noRestart": "Aucun redémarrage n’est nécessaire.",
+    "skipStep": "Passer cette étape"
   }
 }

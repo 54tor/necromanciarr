@@ -58,6 +58,13 @@ func CheckTorrentClient(ctx context.Context, client config.TorrentClient, deps D
 	return Result{Status: status, Code: code, Detail: detail, Hint: hint}
 }
 
+// CheckTorznabIndexer lit les capacités d'un indexeur candidat : ni cache, ni contrôle de sourceOrder.
+func CheckTorznabIndexer(ctx context.Context, indexer config.TorznabIndexer, deps Deps) Result {
+	deps = deps.withDefaults()
+	deps.CapsCache = nil
+	return checkTorznab(ctx, indexer, nil, deps)
+}
+
 func checkQbittorrent(ctx context.Context, settings config.Config, deps Deps) Result {
 	unsupported := settings.CrossSeedImport.UnsupportedTorrentClients
 	if len(settings.TorrentClients) == 0 && len(unsupported) == 0 {

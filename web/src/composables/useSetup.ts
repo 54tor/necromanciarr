@@ -5,12 +5,15 @@ import { useApi } from '@/composables/useApi'
 import { endpointId } from '@/lib/configFields'
 import { setupSkipped } from '@/state/session'
 
-const SETUP_STEPS = ['arr', 'torrentClient', 'folders', 'provider'] as const
+const SETUP_STEPS = ['arr', 'torrentClient', 'folders', 'provider', 'indexers'] as const
 export type SetupStepId = (typeof SETUP_STEPS)[number]
 type ArrKind = 'radarr' | 'sonarr'
 
 const CROSS_SEED_ORIGIN = 'cross-seed'
-const TESTED_STEPS: readonly SetupStepId[] = ['arr', 'torrentClient']
+const TESTED_STEPS: readonly SetupStepId[] = ['arr', 'torrentClient', 'indexers']
+const REPEATABLE_STEPS: readonly SetupStepId[] = ['arr', 'indexers']
+const SOURCE_ORDER_KEY = 'sourceOrder'
+const TORZNAB_SOURCE_PREFIX = 'torznab:'
 const CLIENT_PREFIX = /^torrentClients\[\d+\]:\s*/
 
 interface SetupForm {
@@ -26,6 +29,11 @@ interface SetupForm {
   libraryToken: string
   trackerKey: string
   trackerAnnounce: string
+  indexerName: string
+  indexerUrl: string
+  indexerApiKey: string
+  indexerTracker: string
+  prowlarr: string
 }
 
 const emptyForm = (): SetupForm => ({
@@ -41,6 +49,11 @@ const emptyForm = (): SetupForm => ({
   libraryToken: '',
   trackerKey: '',
   trackerAnnounce: '',
+  indexerName: '',
+  indexerUrl: '',
+  indexerApiKey: '',
+  indexerTracker: '',
+  prowlarr: '',
 })
 
 const snapshot = ref<ConfigSnapshot>()
@@ -49,7 +62,7 @@ const finished = ref(false)
 const testResult = ref<SetupTestResult>()
 const trackerMissing = ref(false)
 const isPrefilled = ref(false)
-const arrSaved = ref(false)
+const itemSaved = ref(false)
 const form = reactive<SetupForm>(emptyForm())
 
 /** Exposé pour que les tests remettent l'état partagé à zéro entre deux cas. */
@@ -60,7 +73,7 @@ export function resetSetupState(): void {
   testResult.value = undefined
   trackerMissing.value = false
   isPrefilled.value = false
-  arrSaved.value = false
+  itemSaved.value = false
   setupSkipped.value = false
   Object.assign(form, emptyForm())
 }
@@ -70,6 +83,8 @@ function clearSecrets(): void {
   form.clientPassword = ''
   form.libraryToken = ''
   form.trackerAnnounce = ''
+  form.indexerApiKey = ''
+  form.prowlarr = ''
 }
 
 const TESTED_FIELDS = (): string[] => [
@@ -79,6 +94,9 @@ const TESTED_FIELDS = (): string[] => [
   form.clientUrl,
   form.clientUsername,
   form.clientPassword,
+  form.indexerName,
+  form.indexerUrl,
+  form.indexerApiKey,
 ]
 
 watch(TESTED_FIELDS, () => {
@@ -129,7 +147,7 @@ const needsSetup = computed(
     (isConfigEmpty.value || hasUnsetSecret.value) &&
     !setupSkipped.value,
 )
-const currentStep = computed<SetupStepId>(() => SETUP_STEPS[stepIndex.value] ?? 'provider')
+const currentStep = computed<SetupStepId>(() => SETUP_STEPS[stepIndex.value] ?? 'indexers')
 const restartRequired = computed(() => snapshot.value?.restartRequired === true)
 const isTestPassed = computed(
   () => testResult.value?.status === 'ok' || testResult.value?.status === 'warn',
@@ -175,6 +193,15 @@ export function useSetup() {
         apiKey: '',
         username: form.clientUsername,
         password: form.clientPassword,
+      })
+    }
+    if (currentStep.value === 'indexers') {
+      return testCandidate('torznab', {
+        name: form.indexerName,
+        url: form.indexerUrl,
+        apiKey: form.indexerApiKey,
+        username: '',
+        password: '',
       })
     }
     return testCandidate(form.arrKind, {
@@ -233,11 +260,33 @@ export function useSetup() {
     return writeItem('trackers', trackerKey, { key: trackerKey, announce })
   }
 
+  async function appendToStoredSourceOrder(name: string): Promise<boolean> {
+    const storedOrder = snapshot.value?.settings?.[SOURCE_ORDER_KEY]
+    if (!storedOrder?.set || !Array.isArray(storedOrder.value)) return true
+    const source = TORZNAB_SOURCE_PREFIX + name
+    if (storedOrder.value.includes(source)) return true
+    return writeSetting(SOURCE_ORDER_KEY, [...storedOrder.value, source])
+  }
+
+  async function saveIndexers(): Promise<boolean> {
+    const name = form.indexerName.trim()
+    const element = omitBlank({
+      url: form.indexerUrl,
+      apiKey: form.indexerApiKey,
+      name,
+      tracker: form.indexerTracker,
+    })
+    if (!(await writeItem('torznab', name, element))) return false
+    if (!(await appendToStoredSourceOrder(name))) return false
+    return form.prowlarr.trim() === '' || writeSetting('prowlarr', form.prowlarr.trim())
+  }
+
   const SAVERS: Record<SetupStepId, () => Promise<boolean>> = {
     arr: saveArr,
     torrentClient: saveTorrentClient,
     folders: saveFolders,
     provider: saveProvider,
+    indexers: saveIndexers,
   }
 
   async function saveStep(): Promise<void> {
@@ -245,7 +294,7 @@ export function useSetup() {
     if (!(await SAVERS[currentStep.value]())) return
     testResult.value = undefined
     clearSecrets()
-    if (currentStep.value === 'arr') arrSaved.value = true
+    if (REPEATABLE_STEPS.includes(currentStep.value)) itemSaved.value = true
     else advance()
   }
 
@@ -254,17 +303,25 @@ export function useSetup() {
     else stepIndex.value += 1
   }
 
-  function continueAfterArr(): void {
-    arrSaved.value = false
+  function continueAfterItem(): void {
+    itemSaved.value = false
     advance()
   }
 
-  function addAnotherArr(): void {
-    form.arrKind = 'radarr'
-    form.arrUrl = ''
-    form.arrApiKey = ''
+  function addAnotherItem(): void {
+    if (currentStep.value === 'indexers') {
+      form.indexerName = ''
+      form.indexerUrl = ''
+      form.indexerApiKey = ''
+      form.indexerTracker = ''
+      form.prowlarr = ''
+    } else {
+      form.arrKind = 'radarr'
+      form.arrUrl = ''
+      form.arrApiKey = ''
+    }
     testResult.value = undefined
-    arrSaved.value = false
+    itemSaved.value = false
   }
 
   return {
@@ -276,7 +333,7 @@ export function useSetup() {
     trackerMissing,
     finished,
     restartRequired,
-    arrSaved,
+    itemSaved,
     needsSetup,
     needsTest,
     canSave,
@@ -285,9 +342,10 @@ export function useSetup() {
     testCandidate,
     runTest,
     saveStep,
-    continueAfterArr,
-    addAnotherArr,
+    continueAfterItem,
+    addAnotherItem,
     clearSecrets,
+    skipStep: advance,
     skip: () => {
       setupSkipped.value = true
     },

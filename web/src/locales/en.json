@@ -865,7 +865,8 @@
       "arr": "Radarr or Sonarr",
       "torrentClient": "qBittorrent client",
       "folders": "Folders",
-      "provider": "Provider and trackers"
+      "provider": "Provider and trackers",
+      "indexers": "Indexers (optional)"
     },
     "fields": {
       "arrKind": "Service",
@@ -879,7 +880,12 @@
       "libraryApi": "Provider API",
       "libraryToken": "Provider token",
       "trackerKey": "Tracker name",
-      "trackerAnnounce": "Tracker announce"
+      "trackerAnnounce": "Tracker announce",
+      "indexerName": "Indexer name",
+      "indexerUrl": "Torznab URL",
+      "indexerApiKey": "Indexer API key",
+      "indexerTracker": "Indexer tracker",
+      "prowlarr": "Prowlarr API URL (diagnostic only)"
     },
     "help": {
       "arrKind": "The service to connect. After saving, “Add another service” lets you configure the other one.",
@@ -893,10 +899,16 @@
       "libraryApi": "Address of your library provider API.",
       "libraryToken": "Token sent to the provider, if its API requires one.",
       "trackerKey": "Tracker name as the provider writes it.",
-      "trackerAnnounce": "Tracker announce address, with your passkey; one per line."
+      "trackerAnnounce": "Tracker announce address, with your passkey; one per line.",
+      "indexerName": "Lowercase letters, digits and hyphens (64 at most): it is the indexer identifier in sourceOrder.",
+      "indexerUrl": "Torznab feed of the indexer, for example https://prowlarr.example.com:9696/7/api, without key or query.",
+      "indexerApiKey": "API key of Prowlarr or of the indexer; it is sealed in the database.",
+      "indexerTracker": "Optional: the tracker name as the library provider writes it.",
+      "prowlarr": "Optional: Prowlarr API address with ?apikey=…, read only by the diagnostic, never used to search."
     },
     "continue": "Continue",
     "addAnother": "Add another service",
+    "addAnotherIndexer": "Add another indexer",
     "test": "Test",
     "save": "Save",
     "finish": "Finish",
@@ -906,6 +918,7 @@
     "restartTitle": "Restart Necromanciarr",
     "restartDocker": "With Docker:",
     "restartBinary": "With the binary, stop the process then start it again:",
-    "noRestart": "No restart is needed."
+    "noRestart": "No restart is needed.",
+    "skipStep": "Skip this step"
   }
 }
