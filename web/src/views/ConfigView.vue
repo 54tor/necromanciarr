@@ -37,10 +37,11 @@ interface Removal {
   list: string
   itemId: string
   descriptionKey: string
-  isOrphan: boolean
+  restoresUpstream: boolean
 }
 
 const CROSS_SEED_ORIGIN = 'cross-seed'
+const OVERRIDE_ORIGIN = 'override'
 
 const config = useConfig()
 const editorOpen = ref(false)
@@ -99,20 +100,29 @@ function addItem(list: string): void {
   })
 }
 
-function askRemoval(list: string, itemId: string, descriptionKey: string, isOrphan = false): void {
-  removal.value = { list, itemId, descriptionKey, isOrphan }
+function askRemoval(
+  list: string,
+  itemId: string,
+  descriptionKey: string,
+  restoresUpstream = false,
+): void {
+  removal.value = { list, itemId, descriptionKey, restoresUpstream }
   removalOpen.value = true
 }
 
 function askItemRemoval(list: string, item: ConfigItem): void {
+  if (item.origin === OVERRIDE_ORIGIN) {
+    askRemoval(list, item.itemId, 'config.remove.revert', true)
+    return
+  }
   const hidesUpstream = item.origin === CROSS_SEED_ORIGIN
   askRemoval(list, item.itemId, hidesUpstream ? 'config.remove.hide' : 'config.remove.delete')
 }
 
 async function confirmRemoval(): Promise<void> {
   if (!removal.value) return
-  const { list, itemId, isOrphan } = removal.value
-  if (isOrphan) {
+  const { list, itemId, restoresUpstream } = removal.value
+  if (restoresUpstream) {
     await config.unsetItem(list, itemId)
     return
   }

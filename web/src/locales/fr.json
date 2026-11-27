@@ -771,6 +771,7 @@
       "title": "Supprimer cet élément ?",
       "hide": "L’élément vient de cross-seed : il sera masqué, cross-seed n’est pas modifié.",
       "delete": "L’élément et sa surcharge seront supprimés de la base.",
+      "revert": "La valeur cross-seed de cet élément est rétablie, sa surcharge est supprimée de la base.",
       "orphan": "La surcharge orpheline sera supprimée de la base.",
       "confirm": "Supprimer",
       "summary": "Élément : {name}"

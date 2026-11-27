@@ -771,6 +771,7 @@
       "title": "Delete this item?",
       "hide": "The item comes from cross-seed: it will be hidden, cross-seed is not changed.",
       "delete": "The item and its override will be deleted from the database.",
+      "revert": "The cross-seed value of this element is restored and its override is removed from the database.",
       "orphan": "The orphan override will be deleted from the database.",
       "confirm": "Delete",
       "summary": "Item: {name}"

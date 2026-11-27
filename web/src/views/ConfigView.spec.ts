@@ -272,6 +272,42 @@ describe('ConfigView', () => {
     ])
   })
 
+  describe('suppression selon l’origine', () => {
+    const removalRoutes = {
+      'GET /api/config': configSnapshot(),
+      'POST /api/config/lists/{list}/{itemId}/unset': configSnapshot(),
+      'DELETE /api/config/lists/{list}/{itemId}': configSnapshot(),
+    }
+
+    async function removeItem(listName: string, itemId: string) {
+      const { wrapper, calls } = await mountView(removalRoutes)
+      await wrapper.get(`[data-testid="delete-item-${listName}-${itemId}"]`).trigger('click')
+      await flushPromises()
+      const description = document.body.textContent ?? ''
+      await clickInBody('confirm-dialog-confirm')
+      return { description, writes: writeCalls(calls).map((call) => `${call.method} ${call.path}`) }
+    }
+
+    it('ConfigView rend la valeur cross-seed quand on supprime une surcharge', async () => {
+      const { description, writes } = await removeItem('radarr', RADARR_ID)
+
+      expect(writes).toEqual([`POST /api/config/lists/radarr/${ENCODED_RADARR_ID}/unset`])
+      expect(description).toContain('valeur cross-seed')
+    })
+
+    it('ConfigView masque un élément cross-seed pur à la suppression', async () => {
+      const { writes } = await removeItem('linkDirs', '/data/a')
+
+      expect(writes).toEqual(['DELETE /api/config/lists/linkDirs/%2Fdata%2Fa'])
+    })
+
+    it('ConfigView supprime un ajout à la main', async () => {
+      const { writes } = await removeItem('linkDirs', '/data/b')
+
+      expect(writes).toEqual(['DELETE /api/config/lists/linkDirs/%2Fdata%2Fb'])
+    })
+  })
+
   it('ConfigView affiche le message dédié quand la clé de scellement manque', async () => {
     const { wrapper } = await mountView({
       'GET /api/config': configSnapshot(),
