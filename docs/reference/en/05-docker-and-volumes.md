@@ -16,6 +16,8 @@ Built by `make docker-build` (Node stage for the interface, static Go stage, fin
 
 The image listens on all interfaces, so `serve` (the default command) requires `NECROMANCIARR_AUTH_TOKEN`. On first start it generates it in `/data/.env` and shows it once on stderr (`docker logs`); `/data` must therefore be writable by the container user. If `/data` is not writable, the container exits with code 1 and "cannot write .env in /data: …", unless `NECROMANCIARR_SECRET_KEY` and `NECROMANCIARR_AUTH_TOKEN` are already defined. To set your own token: `docker run --rm necromanciarr:dev api-key`, then `-e NECROMANCIARR_AUTH_TOKEN=…`. A database present without `NECROMANCIARR_SECRET_KEY` also blocks startup ([02](02-configuration.md#first-launch-bootstrap)).
 
+Every push to `main` publishes a `linux/amd64` and `linux/arm64` image to `ghcr.io/<owner>/necromanciarr` (tags `snapshot`, the latest `main`, and `sha-<short-sha>`) through `.github/workflows/snapshot.yml`. It is an unversioned snapshot, not to be pinned in production: pin the `sha-…` tag. To use it, replace `image:` in the example compose with `ghcr.io/<owner>/necromanciarr:snapshot`.
+
 ## Volumes
 
 | Mount | Mode | Role |

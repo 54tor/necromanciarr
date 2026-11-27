@@ -5,6 +5,7 @@ Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- A `snapshot` container image (`linux/amd64`, `linux/arm64`, also tagged `sha-<commit>`) is published to the GitHub container registry on every push to `main`, and `compose.example.yaml` shows a deployment with `PUID` and `PGID`.
 - First launch: `serve` generates the secret key and the auth token into the `.env` of the config folder (mode `0600`, an existing value is never replaced) and prints the token once on stderr; it refuses to generate a key when a database already exists without `NECROMANCIARR_SECRET_KEY`, and fails with an explicit message when the folder is not writable.
 - A setup assistant in the web interface (Assistant tab, shown while Radarr, Sonarr and the torrent clients are all empty or an imported service still lacks its API key or password; several Radarr or Sonarr services can be added, and typed secrets are cleared once saved): `POST /api/setup/test` checks a typed Radarr, Sonarr or qBittorrent before it is saved, and the last screen says how to restart.
 - The Getting started page offers a one-click "Create the folder" for a missing local link folder (`POST /api/setup/fix/create_link_dir`).

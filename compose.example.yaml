@@ -2,7 +2,7 @@
 # Le jeton d'accès est généré au premier démarrage et affiché une seule fois dans ces logs.
 services:
   necromanciarr:
-    image: necromanciarr:dev # make docker-build
+    image: necromanciarr:dev # make docker-build ; ou ghcr.io/<owner>/necromanciarr:snapshot
     container_name: necromanciarr
     restart: unless-stopped
     # Même UID:GID que le propriétaire de la bibliothèque (id -u / id -g sur l'hôte) : PUID=… PGID=… dans .env.

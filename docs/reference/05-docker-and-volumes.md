@@ -16,6 +16,8 @@ Construite par `make docker-build` (étape Node pour l'interface, étape Go stat
 
 L'image écoute sur toutes les interfaces, donc `serve` (la commande par défaut) exige `NECROMANCIARR_AUTH_TOKEN`. Au premier démarrage il le génère dans `/data/.env` et l'affiche une fois sur stderr (`docker logs`) ; `/data` doit donc être inscriptible par l'utilisateur du conteneur. Si `/data` n'est pas inscriptible, le conteneur sort en code 1 avec « impossible d'écrire le .env dans /data : … », sauf si `NECROMANCIARR_SECRET_KEY` et `NECROMANCIARR_AUTH_TOKEN` sont déjà définis. Définir son propre jeton : `docker run --rm necromanciarr:dev api-key`, puis `-e NECROMANCIARR_AUTH_TOKEN=…`. Une base présente sans `NECROMANCIARR_SECRET_KEY` bloque aussi le démarrage ([02](02-configuration.md#amorçage-au-premier-démarrage)).
 
+Chaque push sur `main` publie une image `linux/amd64` et `linux/arm64` sur `ghcr.io/<owner>/necromanciarr` (tags `snapshot`, le dernier `main`, et `sha-<short-sha>`) par `.github/workflows/snapshot.yml`. C'est un instantané non versionné, à ne pas épingler en production : épingler le tag `sha-…`. Pour l'utiliser, remplacer `image:` dans le compose d'exemple par `ghcr.io/<owner>/necromanciarr:snapshot`.
+
 ## Volumes
 
 | Montage | Mode | Rôle |
