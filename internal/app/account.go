@@ -75,6 +75,9 @@ type AccountStore interface {
 	RenameCredential(ctx context.Context, id []byte, name string) error
 	DeleteCredential(ctx context.Context, id []byte) error
 	TOTP(ctx context.Context) (store.TOTPFactor, bool, error)
+	SetTOTP(ctx context.Context, factor store.TOTPFactor) error
+	DeleteTOTP(ctx context.Context) error
+	AdvanceTOTPStep(ctx context.Context, step int64) (bool, error)
 	CreateSession(ctx context.Context, session store.SessionRecord) error
 	Session(ctx context.Context, id string) (store.SessionRecord, bool, error)
 	TouchSession(ctx context.Context, id string, seenAt time.Time) error
@@ -128,6 +131,15 @@ type AccountService interface {
 	RenameCredential(ctx context.Context, id, name string) error
 	// DeleteCredential supprime une clé, session ouverte et mot de passe ressaisi.
 	DeleteCredential(ctx context.Context, token, id, password string) error
+	// BeginTOTPSetup tire un secret TOTP en attente, session ouverte et mot de passe ressaisi ; l'appelant garde State
+	// côté serveur.
+	BeginTOTPSetup(ctx context.Context, token, password string) (TOTPEnrolment, error)
+	// FinishTOTPSetup enregistre, scellé, le secret en attente une fois qu'un code valable le confirme.
+	FinishTOTPSetup(ctx context.Context, token string, state []byte, code string) error
+	// LoginWithTOTP consomme le ticket rendu par Login, vérifie le code sous le limiteur et ouvre la session.
+	LoginWithTOTP(ctx context.Context, ticket, code string, client ClientInfo) (SessionGrant, error)
+	// RemoveTOTP retire le TOTP, session ouverte et mot de passe ressaisi.
+	RemoveTOTP(ctx context.Context, token, password string) error
 }
 
 // AuthStatus est l'état d'authentification public ; il ne porte jamais l'identifiant.

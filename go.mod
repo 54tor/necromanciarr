@@ -13,6 +13,7 @@ require (
 	github.com/getkin/kin-openapi v0.146.0
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/pkg/sftp v1.13.13
+	github.com/pquerna/otp v1.5.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/net v0.63.0
 	golang.org/x/sys v0.50.0
@@ -66,6 +67,7 @@ require (
 	github.com/blizzy78/varnamelen v0.8.0 // indirect
 	github.com/bombsimon/wsl/v4 v4.7.0 // indirect
 	github.com/bombsimon/wsl/v5 v5.9.0 // indirect
+	github.com/boombuler/barcode v1.1.1 // indirect
 	github.com/breml/bidichk v0.3.4 // indirect
 	github.com/breml/errchkjson v0.4.1 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect

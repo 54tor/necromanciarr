@@ -131,6 +131,7 @@ type ceremonyEnvelope struct {
 	Nonce      []byte               `json:"nonce"`
 	TicketHash string               `json:"ticketHash,omitempty"`
 	Session    webauthn.SessionData `json:"session"`
+	TOTPSecret string               `json:"totpSecret,omitempty"`
 }
 
 // ceremonyBinding dit à quoi sert un état et à quel ticket il est lié.
@@ -140,33 +141,55 @@ type ceremonyBinding struct {
 
 // newCeremony date l'expiration sur l'horloge du service, que finish contrôle en plus de la bibliothèque.
 func (svc *service) newCeremony(options any, session *webauthn.SessionData, binding ceremonyBinding) (WebAuthnCeremony, error) {
-	nonce := make([]byte, ceremonyNonceBytes)
-	if _, err := rand.Read(nonce); err != nil {
-		return WebAuthnCeremony{}, fmt.Errorf("generate webauthn nonce: %w", err)
-	}
 	session.Expires = svc.now().Add(webAuthnCeremonyTimeout)
 	optionsJSON, err := json.Marshal(options)
 	if err != nil {
 		return WebAuthnCeremony{}, fmt.Errorf("encode webauthn options: %w", err)
 	}
-	envelope := ceremonyEnvelope{
-		Version: ceremonyEnvelopeVersion, Purpose: binding.purpose, Kind: binding.kind, Nonce: nonce,
-		TicketHash: binding.ticketHash, Session: *session,
-	}
-	payload, err := json.Marshal(envelope)
-	if err != nil {
-		return WebAuthnCeremony{}, fmt.Errorf("encode webauthn state: %w", err)
-	}
-	state, err := svc.sealState(payload)
+	state, err := svc.sealEnvelope(ceremonyEnvelope{
+		Purpose: binding.purpose, Kind: binding.kind, TicketHash: binding.ticketHash, Session: *session,
+	})
 	if err != nil {
 		return WebAuthnCeremony{}, err
 	}
 	return WebAuthnCeremony{Options: optionsJSON, State: state}, nil
 }
 
+// sealEnvelope pose la version et un nonce neuf, puis scelle l'état.
+func (svc *service) sealEnvelope(envelope ceremonyEnvelope) ([]byte, error) {
+	nonce := make([]byte, ceremonyNonceBytes)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("generate ceremony nonce: %w", err)
+	}
+	envelope.Version, envelope.Nonce = ceremonyEnvelopeVersion, nonce
+	payload, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, fmt.Errorf("encode ceremony state: %w", err)
+	}
+	return svc.sealState(payload)
+}
+
 // openCeremony vérifie d'abord le sceau, puis refuse un état illisible, d'un autre usage ou d'un autre ticket, expiré, lié à un autre RP ID ou une
 // autre origine, puis brûle son nonce : un état ne sert qu'une fois, que la preuve qui suit réussisse ou non.
 func (svc *service) openCeremony(state []byte, binding ceremonyBinding, instance *webauthn.WebAuthn) (ceremonyEnvelope, error) {
+	envelope, err := svc.readEnvelope(state, binding, webAuthnCeremonyTimeout)
+	if err != nil {
+		return ceremonyEnvelope{}, err
+	}
+	sameRelyingParty := envelope.Session.RelyingPartyID == instance.Config.RPID && envelope.Session.Origin == ""
+	knownKind := binding.purpose != purposeRegistration || slices.Contains(registrableKinds, envelope.Kind)
+	if !sameRelyingParty || !knownKind {
+		return ceremonyEnvelope{}, ErrInvalidAssertion
+	}
+	if err := svc.burnNonce(envelope); err != nil {
+		return ceremonyEnvelope{}, err
+	}
+	return envelope, nil
+}
+
+// readEnvelope vérifie le sceau avant de décoder, puis la version, le nonce, l'usage, le ticket et une expiration
+// comprise dans lifetime ; il ne brûle rien.
+func (svc *service) readEnvelope(state []byte, binding ceremonyBinding, lifetime time.Duration) (ceremonyEnvelope, error) {
 	payload, err := svc.unsealState(state)
 	if err != nil {
 		return ceremonyEnvelope{}, err
@@ -179,17 +202,21 @@ func (svc *service) openCeremony(state []byte, binding ceremonyBinding, instance
 	expires := envelope.Session.Expires
 	wellFormed := envelope.Version == ceremonyEnvelopeVersion && len(envelope.Nonce) == ceremonyNonceBytes &&
 		envelope.Purpose == binding.purpose && envelope.TicketHash == binding.ticketHash
-	live := !expires.IsZero() && now.Before(expires) && !expires.After(now.Add(webAuthnCeremonyTimeout))
-	sameRelyingParty := envelope.Session.RelyingPartyID == instance.Config.RPID && envelope.Session.Origin == ""
-	knownKind := binding.purpose != purposeRegistration || slices.Contains(registrableKinds, envelope.Kind)
-	if !wellFormed || !live || !sameRelyingParty || !knownKind {
-		return ceremonyEnvelope{}, ErrInvalidAssertion
-	}
-	// Un ensemble plein refuse au lieu d'évincer : un nonce évincé serait rejouable tant que son état vit.
-	if !svc.burnedNonces.insertIfAbsent(string(envelope.Nonce), struct{}{}, expires.Add(burnedNonceMargin), now) {
+	live := !expires.IsZero() && now.Before(expires) && !expires.After(now.Add(lifetime))
+	if !wellFormed || !live {
 		return ceremonyEnvelope{}, ErrInvalidAssertion
 	}
 	return envelope, nil
+}
+
+// burnNonce marque le nonce de l'état comme présenté ; un ensemble plein refuse au lieu d'évincer, car un nonce évincé
+// serait rejouable tant que son état vit.
+func (svc *service) burnNonce(envelope ceremonyEnvelope) error {
+	expires := envelope.Session.Expires
+	if !svc.burnedNonces.insertIfAbsent(string(envelope.Nonce), struct{}{}, expires.Add(burnedNonceMargin), svc.now()) {
+		return ErrInvalidAssertion
+	}
+	return nil
 }
 
 func registrationOptionsFor(kind string) ([]webauthn.RegistrationOption, error) {

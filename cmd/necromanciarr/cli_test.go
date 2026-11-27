@@ -856,3 +856,19 @@ func (*fakeService) RenameCredential(context.Context, string, string) error {
 func (*fakeService) DeleteCredential(context.Context, string, string, string) error {
 	return errAccountNotFaked
 }
+
+func (*fakeService) BeginTOTPSetup(context.Context, string, string) (app.TOTPEnrolment, error) {
+	return app.TOTPEnrolment{}, errAccountNotFaked
+}
+
+func (*fakeService) FinishTOTPSetup(context.Context, string, []byte, string) error {
+	return errAccountNotFaked
+}
+
+func (*fakeService) LoginWithTOTP(context.Context, string, string, app.ClientInfo) (app.SessionGrant, error) {
+	return app.SessionGrant{}, errAccountNotFaked
+}
+
+func (*fakeService) RemoveTOTP(context.Context, string, string) error {
+	return errAccountNotFaked
+}
