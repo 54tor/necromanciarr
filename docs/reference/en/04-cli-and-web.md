@@ -28,6 +28,8 @@ Syntax: `necromanciarr <command> [arguments] [options]`. Positional arguments co
 | `volumes probe <name>` | probes a named local or sftp volume again in its first link folder | |
 | `volumes commands <name>` | the exact `ssh exec` lines the remote guard must allow | |
 | `sftp trust <name>` | prints the host key fingerprint; adds it to `knownHosts` on `--yes` (CLI only) | `--yes` |
+| `account status` | operator account state: existence, username, security keys by kind, TOTP (CLI only) | `--json` |
+| `account reset` | removes the account, its keys, its TOTP and its sessions (CLI only) | `--yes`, `--json` |
 | `serve` | serves the interface and the API until SIGINT or SIGTERM | |
 | `healthcheck` | probes `/healthz` on loopback | |
 | `api-key` | prints a new random token; `--secret`: a sealing key | |
@@ -54,6 +56,8 @@ Each proposal carries `details.source`, the source that supplied its candidate (
 `volumes commands <name>` returns `{"volume", "lines", "guard_script"}`: the exact lines, in sending order, that [remote-command-guard.sh](../remote-command-guard.sh) allows. In JSON, the tab of the `stat` line is the `\t` escape; the text output writes the lines alone on stdout, byte for byte, tabs included (`necromanciarr volumes commands seedbox > lines.txt`), and the script hint on stderr.
 
 `sftp trust <name>` is a CLI-only command: no web route, no registry action. Adding a trusted key from a browser, on a fingerprint seen remotely, would be a phishing trap. It starts no server and reads the database read-only, for the configuration. It reaches the provider's address, reads the host key during the key exchange, then cuts before any authentication: no method is tried, no secret is read or sent. It prints "Host key fingerprint for seedbox: SHA256:…" and reminds you to check this fingerprint through another channel (hosting console, `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server).
+
+`account status` shows whether an account exists, its username, the number of second-factor keys and passkeys (`passkey`) and whether TOTP is set; never a password hash, secret or token. `account reset` removes the account, its keys, its TOTP and every session in one transaction: without `--yes` it removes nothing and exits with code 2. Both commands are CLI-only, work on the database without a server (or while it runs: it sees the change at once), tolerate an invalid stored configuration and bootstrap no secret. After `account reset`, the first-launch token (`NECROMANCIARR_AUTH_TOKEN`, in the `.env` of the config directory) opens the account-creation screen again: this is the recovery path when web access is lost, guaranteed by access to the machine.
 
 - Without `--yes`: nothing is written, exit code 2.
 - With `--yes`: the `known_hosts` line (`[host]:port` form outside port 22, not hashed) is appended at the end of `knownHosts`, never truncating the file; "Added to /data/ssh/known_hosts.". A missing file is created at `0600`; its folder must exist. A symlink, a special file or a missing folder give `known_hosts_not_writable`.

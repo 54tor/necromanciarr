@@ -605,6 +605,8 @@ func usageText(translator i18n.Translator) string {
 		{"api-key [--secret]", i18n.KeyCLIUsageAPIKey},
 		{"config check", i18n.KeyCLIUsageConfigCheck},
 		{"sftp trust <name> [--yes]", i18n.KeyCLIUsageSFTPTrust},
+		{"account status", i18n.KeyCLIUsageAccountStatus},
+		{"account reset [--yes]", i18n.KeyCLIUsageAccountReset},
 	} {
 		_, _ = fmt.Fprintf(&usage, "  %-23s %s\n", line.name, translator.Text(line.key, nil))
 	}

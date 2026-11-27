@@ -73,7 +73,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 func findCommand(args []string) (command, []string, bool) {
 	var best command
 	found := false
-	for _, spec := range commands {
+	for _, spec := range slices.Concat(commands, accountCommands) {
 		matches := len(args) >= len(spec.path) && slices.Equal(args[:len(spec.path)], spec.path)
 		if matches && len(spec.path) > len(best.path) {
 			best, found = spec, true

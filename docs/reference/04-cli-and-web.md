@@ -28,6 +28,8 @@ Syntaxe : `necromanciarr <command> [arguments] [options]`. Les arguments positio
 | `volumes probe <name>` | sonde à nouveau un volume local nommé ou sftp dans son premier dossier de liens | |
 | `volumes commands <name>` | les lignes `ssh exec` exactes que la garde distante doit admettre | |
 | `sftp trust <name>` | affiche l'empreinte de la clé d'hôte ; l'ajoute à `knownHosts` sur `--yes` (CLI seulement) | `--yes` |
+| `account status` | état du compte opérateur : existence, identifiant, clés de sécurité par sorte, TOTP (CLI seulement) | `--json` |
+| `account reset` | efface le compte, ses clés, son TOTP et ses sessions (CLI seulement) | `--yes`, `--json` |
 | `serve` | sert l'interface et l'API jusqu'à SIGINT ou SIGTERM | |
 | `healthcheck` | sonde `/healthz` sur la boucle locale | |
 | `api-key` | affiche un jeton aléatoire neuf ; `--secret` : une clé de scellement | |
@@ -54,6 +56,8 @@ Chaque proposition porte `details.source`, la source qui a fourni son candidat (
 `volumes commands <name>` rend `{"volume", "lines", "guard_script"}` : les lignes exactes, dans l'ordre d'envoi, que [remote-command-guard.sh](remote-command-guard.sh) admet. En JSON, la tabulation de la ligne `stat` est l'échappement `\t` ; la sortie texte écrit les lignes seules sur stdout, octet pour octet, tabulations comprises (`necromanciarr volumes commands seedbox > lines.txt`), et l'indication du script sur stderr.
 
 `sftp trust <name>` est une commande de la CLI seule : aucune route web, aucune action du registre. Ajouter une clé de confiance depuis un navigateur, sur une empreinte vue à distance, serait un piège à hameçonnage. Elle ne lance aucun serveur et ne lit la base qu'en lecture seule, pour la configuration. Elle joint l'adresse du fournisseur, lit la clé d'hôte pendant l'échange de clés puis coupe avant toute authentification : aucune méthode n'est essayée, aucun secret n'est lu ni envoyé. Elle affiche « Empreinte de la clé d'hôte de seedbox : SHA256:… » et rappelle de vérifier cette empreinte par un autre canal (console de l'hébergeur, `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` sur le serveur).
+
+`account status` affiche si un compte existe, son identifiant, le nombre de clés de second facteur et de clés d'accès (`passkey`) et la présence du TOTP ; jamais d'empreinte de mot de passe, de secret ni de jeton. `account reset` supprime en une transaction le compte, ses clés, son TOTP et toutes les sessions : sans `--yes` il ne supprime rien et sort avec le code 2. Les deux commandes sont de la CLI seule, travaillent sur la base sans serveur (ou pendant qu'il tourne : il voit le changement aussitôt), tolèrent une configuration stockée invalide et n'amorcent aucun secret. Après `account reset`, le jeton du premier lancement (`NECROMANCIARR_AUTH_TOKEN`, dans le `.env` du dossier de configuration) rouvre l'écran de création du compte : c'est le recours si l'accès web est perdu, et c'est l'accès à la machine qui le garantit.
 
 - Sans `--yes` : rien n'est écrit, sortie en code 2.
 - Avec `--yes` : la ligne `known_hosts` (forme `[host]:port` hors port 22, non hachée) est ajoutée en fin de `knownHosts`, sans jamais tronquer le fichier ; « Ajoutée à /data/ssh/known_hosts. ». Un fichier absent est créé en `0600` ; son dossier doit exister. Un lien symbolique, un fichier spécial ou un dossier absent donnent `known_hosts_not_writable`.

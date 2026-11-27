@@ -23,6 +23,17 @@ const (
 	KeyErrorAuthInvalidCredentialKind Key = "error.auth.invalid_credential_kind"
 	KeyErrorAuthFieldTooLong          Key = "error.auth.field_too_long"
 
+	KeyCLIUsageAccountStatus      Key = "cli.usage.account_status"
+	KeyCLIUsageAccountReset       Key = "cli.usage.account_reset"
+	KeyCLIAccountNone             Key = "cli.account.none"
+	KeyCLIAccountUsername         Key = "cli.account.username"
+	KeyCLIAccountSecondFactorKeys Key = "cli.account.second_factor_keys"
+	KeyCLIAccountPasskeys         Key = "cli.account.passkeys"
+	KeyCLIAccountTOTPSet          Key = "cli.account.totp_set"
+	KeyCLIAccountTOTPNotSet       Key = "cli.account.totp_not_set"
+	KeyCLIAccountResetNeedsYes    Key = "cli.account.reset_needs_yes"
+	KeyCLIAccountResetDone        Key = "cli.account.reset_done"
+
 	KeyLogAPILoginFailed    Key = "log.api_login_failed"
 	KeyLogAPILoginSucceeded Key = "log.api_login_succeeded"
 )
@@ -34,4 +45,5 @@ var authKeys = []Key{
 	KeyErrorAuthInvalidAssertion, KeyErrorAuthLoginTicketInvalid, KeyErrorAuthInvalidCode, KeyErrorAuthTOTPUnavailable,
 	KeyErrorAuthTOTPSecretUnreadable, KeyErrorAuthCredentialNotFound, KeyErrorAuthInvalidCredentialName,
 	KeyErrorAuthInvalidCredentialKind, KeyErrorAuthFieldTooLong, KeyLogAPILoginFailed, KeyLogAPILoginSucceeded,
+	KeyCLIUsageAccountStatus, KeyCLIUsageAccountReset, KeyCLIAccountNone, KeyCLIAccountUsername, KeyCLIAccountSecondFactorKeys, KeyCLIAccountPasskeys, KeyCLIAccountTOTPSet, KeyCLIAccountTOTPNotSet, KeyCLIAccountResetNeedsYes, KeyCLIAccountResetDone,
 }
