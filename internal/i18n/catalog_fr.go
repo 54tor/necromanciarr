@@ -293,6 +293,7 @@ var french = map[Key]string{
 	KeyDoctorCrossSeedModeDisabled:          "mode {mode} : désactivé",
 	KeyDoctorCrossSeedModeInvalid:           "{error}",
 	KeyDoctorCrossSeedModeInvalidHint:       "valeurs admises : {modes}",
+	KeyDoctorCrossSeedUnreachableHint:       "adresse et clé du démon à régler dans les réglages crossSeedUrl (http://cross-seed:2468) et crossSeedApiKey ; en Docker, le localhost du config.js désigne le conteneur de necromanciarr",
 	KeyDoctorCrossSeedBlockedEnv:            "config.js lit des variables de cet outil, qui lui sont cachées : {names}",
 	KeyDoctorPathMappingsNone:               "aucune correspondance de chemins configurée",
 	KeyDoctorPathRuleUnreachable:            "pathMappings[{index}] : ni from ni to n'existe sur cette machine",

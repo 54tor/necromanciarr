@@ -169,8 +169,8 @@ func TestConfig_crossSeedDaemonFromExplicitUrlBeatsImportedHostPort(t *testing.T
 	}{
 		{"imported host and port", `{}`, "http://localhost:2468", "imported-key"},
 		{
-			"explicit url", `{"crossSeed": "http://cross-seed.example.com:2468?apikey=explicit-key"}`,
-			"http://cross-seed.example.com:2468", "explicit-key",
+			"explicit url", `{"crossSeedUrl": "http://cross-seed.example.com:2468"}`,
+			"http://cross-seed.example.com:2468", "imported-key",
 		},
 	}
 	for _, testCase := range daemonCases {
@@ -348,15 +348,6 @@ func TestConfig_onlyUnsupportedImportedClientsLoadWithAnEmptyList(t *testing.T) 
 	if len(loadedConfig.CrossSeedImport.UnsupportedTorrentClients) != 1 {
 		t.Fatalf("gotValue %v, expectedValue one warning", loadedConfig.CrossSeedImport.UnsupportedTorrentClients)
 	}
-}
-
-func TestConfig_explicitCrossSeedUrlRejectsUserinfo(t *testing.T) {
-	_, err := loadStored(t, nil, nil, `{"crossSeed": "http://alice:secret-pass@example.com:2468?apikey=secret-key"}`)
-
-	if err == nil || !strings.Contains(err.Error(), "userinfo") {
-		t.Fatalf("gotValue %v, expectedValue a userinfo error", err)
-	}
-	assertNoSecret(t, err.Error())
 }
 
 func TestConfig_relativeCrossSeedConfigPathsStartFromTheWorkingDirectory(t *testing.T) {

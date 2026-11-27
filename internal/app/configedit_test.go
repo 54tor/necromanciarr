@@ -738,3 +738,30 @@ func TestUnsetItem_removesTwoOldFormatRowsOneAfterTheOther(t *testing.T) {
 	}
 	fixture.reload(t)
 }
+
+func TestUnsetSetting_removesTheRetiredCrossSeedRowThatBlocksLoading(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+	ctx := context.Background()
+	if err := fixture.store.SetSetting(ctx, "crossSeed", []byte(`"sealed:v1:old-format"`)); err != nil {
+		t.Fatal(err)
+	}
+
+	err := fixture.service.UnsetSetting(ctx, "crossSeed")
+	if err != nil {
+		t.Fatalf("valeurObtenue %v, valeurAttendue la ligne retirée", err)
+	}
+	valeurObtenue, err := fixture.store.Settings(ctx)
+	if err != nil || len(valeurObtenue) != 0 {
+		t.Fatalf("valeurObtenue %v (%v), valeurAttendue aucune ligne", valeurObtenue, err)
+	}
+}
+
+func TestSetSetting_refusesTheRetiredCrossSeedKey(t *testing.T) {
+	fixture := newConfigEditFixture(t, withSecretKey(map[string]string{}), "")
+
+	err := fixture.service.SetSetting(context.Background(), "crossSeed", json.RawMessage(`"http://cross-seed:2468"`))
+
+	if !errors.Is(err, ErrUnknownConfigKey) {
+		t.Fatalf("valeurObtenue %v, valeurAttendue ErrUnknownConfigKey", err)
+	}
+}

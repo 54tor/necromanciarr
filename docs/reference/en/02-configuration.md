@@ -72,7 +72,8 @@ Settings live in the `settings` table (one JSON value per key, replaced as a who
 | `seedTags` | list of strings | `["necromanciarr"]` | tags set together with the category on each added torrent. The list **replaces** the default: without `necromanciarr`, that tag is no longer set (qui or cross-seed filters that target it no longer see these torrents). Spaces removed, duplicates ignored, empty list = default; an empty tag, one containing a comma or longer than 64 characters, and more than 20 tags are refused |
 | `language` | `fr`, `en` | `fr` | language of the displayed texts; case and spaces ignored, any other value (`fr_FR` included) is a usage error that quotes the value (20 characters at most) and the accepted values. Applied at this stage: text output, help and errors of the CLI, web API errors and descriptions of the action registry. To come: diagnostics (`doctor`), warnings and the server log. `config check` writes the effective language and its source on stderr |
 | `partialMaxMissingPercent` | number from 0 to 100 | `100` (no cap) | maximum share of missing pieces of a `partial_annex` or `partial_pack`; above it, no proposal is created (reason `missing_pieces_above_cap`, see [01-pipeline.md](01-pipeline.md)). `0` keeps only complete torrents |
-| `crossSeed` | URL | empty | `http(s)://host:2468?apikey=KEY`, no user credentials; sealed in the database |
+| `crossSeedUrl` | URL | empty | `http(s)://host:2468`, no credentials, query or fragment; clear in the database; the key goes in `crossSeedApiKey` |
+| `crossSeedApiKey` | string | empty | API key of the cross-seed daemon; sealed in the database, never returned; needs `crossSeedUrl` or an imported `host`/`port` |
 | `crossSeedMode` | `auto`, `delegate`, `native`, `off` | `auto` | case and spaces ignored |
 | `dedupe` | object | see below | |
 | `fsProviders` | list of objects | empty | see below |
@@ -130,7 +131,7 @@ Secret fields are sealed in the database (AES-256-GCM, key `NECROMANCIARR_SECRET
 | `trackers` | `announce` |
 | `torznab` | `apiKey` |
 | `fsProviders` | `rc`, `password`, `identityPassphrase` |
-| settings | `prowlarr`, `crossSeed`, `libraryApi`, `libraryToken` |
+| settings | `prowlarr`, `crossSeedApiKey`, `libraryApi`, `libraryToken`; `crossSeedUrl` stays in clear |
 
 - The `url` of `radarr`, `sonarr`, `torrentClients` and `torznab` stays in clear, without any secret. It is refused on write and on load (`<list>.url must not carry a secret nor a query`, with a message that never repeats the URL) if it is unreadable, carries credentials (`user:password@`) or any query, or if a `proxy` segment (case ignored) is not followed by `{proxyKey}`, or if a decoded segment contains `/` (`%2F`). `{proxyKey}` is allowed only once, right after that segment. A `proxyKey` without a `{proxyKey}` segment is refused (`proxyKey is set but url has no {proxyKey} segment`); `""` is tolerated. On load, `{proxyKey}` receives the key escaped for a path (`@` included), and an indexer's `apiKey` joins the URL as `?apikey=`.
 - A row from an earlier format, with a sealed value in a clear field, blocks loading (`sealed value in a clear field: item from an earlier format; remove the old rows first (config item unset), then add them again`). `config item unset` removes it even while other rows of that format remain: removing a row from a database that already fails to load is always allowed. Rewriting such a row stays refused while another one remains: remove all the old rows first, then add them again.
@@ -147,9 +148,10 @@ With `CROSS_SEED_CONFIG` or `--cross-seed-config`, the file is evaluated in a Ja
 | `radarr`, `sonarr`, `torrentClients`, `linkDirs` | lists | element by element ([Lists and per-element override](#lists-and-per-element-override)) |
 | `linkType`, `linkCategory` | strings | the database if non-empty, otherwise the imported value |
 | `skipRecheck` | boolean | the database if present, otherwise the imported value |
-| `host`, `port`, `apiKey` | cross-seed daemon | `crossSeed` in the database wins; otherwise `http://host:port` (empty `host`, `0.0.0.0` or `::` becomes `localhost`, port 2468 by default) |
+| `host`, `port` | cross-seed daemon (`crossSeedUrl`) | `crossSeedUrl` in the database wins; otherwise `http://host:port` (empty `host`, `0.0.0.0` or `::` becomes `localhost`, port 2468 by default) |
+| `apiKey` | cross-seed daemon (`crossSeedApiKey`) | `crossSeedApiKey` in the database wins; the address and the key are replaced separately |
 
-The other keys (indexer search rules) are ignored; `config check` lists their names (`ignoredKeys`) but never their value; the origin of each value is in `origins`. In Docker, the `localhost` in `config.js` designates the cross-seed container: store `crossSeed` in the database.
+The other keys (indexer search rules) are ignored; `config check` lists their names (`ignoredKeys`) but never their value; the origin of each value is in `origins`. In Docker, the `localhost` in `config.js` designates the cross-seed container: store `crossSeedUrl` (and `crossSeedApiKey` if the key differs) in the database. An old stored `crossSeed` setting blocks loading: remove it with `config unset crossSeed`, then set the two new ones.
 
 ### cross-seed modes
 

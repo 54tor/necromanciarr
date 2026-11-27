@@ -72,7 +72,8 @@ Les réglages sont dans la table `settings` (une valeur JSON par clé, remplacé
 | `seedTags` | liste de chaînes | `["necromanciarr"]` | tags posés avec la catégorie sur chaque torrent ajouté. La liste **remplace** le défaut : sans `necromanciarr`, ce tag n'est plus posé (les filtres de qui ou de cross-seed qui le ciblent ne voient plus ces torrents). Espaces retirés, doublons ignorés, liste vide = défaut ; refus d'un tag vide, contenant une virgule ou de plus de 64 caractères, et de plus de 20 tags |
 | `language` | `fr`, `en` | `fr` | langue des textes affichés ; casse et espaces ignorés, toute autre valeur (`fr_FR` compris) est un défaut d'usage qui cite la valeur (20 caractères au plus) et les valeurs admises. Appliquée à ce stade : sortie texte, aide et erreurs de la CLI, erreurs de l'API web et descriptions du registre des actions. Viendront ensuite : le diagnostic (`doctor`), les avertissements et le journal du serveur. `config check` écrit la langue effective et sa source sur stderr |
 | `partialMaxMissingPercent` | nombre de 0 à 100 | `100` (sans plafond) | part maximale de pièces manquantes d'un `partial_annex` ou `partial_pack` ; au-delà, aucune proposition n'est créée (raison `missing_pieces_above_cap`, voir [01-pipeline.md](01-pipeline.md)). `0` ne garde que les torrents complets |
-| `crossSeed` | URL | vide | `http(s)://host:2468?apikey=KEY`, sans identifiants d'utilisateur ; scellée en base |
+| `crossSeedUrl` | URL | vide | `http(s)://host:2468`, sans identifiants, sans paramètres ni fragment ; en clair en base ; la clé va dans `crossSeedApiKey` |
+| `crossSeedApiKey` | chaîne | vide | clé d'API du démon cross-seed ; scellée en base, jamais renvoyée ; exige `crossSeedUrl` ou un `host`/`port` importé |
 | `crossSeedMode` | `auto`, `delegate`, `native`, `off` | `auto` | casse et espaces ignorés |
 | `dedupe` | objet | voir plus bas | |
 | `fsProviders` | liste d'objets | vide | voir plus bas |
@@ -130,7 +131,7 @@ Les champs secrets sont scellés en base (AES-256-GCM, clé `NECROMANCIARR_SECRE
 | `trackers` | `announce` |
 | `torznab` | `apiKey` |
 | `fsProviders` | `rc`, `password`, `identityPassphrase` |
-| réglages | `prowlarr`, `crossSeed`, `libraryApi`, `libraryToken` |
+| réglages | `prowlarr`, `crossSeedApiKey`, `libraryApi`, `libraryToken` ; `crossSeedUrl` reste en clair |
 
 - L'`url` de `radarr`, `sonarr`, `torrentClients` et `torznab` reste en clair, sans secret. Elle est refusée à l'écriture comme au chargement (`<list>.url must not carry a secret nor a query`, sans que le message reprenne l'URL) si elle est illisible, porte des identifiants (`user:password@`) ou une requête quelconque, ou si un segment `proxy` (casse ignorée) n'est pas suivi de `{proxyKey}`, ou si un segment décodé contient `/` (`%2F`). `{proxyKey}` n'est admis qu'une fois, juste après ce segment. Une `proxyKey` sans segment `{proxyKey}` est refusée (`proxyKey is set but url has no {proxyKey} segment`) ; `""` est toléré. Au chargement, `{proxyKey}` reçoit la clé échappée pour un chemin (`@` compris), et l'`apiKey` d'un indexeur rejoint l'URL en `?apikey=`.
 - Une ligne d'un format antérieur, avec une valeur scellée dans un champ en clair, bloque le chargement (`sealed value in a clear field: item from an earlier format; remove the old rows first (config item unset), then add them again`). `config item unset` la retire même si d'autres lignes du même format restent : retirer une ligne d'une base qui ne se charge déjà plus est toujours admis. Réécrire une telle ligne reste refusé tant qu'il en reste une autre : retirer d'abord toutes les anciennes lignes, puis les ajouter de nouveau.
@@ -147,9 +148,10 @@ Avec `CROSS_SEED_CONFIG` ou `--cross-seed-config`, le fichier est évalué dans 
 | `radarr`, `sonarr`, `torrentClients`, `linkDirs` | listes | élément par élément ([Listes et surcharge par élément](#listes-et-surcharge-par-élément)) |
 | `linkType`, `linkCategory` | chaînes | la base si non vide, sinon la valeur importée |
 | `skipRecheck` | booléen | la base si présent, sinon la valeur importée |
-| `host`, `port`, `apiKey` | démon cross-seed | `crossSeed` en base l'emporte ; sinon `http://host:port` (`host` vide, `0.0.0.0` ou `::` devient `localhost`, port 2468 par défaut) |
+| `host`, `port` | démon cross-seed (`crossSeedUrl`) | `crossSeedUrl` en base l'emporte ; sinon `http://host:port` (`host` vide, `0.0.0.0` ou `::` devient `localhost`, port 2468 par défaut) |
+| `apiKey` | démon cross-seed (`crossSeedApiKey`) | `crossSeedApiKey` en base l'emporte ; l'adresse et la clé se remplacent chacune séparément |
 
-Les autres clés (règles de recherche par indexeurs) sont ignorées ; `config check` liste leurs noms (`ignoredKeys`) sans jamais leur valeur ; l'origine de chaque valeur est dans `origins`. En Docker, le `localhost` du `config.js` désigne le conteneur de cross-seed : enregistrer `crossSeed` en base.
+Les autres clés (règles de recherche par indexeurs) sont ignorées ; `config check` liste leurs noms (`ignoredKeys`) sans jamais leur valeur ; l'origine de chaque valeur est dans `origins`. En Docker, le `localhost` du `config.js` désigne le conteneur de cross-seed : enregistrer `crossSeedUrl` (et `crossSeedApiKey` si la clé diffère) en base. Un ancien réglage `crossSeed` stocké bloque le chargement : le retirer par `config unset crossSeed`, puis poser les deux nouveaux.
 
 ### Modes cross-seed
 

@@ -131,7 +131,8 @@ type fileConfig struct {
 	LinkType           string            `json:"linkType"`
 	SkipRecheck        *bool             `json:"skipRecheck"`
 	LinkCategory       string            `json:"linkCategory"`
-	CrossSeed          string            `json:"crossSeed"`
+	CrossSeedURL       string            `json:"crossSeedUrl"`
+	CrossSeedAPIKey    string            `json:"crossSeedApiKey"`
 	CrossSeedMode      string            `json:"crossSeedMode"`
 	SeedTags           []string          `json:"seedTags"`
 	// PartialMaxMissingPercent : nil distingue une clé absente de 0, qui est accepté.
@@ -284,12 +285,10 @@ func loadLayers(options commandLine, environment loadEnvironment, openStored fun
 		return configLayers{}, fmt.Errorf("%w: %w", ErrInvalidStoredConfig, err)
 	}
 	layers.crossSeedKeys = mergeCrossSeedScalars(&layers.rawFile, crossSeed.imported)
-	if layers.daemon, err = crossSeedDaemonOf(layers.rawFile.CrossSeed, crossSeed.imported); err != nil {
+	if layers.daemon, err = crossSeedDaemonOf(layers.rawFile.CrossSeedURL, layers.rawFile.CrossSeedAPIKey, crossSeed.imported); err != nil {
 		return configLayers{}, err
 	}
-	if layers.rawFile.CrossSeed == "" && layers.daemon != nil {
-		layers.crossSeedKeys = append(layers.crossSeedKeys, settingCrossSeed)
-	}
+	layers.crossSeedKeys = append(layers.crossSeedKeys, importedDaemonKeys(layers.rawFile, crossSeed.imported)...)
 	return layers, nil
 }
 

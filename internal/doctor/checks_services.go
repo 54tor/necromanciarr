@@ -153,6 +153,9 @@ func checkCrossSeed(ctx context.Context, settings config.Config, deps Deps) Resu
 	if hasWarning {
 		hints = append(hints, warning)
 	}
+	if settings.CrossSeed != nil && !reachable {
+		hints = append(hints, message(i18n.KeyDoctorCrossSeedUnreachableHint))
+	}
 	if blocked := imported.BlockedEnvironment; len(blocked) > 0 {
 		hints = append(hints, message(i18n.KeyDoctorCrossSeedBlockedEnv, "names", strings.Join(blocked, ", ")))
 		if !hasWarning {

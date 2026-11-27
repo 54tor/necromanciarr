@@ -293,6 +293,7 @@ var english = map[Key]string{
 	KeyDoctorCrossSeedModeDisabled:          "mode {mode}: disabled",
 	KeyDoctorCrossSeedModeInvalid:           "{error}",
 	KeyDoctorCrossSeedModeInvalidHint:       "allowed: {modes}",
+	KeyDoctorCrossSeedUnreachableHint:       "set the daemon address and key in the crossSeedUrl (for example http://cross-seed:2468) and crossSeedApiKey settings; in Docker, the localhost of config.js points at the necromanciarr container",
 	KeyDoctorCrossSeedBlockedEnv:            "config.js reads variables of this tool, hidden from it: {names}",
 	KeyDoctorPathMappingsNone:               "no path mapping configured",
 	KeyDoctorPathRuleUnreachable:            "pathMappings[{index}]: neither from nor to exists on this machine",

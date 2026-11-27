@@ -119,6 +119,7 @@ const (
 	KeyDoctorCrossSeedModeDisabled       Key = "doctor.cross_seed.mode_disabled"
 	KeyDoctorCrossSeedModeInvalid        Key = "doctor.cross_seed.mode_invalid"
 	KeyDoctorCrossSeedModeInvalidHint    Key = "doctor.cross_seed.mode_invalid.hint"
+	KeyDoctorCrossSeedUnreachableHint    Key = "doctor.cross_seed.unreachable_hint"
 	KeyDoctorCrossSeedBlockedEnv         Key = "doctor.cross_seed.blocked_env"
 	KeyDoctorPathMappingsNone            Key = "doctor.path_mappings.none"
 	KeyDoctorPathRuleUnreachable         Key = "doctor.path_mappings.unreachable"
@@ -201,7 +202,7 @@ var doctorKeys = []Key{
 	KeyDoctorCrossSeedNone, KeyDoctorCrossSeedImported, KeyDoctorCrossSeedNoDaemon, KeyDoctorCrossSeedDaemonReachable,
 	KeyDoctorCrossSeedDaemonUnreachable, KeyDoctorCrossSeedModeDelegate, KeyDoctorCrossSeedModeNative,
 	KeyDoctorCrossSeedModeDisabled, KeyDoctorCrossSeedModeInvalid, KeyDoctorCrossSeedModeInvalidHint,
-	KeyDoctorCrossSeedBlockedEnv, KeyDoctorPathMappingsNone, KeyDoctorPathRuleUnreachable,
+	KeyDoctorCrossSeedBlockedEnv, KeyDoctorCrossSeedUnreachableHint, KeyDoctorPathMappingsNone, KeyDoctorPathRuleUnreachable,
 	KeyDoctorPathRuleUnreachableHint, KeyDoctorPathRuleNoRoot, KeyDoctorPathRuleNoRootHint, KeyDoctorPathRuleOK,
 	KeyDoctorDedupeNone, KeyDoctorDedupeOverlap, KeyDoctorDedupeOverlapHint, KeyDoctorDedupeMissing, KeyDoctorDedupeOK,
 	KeyDoctorTitleTorznab, KeyDoctorTitleProwlarr, KeyDoctorTorznabOK, KeyDoctorTorznabBuildFailed, KeyDoctorTorznabAccessDenied, KeyDoctorTorznabAccessDeniedHint, KeyDoctorTorznabUnreachable, KeyDoctorTorznabUnreachableHint, KeyDoctorTorznabHostile, KeyDoctorTorznabHostileHint, KeyDoctorTorznabBadResponse, KeyDoctorTorznabBadResponseHint, KeyDoctorTorznabNoMediaMode, KeyDoctorTorznabNoMediaModeHint, KeyDoctorProwlarrOK, KeyDoctorProwlarrAccessDenied, KeyDoctorProwlarrAccessDeniedHint, KeyDoctorProwlarrUnreachable, KeyDoctorProwlarrBadResponse, KeyDoctorProwlarrURLHint, KeyDoctorProwlarrIndexerMissing, KeyDoctorProwlarrIndexerDisabled, KeyDoctorProwlarrIndexerHint, KeyDoctorTorznabNotInSourceOrder, KeyDoctorTorznabNotInSourceOrderHint, KeyDoctorProwlarrBuildFailed,

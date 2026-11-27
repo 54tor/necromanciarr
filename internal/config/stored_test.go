@@ -514,12 +514,12 @@ func sealedSettingsReader(t *testing.T, plainByKey map[string]string) fakeStored
 }
 
 const (
-	sealedCrossSeedURL  = "http://cross-seed.example.com:2468?apikey=secret-daemon-key"
 	sealedLibraryAPIURL = "https://alice:secret-library@example.com/api?token=secret-token"
 )
 
-func TestLoadWith_sealedCrossSeedAndLibraryAPIAreOpenedWithTheKey(t *testing.T) {
-	reader := sealedSettingsReader(t, map[string]string{"crossSeed": sealedCrossSeedURL, "libraryApi": sealedLibraryAPIURL})
+func TestLoadWith_sealedCrossSeedKeyAndLibraryAPIAreOpenedWithTheKey(t *testing.T) {
+	reader := sealedSettingsReader(t, map[string]string{"crossSeedApiKey": "secret-daemon-key", "libraryApi": sealedLibraryAPIURL})
+	reader.settings["crossSeedUrl"] = mustMarshal(t, "http://cross-seed.example.com:2468")
 	valeurAttendue := []string{"http://cross-seed.example.com:2468", "secret-daemon-key", sealedLibraryAPIURL}
 
 	loadedConfig, err := LoadWith(nil, lookupFrom(map[string]string{envSecretKey: testSecretKey}), t.TempDir(), openFake(reader))
@@ -587,8 +587,8 @@ func TestLoadWith_emptyEnvironmentDoesNotEraseTheStoredLibraryToken(t *testing.T
 	}
 }
 
-func TestLoadWith_sealedCrossSeedOrLibraryAPIWithoutKeyFailsWithoutTheURL(t *testing.T) {
-	for key, plain := range map[string]string{"crossSeed": sealedCrossSeedURL, "libraryApi": sealedLibraryAPIURL} {
+func TestLoadWith_sealedCrossSeedKeyOrLibraryAPIWithoutKeyFailsWithoutTheSecret(t *testing.T) {
+	for key, plain := range map[string]string{"crossSeedApiKey": "secret-daemon-key", "libraryApi": sealedLibraryAPIURL} {
 		reader := sealedSettingsReader(t, map[string]string{key: plain})
 
 		_, err := LoadWith(nil, lookupFrom(nil), t.TempDir(), openFake(reader))
@@ -597,16 +597,6 @@ func TestLoadWith_sealedCrossSeedOrLibraryAPIWithoutKeyFailsWithoutTheURL(t *tes
 			t.Fatalf("%s: valeurObtenue %v, valeurAttendue ErrSealedSecretUnreadable without the url", key, err)
 		}
 		assertNoSecret(t, err.Error())
-	}
-}
-
-func TestLoadWith_clearCrossSeedSettingIsStillAccepted(t *testing.T) {
-	valeurAttendue := "secret-daemon-key"
-
-	loadedConfig := mustLoadStored(t, nil, nil, `{"crossSeed": "`+sealedCrossSeedURL+`"}`)
-
-	if loadedConfig.CrossSeed == nil || loadedConfig.CrossSeed.APIKey != valeurAttendue {
-		t.Fatalf("valeurObtenue %+v, valeurAttendue the daemon read from the clear value", loadedConfig.CrossSeed)
 	}
 }
 

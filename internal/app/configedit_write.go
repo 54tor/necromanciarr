@@ -38,8 +38,10 @@ func (svc *service) SetSetting(ctx context.Context, key string, value json.RawMe
 }
 
 func (svc *service) UnsetSetting(ctx context.Context, key string) error {
-	if err := requireKnownSetting(key); err != nil {
-		return err
+	if !config.IsRetiredSetting(key) {
+		if err := requireKnownSetting(key); err != nil {
+			return err
+		}
 	}
 	return svc.commitConfig(ctx, func(snapshot *storedSnapshot) (configWrite, error) {
 		if _, isStored := snapshot.settings[key]; !isStored {

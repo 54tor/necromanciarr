@@ -11,19 +11,22 @@ import (
 )
 
 const (
-	settingListen       = "listen"
-	settingLibraryAPI   = "libraryApi"
-	settingLinkType     = "linkType"
-	settingSkipRecheck  = "skipRecheck"
-	settingLinkCategory = "linkCategory"
-	settingCrossSeed    = "crossSeed"
-	settingLanguage     = "language"
+	settingListen           = "listen"
+	settingLibraryAPI       = "libraryApi"
+	settingLinkType         = "linkType"
+	settingSkipRecheck      = "skipRecheck"
+	settingLinkCategory     = "linkCategory"
+	settingCrossSeedURL     = "crossSeedUrl"
+	settingCrossSeedAPIKey  = "crossSeedApiKey"
+	retiredSettingCrossSeed = "crossSeed"
+	settingLanguage         = "language"
 )
 
 // settingKeys sont, dans l'ordre d'affichage des provenances, les seules clés admises dans la table settings.
 var settingKeys = []string{
 	settingListen, "readBytesPerSecond", "tieBreakReadBytes", settingLibraryAPI, "libraryToken", "libraryRoots", "pathMappings",
-	"prowlarr", "sourceOrder", "dedupe", settingLinkType, settingSkipRecheck, settingLinkCategory, settingCrossSeed,
+	"prowlarr", "sourceOrder", "dedupe", settingLinkType, settingSkipRecheck, settingLinkCategory, settingCrossSeedURL,
+	settingCrossSeedAPIKey,
 	"crossSeedMode", "seedTags", "partialMaxMissingPercent", settingLanguage,
 }
 
@@ -40,6 +43,12 @@ var settingFlags = map[string]string{
 	"crossSeedMode": "cross-seed-mode", settingLanguage: "language",
 }
 
+const reasonOldCrossSeed = "stored setting \"crossSeed\" is from an earlier format; remove it first (config unset crossSeed), " +
+	"then set crossSeedUrl and crossSeedApiKey"
+
+// IsRetiredSetting dit si la clé est un ancien réglage : refusé au chargement, encore retirable par config unset.
+func IsRetiredSetting(key string) bool { return key == retiredSettingCrossSeed }
+
 // SettingKeys rend les clés de réglage admises en base, dans l'ordre d'affichage.
 func SettingKeys() []string { return slices.Clone(settingKeys) }
 
@@ -50,7 +59,7 @@ func settingTargets(rawFile *fileConfig) map[string]any {
 		"libraryToken": &rawFile.LibraryToken, "libraryRoots": &rawFile.LibraryRoots, "pathMappings": &rawFile.PathMappings, "prowlarr": &rawFile.Prowlarr,
 		"sourceOrder": &rawFile.SourceOrder, "dedupe": &rawFile.Dedupe, settingLinkType: &rawFile.LinkType,
 		settingSkipRecheck: &rawFile.SkipRecheck, settingLinkCategory: &rawFile.LinkCategory,
-		settingCrossSeed: &rawFile.CrossSeed, "crossSeedMode": &rawFile.CrossSeedMode, "seedTags": &rawFile.SeedTags,
+		settingCrossSeedURL: &rawFile.CrossSeedURL, settingCrossSeedAPIKey: &rawFile.CrossSeedAPIKey, "crossSeedMode": &rawFile.CrossSeedMode, "seedTags": &rawFile.SeedTags,
 		"partialMaxMissingPercent": &rawFile.PartialMaxMissingPercent, settingLanguage: &rawFile.Language,
 	}
 }
@@ -65,6 +74,9 @@ func applyStoredSettings(rawFile *fileConfig, settings map[string][]byte, sealer
 	}
 	slices.Sort(storedKeys)
 	for _, key := range storedKeys {
+		if key == retiredSettingCrossSeed {
+			return usageError{message: reasonOldCrossSeed}
+		}
 		target, isKnown := targets[key]
 		if !isKnown {
 			return usageError{message: fmt.Sprintf("unknown stored setting %q", key)}

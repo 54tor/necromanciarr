@@ -136,24 +136,32 @@ func mergeCrossSeedScalars(rawFile *fileConfig, imported crossseed.Imported) []s
 	return filledKeys
 }
 
-// crossSeedDaemonOf : l'URL explicite crossSeed l'emporte (en Docker, le localhost du config.js désigne le
-// conteneur de cross-seed) ; sinon host, port et apiKey importés ; nil si rien n'est connu.
-func crossSeedDaemonOf(explicitURL string, imported crossseed.Imported) (*CrossSeedDaemon, error) {
-	if explicitURL != "" {
-		service, err := ParseArrService("crossSeed", explicitURL)
-		if err != nil {
-			return nil, err
-		}
-		if service.User != "" || service.Password != "" {
-			return nil, errors.New("crossSeed: userinfo is not supported (the daemon authenticates with ?apikey= only)")
-		}
-		return &CrossSeedDaemon{BaseURL: service.BaseURL, APIKey: service.APIKey}, nil
+// crossSeedDaemonOf : crossSeedUrl l'emporte sur host et port importés (en Docker, le localhost du config.js désigne
+// le conteneur de cross-seed), crossSeedApiKey sur l'apiKey importée, chacun indépendamment ; nil si rien n'est connu.
+func crossSeedDaemonOf(explicitURL, explicitKey string, imported crossseed.Imported) (*CrossSeedDaemon, error) {
+	baseURL, err := daemonBaseURL(explicitURL, imported)
+	if err != nil {
+		return nil, err
 	}
-	isDaemonKnown := slices.ContainsFunc([]string{"host", "port", "apiKey"}, func(key string) bool {
-		return slices.Contains(imported.ImportedKeys, key)
-	})
-	if !isDaemonKnown {
+	apiKey := explicitKey
+	if apiKey == "" {
+		apiKey = imported.APIKey
+	}
+	if baseURL == "" && apiKey == "" {
 		return nil, nil
+	}
+	if baseURL == "" {
+		return nil, errors.New(settingCrossSeedAPIKey + " needs " + settingCrossSeedURL + " or a host and port imported from the cross-seed config.js")
+	}
+	return &CrossSeedDaemon{BaseURL: baseURL, APIKey: apiKey}, nil
+}
+
+func daemonBaseURL(explicitURL string, imported crossseed.Imported) (string, error) {
+	if explicitURL != "" {
+		return validatedCrossSeedURL(explicitURL)
+	}
+	if !isDaemonImported(imported) {
+		return "", nil
 	}
 	host := imported.Host
 	if slices.Contains(listenAllHosts, host) {
@@ -165,9 +173,42 @@ func crossSeedDaemonOf(explicitURL string, imported crossseed.Imported) (*CrossS
 	}
 	daemonURL := "http://" + net.JoinHostPort(host, strconv.Itoa(port))
 	if _, err := parseHTTPURL(daemonURL); err != nil {
-		return nil, errors.New(`cross-seed config.js: key "host": not usable in a daemon url`)
+		return "", errors.New(`cross-seed config.js: key "host": not usable in a daemon url`)
 	}
-	return &CrossSeedDaemon{BaseURL: daemonURL, APIKey: imported.APIKey}, nil
+	return daemonURL, nil
+}
+
+func isDaemonImported(imported crossseed.Imported) bool {
+	return slices.ContainsFunc([]string{"host", "port", "apiKey"}, func(key string) bool {
+		return slices.Contains(imported.ImportedKeys, key)
+	})
+}
+
+// validatedCrossSeedURL n'admet que http(s)://hôte[:port][/chemin] : la clé a son propre réglage.
+func validatedCrossSeedURL(rawURL string) (string, error) {
+	parsedURL, err := parseHTTPURL(rawURL)
+	if err != nil {
+		return "", fmt.Errorf(errInvalidURLFormat, settingCrossSeedURL)
+	}
+	if parsedURL.RawQuery != "" {
+		return "", errors.New(settingCrossSeedURL + ": no query allowed; the API key goes in " + settingCrossSeedAPIKey)
+	}
+	if parsedURL.User != nil {
+		return "", errors.New(settingCrossSeedURL + ": userinfo is not supported; the API key goes in " + settingCrossSeedAPIKey)
+	}
+	return baseURLOf(parsedURL), nil
+}
+
+// importedDaemonKeys nomme les réglages du démon dont la valeur effective vient du config.js importé.
+func importedDaemonKeys(rawFile fileConfig, imported crossseed.Imported) []string {
+	var keys []string
+	if rawFile.CrossSeedURL == "" && isDaemonImported(imported) {
+		keys = append(keys, settingCrossSeedURL)
+	}
+	if rawFile.CrossSeedAPIKey == "" && imported.APIKey != "" {
+		keys = append(keys, settingCrossSeedAPIKey)
+	}
+	return keys
 }
 
 // redacted renvoie une copie dont la clé d'API est masquée.

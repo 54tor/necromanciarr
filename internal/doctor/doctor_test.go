@@ -361,6 +361,18 @@ func TestChecks_crossSeedWarnsWhenDaemonUnreachableInDelegateMode(t *testing.T) 
 	}
 }
 
+func TestChecks_crossSeedUnreachableDaemonHintNamesTheTwoSettings(t *testing.T) {
+	settings := config.Config{CrossSeedMode: "auto", CrossSeed: &config.CrossSeedDaemon{BaseURL: "http://localhost:2468"}}
+	deps := Deps{Reachable: func(context.Context, string) bool { return false }}.withDefaults()
+
+	got := checkCrossSeed(context.Background(), settings, deps)
+
+	valeurObtenue := hintOf(got)
+	if !strings.Contains(valeurObtenue, "crossSeedUrl") || !strings.Contains(valeurObtenue, "crossSeedApiKey") {
+		t.Fatalf("valeurObtenue %q, valeurAttendue a hint naming crossSeedUrl and crossSeedApiKey", valeurObtenue)
+	}
+}
+
 func TestChecks_authFailsOnPublicListenWithoutToken(t *testing.T) {
 	testCases := []struct {
 		name     string

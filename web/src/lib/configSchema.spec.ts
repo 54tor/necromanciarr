@@ -74,6 +74,18 @@ describe('schéma de configuration', () => {
   })
 })
 
+describe('réglages du démon cross-seed', () => {
+  it('sépare une adresse en clair et une clé masquée, sans l’ancien réglage unique', () => {
+    const gotValue = {
+      url: SETTING_SCHEMAS.crossSeedUrl?.secret,
+      apiKey: SETTING_SCHEMAS.crossSeedApiKey?.secret,
+      legacy: 'crossSeed' in SETTING_SCHEMAS,
+    }
+
+    expect(gotValue).toEqual({ url: false, apiKey: true, legacy: false })
+  })
+})
+
 describe('nsToDuration', () => {
   it.each([
     [600_000_000_000, '10m'],

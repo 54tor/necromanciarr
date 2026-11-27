@@ -47,7 +47,7 @@ Remote link folder (`sftp://<provider>/<absolute path>`): the links are created 
 
 Mount the **folder** that contains `config.js`, read-only, never the file alone: a single-file mount breaks when an editor replaces the file (new inode, the container keeps the old one). Then `CROSS_SEED_CONFIG=/cross-seed/config.js` (or `--cross-seed-config`).
 
-Each `process.env.NAME` that this `config.js` references must also be provided to the Necromanciarr container (environment variable or line of `/data/.env`): the file is evaluated here, with these values, not with the cross-seed container's environment. The `localhost` in `config.js` designates the cross-seed container: store `crossSeed` in the database (`http://cross-seed:2468?apikey=KEY`) to reach the daemon.
+Each `process.env.NAME` that this `config.js` references must also be provided to the Necromanciarr container (environment variable or line of `/data/.env`): the file is evaluated here, with these values, not with the cross-seed container's environment. The `localhost` in `config.js` designates the cross-seed container: store `crossSeedUrl` in the database (`http://cross-seed:2468`) to reach the daemon; the key imported from `config.js` stays in use unless `crossSeedApiKey` replaces it.
 
 ### `/data`
 
@@ -92,11 +92,12 @@ docker compose exec necromanciarr necromanciarr config set libraryApi '"https://
 docker compose exec necromanciarr necromanciarr config set libraryRoots '["/media/library/movies", "/media/library/tv"]'
 docker compose exec necromanciarr necromanciarr config item set linkDirs /media/links '{"path": "/media/links"}'
 docker compose exec necromanciarr necromanciarr config set pathMappings '[{"from": "/media/links", "to": "/downloads/links"}]'
-docker compose exec -T necromanciarr necromanciarr config set crossSeed --value-stdin < cross-seed.json
+docker compose exec necromanciarr necromanciarr config set crossSeedUrl '"http://cross-seed:2468"'
+docker compose exec -T necromanciarr necromanciarr config set crossSeedApiKey --value-stdin < cross-seed-key.json
 docker compose restart necromanciarr
 ```
 
-`cross-seed.json` holds the JSON string `"http://cross-seed:2468?apikey=dummy-api-key"`. `NECROMANCIARR_SECRET_KEY` (which seals `libraryApi`, `libraryToken` and `crossSeed`) goes in `/data/.env`; the provider token is entered in the `libraryToken` setting (`LIBRARY_PROVIDER_TOKEN` remains possible). The port is only published on the host's loopback: remote access goes through a reverse proxy (which keeps the `Bearer` token) or a tunnel.
+`cross-seed-key.json` holds the JSON string `"dummy-api-key"`. `NECROMANCIARR_SECRET_KEY` (which seals `libraryApi`, `libraryToken` and `crossSeedApiKey`) goes in `/data/.env`; the provider token is entered in the `libraryToken` setting (`LIBRARY_PROVIDER_TOKEN` remains possible). The port is only published on the host's loopback: remote access goes through a reverse proxy (which keeps the `Bearer` token) or a tunnel.
 
 ## Running a command in the container
 
