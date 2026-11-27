@@ -271,7 +271,7 @@ describe('needsSetup', () => {
     expect(await readNeedsSetup(importedRadarr({ url: 'http://radarr:7878' }))).toBe(true)
   })
 
-  it('needsSetup_isTrueWhenATorrentClientHasNoPassword', async () => {
+  it('needsSetup_isFalseWhenATorrentClientHasNoPassword', async () => {
     const snapshot: ConfigSnapshot = {
       ...emptySnapshot,
       lists: {
@@ -293,7 +293,7 @@ describe('needsSetup', () => {
         ],
       },
     }
-    expect(await readNeedsSetup(snapshot)).toBe(true)
+    expect(await readNeedsSetup(snapshot)).toBe(false)
   })
 
   it('needsSetup_isFalseWhenEverySecretIsSet', async () => {

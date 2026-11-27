@@ -109,20 +109,18 @@ function prefillFromCrossSeed(): void {
   if (linkDir) form.linkDir = textOf(linkDir.element.path)
 }
 
-const SECRET_FIELD_OF_LIST: Record<string, string> = {
-  radarr: 'apiKey',
-  sonarr: 'apiKey',
-  torrentClients: 'password',
-}
-const SETUP_LISTS = Object.keys(SECRET_FIELD_OF_LIST)
+const SETUP_LISTS = ['radarr', 'sonarr', 'torrentClients']
+const ARR_LISTS_WITH_REQUIRED_KEY = ['radarr', 'sonarr']
+const REQUIRED_KEY_FIELD = 'apiKey'
 
 const isConfigEmpty = computed(
   () => snapshot.value !== undefined && SETUP_LISTS.every((list) => itemsOf(list).length === 0),
 )
-// Le serveur garde la clé d'un secret posé (valeur null) et omet celle d'un secret absent.
+// Le serveur garde la clé d'un secret posé (valeur null) et omet celle d'un secret absent ; le mot de passe d'un
+// client torrent reste facultatif (qBittorrent local sans authentification).
 const hasUnsetSecret = computed(() =>
-  SETUP_LISTS.some((list) =>
-    itemsOf(list).some((item) => !(SECRET_FIELD_OF_LIST[list]! in item.element)),
+  ARR_LISTS_WITH_REQUIRED_KEY.some((list) =>
+    itemsOf(list).some((item) => !(REQUIRED_KEY_FIELD in item.element)),
   ),
 )
 const needsSetup = computed(
