@@ -882,7 +882,7 @@
       "trackerAnnounce": "Annonce du tracker"
     },
     "help": {
-      "arrKind": "Le service à connecter en premier ; l’autre s’ajoute ensuite dans Configuration.",
+      "arrKind": "Le service à connecter. Après l’enregistrement, « Ajouter un autre service » permet de configurer l’autre.",
       "arrUrl": "Adresse du service telle que Necromanciarr la joint, par exemple depuis un autre conteneur.",
       "arrApiKey": "Clé d’API affichée dans les réglages du service, rubrique Général.",
       "clientUrl": "Adresse de l’interface web de qBittorrent.",
