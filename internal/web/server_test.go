@@ -494,7 +494,7 @@ func TestHealthz_exposesNoConfigurationData(t *testing.T) {
 // authentification), le service des fichiers de l'interface (« / », hors /api) et /api/jobs, /api/jobs/{id} (suivi des
 // actions longues lancées par les routes d'action, qui portent chacune leur nom d'action). Ces dernières déclarent leur
 // justification dans la table des routes ; le test refuse toute autre route sans action.
-var nonActionRoutePrefixes = []string{"GET /api/jobs"}
+var nonActionRoutePrefixes = []string{"GET /api/jobs", "POST /api/setup/test"}
 
 func TestWeb_everyRouteMapsToRegisteredAction(t *testing.T) {
 	registeredNames := map[string]bool{}

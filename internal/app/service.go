@@ -82,6 +82,9 @@ type Service interface {
 	AcceptGroup(ctx context.Context, groupID int64) ([]int64, error)
 	// Doctor diagnostique l'installation (contrôles choisis, délai par contrôle).
 	Doctor(ctx context.Context, options DoctorOptions) (doctor.Report, error)
+	// TestCandidate teste une valeur saisie (radarr, sonarr, qbittorrent) avant son enregistrement ; une valeur invalide
+	// est une erreur d'usage, sans requête sortante.
+	TestCandidate(ctx context.Context, candidate SetupCandidate) (SetupTestResult, error)
 	// DedupePlan reprend les remplacements interrompus puis propose de remplacer, côté torrent, les copies de fichiers
 	// de la bibliothèque par des liens (propositions en attente, jamais appliquées d'office).
 	DedupePlan(ctx context.Context) ([]DedupeProposal, error)

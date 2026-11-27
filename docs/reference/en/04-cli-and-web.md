@@ -128,6 +128,7 @@ With `--all-accepted`: 3 if a proposal was stale, otherwise 1 if one failed.
 | GET | `/api/links` | `links list` | `state`, `limit`, `offset` | 200, page |
 | POST | `/api/doctor/run` | `doctor` | `{"checks": ["config", …]}` (empty: all) | 200, report |
 | POST | `/api/doctor/checks/{checkId}` | `doctor` | `{}` | 200, report |
+| POST | `/api/setup/test` | | `{"kind": "radarr\|sonarr\|qbittorrent", "url", "apiKey", "username", "password"}` | 200, verdict `status`, `code`, `detail`, `hint`; 400 on an invalid value (no outbound request) |
 | GET | `/api/sources` | `sources list` | | 200, array |
 | POST | `/api/sources/{name}/test` | `sources test` | `{}` | 200, test result |
 | GET | `/api/volumes` | `volumes list` | | 200, array |

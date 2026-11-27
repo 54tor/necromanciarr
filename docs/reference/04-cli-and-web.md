@@ -128,6 +128,7 @@ Avec `--all-accepted` : 3 si une proposition était périmée, sinon 1 si une a 
 | GET | `/api/links` | `links list` | `state`, `limit`, `offset` | 200, page |
 | POST | `/api/doctor/run` | `doctor` | `{"checks": ["config", …]}` (vide : tous) | 200, rapport |
 | POST | `/api/doctor/checks/{checkId}` | `doctor` | `{}` | 200, rapport |
+| POST | `/api/setup/test` | | `{"kind": "radarr\|sonarr\|qbittorrent", "url", "apiKey", "username", "password"}` | 200, verdict `status`, `code`, `detail`, `hint` ; 400 si valeur invalide (aucune requête sortante) |
 | GET | `/api/sources` | `sources list` | | 200, tableau |
 | POST | `/api/sources/{name}/test` | `sources test` | `{}` | 200, résultat du test |
 | GET | `/api/volumes` | `volumes list` | | 200, tableau |

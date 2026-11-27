@@ -53,6 +53,7 @@ var apiRoutes = []route{
 	{http.MethodPut, "/api/config/lists/{list}/{itemId}", "config item-set", "", putItem},
 	{http.MethodDelete, "/api/config/lists/{list}/{itemId}", "config item-delete", "", deleteItem},
 	{http.MethodPost, "/api/config/lists/{list}/{itemId}/unset", "config item-unset", "", unsetItem},
+	{http.MethodPost, "/api/setup/test", "", "test a value typed in the first-launch wizard before it is saved", testSetupCandidate},
 	{http.MethodGet, "/api/jobs", "", "follow the long actions started by the action routes", listJobs},
 	{http.MethodGet, "/api/jobs/{id}", "", "follow one long action started by an action route", getJob},
 }
@@ -390,6 +391,15 @@ func runDoctorCheck(handler *Handler, request *http.Request) (any, int, error) {
 	options := app.DoctorOptions{CheckIDs: []string{request.PathValue("checkId")}}
 	report, err := handler.service.Doctor(request.Context(), options)
 	return renderedDoctor(handler, report), http.StatusOK, err
+}
+
+func testSetupCandidate(handler *Handler, request *http.Request) (any, int, error) {
+	var candidate app.SetupCandidate
+	if err := decodeBody(request, &candidate); err != nil {
+		return nil, 0, err
+	}
+	result, err := handler.service.TestCandidate(request.Context(), candidate)
+	return result, http.StatusOK, err
 }
 
 func listSources(handler *Handler, request *http.Request) (any, int, error) {

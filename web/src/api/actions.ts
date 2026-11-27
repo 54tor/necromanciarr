@@ -75,6 +75,7 @@ export const API_ROUTES: readonly ApiRoute[] = [
     action: 'config item-unset',
     mutating: true,
   },
+  { method: 'POST', path: '/api/setup/test', action: '', mutating: false },
   { method: 'GET', path: '/api/jobs', action: '', mutating: false },
   { method: 'GET', path: '/api/jobs/{id}', action: '', mutating: false },
 ]

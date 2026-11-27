@@ -356,7 +356,7 @@ func TestApp_actionsRegistryListsEveryServiceMethod(t *testing.T) {
 	}
 	for methodIndex := range serviceType.NumMethod() {
 		methodName := serviceType.Method(methodIndex).Name
-		if methodName != "Actions" && methodName != "Translator" && !registered[methodName] {
+		if methodName != "Actions" && methodName != "Translator" && methodName != "TestCandidate" && !registered[methodName] {
 			t.Fatalf("gotValue no action for %s, expectedValue every Service method registered", methodName)
 		}
 	}

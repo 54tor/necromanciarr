@@ -27,14 +27,15 @@ func arrChecks(settings config.Config, deps Deps) []Check {
 				ID:          fmt.Sprintf("arr:%s:%d", service.Kind, serviceIndex),
 				TitleKey:    i18n.KeyDoctorTitleArr,
 				TitleParams: map[string]string{"kind": service.Kind, "index": strconv.Itoa(serviceIndex)},
-				Run:         func(ctx context.Context) Result { return checkArr(ctx, service, deps) },
+				Run:         func(ctx context.Context) Result { return CheckArrService(ctx, service, deps) },
 			})
 		}
 	}
 	return checks
 }
 
-func checkArr(ctx context.Context, service config.ArrService, deps Deps) Result {
+// CheckArrService teste une instance Radarr ou Sonarr, déjà enregistrée ou candidate.
+func CheckArrService(ctx context.Context, service config.ArrService, deps Deps) Result {
 	err := deps.NewPinger(service).Ping(ctx)
 	hint := message(i18n.KeyDoctorArrCheckURLHint)
 	switch {
@@ -49,6 +50,12 @@ func checkArr(ctx context.Context, service config.ArrService, deps Deps) Result 
 		return Result{Status: Fail, Code: CodeArrTimeout, Detail: message(i18n.KeyDoctorArrTimeout), Hint: hint}
 	}
 	return Result{Status: Fail, Code: CodeArrUnreachable, Detail: message(i18n.KeyDoctorArrUnreachable, "error", err.Error()), Hint: hint}
+}
+
+// CheckTorrentClient teste un seul client torrent, déjà enregistré ou candidat.
+func CheckTorrentClient(ctx context.Context, client config.TorrentClient, deps Deps) Result {
+	status, code, detail, hint := inspectTorrentClient(ctx, 0, client, deps)
+	return Result{Status: status, Code: code, Detail: detail, Hint: hint}
 }
 
 func checkQbittorrent(ctx context.Context, settings config.Config, deps Deps) Result {

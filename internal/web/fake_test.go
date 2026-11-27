@@ -172,6 +172,11 @@ func (fake *fakeService) TestSource(_ context.Context, name string) (app.SourceT
 	return app.SourceTestResult{Source: "torznab:" + name, Result: app.SourceTestFailed, Error: "indexer_access_denied"}, err
 }
 
+func (fake *fakeService) TestCandidate(_ context.Context, candidate app.SetupCandidate) (app.SetupTestResult, error) {
+	err := fake.record("TestCandidate", candidate.Kind)
+	return app.SetupTestResult{Status: doctor.Fail, Code: "arr_key_rejected", Detail: "key rejected"}, err
+}
+
 func (fake *fakeService) ListVolumes(context.Context) ([]app.VolumeRow, error) {
 	return fake.volumeRows, fake.record("ListVolumes")
 }

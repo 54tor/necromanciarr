@@ -156,6 +156,12 @@
     "mutating": true
   },
   {
+    "method": "POST",
+    "path": "/api/setup/test",
+    "action": "",
+    "mutating": false
+  },
+  {
     "method": "GET",
     "path": "/api/jobs",
     "action": "",
