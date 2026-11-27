@@ -543,14 +543,51 @@ func TestResumeSession_rejectsAnUnknownToken(t *testing.T) {
 	}
 }
 
-func TestChangePassword_requiresTheCurrentPasswordAndKeepsOtherSessions(t *testing.T) {
+func (fixture *accountFixture) loginTokens(t *testing.T, count int) []string {
+	t.Helper()
+	tokens := make([]string, 0, count)
+	for range count {
+		result, err := fixture.service.Login(context.Background(), testUsername, testPassword, testClient)
+		if err != nil || result.Session == nil {
+			t.Fatalf("valeurObtenue %+v err=%v", result, err)
+		}
+		tokens = append(tokens, result.Session.Token)
+	}
+	return tokens
+}
+
+func TestChangePassword_revokesEveryOtherSessionAndKeepsTheCurrentOne(t *testing.T) {
 	fixture := newAccountFixture(t)
 	ctx := context.Background()
 	current := fixture.setup(t).Token
-	other, err := fixture.service.Login(ctx, testUsername, testPassword, testClient)
-	if err != nil {
+	others := fixture.loginTokens(t, 2)
+
+	if err := fixture.service.ChangePassword(ctx, current, testPassword, testNewPassword); err != nil {
 		t.Fatal(err)
 	}
+
+	for _, token := range others {
+		if _, valeurObtenue := fixture.service.ResumeSession(ctx, token); !errors.Is(valeurObtenue, ErrSessionInvalid) {
+			t.Fatalf("valeurAttendue ErrSessionInvalid pour une autre session, valeurObtenue %v", valeurObtenue)
+		}
+	}
+	if _, err := fixture.service.ResumeSession(ctx, current); err != nil {
+		t.Fatalf("valeurAttendue la session courante gardée, valeurObtenue %v", err)
+	}
+	if _, err := fixture.service.Login(ctx, testUsername, testPassword, testClient); !errors.Is(err, ErrInvalidCredentials) {
+		t.Fatalf("valeurAttendue l'ancien mot de passe refusé, valeurObtenue %v", err)
+	}
+	fixture.passThrottleDelay()
+	if result, err := fixture.service.Login(ctx, testUsername, testNewPassword, testClient); err != nil || result.Session == nil {
+		t.Fatalf("valeurAttendue le nouveau mot de passe accepté, valeurObtenue %+v err=%v", result, err)
+	}
+}
+
+func TestChangePassword_refusedAttemptsChangeNothingAndRevokeNothing(t *testing.T) {
+	fixture := newAccountFixture(t)
+	ctx := context.Background()
+	current := fixture.setup(t).Token
+	other := fixture.loginTokens(t, 1)[0]
 
 	if err := fixture.service.ChangePassword(ctx, current, testWrong, testNewPassword); !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("valeurAttendue ErrInvalidCredentials, valeurObtenue %v", err)
@@ -565,19 +602,37 @@ func TestChangePassword_requiresTheCurrentPasswordAndKeepsOtherSessions(t *testi
 	if err := fixture.service.ChangePassword(ctx, "unknown", testPassword, testNewPassword); !errors.Is(err, ErrSessionInvalid) {
 		t.Fatalf("valeurAttendue ErrSessionInvalid, valeurObtenue %v", err)
 	}
-	if err := fixture.service.ChangePassword(ctx, current, testPassword, testNewPassword); err != nil {
-		t.Fatal(err)
-	}
 
-	if _, err := fixture.service.ResumeSession(ctx, other.Session.Token); err != nil {
-		t.Fatalf("valeurAttendue l'autre session gardée, valeurObtenue %v", err)
+	if _, err := fixture.service.ResumeSession(ctx, other); err != nil {
+		t.Fatalf("valeurAttendue l'autre session gardée après un refus, valeurObtenue %v", err)
 	}
-	if _, err := fixture.service.Login(ctx, testUsername, testPassword, testClient); !errors.Is(err, ErrInvalidCredentials) {
-		t.Fatalf("valeurAttendue l'ancien mot de passe refusé, valeurObtenue %v", err)
+	if result, err := fixture.service.Login(ctx, testUsername, testPassword, testClient); err != nil || result.Session == nil {
+		t.Fatalf("valeurAttendue l'ancien mot de passe inchangé, valeurObtenue %+v err=%v", result, err)
 	}
-	fixture.passThrottleDelay()
-	if result, err := fixture.service.Login(ctx, testUsername, testNewPassword, testClient); err != nil || result.Session == nil {
-		t.Fatalf("valeurAttendue le nouveau mot de passe accepté, valeurObtenue %+v err=%v", result, err)
+}
+
+// failingSessionRevocationStore fait échouer la révocation des autres sessions.
+type failingSessionRevocationStore struct{ *store.Store }
+
+func (failingSessionRevocationStore) DeleteSessionsExcept(context.Context, string) error {
+	return errInjectedStoreFailure
+}
+
+func TestChangePassword_reportsAFailedRevocationWithoutLeakingSecrets(t *testing.T) {
+	openedStore := openTestStore(t)
+	healthy := newAccountFixtureOn(t, openedStore)
+	current := healthy.setup(t).Token
+	fixture := newAccountFixtureOn(t, failingSessionRevocationStore{openedStore})
+
+	valeurObtenue := fixture.service.ChangePassword(context.Background(), current, testPassword, testNewPassword)
+
+	if !errors.Is(valeurObtenue, errInjectedStoreFailure) || !strings.Contains(valeurObtenue.Error(), "password changed") {
+		t.Fatalf("valeurAttendue l'échec de révocation après le changement, valeurObtenue %v", valeurObtenue)
+	}
+	for _, secret := range []string{testPassword, testNewPassword, current} {
+		if strings.Contains(valeurObtenue.Error(), secret) {
+			t.Fatalf("l'erreur divulgue une saisie : %q", valeurObtenue)
+		}
 	}
 }
 

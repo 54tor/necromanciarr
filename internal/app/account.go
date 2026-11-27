@@ -76,6 +76,7 @@ type AccountStore interface {
 	Sessions(ctx context.Context) ([]store.SessionRecord, error)
 	DeleteSession(ctx context.Context, id string) error
 	DeleteAllSessions(ctx context.Context) error
+	DeleteSessionsExcept(ctx context.Context, keepID string) error
 	PurgeExpiredSessions(ctx context.Context, now time.Time) (int64, error)
 }
 
@@ -93,7 +94,7 @@ type AccountService interface {
 	Logout(ctx context.Context, token string) error
 	// LogoutAll ferme toutes les sessions.
 	LogoutAll(ctx context.Context) error
-	// ChangePassword remplace le mot de passe après ressaisie de l'actuel ; les autres sessions restent ouvertes.
+	// ChangePassword remplace le mot de passe après ressaisie de l'actuel et ferme toutes les autres sessions.
 	ChangePassword(ctx context.Context, token, currentPassword, newPassword string) error
 	// ListSessions liste les sessions ouvertes, celle du jeton marquée Current.
 	ListSessions(ctx context.Context, token string) ([]SessionView, error)
@@ -435,7 +436,8 @@ func (svc *service) LogoutAll(ctx context.Context) error {
 }
 
 func (svc *service) ChangePassword(ctx context.Context, token, currentPassword, newPassword string) error {
-	if _, _, err := svc.openSession(ctx, token); err != nil {
+	current, _, err := svc.openSession(ctx, token)
+	if err != nil {
 		return err
 	}
 	if err := auth.ValidatePassword(newPassword); err != nil {
@@ -448,7 +450,13 @@ func (svc *service) ChangePassword(ctx context.Context, token, currentPassword, 
 	if err != nil {
 		return err
 	}
-	return svc.deps.Store.SetPasswordHash(ctx, hash)
+	if err := svc.deps.Store.SetPasswordHash(ctx, hash); err != nil {
+		return err
+	}
+	if err := svc.deps.Store.DeleteSessionsExcept(ctx, current.ID); err != nil {
+		return fmt.Errorf("password changed, but other sessions could not be revoked: %w", err)
+	}
+	return nil
 }
 
 func (svc *service) ListSessions(ctx context.Context, token string) ([]SessionView, error) {

@@ -206,6 +206,26 @@ func TestSessions_listsNewestFirstAndDeleteAllEmptiesThem(t *testing.T) {
 	}
 }
 
+func TestDeleteSessionsExcept_keepsOnlyTheGivenSession(t *testing.T) {
+	openedStore := openTestStore(t)
+	ctx := context.Background()
+	expiresAt := referenceMoment.Add(time.Hour)
+	for _, id := range []string{"kept", "other-1", "other-2"} {
+		if err := openedStore.CreateSession(ctx, sampleSession(id, expiresAt)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := openedStore.DeleteSessionsExcept(ctx, "kept"); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := openedStore.Sessions(ctx)
+	if err != nil || len(sessions) != 1 || sessions[0].ID != "kept" {
+		t.Fatalf("valeurAttendue la seule session kept, valeurObtenue %+v (err %v)", sessions, err)
+	}
+}
+
 func TestCredentials_addListRenameUpdateDelete(t *testing.T) {
 	openedStore := openTestStore(t)
 	ctx := context.Background()

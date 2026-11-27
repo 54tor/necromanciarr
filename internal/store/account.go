@@ -273,6 +273,14 @@ func (openedStore *Store) DeleteAllSessions(ctx context.Context) error {
 	return nil
 }
 
+// DeleteSessionsExcept ferme toutes les sessions sauf keepID.
+func (openedStore *Store) DeleteSessionsExcept(ctx context.Context, keepID string) error {
+	if _, err := openedStore.database.ExecContext(ctx, `DELETE FROM sessions WHERE id <> ?`, keepID); err != nil {
+		return fmt.Errorf("delete other sessions: %w", err)
+	}
+	return nil
+}
+
 // PurgeExpiredSessions supprime les sessions expirées à now et renvoie leur nombre.
 func (openedStore *Store) PurgeExpiredSessions(ctx context.Context, now time.Time) (int64, error) {
 	result, err := openedStore.database.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at <= ?`, now.UnixNano())
