@@ -101,7 +101,7 @@ onUnmounted(auth.cancelTotp)
         <Button type="submit" data-testid="totp-confirm" :disabled="form.busy.value">
           {{ t('auth.account.totp.confirm') }}
         </Button>
-        <Button variant="ghost" data-testid="totp-cancel" @click="cancel">
+        <Button type="button" variant="ghost" data-testid="totp-cancel" @click="cancel">
           {{ t('auth.account.totp.cancel') }}
         </Button>
       </form>

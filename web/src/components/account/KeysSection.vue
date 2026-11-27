@@ -101,7 +101,7 @@ onMounted(() => form.run(auth.loadCredentials))
           </label>
           <div class="flex flex-wrap gap-2">
             <Button type="submit" size="sm">{{ t('auth.account.keys.save') }}</Button>
-            <Button size="sm" variant="ghost" @click="renaming = undefined">
+            <Button type="button" size="sm" variant="ghost" @click="renaming = undefined">
               {{ t('auth.account.keys.cancel') }}
             </Button>
           </div>

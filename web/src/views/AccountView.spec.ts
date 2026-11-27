@@ -190,6 +190,54 @@ describe('AccountView', () => {
     expect(wrapper.get('[data-testid="totp-message"]').text()).toBe('Code incorrect.')
   })
 
+  it('annuler l’enregistrement du TOTP n’affiche aucune erreur et efface le secret', async () => {
+    const { wrapper, calls } = await mountAccount({
+      'POST /api/auth/totp/setup/begin': totpEnrolment,
+      'POST /api/auth/totp/setup/finish': {},
+    })
+    await wrapper.get('[data-testid="totp-password"]').setValue(strongPassword)
+    await wrapper.get('form[data-testid="totp-begin-form"]').trigger('submit')
+    await flushPromises()
+
+    bodyElement<HTMLButtonElement>('[data-testid="totp-cancel"]').click()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="totp-message"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="totp-qr"]').exists()).toBe(false)
+    expect(wrapper.html()).not.toContain(totpEnrolment.secret)
+    expect(useAuth().totpEnrolment.value).toBeUndefined()
+    expect(callsTo(calls, 'POST', '/api/auth/totp/setup/finish')).toHaveLength(0)
+  })
+
+  it('quitter la page pendant l’enregistrement du TOTP efface le secret de l’état', async () => {
+    const { wrapper } = await mountAccount({ 'POST /api/auth/totp/setup/begin': totpEnrolment })
+    await wrapper.get('[data-testid="totp-password"]').setValue(strongPassword)
+    await wrapper.get('form[data-testid="totp-begin-form"]').trigger('submit')
+    await flushPromises()
+    expect(useAuth().totpEnrolment.value?.secret).toBe(totpEnrolment.secret)
+
+    wrapper.unmount()
+
+    expect(useAuth().totpEnrolment.value).toBeUndefined()
+  })
+
+  it('annuler le renommage n’enregistre rien et n’affiche aucune erreur', async () => {
+    const { wrapper, calls } = await mountAccount({
+      'PATCH /api/auth/webauthn/credentials/{id}': {},
+    })
+    await wrapper.get('[data-testid="key-rename-key-2"]').trigger('click')
+    await wrapper.get('[data-testid="key-rename-input"]').setValue('Autre nom')
+
+    bodyElement<HTMLButtonElement>(
+      'form[data-testid="key-rename-form"] button:not([type="submit"])',
+    ).click()
+    await flushPromises()
+
+    expect(wrapper.find('form[data-testid="key-rename-form"]').exists()).toBe(false)
+    expect(callsTo(calls, 'PATCH', '/api/auth/webauthn/credentials/key-2')).toHaveLength(0)
+    expect(wrapper.find('[data-testid="keys-message"]').exists()).toBe(false)
+  })
+
   it('signale que les clés de sécurité exigent HTTPS et propose TOTP quand WebAuthn est indisponible', async () => {
     const { wrapper } = await mountAccount({
       'GET /api/auth/session': { ...authenticatedSession, webauthnAvailable: false },

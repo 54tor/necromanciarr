@@ -16,6 +16,7 @@ const JSON_CONTENT_TYPE = 'application/json'
 const CSRF_HEADER_VALUE = 'necromanciarr'
 const BOOTSTRAP_TOKEN_REFUSED = 'unauthorized'
 const SIGNED_OUT_CODES = ['session_required', 'bearer_disabled']
+const MAX_RETRY_AFTER_SECONDS = 3600
 
 function headersFor(method: string): Record<string, string> {
   const headers: Record<string, string> = { Accept: JSON_CONTENT_TYPE }
@@ -39,7 +40,8 @@ async function readError(response: Response): Promise<ApiErrorBody> {
 
 function retryAfterOf(response: Response): number | undefined {
   const seconds = Number(response.headers.get('Retry-After'))
-  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined
+  if (!Number.isFinite(seconds) || seconds <= 0) return undefined
+  return Math.min(Math.ceil(seconds), MAX_RETRY_AFTER_SECONDS)
 }
 
 /** Seul le code distingue un 401 « déconnecté » d'un 401 de formulaire (mot de passe ressaisi faux, code refusé). */

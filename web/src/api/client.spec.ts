@@ -88,6 +88,21 @@ describe('Client', () => {
     expect((gotError as ApiError).retryAfterSeconds).toBe(7)
   })
 
+  it.each([
+    ['999999999', 3600],
+    ['-5', undefined],
+    ['soon', undefined],
+  ])('Client_boundsTheRetryAfterDelay %s', async (header, valeurAttendue) => {
+    installFakeApi({
+      'POST /api/auth/login': () => failure(429, 'throttled', 'raw', { 'Retry-After': header }),
+    })
+
+    const gotError = await request('POST', '/api/auth/login', {}).catch((error: unknown) => error)
+
+    const valeurObtenue = (gotError as ApiError).retryAfterSeconds
+    expect(valeurObtenue).toBe(valeurAttendue)
+  })
+
   it('Client_sendsNoBearerOnceTheTokenIsDropped', async () => {
     const calls = installFakeApi({ 'GET /api/status': {} })
     setToken('bootstrap')

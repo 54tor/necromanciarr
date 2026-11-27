@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { authToken, setToken } from '@/api/client'
+import { authToken, sessionLost, setToken } from '@/api/client'
 import { failure, installFakeApi, resetAppState } from '@/test/fakeApi'
 import {
   authenticatedSession,
@@ -94,9 +94,11 @@ describe('useAuth', () => {
     const calls = installFakeApi({
       'GET /api/auth/session': authenticatedSession,
       'POST /api/auth/password': () => failure(401, 'invalid_credentials'),
+      'GET /api/auth/sessions': () => failure(401, 'session_required'),
     })
     const auth = useAuth()
     await auth.load()
+    const signalsBefore = sessionLost.value
 
     const valeurObtenue = await auth.changePassword(
       'wrong-password-0',
@@ -106,8 +108,12 @@ describe('useAuth', () => {
     await Promise.resolve()
 
     expect(valeurObtenue).toEqual({ ok: false, message: 'Identifiant ou mot de passe incorrect.' })
-    expect(auth.status.value?.state).toBe('authenticated')
+    expect(sessionLost.value).toBe(signalsBefore)
     expect(calls.filter((call) => call.path === '/api/auth/session')).toHaveLength(1)
+
+    await auth.loadSessions()
+
+    expect(sessionLost.value).toBe(signalsBefore + 1)
   })
 
   it('un 401 session_required relit l’état de la session', async () => {
