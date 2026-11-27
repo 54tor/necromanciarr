@@ -40,6 +40,9 @@ var (
 	ErrTOTPUnavailable = errors.New("app: totp needs NECROMANCIARR_SECRET_KEY to seal its secret")
 	// ErrInvalidCode : code TOTP faux, mal formé, déjà utilisé ou sans TOTP enregistré, sans distinction.
 	ErrInvalidCode = errors.New("app: invalid or already used code")
+	// ErrTOTPSecretUnreadable : le secret enregistré ne se descelle plus (NECROMANCIARR_SECRET_KEY changée ou ligne
+	// abîmée) ; il faut réenregistrer le TOTP ou lancer account reset.
+	ErrTOTPSecretUnreadable = errors.New("app: the stored totp secret cannot be read, enrol it again or reset the account")
 )
 
 var errTOTPQRCode = errors.New("render totp qr code")
@@ -240,7 +243,7 @@ func (svc *service) LoginWithTOTP(ctx context.Context, ticket, code string, clie
 }
 
 // acceptTOTPCode relit le facteur, descelle le secret et accepte chaque pas une seule fois, même sous appels
-// concurrents ; tout refus vaut ErrInvalidCode, seule une erreur du store passe telle quelle.
+// concurrents ; tout refus vaut ErrInvalidCode, un secret illisible ErrTOTPSecretUnreadable (faute interne, essai annulé).
 func (svc *service) acceptTOTPCode(ctx context.Context, sealer *config.FieldSealer, code string) error {
 	normalizedCode, valid := normalizeTOTPCode(code)
 	if !valid {
@@ -255,13 +258,13 @@ func (svc *service) acceptTOTPCode(ctx context.Context, sealer *config.FieldSeal
 	}
 	secret, err := sealer.OpenSetting(totpSealKey, string(factor.SecretSealed))
 	if err != nil {
-		return ErrInvalidCode
+		return ErrTOTPSecretUnreadable
 	}
 	matchedStep, matched := highestMatchingStep(secret, normalizedCode, svc.now())
 	if !matched {
 		return ErrInvalidCode
 	}
-	advanced, err := svc.deps.Store.AdvanceTOTPStep(ctx, matchedStep)
+	advanced, err := svc.deps.Store.AdvanceTOTPStep(ctx, factor.SecretSealed, matchedStep)
 	if err != nil {
 		return err
 	}

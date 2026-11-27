@@ -330,11 +330,12 @@ func (openedStore *Store) DeleteTOTP(ctx context.Context) error {
 	return nil
 }
 
-// AdvanceTOTPStep accepte le pas une seule fois : vrai seulement si step dépasse le dernier pas, en une instruction
-// atomique, donc un code rejoué est refusé même sous appels concurrents.
-func (openedStore *Store) AdvanceTOTPStep(ctx context.Context, step int64) (bool, error) {
+// AdvanceTOTPStep accepte le pas une seule fois : vrai seulement si step dépasse le dernier pas et si le secret scellé
+// est encore celui que l'appelant a vérifié, en une instruction atomique, donc un code rejoué ou issu d'un secret
+// remplacé entre-temps est refusé même sous appels concurrents.
+func (openedStore *Store) AdvanceTOTPStep(ctx context.Context, sealedSecret []byte, step int64) (bool, error) {
 	result, err := openedStore.database.ExecContext(ctx,
-		`UPDATE totp_factor SET last_step = ? WHERE id = 1 AND last_step < ?`, step, step)
+		`UPDATE totp_factor SET last_step = ? WHERE id = 1 AND secret_sealed = ? AND last_step < ?`, step, sealedSecret, step)
 	if err != nil {
 		return false, fmt.Errorf("advance totp step: %w", err)
 	}

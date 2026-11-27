@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -574,5 +575,158 @@ func TestNew_minimalDepsEnrolAndSignInWithTOTP(t *testing.T) {
 
 	if err != nil || session.Token == "" {
 		t.Fatalf("valeurAttendue une session, valeurObtenue %+v err=%v", session, err)
+	}
+}
+
+func TestTOTPLogin_anUnreadableSecretIsAnInternalFaultThatCountsNoFailure(t *testing.T) {
+	ctx := context.Background()
+	makeUnreadable := map[string]func(t *testing.T, fixture *totpFixture){
+		"clé remplacée": func(*testing.T, *totpFixture) {},
+		"ligne corrompue": func(t *testing.T, fixture *totpFixture) {
+			factor, _ := fixture.storedFactor(t)
+			factor.SecretSealed = []byte("sealed:v1:corrupted")
+			if err := fixture.store.SetTOTP(ctx, factor); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, corrupt := range makeUnreadable {
+		t.Run(name, func(t *testing.T) {
+			fixture := newEnrolledTOTPFixture(t)
+			corrupt(t, fixture)
+			if name == "clé remplacée" {
+				fixture.service.deps.Config.SecretKey = bytes.Repeat([]byte{0x08}, config.SecretKeySize)
+			}
+			ticket := fixture.ticket(t)
+			sessionsBefore := fixture.sessionCount(t)
+			code := fixture.codeAtOffset(t, 0)
+
+			_, err := fixture.service.LoginWithTOTP(ctx, ticket, code, testClient)
+
+			leaks := strings.Contains(err.Error(), code) || strings.Contains(err.Error(), fixture.secret)
+			if !errors.Is(err, ErrTOTPSecretUnreadable) || errors.Is(err, ErrInvalidCode) || leaks {
+				t.Fatalf("valeurAttendue ErrTOTPSecretUnreadable sans code ni secret, valeurObtenue %v", err)
+			}
+			if valeurObtenue := fixture.sessionCount(t) - sessionsBefore; valeurObtenue != 0 {
+				t.Fatalf("valeurAttendue aucune session, valeurObtenue %d", valeurObtenue)
+			}
+			if result, err := fixture.service.Login(ctx, testUsername, testPassword, testClient); err != nil || result.Ticket == "" {
+				t.Fatalf("valeurAttendue un limiteur non incrémenté, valeurObtenue %+v err=%v", result, err)
+			}
+			_, err = fixture.service.LoginWithTOTP(ctx, ticket, code, testClient)
+			if !errors.Is(err, ErrLoginTicketInvalid) {
+				t.Fatalf("valeurAttendue le ticket brûlé, valeurObtenue %v", err)
+			}
+		})
+	}
+}
+
+func TestBeginTOTPSetup_requiresASessionAndThePassword(t *testing.T) {
+	fixture := newTOTPFixture(t)
+	ctx := context.Background()
+
+	if _, err := fixture.service.BeginTOTPSetup(ctx, "unknown-session", testPassword); !errors.Is(err, ErrSessionInvalid) {
+		t.Fatalf("valeurAttendue ErrSessionInvalid, valeurObtenue %v", err)
+	}
+	enrolment, err := fixture.service.BeginTOTPSetup(ctx, fixture.grant.Token, testWrong)
+	if !errors.Is(err, ErrInvalidCredentials) || len(enrolment.State) != 0 || enrolment.SecretBase32 != "" {
+		t.Fatalf("valeurAttendue ErrInvalidCredentials sans enrôlement, valeurObtenue %+v err=%v", enrolment, err)
+	}
+	if _, found := fixture.storedFactor(t); found {
+		t.Fatal("valeurAttendue aucun TOTP, valeurObtenue un TOTP enregistré")
+	}
+
+	_, err = fixture.service.Login(ctx, testUsername, testPassword, testClient)
+	expectThrottledFor(t, err, time.Second)
+}
+
+func TestTOTPSetup_reEnrolmentAfterThePasswordReplacesTheSecret(t *testing.T) {
+	fixture := newEnrolledTOTPFixture(t)
+	ctx := context.Background()
+	oldSecret := fixture.secret
+	enrolment := fixture.begin(t)
+	newStep := fixture.currentStep() + 1
+	if err := fixture.service.FinishTOTPSetup(ctx, fixture.grant.Token, enrolment.State, totpCodeAt(t, enrolment.SecretBase32, newStep)); err != nil {
+		t.Fatal(err)
+	}
+	if factor, _ := fixture.storedFactor(t); factor.LastStep != newStep {
+		t.Fatalf("valeurAttendue %d, valeurObtenue %d", newStep, factor.LastStep)
+	}
+
+	fixture.clock.advance(totpPeriod)
+	_, err := fixture.service.LoginWithTOTP(ctx, fixture.ticket(t), totpCodeAt(t, oldSecret, fixture.currentStep()+1), testClient)
+	expectInvalidCode(t, err)
+	fixture.clock.advance(time.Second)
+	grant, err := fixture.service.LoginWithTOTP(ctx, fixture.ticket(t), totpCodeAt(t, enrolment.SecretBase32, fixture.currentStep()+1), testClient)
+
+	if err != nil || grant.Token == "" {
+		t.Fatalf("valeurAttendue une session avec le nouveau secret, valeurObtenue %v", err)
+	}
+}
+
+// reEnrolDuringLoginStore remplace le secret juste après la lecture du facteur, entre la vérification du code et
+// l'avance du pas.
+type reEnrolDuringLoginStore struct {
+	*store.Store
+	armed          atomic.Bool
+	replacedSealed []byte
+}
+
+func (interleaving *reEnrolDuringLoginStore) TOTP(ctx context.Context) (store.TOTPFactor, bool, error) {
+	factor, found, err := interleaving.Store.TOTP(ctx)
+	if err == nil && found && interleaving.armed.CompareAndSwap(true, false) {
+		replaced := factor
+		replaced.SecretSealed = interleaving.replacedSealed
+		if setErr := interleaving.SetTOTP(ctx, replaced); setErr != nil {
+			return store.TOTPFactor{}, false, setErr
+		}
+	}
+	return factor, found, err
+}
+
+func TestTOTPLogin_aReEnrolmentBetweenVerificationAndStepAdvanceRefusesTheOldCode(t *testing.T) {
+	interleaving := &reEnrolDuringLoginStore{Store: openTestStore(t)}
+	accountFixture := newAccountFixtureOn(t, interleaving)
+	accountFixture.store = interleaving.Store
+	accountFixture.service.deps.Config = testTOTPSettings
+	fixture := &totpFixture{accountFixture: accountFixture, grant: accountFixture.setup(t)}
+	fixture.enrol(t)
+	fixture.clock.advance(stepsAfterEnrolment * totpPeriod)
+	sealer, err := config.NewSecretSealer(testSecretKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacedSealed, err := sealer.SealSetting(totpSealKey, "JBSWY3DPEHPK3PXP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	interleaving.replacedSealed = []byte(replacedSealed)
+	ticket := fixture.ticket(t)
+	interleaving.armed.Store(true)
+
+	_, err = fixture.service.LoginWithTOTP(context.Background(), ticket, fixture.codeAtOffset(t, 0), testClient)
+
+	expectInvalidCode(t, err)
+	if factor, _ := fixture.storedFactor(t); factor.LastStep == fixture.currentStep() {
+		t.Fatal("valeurAttendue le pas du nouveau secret inchangé, valeurObtenue avancé par un code de l'ancien")
+	}
+}
+
+func TestTOTP_aFreshServiceRefusesAnEarlierSetupStateButReadsTheStoredFactor(t *testing.T) {
+	fixture := newEnrolledTOTPFixture(t)
+	ctx := context.Background()
+	earlierState := fixture.begin(t)
+	restarted := New(Deps{Store: fixture.store, Config: testTOTPSettings, Now: fixture.clock.now})
+
+	finishErr := restarted.FinishTOTPSetup(ctx, fixture.grant.Token, earlierState.State, totpCodeAt(t, earlierState.SecretBase32, fixture.currentStep()))
+	expectInvalidCode(t, finishErr)
+	login, err := restarted.Login(ctx, testUsername, testPassword, testClient)
+	if err != nil || login.Ticket == "" {
+		t.Fatalf("valeurAttendue un ticket, valeurObtenue %+v err=%v", login, err)
+	}
+	grant, err := restarted.LoginWithTOTP(ctx, login.Ticket, fixture.codeAtOffset(t, 0), testClient)
+
+	if err != nil || grant.Token == "" {
+		t.Fatalf("valeurAttendue une session avec le facteur enregistré, valeurObtenue %v", err)
 	}
 }

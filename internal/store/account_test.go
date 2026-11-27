@@ -274,7 +274,7 @@ func TestAdvanceTOTPStep_acceptsAStepOnceAndRefusesAReplayEvenConcurrently(t *te
 		t.Fatal(err)
 	}
 	for step, valeurAttendue := range map[int64]bool{10: false, 9: false} {
-		valeurObtenue, err := openedStore.AdvanceTOTPStep(ctx, step)
+		valeurObtenue, err := openedStore.AdvanceTOTPStep(ctx, []byte("sealed"), step)
 		if err != nil || valeurObtenue != valeurAttendue {
 			t.Fatalf("pas %d : valeurObtenue %v (err %v), valeurAttendue %v", step, valeurObtenue, err, valeurAttendue)
 		}
@@ -287,7 +287,7 @@ func TestAdvanceTOTPStep_acceptsAStepOnceAndRefusesAReplayEvenConcurrently(t *te
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			advanced, err := openedStore.AdvanceTOTPStep(ctx, 11)
+			advanced, err := openedStore.AdvanceTOTPStep(ctx, []byte("sealed"), 11)
 			if err != nil {
 				t.Error(err)
 			}
@@ -308,8 +308,23 @@ func TestAdvanceTOTPStep_acceptsAStepOnceAndRefusesAReplayEvenConcurrently(t *te
 
 func TestAdvanceTOTPStep_refusesWhenNoFactorIsConfigured(t *testing.T) {
 	openedStore := openTestStore(t)
-	valeurObtenue, err := openedStore.AdvanceTOTPStep(context.Background(), 5)
+	valeurObtenue, err := openedStore.AdvanceTOTPStep(context.Background(), []byte("sealed"), 5)
 	if err != nil || valeurObtenue {
 		t.Fatalf("valeurObtenue %v (err %v), valeurAttendue false", valeurObtenue, err)
+	}
+}
+
+func TestAdvanceTOTPStep_refusesWhenTheSecretChangedSinceItWasVerified(t *testing.T) {
+	openedStore := openTestStore(t)
+	ctx := context.Background()
+	if err := openedStore.SetTOTP(ctx, TOTPFactor{SecretSealed: []byte("replaced"), LastStep: 10, CreatedAt: referenceMoment}); err != nil {
+		t.Fatal(err)
+	}
+
+	valeurObtenue, err := openedStore.AdvanceTOTPStep(ctx, []byte("verified"), 11)
+
+	factor, _, _ := openedStore.TOTP(ctx)
+	if err != nil || valeurObtenue || factor.LastStep != 10 {
+		t.Fatalf("valeurObtenue %v (err %v, dernier pas %d), valeurAttendue false et le pas inchangé", valeurObtenue, err, factor.LastStep)
 	}
 }

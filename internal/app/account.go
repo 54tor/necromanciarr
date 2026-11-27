@@ -77,7 +77,7 @@ type AccountStore interface {
 	TOTP(ctx context.Context) (store.TOTPFactor, bool, error)
 	SetTOTP(ctx context.Context, factor store.TOTPFactor) error
 	DeleteTOTP(ctx context.Context) error
-	AdvanceTOTPStep(ctx context.Context, step int64) (bool, error)
+	AdvanceTOTPStep(ctx context.Context, sealedSecret []byte, step int64) (bool, error)
 	CreateSession(ctx context.Context, session store.SessionRecord) error
 	Session(ctx context.Context, id string) (store.SessionRecord, bool, error)
 	TouchSession(ctx context.Context, id string, seenAt time.Time) error
