@@ -787,3 +787,38 @@ func TestCli_statusListsTheHeldTorrentsWithTheirReason(t *testing.T) {
 		t.Fatalf("gotValue %q, expectedValue a line %q", gotValue, expectedValue)
 	}
 }
+
+// errAccountNotFaked : le faux service ne simule pas le compte opérateur.
+var errAccountNotFaked = errors.New("fake service: account not simulated")
+
+func (*fakeService) AuthStatus(context.Context) (app.AuthStatus, error) { return app.AuthStatus{}, nil }
+
+func (*fakeService) SetupAccount(context.Context, string, string, app.ClientInfo) (app.SessionGrant, error) {
+	return app.SessionGrant{}, errAccountNotFaked
+}
+
+func (*fakeService) Login(context.Context, string, string, app.ClientInfo) (app.LoginResult, error) {
+	return app.LoginResult{}, errAccountNotFaked
+}
+
+func (*fakeService) ResumeSession(context.Context, string) (app.SessionView, error) {
+	return app.SessionView{}, app.ErrSessionInvalid
+}
+
+func (*fakeService) Logout(context.Context, string) error { return nil }
+
+func (*fakeService) LogoutAll(context.Context) error { return nil }
+
+func (*fakeService) ChangePassword(context.Context, string, string, string) error {
+	return errAccountNotFaked
+}
+
+func (*fakeService) ListSessions(context.Context, string) ([]app.SessionView, error) {
+	return nil, app.ErrSessionInvalid
+}
+
+func (*fakeService) ResetAccount(context.Context) error { return errAccountNotFaked }
+
+func (*fakeService) AccountSummary(context.Context) (app.AccountSummary, error) {
+	return app.AccountSummary{}, nil
+}

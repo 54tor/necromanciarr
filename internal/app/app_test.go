@@ -345,6 +345,20 @@ func TestApp_listProposalsReturnsDetailsForTheCliAndWeb(t *testing.T) {
 	}
 }
 
+// nonActionServiceMethods servent la CLI et le web sans être des actions du registre.
+var nonActionServiceMethods = map[string]bool{"Actions": true, "Translator": true}
+
+// webOnlyServiceMethods n'ont de sens que dans l'interface web : tests de saisie, correctifs en un clic, et le compte
+// opérateur (AccountService), que la CLI ne pilote pas par le registre.
+func webOnlyServiceMethods() map[string]bool {
+	methods := map[string]bool{"TestCandidate": true, "ApplyFix": true}
+	accountType := reflect.TypeFor[AccountService]()
+	for methodIndex := range accountType.NumMethod() {
+		methods[accountType.Method(methodIndex).Name] = true
+	}
+	return methods
+}
+
 func TestApp_actionsRegistryListsEveryServiceMethod(t *testing.T) {
 	serviceType := reflect.TypeFor[Service]()
 	registered := map[string]bool{}
@@ -354,9 +368,10 @@ func TestApp_actionsRegistryListsEveryServiceMethod(t *testing.T) {
 		}
 		registered[action.Method] = true
 	}
+	exempted := webOnlyServiceMethods()
 	for methodIndex := range serviceType.NumMethod() {
 		methodName := serviceType.Method(methodIndex).Name
-		if methodName != "Actions" && methodName != "Translator" && methodName != "TestCandidate" && methodName != "ApplyFix" && !registered[methodName] {
+		if !nonActionServiceMethods[methodName] && !exempted[methodName] && !registered[methodName] {
 			t.Fatalf("gotValue no action for %s, expectedValue every Service method registered", methodName)
 		}
 	}

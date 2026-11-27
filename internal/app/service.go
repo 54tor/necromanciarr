@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"necromanciarr/internal/auth"
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
 	"necromanciarr/internal/doctor"
@@ -64,6 +65,7 @@ var (
 
 // Service regroupe les actions de l'opérateur ; c'est la seule porte d'entrée de la CLI et du web.
 type Service interface {
+	AccountService
 	// RunStage exécute une étape du pipeline sous son verrou.
 	RunStage(ctx context.Context, stage pipeline.Stage) (pipeline.Result, error)
 	// Status résume l'état des torrents, des propositions et du mode cross-seed.
@@ -178,6 +180,7 @@ type Store interface {
 	VolumeCapabilities(ctx context.Context, volume string) (fsys.Capabilities, time.Time, bool, error)
 	SaveVolumeCapabilities(ctx context.Context, volume string, capabilities fsys.Capabilities, at time.Time) error
 	SealedClearer
+	AccountStore
 }
 
 // Resumer démarre un torrent du client ; *qbit.Client convient.
@@ -217,6 +220,8 @@ type Deps struct {
 	// ConfigStore et LoadStoredConfig servent à l'édition de la configuration ; nil : édition indisponible.
 	ConfigStore      ConfigStore
 	LoadStoredConfig StoredConfigLoader
+	// Auth porte le limiteur de connexion (défaut : un limiteur sur Now) et la vérification factice.
+	Auth AuthDeps
 }
 
 // inspect et inspectionBudget remplacent, dans les tests seulement, l'examen d'un lien et le budget de ListLinks ;
@@ -233,6 +238,8 @@ type service struct {
 	// configEdits sérialise les écritures de configuration ; restartRequired dit qu'une écriture attend une relance.
 	configEdits     sync.Mutex
 	restartRequired atomic.Bool
+	// argonObserver reçoit +1 et -1 autour de chaque calcul argon2 (tests seulement).
+	argonObserver func(delta int32)
 }
 
 // New construit le Service sur ses dépendances.
@@ -248,6 +255,12 @@ func New(deps Deps) Service {
 	}
 	if deps.DoctorDeps.SealedProbe == nil {
 		deps.DoctorDeps.SealedProbe = pathProbe{databasePath: config.ResolveDBPath(deps.Config)}
+	}
+	if deps.Auth.Throttle == nil {
+		deps.Auth.Throttle = auth.NewThrottle(deps.Now)
+	}
+	if deps.Auth.VerifyDummy == nil {
+		deps.Auth.VerifyDummy = auth.VerifyDummy
 	}
 	return &service{deps: deps}
 }
