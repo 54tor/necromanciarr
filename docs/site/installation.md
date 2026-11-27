@@ -1,39 +1,49 @@
 # Installation
 
-Necromanciarr se distribue sous forme d'une image Docker construite depuis le dépôt.
-Aucune image publique n'est encore publiée.
+Necromanciarr se distribue sous forme d'une image Docker : construite depuis le dépôt, ou publiée en instantané sur le registre GitHub à chaque push sur `main`.
 
-## Construire l'image
-
-```bash
-make docker-build            # produit necromanciarr:dev
-```
-
-L'image repose sur `debian:trixie-slim`, avec un binaire statique (`CGO_ENABLED=0`).
-
-## Lancer un conteneur
+## Obtenir l'image
 
 ```bash
-docker run --rm \
-  --user 1000:1000 \
-  -v /home/u/necromanciarr:/data \
-  necromanciarr:dev config check
+make docker-build            # construit necromanciarr:dev (interface web et binaire statique, debian:trixie-slim)
 ```
+
+Instantané publié : `ghcr.io/<propriétaire>/necromanciarr:snapshot` (dernier `main`) et `…:sha-<commit court>` (un commit précis), pour `linux/amd64` et `linux/arm64`. Il n'est pas versionné : en production, épingler le tag `sha-…`. Le binaire `linux/riscv64` est construit mais jamais exécuté en CI.
+
+## Lancer avec Docker Compose
+
+Le dépôt fournit `compose.example.yaml` :
+
+```bash
+cp compose.example.yaml compose.yaml
+printf 'PUID=%s\nPGID=%s\n' "$(id -u)" "$(id -g)" > .env   # propriétaire de la bibliothèque
+mkdir data                                                  # doit appartenir à PUID:PGID
+$EDITOR compose.yaml                                        # /srv/storage : dossier qui contient bibliothèque ET liens
+docker compose up -d
+docker compose logs necromanciarr                           # le jeton d'accès s'affiche ici, une seule fois
+```
+
+Ouvrir `http://127.0.0.1:8787`, saisir le jeton : l'assistant de configuration prend la suite (voir [Configuration](/configuration#premier-demarrage)). Une fois les réglages enregistrés, `docker restart necromanciarr` les applique.
 
 | Élément | Valeur |
 | --- | --- |
-| Volume | `/data` : contient `.env` et la base SQLite, qui porte toute la configuration |
-| Variable `CONFIG_DIR` | `/data` par défaut dans l'image |
-| Utilisateur | `1000:1000` par défaut ; à aligner sur les droits de la bibliothèque avec `--user` |
-| Commande par défaut | `serve` (voir [CLI](/cli) : pas encore disponible) |
+| Volume `/data` | `.env` et base SQLite, qui porte toute la configuration. Un dossier de l'hôte doit appartenir à `PUID:PGID` ; un volume nommé neuf garde le propriétaire `1000:1000` de l'image |
+| Utilisateur | `PUID:PGID` du compose (`1000:1000` par défaut dans l'image), à aligner sur les droits de la bibliothèque |
+| Bibliothèque et liens | **un seul montage** (`/media` dans l'exemple) : un hardlink entre deux montages échoue avec `EXDEV` |
+| Port | `8787`, publié sur `127.0.0.1` dans l'exemple |
+| Commande par défaut | `serve` ; toute autre sous-commande la remplace (`docker compose run --rm necromanciarr doctor`) |
 
-::: warning À venir
-Le service (`serve`) n'est pas encore implémenté : aujourd'hui, l'image permet d'exécuter
-`config check` et `api-key`. Les images multi-architecture (arm64, riscv64) ne sont pas encore construites.
-:::
+L'image écoute sur toutes les interfaces : `serve` exige donc un jeton, qu'il génère au premier démarrage dans `/data/.env`.
 
-## Première configuration
+## Sans Docker
 
-1. Créer un dossier de configuration inscriptible : au premier `serve`, `NECROMANCIARR_SECRET_KEY` et `NECROMANCIARR_AUTH_TOKEN` y sont générés dans le `.env` (voir [Configuration](/configuration#premier-demarrage)). Pour les fournir soi-même, `necromanciarr api-key --secret` tire la clé.
-2. Enregistrer les réglages par la page Configuration ou par `necromanciarr config set` et `config item set` (voir [Configuration](/configuration)).
-3. Vérifier avec `config check`, qui affiche la configuration effective, secrets masqués, avec l'origine de chaque valeur.
+```bash
+make ui && make build        # interface embarquée, puis ./necromanciarr
+./necromanciarr serve        # http://127.0.0.1:8787
+```
+
+Le dossier de configuration est `--config-dir`, `CONFIG_DIR`, ou celui de l'utilisateur ; il est créé s'il s'agit du dossier par défaut.
+
+## Vérifier
+
+`necromanciarr doctor` contrôle la configuration, la base, les services, les volumes et les dossiers de liens ; la page Démarrage de l'interface affiche les mêmes contrôles.

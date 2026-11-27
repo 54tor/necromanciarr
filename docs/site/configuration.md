@@ -93,8 +93,8 @@ interpolée : `${VAR}` y est refusé.
 ### Stockage distant : `fsProviders`
 
 Pour lire les empreintes d'un stockage distant, Necromanciarr s'appuie sur des fournisseurs de système de fichiers,
-déclarés dans la liste `fsProviders` : `rclone` (empreintes d'un montage) et `sftp` (stockage distant, voir la
-référence). Exemple d'élément `rclone`, enregistré par
+déclarés dans la liste `fsProviders` : `rclone` (empreintes d'un montage), `sftp` (stockage distant, voir la
+référence) et `local` (volume nommé du disque local, sondé par `volumes probe`). Exemple d'élément `rclone`, enregistré par
 `necromanciarr config item set fsProviders mega --element-stdin < mega.json` :
 
 ```json
@@ -111,7 +111,7 @@ Clés communes à tous les types :
 
 | Champ | Rôle |
 | --- | --- |
-| `type` | Obligatoire : `rclone` ou `sftp` (un type inconnu est refusé, avec la liste des types connus) |
+| `type` | Obligatoire : `rclone`, `sftp` ou `local` (un type inconnu est refusé, avec la liste des types connus) |
 | `name` | Obligatoire, unique, `^[a-z0-9-]+$` |
 
 Clés du type `rclone` (une clé inconnue est refusée en la nommant) :
@@ -124,3 +124,9 @@ Clés du type `rclone` (une clé inconnue est refusée en la nommant) :
 | `timeout` | Durée Go strictement positive |
 
 Sans `rc` ni `binary`, aucune empreinte distante n'est demandée.
+
+Clés du type `local` : `paths`, liste non vide de dossiers absolus, sans segment `..`. `necromanciarr volumes probe <nom>` mesure alors, pour de vrai, hardlink, symlink et reflink dans le premier dossier de `linkDirs` posé sous un de ces dossiers, sans laisser de fichier.
+
+```json
+{ "type": "local", "name": "nas", "paths": ["/media/library", "/media/links"] }
+```
