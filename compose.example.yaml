@@ -1,0 +1,16 @@
+# Copier en compose.yaml, puis : docker compose up -d && docker compose logs necromanciarr
+# Le jeton d'accès est généré au premier démarrage et affiché une seule fois dans ces logs.
+services:
+  necromanciarr:
+    image: necromanciarr:dev # make docker-build
+    container_name: necromanciarr
+    restart: unless-stopped
+    # Même UID:GID que le propriétaire de la bibliothèque (id -u / id -g sur l'hôte) : PUID=… PGID=… dans .env.
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      # Dossier de l'hôte appartenant à PUID:PGID (mkdir data && chown PUID:PGID data) : il porte .env et la base.
+      - ./data:/data
+      # Bibliothèque ET dossiers de liens sous un seul montage, sinon un hardlink échoue (EXDEV).
+      - /srv/storage:/media

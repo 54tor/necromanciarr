@@ -62,29 +62,25 @@ The container runs as `1000:1000`. For a library owned by another account, overr
 
 ## Example
 
+Ready-to-copy file: [`compose.example.yaml`](../../../compose.example.yaml). `PUID` and `PGID` (in `.env` or the environment) set the container user; `./data` must belong to them, because a fresh named volume keeps the image's `1000:1000` owner. The token is generated on first start; add `CROSS_SEED_CONFIG` and the read-only cross-seed folder mount if needed.
+
 ```yaml
+# Copier en compose.yaml, puis : docker compose up -d && docker compose logs necromanciarr
+# Le jeton d'accès est généré au premier démarrage et affiché une seule fois dans ces logs.
 services:
   necromanciarr:
-    image: necromanciarr:dev
-    user: "1000:1000"
+    image: necromanciarr:dev # make docker-build
+    container_name: necromanciarr
     restart: unless-stopped
+    # Même UID:GID que le propriétaire de la bibliothèque (id -u / id -g sur l'hôte) : PUID=… PGID=… dans .env.
+    user: "${PUID:-1000}:${PGID:-1000}"
     ports:
       - "127.0.0.1:8787:8787"
-    environment:
-      NECROMANCIARR_AUTH_TOKEN: ${NECROMANCIARR_AUTH_TOKEN:?générer avec necromanciarr api-key}
-      CROSS_SEED_CONFIG: /cross-seed/config.js
-      # process.env.* référencés par le config.js de cross-seed
-      RADARR_API_KEY: ${RADARR_API_KEY}
-      SONARR_API_KEY: ${SONARR_API_KEY}
-      QBIT_PASSWORD: ${QBIT_PASSWORD}
     volumes:
-      - necromanciarr-data:/data
+      # Dossier de l'hôte appartenant à PUID:PGID (mkdir data && chown PUID:PGID data) : il porte .env et la base.
+      - ./data:/data
+      # Bibliothèque ET dossiers de liens sous un seul montage, sinon un hardlink échoue (EXDEV).
       - /srv/storage:/media
-      - /srv/appdata/cross-seed:/cross-seed:ro
-    cpus: 2
-    mem_limit: 2g
-volumes:
-  necromanciarr-data:
 ```
 
 Matching configuration, written to the database from the container; `radarr`, `sonarr` and `torrentClients` come from `config.js`:
