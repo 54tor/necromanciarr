@@ -89,11 +89,11 @@ As soon as a security key or a TOTP exists, the password alone no longer opens a
 
 ### Limiter and password
 
-The limiter counts per account, with no permanent lock-out: 1 s wait after the first failure, doubled on each failure, capped at 60 s. Password, TOTP, keys, passkeys and password entries to change a setting all share it. An attempt made too early gets 429 `throttled` with `Retry-After` in seconds. A correct password that still waits for a second factor does not reset the counter; only a successful sign-in does. An unknown username and a wrong password give the same answer (401 `invalid_credentials`) at the same computing cost. A password over 128 bytes is refused before any computation and is not counted. `account reset` does not clear a running delay (60 s at most).
+The limiter counts per account, with no permanent lock-out: 1 s wait after the first failure, doubled on each failure, capped at 60 s. Password, TOTP, keys, passkeys and password entries to change a setting all share it. An attempt made too early gets 429 `throttled` with `Retry-After` in seconds. A correct password that still waits for a second factor does not reset the counter; only a successful sign-in does. An unknown username and a wrong password give the same answer (401 `invalid_credentials`) at the same computing cost. A password over 128 bytes is refused before any computation and is not counted. `account reset` does not clear a running delay (60 s at most). The limiter has a single key and admits one attempt at a time: an attacker who keeps going takes the slot back each time the delay ends, so new sign-ins and password re-entries for a change stay blocked for as long as the attack lasts; open sessions keep working. The remedy is to block the attacker at the proxy.
 
 ### Sessions
 
-A session lasts 14 days at most and expires after 24 h without a request. The database only keeps a fingerprint of the token. "Sign out everywhere" revokes all of them; changing the password revokes the other sessions and keeps the current one; `account reset` deletes them all.
+A session lasts 14 days at most and expires after 24 h without a request. The database only keeps a fingerprint of the token. "Sign out everywhere" revokes all of them; changing the password revokes the other sessions and keeps the current one; `account reset` deletes them all. A sign-in in progress at that moment, checked against the old password or the old account, opens no session: every session is bound to the account its proof was checked against.
 
 ### In-memory state and accepted limits
 
@@ -101,13 +101,18 @@ Sign-in tickets and pre-auth states (5 min), and key or TOTP enrolment states (1
 
 Accepted v1 limits:
 
-- A single process is assumed: these states are not shared.
+- A single process is assumed: these states are not shared. A second `serve` on the same database corrupts nothing (every SQL write is atomic), but the limiter belongs to each process, so each server multiplies the guess rate, and sign-in steps fail unless the browser stays on the same server: do not run two servers on one database.
 - `POST /api/auth/passkey/login/begin` is public and unthrottled; its flood is bounded by its own table (which never evicts a pending second factor) and by the throttled finishes.
-- About 1024 passkey sign-in begins followed by invalid finishes fill the set of consumed nonces for about 6 min; the real user then gets a failure counted by the limiter.
+- A flood of passkey sign-in begins can evict pending passkey sign-ins from that table: the real user then gets `step_expired` and starts again. The set of consumed nonces does not fill in practice: every finish goes through the limiter and a burned nonce costs a counted failure (1 s, 2 s… 60 s), while a state lives about 6 min; a state with a wrong seal is refused before anything is burned.
 
 ### WebAuthn unavailable
 
 If `publicUrl` becomes http (outside `localhost`) or an IP address, keys no longer work: passkey sign-in answers 503 `webauthn_unavailable`, and so does password sign-in when keys are the only second factor. With a TOTP registered, sign-in continues with the code. Otherwise put `publicUrl` back on the https name, or run `necromanciarr account reset --yes` and recreate the account.
+
+Two more cases:
+
+- Renaming the `publicUrl` host changes the RP ID: every security key and passkey registered under the old name fails (the browser no longer offers it, or the server answers `invalid_assertion`). Go back to the old name (`necromanciarr config set publicUrl '"https://old.example.com"'`), or, when only the keys or the TOTP are lost, `account reset --yes`.
+- With `publicUrl` set, a browser that reaches the loopback port directly (SSH tunnel to `127.0.0.1`) gets 403 on every write, because the admitted `Origin` is the `publicUrl` one. Go through the `publicUrl` address, or remove the setting for the time of the access (`necromanciarr config unset publicUrl`, then restart), knowing that keys registered under the public name do not work on `localhost`.
 
 ## Database values
 

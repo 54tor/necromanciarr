@@ -95,7 +95,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 | `auth` | `loopback` | `ok` | listening on loopback |
 | `auth` | `auth_token_set` | `ok` | listening outside loopback with a token |
 | `auth` | `no_auth_token` | `fail` | listening outside loopback without a token, which `serve` will refuse: `necromanciarr api-key`, then `.env` |
-| `auth` | `auth_public_url_unusable` | `warn` | https `publicUrl` whose host is an IP address: an IP cannot be a WebAuthn identifier, so security keys and passkeys are unavailable; set `publicUrl` to the https host name users reach |
+| `auth` | `auth_public_url_unusable` | `warn` | https `publicUrl` whose host is an IP address or ends with a dot: such a host cannot be a WebAuthn identifier, so security keys and passkeys are unavailable; set `publicUrl` to the https host name users reach |
 | `auth` | `auth_public_url_missing` | `warn` | listening outside loopback without an https `publicUrl`: the session cookie is not `Secure` and WebAuthn is disabled; set `publicUrl` to the https address users reach |
 | `library-roots` | `no_library_root` | `warn` | `libraryRoots` empty |
 | `library-roots` | `root_not_found` | `fail` | mount missing or wrong path |
@@ -192,7 +192,7 @@ Each result carries a stable `code` in snake_case, identical in French and Engli
 |---|---|
 | sign-in answers 429 `throttled` | too many failures: the delay doubles from 1 s to 60 s; wait `Retry-After`, then enter the right values (a success resets the counter) |
 | password or key lost | `necromanciarr account reset --yes` (in Docker: `docker compose exec necromanciarr necromanciarr account reset --yes`), then create the account with the `.env` token; `account status` first says what exists |
-| "WebAuthn unavailable" when adding a key or signing in | `publicUrl` must be https (or `localhost`) and name a host, not an IP address: set `publicUrl` to the https name users reach; `doctor` flags it (`auth_public_url_missing`, `auth_public_url_unusable`) |
+| "WebAuthn unavailable" when adding a key or signing in | `publicUrl` must be https (or `localhost`) and name a host, not an IP address nor a name ending with a dot: set `publicUrl` to the https name users reach; `doctor` flags it (`auth_public_url_missing`, `auth_public_url_unusable`) |
 | the TOTP refuses a code that looks right | the server or device clock drifts by more than 30 s (one step of tolerance each side), or the same code was already used within this 30 s step: wait for the next code |
 | 403 `forbidden`, "unknown host header" | loopback listener behind a proxy that rewrites `Host`: set `publicUrl` to the public host or forward the original `Host` |
 
@@ -323,4 +323,5 @@ Reason why remote commands are disabled on an `sftp` volume, in the volume capab
 | `account_exists` | the account already exists: sign in; if lost, `account reset --yes` |
 | `webauthn_unavailable` | `publicUrl` is http outside `localhost`, or an IP host: see "Sign-in and account" |
 | `invalid_code` | wrong or already used TOTP code: see "Sign-in and account" |
+| `totp_unavailable` | at sign-in, `NECROMANCIARR_SECRET_KEY` was removed while a TOTP exists (503); the sign-in step is consumed: restore `NECROMANCIARR_SECRET_KEY` and restart, or `account reset --yes` |
 | `totp_secret_unreadable` | `NECROMANCIARR_SECRET_KEY` changed since the TOTP was added: restore the original key, or sign in with a security key then delete and re-register the TOTP, or `account reset --yes` |

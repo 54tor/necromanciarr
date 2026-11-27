@@ -95,7 +95,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 | `auth` | `loopback` | `ok` | écoute en boucle locale |
 | `auth` | `auth_token_set` | `ok` | écoute hors boucle locale avec jeton |
 | `auth` | `no_auth_token` | `fail` | écoute hors boucle locale sans jeton, que `serve` refusera : `necromanciarr api-key`, puis `.env` |
-| `auth` | `auth_public_url_unusable` | `warn` | `publicUrl` en https dont l'hôte est une adresse IP : une IP ne peut pas servir d'identifiant WebAuthn, les clés de sécurité et les clés d'accès sont indisponibles ; régler `publicUrl` sur le nom d'hôte https des utilisateurs |
+| `auth` | `auth_public_url_unusable` | `warn` | `publicUrl` en https dont l'hôte est une adresse IP ou se termine par un point : un tel hôte ne peut pas servir d'identifiant WebAuthn, les clés de sécurité et les clés d'accès sont indisponibles ; régler `publicUrl` sur le nom d'hôte https des utilisateurs |
 | `auth` | `auth_public_url_missing` | `warn` | écoute hors boucle locale sans `publicUrl` en https : le cookie de session n'est pas `Secure` et WebAuthn est désactivé ; régler `publicUrl` sur l'adresse https des utilisateurs |
 | `library-roots` | `no_library_root` | `warn` | `libraryRoots` vide |
 | `library-roots` | `root_not_found` | `fail` | montage absent ou chemin faux |
@@ -192,7 +192,7 @@ Chaque résultat porte un `code` stable en snake_case, identique en français et
 |---|---|
 | la connexion répond 429 `throttled` | trop d'échecs : le délai double de 1 s à 60 s ; attendre `Retry-After`, puis saisir les bons éléments (un succès remet le compteur à zéro) |
 | mot de passe ou clé perdus | `necromanciarr account reset --yes` (dans Docker : `docker compose exec necromanciarr necromanciarr account reset --yes`), puis créer le compte avec le jeton du `.env` ; `account status` dit d'abord ce qui existe |
-| « WebAuthn indisponible » à l'ajout d'une clé ou à la connexion | `publicUrl` doit être en https (ou `localhost`) et nommer un hôte, pas une adresse IP : régler `publicUrl` sur le nom https que les utilisateurs atteignent ; `doctor` le signale (`auth_public_url_missing`, `auth_public_url_unusable`) |
+| « WebAuthn indisponible » à l'ajout d'une clé ou à la connexion | `publicUrl` doit être en https (ou `localhost`) et nommer un hôte, pas une adresse IP ni un nom terminé par un point : régler `publicUrl` sur le nom https que les utilisateurs atteignent ; `doctor` le signale (`auth_public_url_missing`, `auth_public_url_unusable`) |
 | le TOTP refuse un code qui semble juste | l'horloge du serveur ou de l'appareil dérive de plus de 30 s (un pas de tolérance de chaque côté), ou le même code a déjà servi dans ce pas de 30 s : attendre le code suivant |
 | 403 `forbidden`, « unknown host header » | écoute en boucle locale derrière un proxy qui réécrit `Host` : régler `publicUrl` sur l'hôte public ou transmettre le `Host` d'origine |
 
@@ -323,4 +323,5 @@ Raison de coupure des commandes distantes d'un volume `sftp`, dans les capacité
 | `account_exists` | le compte existe déjà : se connecter ; en cas de perte, `account reset --yes` |
 | `webauthn_unavailable` | `publicUrl` en http hors `localhost`, ou hôte IP : voir « Connexion et compte » |
 | `invalid_code` | code TOTP faux ou déjà utilisé : voir « Connexion et compte » |
+| `totp_unavailable` | à la connexion, `NECROMANCIARR_SECRET_KEY` a été retirée alors qu'un TOTP existe (503) ; l'étape de connexion est consommée : restaurer `NECROMANCIARR_SECRET_KEY` et relancer, ou `account reset --yes` |
 | `totp_secret_unreadable` | `NECROMANCIARR_SECRET_KEY` a changé depuis l'ajout du TOTP : restaurer la clé d'origine, ou se connecter avec une clé de sécurité puis supprimer et réenregistrer le TOTP, ou `account reset --yes` |

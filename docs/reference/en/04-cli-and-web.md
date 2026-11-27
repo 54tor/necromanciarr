@@ -4,7 +4,7 @@ The CLI and the web call the same layer (`app.Service`). Every web action has it
 
 ## Commands
 
-Syntax: `necromanciarr <command> [arguments] [options]`. Positional arguments come **before** the options. Value options: `--name value` or `--name=value`. Any option the command does not know is passed on to the configuration (`--config-dir`, `--db-path`, `--listen`, `--language`, `--library-api`, `--read-bytes-per-second`, `--cross-seed-config`, `--cross-seed-mode`), which refuses what it does not know.
+Syntax: `necromanciarr <command> [arguments] [options]`. Positional arguments come **before** the options. Value options: `--name value` or `--name=value`. An option is recognised only in these forms, `--name` for a boolean option: a bare or single-dash token (`yes`, `-json`) is refused with exit 2. Any option the command does not know is passed on to the configuration (`--config-dir`, `--db-path`, `--listen`, `--language`, `--library-api`, `--read-bytes-per-second`, `--cross-seed-config`, `--cross-seed-mode`), which refuses what it does not know.
 
 | Command | Effect | Options |
 |---|---|---|

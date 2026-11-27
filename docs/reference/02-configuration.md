@@ -89,11 +89,11 @@ Dès qu'une clé de sécurité ou un TOTP existe, le mot de passe seul n'ouvre p
 
 ### Limiteur et mot de passe
 
-Le limiteur compte par compte, sans verrouillage définitif : 1 s d'attente après le premier échec, doublée à chaque échec, plafonnée à 60 s. Mot de passe, TOTP, clés, clés d'accès et saisies du mot de passe pour changer un réglage le partagent. Une tentative trop tôt reçoit 429 `throttled` avec `Retry-After` en secondes. Un mot de passe correct qui attend encore un second facteur ne remet pas le compteur à zéro ; seule une connexion réussie le fait. Un identifiant inconnu et un mauvais mot de passe donnent la même réponse (401 `invalid_credentials`) au même coût de calcul. Un mot de passe de plus de 128 octets est refusé avant tout calcul et n'est pas compté. `account reset` ne remet pas à zéro un délai en cours (60 s au plus).
+Le limiteur compte par compte, sans verrouillage définitif : 1 s d'attente après le premier échec, doublée à chaque échec, plafonnée à 60 s. Mot de passe, TOTP, clés, clés d'accès et saisies du mot de passe pour changer un réglage le partagent. Une tentative trop tôt reçoit 429 `throttled` avec `Retry-After` en secondes. Un mot de passe correct qui attend encore un second facteur ne remet pas le compteur à zéro ; seule une connexion réussie le fait. Un identifiant inconnu et un mauvais mot de passe donnent la même réponse (401 `invalid_credentials`) au même coût de calcul. Un mot de passe de plus de 128 octets est refusé avant tout calcul et n'est pas compté. `account reset` ne remet pas à zéro un délai en cours (60 s au plus). Le limiteur n'a qu'une clé et n'admet qu'un essai à la fois : un attaquant qui insiste sans relâche reprend la place à chaque fin de délai, si bien que les nouvelles connexions et les ressaisies du mot de passe pour un changement restent bloquées tant que l'attaque dure ; les sessions ouvertes continuent de fonctionner. Le remède est de bloquer l'attaquant au proxy.
 
 ### Sessions
 
-Une session dure 14 jours au plus et expire après 24 h sans requête. La base ne garde que l'empreinte du jeton. « Déconnecter partout » les révoque toutes ; changer le mot de passe révoque les autres sessions et garde la courante ; `account reset` les supprime toutes.
+Une session dure 14 jours au plus et expire après 24 h sans requête. La base ne garde que l'empreinte du jeton. « Déconnecter partout » les révoque toutes ; changer le mot de passe révoque les autres sessions et garde la courante ; `account reset` les supprime toutes. Une connexion en cours à ce moment-là, vérifiée contre l'ancien mot de passe ou l'ancien compte, n'ouvre pas de session : chaque session est liée au compte contre lequel la preuve a été vérifiée.
 
 ### État en mémoire et limites acceptées
 
@@ -101,13 +101,18 @@ Les billets de connexion et les états d'avant session (5 min), les états d'ajo
 
 Limites de la v1, acceptées :
 
-- Un processus unique est supposé : ces états ne sont pas partagés.
+- Un processus unique est supposé : ces états ne sont pas partagés. Un second `serve` sur la même base n'abîme rien (chaque écriture SQL est atomique), mais le limiteur est propre à chaque processus, donc chaque serveur multiplie le rythme des essais, et les étapes de connexion échouent si le navigateur ne reste pas sur le même serveur : ne pas lancer deux serveurs sur une même base.
 - `POST /api/auth/passkey/login/begin` est public et sans limiteur ; son flot est borné par sa propre table (qui n'évince jamais un second facteur en attente) et par les fins d'étape limitées.
-- Environ 1024 débuts de connexion par clé d'accès suivis de fins invalides remplissent pendant environ 6 min l'ensemble des nonces consommés ; le vrai utilisateur reçoit alors un échec compté par le limiteur.
+- Un flot de débuts de connexion par clé d'accès peut évincer de cette table les connexions par clé d'accès en attente : le vrai utilisateur reçoit alors `step_expired` et recommence. L'ensemble des nonces consommés, lui, ne se remplit pas en pratique : chaque fin passe par le limiteur et un nonce brûlé coûte un échec compté (1 s, 2 s… 60 s), quand un état vit environ 6 min ; un état au sceau faux est refusé avant de brûler quoi que ce soit.
 
 ### WebAuthn indisponible
 
 Si `publicUrl` passe en http (hors `localhost`) ou sur une adresse IP, les clés ne servent plus : la connexion par clé d'accès répond 503 `webauthn_unavailable`, et celle par mot de passe aussi quand les clés sont le seul second facteur. Avec un TOTP enregistré, la connexion continue par le code. Sinon, remettre `publicUrl` sur le nom https, ou lancer `necromanciarr account reset --yes` et recréer le compte.
+
+Deux autres cas :
+
+- Renommer l'hôte de `publicUrl` change le RP ID : chaque clé de sécurité et chaque clé d'accès enregistrée sous l'ancien nom échoue (le navigateur ne la propose plus, ou le serveur répond `invalid_assertion`). Revenir à l'ancien nom (`necromanciarr config set publicUrl '"https://old.example.com"'`), ou, si seuls les clés ou le TOTP sont perdus, `account reset --yes`.
+- `publicUrl` posée, un navigateur qui atteint directement le port en boucle locale (tunnel SSH vers `127.0.0.1`) reçoit 403 à chaque écriture, car l'`Origin` admise est celle de `publicUrl`. Passer par l'adresse de `publicUrl`, ou retirer le réglage le temps de l'accès (`necromanciarr config unset publicUrl`, puis relancer), sachant que les clés enregistrées sous le nom public ne servent pas sur `localhost`.
 
 ## Valeurs en base
 
