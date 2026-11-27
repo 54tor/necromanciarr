@@ -249,6 +249,10 @@ type service struct {
 	// loginTickets garde l'empreinte des tickets du second facteur ; burnedNonces les nonces des états déjà présentés.
 	loginTickets expiringEntries[loginTicket]
 	burnedNonces expiringEntries[struct{}]
+	// sealKey signe les états des cérémonies WebAuthn ; tirée une fois au premier usage.
+	sealKeyOnce sync.Once
+	sealKey     []byte
+	sealKeyErr  error
 }
 
 // New construit le Service sur ses dépendances.

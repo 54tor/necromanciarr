@@ -153,18 +153,26 @@ func (svc *service) newCeremony(options any, session *webauthn.SessionData, bind
 		Version: ceremonyEnvelopeVersion, Purpose: binding.purpose, Kind: binding.kind, Nonce: nonce,
 		TicketHash: binding.ticketHash, Session: *session,
 	}
-	state, err := json.Marshal(envelope)
+	payload, err := json.Marshal(envelope)
 	if err != nil {
 		return WebAuthnCeremony{}, fmt.Errorf("encode webauthn state: %w", err)
+	}
+	state, err := svc.sealState(payload)
+	if err != nil {
+		return WebAuthnCeremony{}, err
 	}
 	return WebAuthnCeremony{Options: optionsJSON, State: state}, nil
 }
 
-// openCeremony refuse un état illisible, d'un autre usage ou d'un autre ticket, expiré, lié à un autre RP ID ou une
+// openCeremony vérifie d'abord le sceau, puis refuse un état illisible, d'un autre usage ou d'un autre ticket, expiré, lié à un autre RP ID ou une
 // autre origine, puis brûle son nonce : un état ne sert qu'une fois, que la preuve qui suit réussisse ou non.
 func (svc *service) openCeremony(state []byte, binding ceremonyBinding, instance *webauthn.WebAuthn) (ceremonyEnvelope, error) {
+	payload, err := svc.unsealState(state)
+	if err != nil {
+		return ceremonyEnvelope{}, err
+	}
 	var envelope ceremonyEnvelope
-	if err := json.Unmarshal(state, &envelope); err != nil {
+	if err := json.Unmarshal(payload, &envelope); err != nil {
 		return ceremonyEnvelope{}, ErrInvalidAssertion
 	}
 	now := svc.now()
@@ -177,6 +185,7 @@ func (svc *service) openCeremony(state []byte, binding ceremonyBinding, instance
 	if !wellFormed || !live || !sameRelyingParty || !knownKind {
 		return ceremonyEnvelope{}, ErrInvalidAssertion
 	}
+	// Un ensemble plein refuse au lieu d'évincer : un nonce évincé serait rejouable tant que son état vit.
 	if !svc.burnedNonces.insertIfAbsent(string(envelope.Nonce), struct{}{}, expires.Add(burnedNonceMargin), now) {
 		return ceremonyEnvelope{}, ErrInvalidAssertion
 	}
@@ -249,11 +258,11 @@ func (svc *service) FinishWebAuthnRegistration(ctx context.Context, token string
 	if err != nil {
 		return err
 	}
-	envelope, err := svc.openCeremony(state, ceremonyBinding{purpose: purposeRegistration}, instance)
+	_, account, err := svc.openSession(ctx, token)
 	if err != nil {
 		return err
 	}
-	_, account, err := svc.openSession(ctx, token)
+	envelope, err := svc.openCeremony(state, ceremonyBinding{purpose: purposeRegistration}, instance)
 	if err != nil {
 		return err
 	}
@@ -412,7 +421,9 @@ func singleUserHandler(user *accountUser) webauthn.DiscoverableUserHandler {
 func (svc *service) finishAssertion(ctx context.Context, instance *webauthn.WebAuthn, attempt *throttledAttempt, step assertionStep, state []byte, body io.Reader, client ClientInfo) (SessionGrant, error) {
 	envelope, err := svc.openCeremony(state, step.binding, instance)
 	if err != nil {
-		attempt.fail()
+		if errors.Is(err, ErrInvalidAssertion) {
+			attempt.fail()
+		}
 		return SessionGrant{}, err
 	}
 	account, found, err := svc.deps.Store.Account(ctx)

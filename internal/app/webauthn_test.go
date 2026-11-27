@@ -168,10 +168,24 @@ func expectInvalidAssertion(t *testing.T, err error) {
 	}
 }
 
-func rewriteEnvelope(t *testing.T, state []byte, change func(envelope *ceremonyEnvelope)) []byte {
+// sealForTest scelle une charge avec la clé du service, pour atteindre les contrôles qui suivent le sceau.
+func sealForTest(t *testing.T, svc *service, payload []byte) []byte {
 	t.Helper()
+	sealed, err := svc.sealState(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sealed
+}
+
+func rewriteEnvelope(t *testing.T, svc *service, state []byte, change func(envelope *ceremonyEnvelope)) []byte {
+	t.Helper()
+	payload, err := svc.unsealState(state)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var envelope ceremonyEnvelope
-	if err := json.Unmarshal(state, &envelope); err != nil {
+	if err := json.Unmarshal(payload, &envelope); err != nil {
 		t.Fatal(err)
 	}
 	change(&envelope)
@@ -179,12 +193,12 @@ func rewriteEnvelope(t *testing.T, state []byte, change func(envelope *ceremonyE
 	if err != nil {
 		t.Fatal(err)
 	}
-	return rewritten
+	return sealForTest(t, svc, rewritten)
 }
 
-func rewriteState(t *testing.T, state []byte, change func(session *webauthn.SessionData)) []byte {
+func rewriteState(t *testing.T, svc *service, state []byte, change func(session *webauthn.SessionData)) []byte {
 	t.Helper()
-	return rewriteEnvelope(t, state, func(envelope *ceremonyEnvelope) { change(&envelope.Session) })
+	return rewriteEnvelope(t, svc, state, func(envelope *ceremonyEnvelope) { change(&envelope.Session) })
 }
 
 func TestWebAuthnRegistration_storesTheCredentialForTheAccount(t *testing.T) {
@@ -469,7 +483,7 @@ func TestPasskeyLogin_refusesAnAssertionWithoutUserVerification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	relaxedState := rewriteState(t, ceremony.State, func(session *webauthn.SessionData) { session.UserVerification = "preferred" })
+	relaxedState := rewriteState(t, fixture.service, ceremony.State, func(session *webauthn.SessionData) { session.UserVerification = "preferred" })
 	body := key.assert(t, ceremony.Options, testRelyingParty)
 	_, err = fixture.service.FinishPasskeyLogin(ctx, relaxedState, strings.NewReader(body), testClient)
 	expectInvalidAssertion(t, err)
@@ -643,15 +657,18 @@ func TestWebAuthnRegistration_aTamperedStateAReplayOrADuplicateKeyStoresNothing(
 		body  string
 	}{
 		{
-			rewriteState(t, ceremony.State, func(session *webauthn.SessionData) { session.Origin = evilOrigin.Origin }),
+			rewriteState(t, fixture.service, ceremony.State, func(session *webauthn.SessionData) { session.Origin = evilOrigin.Origin }),
 			key.attestFor(t, ceremony.Options, evilOrigin),
 		},
 		{
-			rewriteState(t, ceremony.State, func(session *webauthn.SessionData) { session.RelyingPartyID = evilRelyingParty.ID }),
+			rewriteState(t, fixture.service, ceremony.State, func(session *webauthn.SessionData) { session.RelyingPartyID = evilRelyingParty.ID }),
 			key.attestFor(t, ceremony.Options, evilRelyingParty),
 		},
-		{[]byte("not json"), key.attest(t, ceremony.Options)},
-		{[]byte(`{"v":1,"purpose":"registration","nonce":null,"session":null}`), key.attest(t, ceremony.Options)},
+		{sealForTest(t, fixture.service, []byte("not json")), key.attest(t, ceremony.Options)},
+		{
+			sealForTest(t, fixture.service, []byte(`{"v":1,"purpose":"registration","nonce":null,"session":null}`)),
+			key.attest(t, ceremony.Options),
+		},
 	}
 	for _, tampered := range tamperedCeremonies {
 		err := fixture.service.FinishWebAuthnRegistration(ctx, fixture.grant.Token, tampered.state, testKeyName, strings.NewReader(tampered.body))

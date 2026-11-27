@@ -17,6 +17,8 @@ func TestPublicURL_acceptsAnHttpsOriginAndStripsATrailingSlash(t *testing.T) {
 		{"custom port kept", `{"publicUrl": "https://necro.example.com:8443"}`, "https://necro.example.com:8443"},
 		{"upper-case scheme", `{"publicUrl": "HTTPS://necro.example.com"}`, "https://necro.example.com"},
 		{"ipv6 host", `{"publicUrl": "http://[::1]:8787"}`, "http://[::1]:8787"},
+		{"trailing-dot host", `{"publicUrl": "https://Necro.Example.com.:8443"}`, "https://necro.example.com:8443"},
+		{"trailing-dot localhost", `{"publicUrl": "http://localhost.:8787"}`, "http://localhost:8787"},
 		{"unset", `{}`, ""},
 	}
 	for _, testCase := range testCases {
@@ -105,13 +107,25 @@ func TestWebAuthnOrigin_availableOnLocalhostOverHttp(t *testing.T) {
 }
 
 func TestWebAuthnOrigin_unavailableWhenTheHostIsAnIPAddress(t *testing.T) {
-	for _, publicURL := range []string{"http://127.0.0.1:9000", "http://[::1]:9000", "https://192.0.2.1", "https://[2001:db8::1]:8443"} {
+	for _, publicURL := range []string{"http://127.0.0.1:9000", "http://[::1]:9000", "https://192.0.2.1", "https://[2001:db8::1]:8443", "https://[fe80::1%25en0]:8443"} {
 		loadedConfig := Config{ListenAddr: "127.0.0.1:8787", PublicURL: publicURL}
 
 		origin, rpID, available := loadedConfig.WebAuthnOrigin()
 
 		if available || origin != "" || rpID != "" {
 			t.Fatalf("%s: valeurObtenue (%q, %q, %v), valeurAttendue unavailable, an IP address cannot be an RP ID", publicURL, origin, rpID, available)
+		}
+	}
+}
+
+func TestWebAuthnOrigin_unavailableForAnUnnormalisedTrailingDotHostWhateverTheScheme(t *testing.T) {
+	for _, publicURL := range []string{"http://localhost.:8787", "https://localhost.", "https://necro.example.com."} {
+		loadedConfig := Config{ListenAddr: "127.0.0.1:8787", PublicURL: publicURL}
+
+		origin, rpID, available := loadedConfig.WebAuthnOrigin()
+
+		if available || origin != "" || rpID != "" {
+			t.Fatalf("%s: valeurObtenue (%q, %q, %v), valeurAttendue unavailable", publicURL, origin, rpID, available)
 		}
 	}
 }

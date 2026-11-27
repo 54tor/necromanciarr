@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"net"
+	"net/netip"
 	"net/url"
 	"strings"
 )
@@ -17,7 +18,8 @@ const (
 	errPublicURLShape = settingPublicURL + ": expected http(s)://host[:port] without path, query, fragment or credentials"
 )
 
-// normalizePublicURL rend l'origine http(s)://hôte[:port] en minuscules, sans barre finale ni port par défaut.
+// normalizePublicURL rend l'origine http(s)://hôte[:port] en minuscules, sans barre finale, point final d'hôte ni port
+// par défaut.
 func normalizePublicURL(rawURL string) (string, error) {
 	if rawURL == "" {
 		return "", nil
@@ -28,7 +30,7 @@ func normalizePublicURL(rawURL string) (string, error) {
 	}
 	hasExtraParts := parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.ForceQuery ||
 		(parsedURL.Path != "" && parsedURL.Path != "/")
-	if hasExtraParts || parsedURL.Hostname() == "" {
+	if hasExtraParts || strings.TrimSuffix(parsedURL.Hostname(), ".") == "" {
 		return "", errors.New(errPublicURLShape)
 	}
 	return originOfURL(parsedURL), nil
@@ -36,7 +38,7 @@ func normalizePublicURL(rawURL string) (string, error) {
 
 func originOfURL(parsedURL *url.URL) string {
 	scheme := strings.ToLower(parsedURL.Scheme)
-	host := strings.ToLower(parsedURL.Hostname())
+	host := strings.TrimSuffix(strings.ToLower(parsedURL.Hostname()), ".")
 	if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
@@ -49,7 +51,8 @@ func originOfURL(parsedURL *url.URL) string {
 }
 
 // WebAuthnOrigin rend l'origine et le RP ID de WebAuthn. Sans publicUrl, une écoute en boucle locale garde la
-// première utilisation possible sur http://localhost:<port>. Une adresse IP ne peut pas servir de RP ID.
+// première utilisation possible sur http://localhost:<port>. Une adresse IP (zone comprise) ne peut pas servir de RP ID ;
+// un hôte brut à point final est refusé quel que soit le schéma.
 func (loadedConfig Config) WebAuthnOrigin() (origin string, rpID string, available bool) {
 	if loadedConfig.PublicURL == "" {
 		return loopbackListenOrigin(loadedConfig.ListenAddr)
@@ -59,8 +62,10 @@ func (loadedConfig Config) WebAuthnOrigin() (origin string, rpID string, availab
 		return "", "", false
 	}
 	host := parsedURL.Hostname()
-	isIPAddress := net.ParseIP(host) != nil
-	if isIPAddress || (parsedURL.Scheme != schemeHTTPS && host != localhostName) {
+	_, notAnIPAddress := netip.ParseAddr(host)
+	isIPAddress := notAnIPAddress == nil
+	hasTrailingDot := strings.HasSuffix(host, ".")
+	if isIPAddress || hasTrailingDot || (parsedURL.Scheme != schemeHTTPS && host != localhostName) {
 		return "", "", false
 	}
 	return loadedConfig.PublicURL, host, true

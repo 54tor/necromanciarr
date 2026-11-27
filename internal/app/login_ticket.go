@@ -18,22 +18,21 @@ const (
 	burnedNonceMargin   = time.Minute
 )
 
-var (
-	// ErrLoginTicketInvalid : ticket du second facteur absent, expiré, déjà utilisé ou d'une autre version du compte ;
-	// il faut repasser par le mot de passe.
-	ErrLoginTicketInvalid  = errors.New("app: sign-in step expired, enter the password again")
-	errTooManyPendingSteps = errors.New("app: too many pending sign-in steps, retry later")
-)
+// ErrLoginTicketInvalid : ticket du second facteur absent, expiré, déjà utilisé ou d'une autre version du compte ;
+// il faut repasser par le mot de passe.
+var ErrLoginTicketInvalid = errors.New("app: sign-in step expired, enter the password again")
 
 type expiringEntry[Value any] struct {
 	value     Value
 	expiresAt time.Time
+	sequence  uint64
 }
 
 // expiringEntries est un ensemble borné à durée de vie, sûr sous accès concurrents et à sa valeur zéro.
 type expiringEntries[Value any] struct {
-	mutex   sync.Mutex
-	entries map[string]expiringEntry[Value]
+	mutex        sync.Mutex
+	entries      map[string]expiringEntry[Value]
+	nextSequence uint64
 }
 
 // insertIfAbsent ajoute la clé si elle est absente ou expirée ; faux pour un doublon vivant ou un ensemble plein.
@@ -52,8 +51,39 @@ func (set *expiringEntries[Value]) insertIfAbsent(key string, value Value, expir
 	if len(set.entries) >= maxExpiringEntries {
 		return false
 	}
-	set.entries[key] = expiringEntry[Value]{value: value, expiresAt: expiresAt}
+	set.put(key, value, expiresAt)
 	return true
+}
+
+// insertEvictingOldest ajoute la clé ; un ensemble plein perd d'abord ses entrées expirées, puis la plus ancienne.
+func (set *expiringEntries[Value]) insertEvictingOldest(key string, value Value, expiresAt, now time.Time) {
+	set.mutex.Lock()
+	defer set.mutex.Unlock()
+	if set.entries == nil {
+		set.entries = map[string]expiringEntry[Value]{}
+	}
+	if len(set.entries) >= maxExpiringEntries {
+		set.purgeExpired(now)
+	}
+	if len(set.entries) >= maxExpiringEntries {
+		set.evictOldest()
+	}
+	set.put(key, value, expiresAt)
+}
+
+func (set *expiringEntries[Value]) put(key string, value Value, expiresAt time.Time) {
+	set.nextSequence++
+	set.entries[key] = expiringEntry[Value]{value: value, expiresAt: expiresAt, sequence: set.nextSequence}
+}
+
+func (set *expiringEntries[Value]) evictOldest() {
+	oldestKey, oldestSequence, found := "", uint64(0), false
+	for key, entry := range set.entries {
+		if !found || entry.sequence < oldestSequence {
+			oldestKey, oldestSequence, found = key, entry.sequence, true
+		}
+	}
+	delete(set.entries, oldestKey)
 }
 
 func (set *expiringEntries[Value]) purgeExpired(now time.Time) {
@@ -104,9 +134,7 @@ func (svc *service) issueLoginTicket(ctx context.Context) (string, error) {
 	}
 	now := svc.now()
 	entry := loginTicket{accountHandle: accountUserHandle(account), passwordFingerprint: passwordFingerprint(account)}
-	if !svc.loginTickets.insertIfAbsent(ticketHash, entry, now.Add(loginTicketLifetime), now) {
-		return "", errTooManyPendingSteps
-	}
+	svc.loginTickets.insertEvictingOldest(ticketHash, entry, now.Add(loginTicketLifetime), now)
 	return ticket, nil
 }
 

@@ -189,7 +189,7 @@ func TestStateEnvelope_aLoginStateCannotFinishARegistrationAndViceVersa(t *testi
 	attacker := newVirtualKey(virtualwebauthn.AuthenticatorOptions{})
 	attestationOverTheLoginChallenge := virtualwebauthn.CreateAttestationResponse(testRelyingParty, attacker.authenticator,
 		attacker.credential, virtualwebauthn.AttestationOptions{Challenge: loginOptions.Challenge, RelyingPartyID: testRelyingParty.ID})
-	loginStateWithoutTicket := rewriteEnvelope(t, loginCeremony.State, func(envelope *ceremonyEnvelope) {
+	loginStateWithoutTicket := rewriteEnvelope(t, fixture.service, loginCeremony.State, func(envelope *ceremonyEnvelope) {
 		envelope.TicketHash, envelope.Kind = "", credentialKindSecondFactor
 		envelope.Session.CredParams = webauthn.CredentialParametersDefault()
 	})
@@ -221,7 +221,7 @@ func TestStateEnvelope_refusesAZeroOrPastExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := key.assert(t, ceremony.Options, testRelyingParty)
-	zeroExpiry := rewriteState(t, ceremony.State, func(session *webauthn.SessionData) { session.Expires = time.Time{} })
+	zeroExpiry := rewriteState(t, fixture.service, ceremony.State, func(session *webauthn.SessionData) { session.Expires = time.Time{} })
 	_, err = fixture.service.FinishPasskeyLogin(ctx, zeroExpiry, strings.NewReader(body), testClient)
 	expectInvalidAssertion(t, err)
 
