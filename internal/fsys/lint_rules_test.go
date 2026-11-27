@@ -77,6 +77,8 @@ var forbidigoOnly = []string{"forbidigo"}
 var expectedExclusionRules = []exclusionRule{
 	{Path: `^internal/(fsys/(local|fsystest|sftpfs/sftptest)|store)/`, Linters: forbidigoOnly, Text: "write to disk only through"},
 	{Path: `^internal/fsys/sftpfs/trust\.go$`, Linters: forbidigoOnly, Text: "write to disk only through"},
+	{Path: `^internal/config/bootstrap\.go$`, Linters: forbidigoOnly, Text: "write to disk only through"},
+	{Path: `^internal/app/setup\.go$`, Linters: forbidigoOnly, Text: "write to disk only through"},
 	{Path: `^(cmd/necromanciarr|internal/(app|config|crossseed|dedupe|doctor|hashsource|library|linker|pipeline|repair|web))/[^/]+_test\.go$`, Linters: forbidigoOnly, Text: "write to disk only through"},
 	{Path: `^internal/fsys/`, Linters: forbidigoOnly, Text: "only fsys.Registry.WriteRoot"},
 	{Path: `^internal/pipeline/registry_test\.go$`, Linters: forbidigoOnly, Text: "only fsys.Registry.WriteRoot"},
