@@ -25,7 +25,7 @@ type FormKey =
   | 'indexerUrl'
   | 'indexerApiKey'
   | 'indexerTracker'
-  | 'prowlarr'
+  | 'healthApiUrl'
 
 interface FieldDefinition {
   name: FormKey
@@ -72,7 +72,7 @@ const FIELDS: Record<SetupStepId, () => FieldDefinition[]> = {
     },
     { name: 'indexerApiKey', control: 'password' },
     { name: 'indexerTracker', control: 'text' },
-    { name: 'prowlarr', control: 'text', placeholder: 'http://prowlarr:9696?apikey=KEY' },
+    { name: 'healthApiUrl', control: 'text', placeholder: 'http://prowlarr:9696?apikey=KEY' },
   ],
 }
 

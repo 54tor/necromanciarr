@@ -438,7 +438,9 @@ describe('SetupView indexers step', () => {
     await goToIndexersStep(wrapper)
 
     expect(wrapper.get('[data-testid="step-indicator"]').text()).toContain('5')
-    const gotHelps = wrapper.findAll('[data-testid^="help-indexer"], [data-testid="help-prowlarr"]')
+    const gotHelps = wrapper.findAll(
+      '[data-testid^="help-indexer"], [data-testid="help-healthApiUrl"]',
+    )
     expect(gotHelps).toHaveLength(5)
     gotHelps.forEach((help) => expect(help.text()).not.toBe(''))
     expect(wrapper.get('[data-testid="field-indexerApiKey"]').attributes('type')).toBe('password')
@@ -521,13 +523,13 @@ describe('SetupView indexers step', () => {
     await flushPromises()
     await goToIndexersStep(wrapper)
     await fillIndexer(wrapper)
-    await fill(wrapper, 'field-prowlarr', 'http://prowlarr:9696?apikey=dummy-api-key')
+    await fill(wrapper, 'field-healthApiUrl', 'http://prowlarr:9696?apikey=dummy-api-key')
 
     await testAndSaveIndexer(wrapper)
 
     const gotWrite = calls.find((call) => call.path === '/api/config/settings/prowlarr')
     expect(gotWrite?.body).toEqual({ value: 'http://prowlarr:9696?apikey=dummy-api-key' })
-    expect(useSetup().form.prowlarr).toBe('')
+    expect(useSetup().form.healthApiUrl).toBe('')
   })
 
   it('SetupView_addAnotherIndexerResetsTheFormAndContinueShowsTheFinalScreen', async () => {

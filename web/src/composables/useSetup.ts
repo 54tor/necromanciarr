@@ -33,7 +33,7 @@ interface SetupForm {
   indexerUrl: string
   indexerApiKey: string
   indexerTracker: string
-  prowlarr: string
+  healthApiUrl: string
 }
 
 const emptyForm = (): SetupForm => ({
@@ -53,7 +53,7 @@ const emptyForm = (): SetupForm => ({
   indexerUrl: '',
   indexerApiKey: '',
   indexerTracker: '',
-  prowlarr: '',
+  healthApiUrl: '',
 })
 
 const snapshot = ref<ConfigSnapshot>()
@@ -84,7 +84,7 @@ function clearSecrets(): void {
   form.libraryToken = ''
   form.trackerAnnounce = ''
   form.indexerApiKey = ''
-  form.prowlarr = ''
+  form.healthApiUrl = ''
 }
 
 const TESTED_FIELDS = (): string[] => [
@@ -278,7 +278,7 @@ export function useSetup() {
     })
     if (!(await writeItem('torznab', name, element))) return false
     if (!(await appendToStoredSourceOrder(name))) return false
-    return form.prowlarr.trim() === '' || writeSetting('prowlarr', form.prowlarr.trim())
+    return form.healthApiUrl.trim() === '' || writeSetting('prowlarr', form.healthApiUrl.trim())
   }
 
   const SAVERS: Record<SetupStepId, () => Promise<boolean>> = {
@@ -314,7 +314,7 @@ export function useSetup() {
       form.indexerUrl = ''
       form.indexerApiKey = ''
       form.indexerTracker = ''
-      form.prowlarr = ''
+      form.healthApiUrl = ''
     } else {
       form.arrKind = 'radarr'
       form.arrUrl = ''

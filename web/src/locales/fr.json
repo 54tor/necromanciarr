@@ -885,7 +885,7 @@
       "indexerUrl": "Adresse Torznab",
       "indexerApiKey": "Clé d’API de l’indexeur",
       "indexerTracker": "Tracker de l’indexeur",
-      "prowlarr": "URL de l’API Prowlarr (diagnostic seulement)"
+      "healthApiUrl": "URL de l’API Prowlarr (diagnostic seulement)"
     },
     "help": {
       "arrKind": "Le service à connecter. Après l’enregistrement, « Ajouter un autre service » permet de configurer l’autre.",
@@ -904,7 +904,7 @@
       "indexerUrl": "Flux Torznab de l’indexeur, par exemple https://prowlarr.example.com:9696/7/api, sans clé ni paramètre.",
       "indexerApiKey": "Clé d’API de Prowlarr ou de l’indexeur ; elle est scellée en base.",
       "indexerTracker": "Facultatif : le nom du tracker tel que le fournisseur de bibliothèque l’écrit.",
-      "prowlarr": "Facultatif : adresse de l’API de Prowlarr avec ?apikey=…, lue seulement par le diagnostic, jamais pour chercher."
+      "healthApiUrl": "Facultatif : adresse de l’API de Prowlarr avec ?apikey=…, lue seulement par le diagnostic, jamais pour chercher."
     },
     "continue": "Continuer",
     "addAnother": "Ajouter un autre service",
