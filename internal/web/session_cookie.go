@@ -54,32 +54,32 @@ func (handler *Handler) preAuthCookieName() string {
 }
 
 func (handler *Handler) baseCookie(name, value, path string) *http.Cookie {
-	return &http.Cookie{
+	return &http.Cookie{ // #nosec G124 -- Secure suit publicUrl (https) ; false seulement sur http en boucle locale, voir 02-configuration
 		Name: name, Value: value, Path: path, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: handler.secureCookies(),
 	}
 }
 
 func (handler *Handler) setSessionCookie(writer http.ResponseWriter, grant app.SessionGrant) {
-	cookie := handler.baseCookie(handler.sessionCookieName(), grant.Token, sessionCookiePath)
+	cookie := handler.baseCookie(handler.sessionCookieName(), grant.Token, sessionCookiePath) // #nosec G124 -- Secure suit publicUrl (https) ; false seulement sur http en boucle locale, voir 02-configuration
 	cookie.Expires = grant.ExpiresAt.UTC()
 	cookie.MaxAge = wholeSecondsUntil(grant.ExpiresAt, handler.clock())
 	http.SetCookie(writer, cookie)
 }
 
 func (handler *Handler) clearSessionCookie(writer http.ResponseWriter) {
-	cookie := handler.baseCookie(handler.sessionCookieName(), "", sessionCookiePath)
+	cookie := handler.baseCookie(handler.sessionCookieName(), "", sessionCookiePath) // #nosec G124 -- Secure suit publicUrl (https) ; false seulement sur http en boucle locale, voir 02-configuration
 	cookie.MaxAge = -1
 	http.SetCookie(writer, cookie)
 }
 
 func (handler *Handler) setPreAuthCookie(writer http.ResponseWriter, id string) {
-	cookie := handler.baseCookie(handler.preAuthCookieName(), id, preAuthCookiePath)
+	cookie := handler.baseCookie(handler.preAuthCookieName(), id, preAuthCookiePath) // #nosec G124 -- Secure suit publicUrl (https) ; false seulement sur http en boucle locale, voir 02-configuration
 	cookie.MaxAge = int(preAuthLifetime / time.Second)
 	http.SetCookie(writer, cookie)
 }
 
 func (handler *Handler) clearPreAuthCookie(writer http.ResponseWriter) {
-	cookie := handler.baseCookie(handler.preAuthCookieName(), "", preAuthCookiePath)
+	cookie := handler.baseCookie(handler.preAuthCookieName(), "", preAuthCookiePath) // #nosec G124 -- Secure suit publicUrl (https) ; false seulement sur http en boucle locale, voir 02-configuration
 	cookie.MaxAge = -1
 	http.SetCookie(writer, cookie)
 }

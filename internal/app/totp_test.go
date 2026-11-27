@@ -730,3 +730,20 @@ func TestTOTP_aFreshServiceRefusesAnEarlierSetupStateButReadsTheStoredFactor(t *
 		t.Fatalf("valeurAttendue une session avec le facteur enregistré, valeurObtenue %v", err)
 	}
 }
+
+func TestHighestMatchingStep_anEpochClockSkipsTheNegativeCandidateAndMatchesStepZero(t *testing.T) {
+	epoch := time.Unix(0, 0)
+	const secret = "JBSWY3DPEHPK3PXP"
+	expectations := []struct {
+		step               int64
+		pasAttendu         int64
+		correspondAttendue bool
+	}{{0, 0, true}, {1, 1, true}, {2, 0, false}}
+	for _, expectation := range expectations {
+		pasObtenu, correspondObtenue := highestMatchingStep(secret, totpCodeAt(t, secret, expectation.step), epoch)
+
+		if pasObtenu != expectation.pasAttendu || correspondObtenue != expectation.correspondAttendue {
+			t.Fatalf("pas %d : valeurAttendue (%d,%v), valeurObtenue (%d,%v)", expectation.step, expectation.pasAttendu, expectation.correspondAttendue, pasObtenu, correspondObtenue)
+		}
+	}
+}

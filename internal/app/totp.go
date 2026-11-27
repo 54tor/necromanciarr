@@ -84,7 +84,10 @@ func highestMatchingStep(secret, code string, now time.Time) (int64, bool) {
 	matchedStep, matched := int64(0), false
 	for offset := int64(-totpSkewSteps); offset <= totpSkewSteps; offset++ {
 		candidateStep := currentStep + offset
-		expected, err := hotp.GenerateCodeCustom(secret, uint64(candidateStep), totpCodeOptions)
+		if candidateStep < 0 {
+			continue
+		}
+		expected, err := hotp.GenerateCodeCustom(secret, uint64(candidateStep), totpCodeOptions) // #nosec G115 -- candidateStep >= 0 vérifié juste au-dessus
 		if err != nil {
 			return 0, false
 		}
