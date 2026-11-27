@@ -199,8 +199,10 @@ func (collected *findings) result() Result {
 	if code == "" {
 		code = CodeOK
 	}
-	return Result{Status: collected.status, Code: code, Details: collected.details, Hints: collected.hints,
-		FixID: collected.fixID, FixTarget: collected.fixTarget}
+	return Result{
+		Status: collected.status, Code: code, Details: collected.details, Hints: collected.hints,
+		FixID: collected.fixID, FixTarget: collected.fixTarget,
+	}
 }
 
 // checkConfig rend l'état de la configuration.

@@ -13,7 +13,7 @@ import (
 	"necromanciarr/internal/doctor"
 )
 
-// Types de service que l'assistant de premier démarrage sait tester.
+// Types de service que l'assistant de premier lancement sait tester.
 const (
 	candidateKindRadarr      = "radarr"
 	candidateKindSonarr      = "sonarr"
@@ -112,7 +112,7 @@ func (svc *service) isUnderLibraryRoot(target string) bool {
 	})
 }
 
-// resolveThroughExistingAncestor suit les liens symboliques du plus proche ancêtre existant, puis rajoute la
+// resolveThroughExistingAncestor suit les liens symboliques du plus proche ancêtre présent sur le disque, puis rajoute la
 // partie absente : c'est là que MkdirAll écrirait.
 func resolveThroughExistingAncestor(path string) string {
 	cleaned := filepath.Clean(path)

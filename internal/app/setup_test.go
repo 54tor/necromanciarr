@@ -16,7 +16,6 @@ const candidateAPIKey = "candidate-key-123"
 type countingPinger struct {
 	err   error
 	calls *int
-	seen  *config.ArrService
 }
 
 func (pinger countingPinger) Ping(context.Context) error {

@@ -74,8 +74,7 @@ func TestServeBootstrap_unwritableConfigDirFailsWithActionableMessage(t *testing
 	t.Cleanup(func() { _ = os.Chmod(configDir, 0o700) })
 	useServeHarness(t)
 
-	var result serveOutcome
-	result = <-startServe(context.Background(), []string{"--config-dir", configDir, "--language", "en"})
+	result := <-startServe(context.Background(), []string{"--config-dir", configDir, "--language", "en"})
 
 	if result.exitCode == successExitCode || !strings.Contains(result.stderr, configDir) || !strings.Contains(result.stderr, "NECROMANCIARR_AUTH_TOKEN") {
 		t.Fatalf("valeurObtenue %+v, valeurAttendue a failure naming the folder and NECROMANCIARR_AUTH_TOKEN", result)

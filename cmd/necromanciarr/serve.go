@@ -71,26 +71,26 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	return successExitCode
 }
 
-// bootstrapSecrets génère les secrets absents au premier démarrage ; le jeton neuf n'est écrit que sur stderr, une fois,
+// bootstrapSecrets génère les secrets absents au premier lancement ; le jeton neuf n'est écrit que sur stderr, une fois,
 // hors de web.LogLine dont le masquage l'effacerait.
 func (out printer) bootstrapSecrets(args []string) (int, bool) {
 	result, err := config.EnsureBootstrap(args, lookupEnv, defaultConfigDir())
 	if notWritable, isNotWritable := errors.AsType[*config.NotWritableError](err); isNotWritable {
-		fmt.Fprintln(out.stderr, "error:", out.translator.Text(i18n.KeyCLIBootstrapNotWritable, textParams("dir", notWritable.Dir)))
+		_, _ = fmt.Fprintln(out.stderr, "error:", out.translator.Text(i18n.KeyCLIBootstrapNotWritable, textParams("dir", notWritable.Dir)))
 		return failureExitCode, true
 	}
 	if errors.Is(err, config.ErrBootstrapWouldOrphanSecrets) {
-		fmt.Fprintln(out.stderr, "error:", out.translator.Text(i18n.KeyCLIBootstrapOrphanSecrets, nil))
+		_, _ = fmt.Fprintln(out.stderr, "error:", out.translator.Text(i18n.KeyCLIBootstrapOrphanSecrets, nil))
 		return failureExitCode, true
 	}
 	if err != nil {
 		return 0, false
 	}
 	if len(result.Created) > 0 {
-		fmt.Fprintln(out.stderr, out.translator.Text(i18n.KeyCLIBootstrapCreated, textParams("names", strings.Join(result.Created, ", "))))
+		_, _ = fmt.Fprintln(out.stderr, out.translator.Text(i18n.KeyCLIBootstrapCreated, textParams("names", strings.Join(result.Created, ", "))))
 	}
 	if result.AuthToken != "" {
-		fmt.Fprintln(out.stderr, out.translator.Text(i18n.KeyCLIBootstrapToken, textParams("token", result.AuthToken)))
+		_, _ = fmt.Fprintln(out.stderr, out.translator.Text(i18n.KeyCLIBootstrapToken, textParams("token", result.AuthToken)))
 	}
 	return 0, false
 }
