@@ -18,6 +18,20 @@ var (
 	ErrBootstrapWouldOrphanSecrets = errors.New("bootstrap: database exists but " + envSecretKey + " is missing, a new key would make stored secrets unreadable")
 )
 
+// NotWritableError porte le dossier de configuration où le .env n'a pas pu être écrit.
+type NotWritableError struct {
+	Dir   string
+	Cause error
+}
+
+func (notWritable *NotWritableError) Error() string {
+	return fmt.Sprintf("%s: %s (%s, %s): %v", ErrBootstrapNotWritable, notWritable.Dir, envSecretKey, envAuthToken, notWritable.Cause)
+}
+
+func (notWritable *NotWritableError) Is(target error) bool { return target == ErrBootstrapNotWritable }
+
+func (notWritable *NotWritableError) Unwrap() error { return notWritable.Cause }
+
 var bootstrapLock sync.Mutex
 
 type BootstrapResult struct {
@@ -84,7 +98,7 @@ func writeMissingSecrets(configDir string, needKey, needToken bool) (BootstrapRe
 		result.AuthToken = authToken
 	}
 	if err := appendToDotEnv(filepath.Join(configDir, dotEnvFileName), lines.String()); err != nil {
-		return BootstrapResult{}, fmt.Errorf("%w: %s (%s, %s): %w", ErrBootstrapNotWritable, configDir, envSecretKey, envAuthToken, err)
+		return BootstrapResult{}, &NotWritableError{Dir: configDir, Cause: err}
 	}
 	return result, nil
 }

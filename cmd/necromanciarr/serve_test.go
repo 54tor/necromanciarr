@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -90,12 +92,30 @@ func waitOutcome(t *testing.T, outcome <-chan serveOutcome) serveOutcome {
 	}
 }
 
+func configDirWithSecrets(t *testing.T) string {
+	t.Helper()
+	configDir := t.TempDir()
+	secretKey, err := config.GenerateSecretKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	authToken, err := config.GenerateAuthToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := "NECROMANCIARR_SECRET_KEY=" + secretKey + "\nNECROMANCIARR_AUTH_TOKEN=" + authToken + "\n"
+	if err := os.WriteFile(filepath.Join(configDir, ".env"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return configDir
+}
+
 func TestServe_startsAndStopsOnContextCancel(t *testing.T) {
 	harness := useServeHarness(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	outcome := startServe(ctx, []string{"--config-dir", t.TempDir(), "--language", "en"})
+	outcome := startServe(ctx, []string{"--config-dir", configDirWithSecrets(t), "--language", "en"})
 	address := <-harness.addresses
 	gotStatus, gotBody := probe(t, address)
 	cancel()
@@ -142,7 +162,12 @@ func TestServe_warnsWhenListeningOutsideLoopbackWithoutPrintingTheToken(t *testi
 func TestServe_refusesANonLoopbackListenWithoutToken(t *testing.T) {
 	useServeHarness(t)
 	previousLookup := lookupEnv
-	lookupEnv = func(string) (string, bool) { return "", false }
+	lookupEnv = func(name string) (string, bool) {
+		if name == "NECROMANCIARR_AUTH_TOKEN" {
+			return "too-short", true
+		}
+		return "", false
+	}
 	t.Cleanup(func() { lookupEnv = previousLookup })
 	var stdout, stderr bytes.Buffer
 

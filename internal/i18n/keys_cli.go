@@ -110,6 +110,10 @@ const (
 	KeyCLIUsageExitCodes         Key = "cli.usage.exit_codes"
 	KeyCLIUsageAllAccepted       Key = "cli.usage.all_accepted"
 	KeyCLIHealthcheckOK          Key = "cli.healthcheck.ok"
+	KeyCLIBootstrapCreated       Key = "cli.bootstrap.created"
+	KeyCLIBootstrapToken         Key = "cli.bootstrap.token"
+	KeyCLIBootstrapNotWritable   Key = "cli.bootstrap.not_writable"
+	KeyCLIBootstrapOrphanSecrets Key = "cli.bootstrap.orphan_secrets"
 )
 
 var cliKeys = []Key{
@@ -137,4 +141,5 @@ var cliKeys = []Key{
 	KeyCLISummaryRepairScan, KeyCLISummaryLinksList, KeyCLISummaryDoctor, KeyCLISummarySourcesList, KeyCLISummarySourcesTest,
 	KeyCLIUsageHeader, KeyCLIUsageServe, KeyCLIUsageHealthcheck, KeyCLIUsageAPIKey,
 	KeyCLIUsageConfigCheck, KeyCLIUsageExitCodes, KeyCLIUsageAllAccepted, KeyCLIHealthcheckOK,
+	KeyCLIBootstrapCreated, KeyCLIBootstrapToken, KeyCLIBootstrapNotWritable, KeyCLIBootstrapOrphanSecrets,
 }

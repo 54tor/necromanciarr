@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"necromanciarr/internal/config"
@@ -32,6 +33,9 @@ var listen = func(address string) (net.Listener, error) { return net.Listen("tcp
 // runServe sert l'API et l'interface jusqu'au premier SIGINT ou SIGTERM (annulation de ctx), puis s'arrête proprement.
 func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	out := newPrinter(stdout, stderr, args)
+	if exitCode, failed := out.bootstrapSecrets(args); failed {
+		return exitCode
+	}
 	settings, err := loadConfig(args)
 	if err != nil {
 		return out.failure(err)
@@ -65,6 +69,30 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		return out.failure(err)
 	}
 	return successExitCode
+}
+
+// bootstrapSecrets génère les secrets absents au premier démarrage ; le jeton neuf n'est écrit que sur stderr, une fois,
+// hors de web.LogLine dont le masquage l'effacerait.
+func (out printer) bootstrapSecrets(args []string) (int, bool) {
+	result, err := config.EnsureBootstrap(args, lookupEnv, defaultConfigDir())
+	if notWritable, isNotWritable := errors.AsType[*config.NotWritableError](err); isNotWritable {
+		fmt.Fprintln(out.stderr, "error:", out.translator.Text(i18n.KeyCLIBootstrapNotWritable, textParams("dir", notWritable.Dir)))
+		return failureExitCode, true
+	}
+	if errors.Is(err, config.ErrBootstrapWouldOrphanSecrets) {
+		fmt.Fprintln(out.stderr, "error:", out.translator.Text(i18n.KeyCLIBootstrapOrphanSecrets, nil))
+		return failureExitCode, true
+	}
+	if err != nil {
+		return 0, false
+	}
+	if len(result.Created) > 0 {
+		fmt.Fprintln(out.stderr, out.translator.Text(i18n.KeyCLIBootstrapCreated, textParams("names", strings.Join(result.Created, ", "))))
+	}
+	if result.AuthToken != "" {
+		fmt.Fprintln(out.stderr, out.translator.Text(i18n.KeyCLIBootstrapToken, textParams("token", result.AuthToken)))
+	}
+	return 0, false
 }
 
 // runHealthcheck interroge /healthz sur la boucle locale ; code 0 seulement sur un 200. Aucun détail n'est affiché
