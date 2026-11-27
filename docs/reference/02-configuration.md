@@ -37,6 +37,19 @@ Le dossier de configuration doit exister quand il est donné. Sans option ni var
 - Format : `NAME=value`, une par ligne, commentaires `#`, préfixe `export` toléré, guillemets simples ou doubles retirés. Pas de valeur multiligne, pas d'interpolation dans `.env`.
 - Le `.env` sert aux variables de la table ci-dessus et à celles que lit le `config.js` de cross-seed. Aucune valeur en base n'est interpolée : `${NAME}` y est refusé à l'écriture comme au chargement (`${...} references are not supported`, le message nomme la liste, l'élément et le champ, jamais une valeur). Une configuration qui référençait une variable d'environnement reçoit la valeur elle-même, scellée en base si c'est un secret ([Secrets scellés](#secrets-scellés)).
 
+## Amorçage au premier démarrage
+
+`serve` (et lui seul) complète le `.env` du dossier de configuration avant de charger la configuration :
+
+- Sont générés, un par un et seulement s'ils manquent (ni dans l'environnement réel, ni dans le `.env`) : `NECROMANCIARR_SECRET_KEY` et `NECROMANCIARR_AUTH_TOKEN`. Une valeur déjà présente n'est jamais modifiée ni remplacée ; les lignes sont ajoutées à la fin du fichier, créé au mode `0600` s'il n'existe pas.
+- Le jeton neuf est affiché une seule fois, sur stderr (« jeton d'accès à l'API (affiché une seule fois, aussi dans le .env) : … »), précédé de la ligne « premier démarrage : … généré dans le .env du dossier de configuration ». Il reste lisible dans le `.env` et dans les journaux du conteneur (`docker logs`) : quiconque lit ces journaux ou ce fichier l'a. Pour le renouveler, supprimer la ligne `NECROMANCIARR_AUTH_TOKEN` du `.env` et redémarrer ; ou le définir soi-même (`necromanciarr api-key`).
+- Refus si une base existe déjà alors que `NECROMANCIARR_SECRET_KEY` est absente : une clé neuve rendrait illisibles les secrets scellés. Restaurer la clé d'origine ; la supprimer pour en générer une neuve n'est sûr que si la base ne contient aucun secret.
+- Refus, avec un message actionnable, si le dossier de configuration n'est pas inscriptible : le rendre modifiable, ou définir les deux variables soi-même (`necromanciarr api-key`, `api-key --secret`).
+
+Conséquence : hors boucle locale, `serve` ne sort plus en erreur faute de `NECROMANCIARR_AUTH_TOKEN` quand le dossier est inscriptible, il en génère un. Les autres commandes n'écrivent jamais le `.env`.
+
+L'interface propose ensuite l'assistant du premier démarrage (voir [04](04-cli-and-web.md#assistant-de-premier-démarrage)).
+
 ## Valeurs en base
 
 Les réglages sont dans la table `settings` (une valeur JSON par clé, remplacée en entier) ; les listes `radarr`, `sonarr`, `torrentClients`, `linkDirs`, `torznab`, `trackers` et `fsProviders` dans `list_overrides`, élément par élément ([Listes et surcharge par élément](#listes-et-surcharge-par-élément)). Une clé inconnue, une valeur illisible ou un élément invalide bloque le chargement : le message nomme la clé ou l'élément, jamais la valeur, et `doctor` rend le contrôle `config` en échec. L'ancienne section `rclone` est une clé inconnue : elle se déclare dans `fsProviders`.

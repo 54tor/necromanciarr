@@ -34,6 +34,6 @@ Le service (`serve`) n'est pas encore implémenté : aujourd'hui, l'image permet
 
 ## Première configuration
 
-1. Créer un dossier de configuration et y placer un `.env` avec `NECROMANCIARR_SECRET_KEY` (tirée par `necromanciarr api-key --secret`), sans laquelle aucun secret ne s'enregistre.
+1. Créer un dossier de configuration inscriptible : au premier `serve`, `NECROMANCIARR_SECRET_KEY` et `NECROMANCIARR_AUTH_TOKEN` y sont générés dans le `.env` (voir [Configuration](/configuration#premier-demarrage)). Pour les fournir soi-même, `necromanciarr api-key --secret` tire la clé.
 2. Enregistrer les réglages par la page Configuration ou par `necromanciarr config set` et `config item set` (voir [Configuration](/configuration)).
 3. Vérifier avec `config check`, qui affiche la configuration effective, secrets masqués, avec l'origine de chaque valeur.

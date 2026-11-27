@@ -24,11 +24,19 @@ Ce qu'il faut pour ouvrir la base reste hors base.
 | `--config-dir`, `CONFIG_DIR` | Dossier de configuration (`<dossier utilisateur>/necromanciarr` par défaut). Un dossier choisi explicitement doit exister |
 | `--db-path` | Base SQLite, `necromanciarr.db` du dossier de configuration par défaut ; toujours sur un disque local |
 | `--cross-seed-config`, `CROSS_SEED_CONFIG` | Chemin du `config.js` de cross-seed |
-| `NECROMANCIARR_SECRET_KEY` | Clé qui scelle les secrets en base ; sans elle, saisir un secret est refusé |
-| `NECROMANCIARR_AUTH_TOKEN` | Jeton de l'interface. Obligatoire si `listen` n'est pas une adresse de boucle locale |
+| `NECROMANCIARR_SECRET_KEY` | Clé qui scelle les secrets en base ; sans elle, saisir un secret est refusé. Générée au premier `serve` |
+| `NECROMANCIARR_AUTH_TOKEN` | Jeton de l'interface. Obligatoire si `listen` n'est pas une adresse de boucle locale ; généré au premier `serve` |
 | `LIBRARY_PROVIDER_TOKEN` | Jeton Bearer envoyé au fournisseur de bibliothèque ([contrat](/api)) ; facultatif, le réglage `libraryToken` de la base sert sinon |
 
 Le `.env` est lu dans le dossier de configuration, à défaut dans le dossier courant.
+
+### Premier démarrage
+
+`serve` ajoute au `.env` du dossier de configuration la clé de scellement et le jeton qui manquent (fichier créé au mode `0600`, valeur déjà présente jamais modifiée). Le jeton neuf est affiché une seule fois sur stderr ; il reste lisible dans le `.env` et dans les journaux du conteneur. Pour le renouveler, supprimer la ligne `NECROMANCIARR_AUTH_TOKEN` du `.env` et redémarrer.
+
+`serve` refuse de démarrer si une base existe alors que `NECROMANCIARR_SECRET_KEY` manque (une clé neuve rendrait les secrets scellés illisibles : restaurer la clé d'origine), et si le dossier n'est pas inscriptible (le rendre modifiable ou définir les deux variables, `api-key` et `api-key --secret` en tirent les valeurs).
+
+L'interface ouvre ensuite l'assistant (onglet Assistant) tant que Radarr, Sonarr et les clients torrent sont tous vides : il teste Radarr, Sonarr et qBittorrent avant d'enregistrer, puis demande un redémarrage. Il passe par `POST /api/setup/test` ; le diagnostic propose de créer un dossier de liens absent par `POST /api/setup/fix/create_link_dir`.
 
 ## Cross-seed et surcharges
 

@@ -37,6 +37,19 @@ The configuration folder must exist when it is given. With no option or variable
 - Format: `NAME=value`, one per line, `#` comments, `export` prefix tolerated, single or double quotes removed. No multiline value, no interpolation in `.env`.
 - The `.env` serves the variables of the table above and those read by cross-seed's `config.js`. No database value is interpolated: `${NAME}` is refused there on write and on load (`${...} references are not supported`, the message names the list, the element and the field, never a value). A configuration that referenced an environment variable takes the value itself, sealed in the database when it is a secret ([Sealed secrets](#sealed-secrets)).
 
+## First-launch bootstrap
+
+`serve` (and only `serve`) completes the `.env` of the configuration folder before loading the configuration:
+
+- Generated one by one, and only when missing (neither in the real environment nor in the `.env`): `NECROMANCIARR_SECRET_KEY` and `NECROMANCIARR_AUTH_TOKEN`. A value that is already present is never modified or replaced; the lines are appended to the end of the file, created with mode `0600` if it does not exist.
+- The new token is shown once, on stderr ("API access token (shown once, also stored in .env): …"), after the line "first start: … generated in the config folder .env". It stays readable in the `.env` and in the container logs (`docker logs`): anyone who can read those logs or that file has it. To rotate it, delete the `NECROMANCIARR_AUTH_TOKEN` line from the `.env` and restart; or set it yourself (`necromanciarr api-key`).
+- Refused when a database already exists but `NECROMANCIARR_SECRET_KEY` is absent: a new key would make the sealed secrets unreadable. Restore the original key; deleting it to get a new one is only safe when the database holds no secret.
+- Refused, with an actionable message, when the configuration folder is not writable: make it writable, or define both variables yourself (`necromanciarr api-key`, `api-key --secret`).
+
+Consequence: outside loopback, `serve` no longer exits with an error for lack of `NECROMANCIARR_AUTH_TOKEN` when the folder is writable; it generates one. The other commands never write the `.env`.
+
+The interface then offers the first-launch assistant (see [04](04-cli-and-web.md#first-launch-assistant)).
+
 ## Database values
 
 Settings live in the `settings` table (one JSON value per key, replaced as a whole); the `radarr`, `sonarr`, `torrentClients`, `linkDirs`, `torznab`, `trackers` and `fsProviders` lists live in `list_overrides`, element by element ([Lists and per-element override](#lists-and-per-element-override)). An unknown key, an unreadable value or an invalid element blocks loading: the message names the key or the element, never the value, and `doctor` fails its `config` check. The old `rclone` section is an unknown key: declare it in `fsProviders`.

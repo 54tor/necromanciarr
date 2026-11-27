@@ -12,10 +12,10 @@ Necromanciarr retrouve, chez un fournisseur de bibliothèque, les torrents dont 
 
 ```sh
 make ui && make build          # interface web embarquée, puis binaire ./necromanciarr
-./necromanciarr doctor         # vérifie configuration, base, services et dossiers de liens
-./necromanciarr api-key        # tire un jeton pour NECROMANCIARR_AUTH_TOKEN (affiché, jamais écrit)
 ./necromanciarr serve          # API et interface sur http://127.0.0.1:8787
 ```
+
+Au premier `serve`, la clé de scellement et le jeton d'accès sont générés dans le `.env` du dossier de configuration ; le jeton est affiché une seule fois sur stderr. Ouvrir l'URL, coller le jeton, puis suivre l'assistant (onglet Assistant) : il teste Radarr, Sonarr et qBittorrent avant d'enregistrer, et indique le redémarrage final. `./necromanciarr doctor` vérifie ensuite configuration, base, services et dossiers de liens. Chemin manuel : définir `NECROMANCIARR_SECRET_KEY` et `NECROMANCIARR_AUTH_TOKEN` soi-même (`./necromanciarr api-key` tire un jeton, `api-key --secret` une clé ; rien n'est écrit).
 
 La configuration vit dans la base SQLite du dossier de configuration (`--config-dir`, `CONFIG_DIR`, ou `~/.config/necromanciarr`) ; elle se modifie par la page Configuration de l'interface ou par `necromanciarr config set` et `config item set`, et le `config.js` de cross-seed (`CROSS_SEED_CONFIG`) en fournit les valeurs par défaut, surchargeables élément par élément. Le `.env` du même dossier ne porte que l'amorçage et les jetons (modèle : [`.env.example`](.env.example)), dont `NECROMANCIARR_SECRET_KEY`, qui scelle les secrets en base. Pour seeder les torrents du fournisseur, qui n'ont pas d'annonce, la liste `trackers` est indispensable (voir [`docs/reference/02-configuration.md`](docs/reference/02-configuration.md)). Le pipeline se lance étape par étape : `scan`, `match`, `verify`, puis `proposals list` et `proposals accept <id>`, puis `link` et `seed`.
 
@@ -25,15 +25,14 @@ La configuration vit dans la base SQLite du dossier de configuration (`--config-
 
 ```sh
 make docker-build                                   # image necromanciarr:dev
-docker run --rm necromanciarr:dev api-key           # jeton pour NECROMANCIARR_AUTH_TOKEN
-docker run -d -p 8787:8787 \
-  -e NECROMANCIARR_AUTH_TOKEN=<jeton> \
+docker run -d --name necromanciarr -p 8787:8787 \
   -v necromanciarr-data:/data \
   -v /srv/storage:/media \
   necromanciarr:dev
+docker logs necromanciarr                           # le jeton y figure, et dans /data/.env
 ```
 
-L'image écoute sur `0.0.0.0:8787` : `serve` refuse de démarrer sans jeton d'au moins 32 caractères ; les commandes ponctuelles (`config check`, `doctor`) n'en ont pas besoin. `/data` porte `.env` et la base, qui contient la configuration. La bibliothèque et les dossiers de liens doivent être sous **un seul montage commun** (ici `/media`), sinon un hardlink échoue avec `EXDEV`.
+L'image écoute sur `0.0.0.0:8787` : au premier démarrage `serve` génère le jeton dans `/data/.env` (un `NECROMANCIARR_AUTH_TOKEN` d'au moins 32 caractères fourni par `-e` l'emporte) ; les commandes ponctuelles (`config check`, `doctor`) n'en ont pas besoin. `/data` porte `.env` et la base, qui contient la configuration. La bibliothèque et les dossiers de liens doivent être sous **un seul montage commun** (ici `/media`), sinon un hardlink échoue avec `EXDEV`.
 
 ## Documentation
 
