@@ -23,13 +23,17 @@ const props = defineProps<{
   items?: string[]
   /** Si fournie, la confirmation reste désactivée tant que cette phrase exacte n'est pas saisie. */
   confirmPhrase?: string
+  /** Vrai tant qu'un champ du contenu (mot de passe ressaisi) manque : la confirmation reste désactivée. */
+  confirmDisabled?: boolean
 }>()
 const open = defineModel<boolean>('open', { required: true })
 const emit = defineEmits<{ confirm: [] }>()
 
 const typedPhrase = ref('')
 const canConfirm = computed(
-  () => props.confirmPhrase === undefined || typedPhrase.value === props.confirmPhrase,
+  () =>
+    !props.confirmDisabled &&
+    (props.confirmPhrase === undefined || typedPhrase.value === props.confirmPhrase),
 )
 
 // Une saisie ne survit pas à la fermeture : la prochaine ouverture repart de zéro.

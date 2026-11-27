@@ -6,13 +6,16 @@ export class ApiError extends Error {
   readonly code: string
   readonly status: number
   readonly detail?: string
+  /** Délai d'attente annoncé par l'en-tête Retry-After (limiteur de connexion), en secondes. */
+  readonly retryAfterSeconds?: number
 
-  constructor(status: number, body: ApiErrorBody) {
+  constructor(status: number, body: ApiErrorBody, retryAfterSeconds?: number) {
     super(body.message)
     this.name = 'ApiError'
     this.status = status
     this.code = body.code
     this.detail = body.detail
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
 

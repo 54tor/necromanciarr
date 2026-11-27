@@ -17,6 +17,7 @@ export const ROUTES: readonly AppRoute[] = [
   { path: '/sources', navKey: 'sources' },
   { path: '/volumes', navKey: 'volumes' },
   { path: '/configuration', navKey: 'configuration' },
+  { path: '/compte', navKey: 'compte' },
 ]
 
 const DEFAULT_PATH = '/propositions'

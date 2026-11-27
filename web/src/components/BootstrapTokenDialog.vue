@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { loginRejected, loginRequired, setToken } from '@/api/client'
+import { setToken, tokenRejected } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -12,19 +12,20 @@ import {
 import { t } from '@/i18n'
 import { FIELD_CLASS } from '@/lib/styles'
 
+defineProps<{ open: boolean }>()
+
 const token = ref('')
 
 function submit(): void {
   const typed = token.value.trim()
-  if (!typed) return
-  setToken(typed)
   token.value = ''
+  if (typed) setToken(typed)
 }
 </script>
 
 <template>
-  <!-- Modale non fermable : sans jeton valable l'API répond 401, il n'y a rien d'autre à faire. -->
-  <Dialog :open="loginRequired">
+  <!-- Modale non fermable : sans compte, seul le jeton d'amorçage permet de le créer. -->
+  <Dialog :open="open">
     <DialogContent
       :show-close-button="false"
       @escape-key-down.prevent
@@ -32,21 +33,19 @@ function submit(): void {
       @interact-outside.prevent
     >
       <DialogHeader>
-        <DialogTitle>{{ t('views.login.title') }}</DialogTitle>
-        <DialogDescription>
-          {{ t('views.login.description') }}
-        </DialogDescription>
+        <DialogTitle>{{ t('auth.token.title') }}</DialogTitle>
+        <DialogDescription>{{ t('auth.token.description') }}</DialogDescription>
       </DialogHeader>
       <p
-        v-if="loginRejected"
+        v-if="tokenRejected"
         role="alert"
         class="text-sm text-destructive"
-        data-testid="login-rejected"
+        data-testid="token-rejected"
       >
-        {{ t('views.login.rejected') }}
+        {{ t('auth.token.rejected') }}
       </p>
       <form class="grid gap-3" @submit.prevent="submit">
-        <label for="auth-token" class="text-sm font-medium">{{ t('common.token') }}</label>
+        <label for="auth-token" class="text-sm font-medium">{{ t('auth.token.label') }}</label>
         <input
           id="auth-token"
           v-model="token"
@@ -55,7 +54,7 @@ function submit(): void {
           required
           :class="FIELD_CLASS"
         />
-        <Button type="submit" data-testid="login-submit">{{ t('actions.signIn') }}</Button>
+        <Button type="submit" data-testid="token-submit">{{ t('auth.token.submit') }}</Button>
       </form>
     </DialogContent>
   </Dialog>

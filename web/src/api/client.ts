@@ -2,15 +2,20 @@ import { ref } from 'vue'
 import { ApiError, NETWORK_ERROR_CODE } from './errors'
 import type { ApiErrorBody } from './types'
 
-/** Jeton saisi par l'opérateur : en mémoire du module seulement, jamais écrit dans un stockage, une URL ni un cookie. */
+/**
+ * Jeton d'amorçage saisi au premier lancement : en mémoire du module seulement, jamais écrit dans un stockage, une URL
+ * ni un cookie, et effacé dès que le compte existe (le serveur le refuse alors).
+ */
 export const authToken = ref('')
-/** Vrai quand le serveur a répondu 401 : l'application affiche alors la boîte de saisie du jeton. */
-export const loginRequired = ref(false)
-/** Vrai quand un jeton saisi vient d'être refusé : la boîte de saisie le dit. */
-export const loginRejected = ref(false)
+/** Vrai quand le jeton saisi vient d'être refusé : la boîte de saisie le dit. */
+export const tokenRejected = ref(false)
+/** Compteur incrémenté à chaque 401 qui signifie « déconnecté » : l'application relit alors l'état de la session. */
+export const sessionLost = ref(0)
 
 const JSON_CONTENT_TYPE = 'application/json'
 const CSRF_HEADER_VALUE = 'necromanciarr'
+const BOOTSTRAP_TOKEN_REFUSED = 'unauthorized'
+const SIGNED_OUT_CODES = ['session_required', 'bearer_disabled']
 
 function headersFor(method: string): Record<string, string> {
   const headers: Record<string, string> = { Accept: JSON_CONTENT_TYPE }
@@ -32,7 +37,25 @@ async function readError(response: Response): Promise<ApiErrorBody> {
   return { code: 'failure', message: response.statusText }
 }
 
-/** request appelle l'API ; tout POST porte un corps JSON (au minimum `{}`) et l'en-tête anti-CSRF. */
+function retryAfterOf(response: Response): number | undefined {
+  const seconds = Number(response.headers.get('Retry-After'))
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : undefined
+}
+
+/** Seul le code distingue un 401 « déconnecté » d'un 401 de formulaire (mot de passe ressaisi faux, code refusé). */
+function noteUnauthorized(code: string): void {
+  if (code === BOOTSTRAP_TOKEN_REFUSED) {
+    // Deux requêtes parallèles peuvent échouer : la seconde ne doit pas effacer le constat de la première.
+    if (authToken.value !== '') tokenRejected.value = true
+    authToken.value = ''
+    return
+  }
+  if (!SIGNED_OUT_CODES.includes(code)) return
+  authToken.value = ''
+  sessionLost.value += 1
+}
+
+/** request appelle l'API ; tout appel autre que GET porte un corps JSON (au minimum `{}`) et l'en-tête anti-CSRF. */
 export async function request<Result>(
   method: string,
   path: string,
@@ -48,18 +71,17 @@ export async function request<Result>(
   }
   if (response.ok) return (await response.json()) as Result
   const failure = await readError(response)
-  if (response.status === 401) {
-    // Deux requêtes parallèles peuvent échouer : la seconde ne doit pas effacer le constat de la première.
-    if (authToken.value !== '') loginRejected.value = true
-    authToken.value = ''
-    loginRequired.value = true
-  }
-  throw new ApiError(response.status, failure)
+  if (response.status === 401) noteUnauthorized(failure.code)
+  throw new ApiError(response.status, failure, retryAfterOf(response))
 }
 
-/** setToken mémorise le jeton saisi et ferme la demande de connexion. */
+/** setToken mémorise le jeton d'amorçage saisi. */
 export function setToken(token: string): void {
   authToken.value = token
-  loginRejected.value = false
-  loginRequired.value = false
+  tokenRejected.value = false
+}
+
+/** dropToken oublie le jeton d'amorçage : une fois le compte créé, seul le cookie de session ouvre l'API. */
+export function dropToken(): void {
+  authToken.value = ''
 }

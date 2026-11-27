@@ -14,23 +14,16 @@
     "openMenu": "Open the menu",
     "closeMenu": "Close the menu",
     "drawerHint": "Choose a page of the application.",
-    "configuration": "Configuration"
+    "configuration": "Configuration",
+    "compte": "Account"
   },
   "actions": {
     "signIn": "Sign in"
   },
   "common": {
-    "token": "Token",
     "toolbar": "Page actions",
     "close": "Close",
     "labelValue": "{label}: {value}"
-  },
-  "views": {
-    "login": {
-      "title": "Access token required",
-      "description": "Enter the value of NECROMANCIARR_AUTH_TOKEN. It is kept in memory for this tab only and is never stored.",
-      "rejected": "Token rejected by the server: check it and try again."
-    }
   },
   "codes": {
     "kind": {
@@ -926,5 +919,158 @@
     "restartBinary": "With the binary, stop the process then start it again:",
     "noRestart": "No restart is needed.",
     "skipStep": "Skip this step"
+  },
+  "auth": {
+    "token": {
+      "title": "Bootstrap token required",
+      "description": "No account exists yet. Enter the value of NECROMANCIARR_AUTH_TOKEN (printed at the first launch): it stays in this tab’s memory and only serves to create the account.",
+      "rejected": "Token rejected by the server: check it and try again.",
+      "label": "Token",
+      "submit": "Continue"
+    },
+    "setup": {
+      "title": "Create the account",
+      "help": "This account protects the interface and the API; once it exists, the bootstrap token stops working.",
+      "username": "Username",
+      "password": "Password",
+      "confirmation": "Password confirmation",
+      "passwordRule": "At least 12 characters, at most 128 bytes.",
+      "submit": "Create the account"
+    },
+    "login": {
+      "title": "Sign in",
+      "description": "Sign in with the account username and password, or with a passkey.",
+      "username": "Username",
+      "password": "Password",
+      "submit": "Sign in",
+      "passkey": "Sign in with a passkey",
+      "factorTitle": "Second factor",
+      "factorHelp": "The password is correct. Now prove that you hold the second factor.",
+      "useKey": "Use my security key",
+      "totpCode": "Six-digit code from the TOTP app",
+      "totpSubmit": "Check the code",
+      "cancel": "Cancel"
+    },
+    "throttled": "Too many attempts: you can try again in {seconds} s.",
+    "protect": {
+      "title": "Protect the account with a security key or a TOTP code",
+      "body": "A second factor prevents opening the interface with the password alone.",
+      "open": "Open the Account page",
+      "later": "Later"
+    },
+    "account": {
+      "summary": {
+        "title": "Account status",
+        "username": "Username: {username}",
+        "keys": "Security keys: {count}",
+        "passkeys": "Passkeys: {count}",
+        "totpOn": "TOTP code: enabled",
+        "totpOff": "TOTP code: not enabled"
+      },
+      "password": {
+        "title": "Password",
+        "current": "Current password",
+        "new": "New password",
+        "confirmation": "New password confirmation",
+        "note": "The other open sessions will be signed out.",
+        "submit": "Change the password",
+        "done": "Password changed; the other sessions are signed out."
+      },
+      "keys": {
+        "title": "Security keys and passkeys",
+        "httpsRequired": "Security keys need HTTPS: set publicUrl to an https address. Meanwhile, protect the account with a TOTP code.",
+        "empty": "No key registered.",
+        "kinds": {
+          "second_factor": "Security key (second factor)",
+          "passkey": "Passkey (passwordless sign-in)"
+        },
+        "kindHelp": {
+          "second_factor": "Asked for after the password at every sign-in.",
+          "passkey": "Opens a session on its own, after your PIN or fingerprint."
+        },
+        "created": "Added: {date}",
+        "lastUsed": "Last used: {date}",
+        "neverUsed": "Never used",
+        "addTitle": "Add a key",
+        "name": "Key name",
+        "kind": "Key type",
+        "password": "Current password",
+        "add": "Register the key",
+        "added": "Key registered.",
+        "rename": "Rename",
+        "renameOf": "Rename {name}",
+        "save": "Save the name",
+        "cancel": "Cancel",
+        "remove": "Delete",
+        "removeOf": "Delete {name}",
+        "removeTitle": "Delete the key",
+        "removeDescription": "The key will no longer sign you in.",
+        "removeSummary": "Enter the account password to confirm.",
+        "removed": "Key deleted."
+      },
+      "totp": {
+        "title": "TOTP code",
+        "enabled": "The TOTP code is enabled: it is asked for after the password.",
+        "disabled": "The TOTP code is not enabled.",
+        "password": "Current password",
+        "enable": "Enable the TOTP code",
+        "scan": "Scan this QR code with the authenticator app, or type the key by hand.",
+        "qrAlt": "QR code of the TOTP enrolment",
+        "secret": "Manual entry key",
+        "link": "Open in the authenticator app",
+        "code": "Six-digit code shown by the app",
+        "confirm": "Confirm",
+        "cancel": "Cancel",
+        "restartNote": "A wrong code cancels the enrolment: you will have to start it again.",
+        "confirmed": "TOTP code enabled.",
+        "remove": "Remove the TOTP code",
+        "removed": "TOTP code removed."
+      },
+      "sessions": {
+        "title": "Open sessions",
+        "current": "This session",
+        "created": "Opened: {date}",
+        "lastSeen": "Last activity: {date}",
+        "address": "Address: {address}",
+        "logout": "Sign out",
+        "logoutAll": "Sign out everywhere"
+      }
+    },
+    "validation": {
+      "username": "The username must have 1 to 64 characters.",
+      "passwordTooShort": "The password must have at least 12 characters.",
+      "passwordTooLong": "The password must not exceed 128 bytes.",
+      "confirmationMismatch": "The confirmation does not match the password.",
+      "code": "Enter the six digits of the code.",
+      "keyName": "The key name must have 1 to 64 characters."
+    },
+    "webauthn": {
+      "unsupported": "This browser cannot use security keys here (HTTPS or localhost and a recent browser required).",
+      "cancelled": "Operation cancelled or timed out.",
+      "already_registered": "This key is already registered.",
+      "failed": "The key did not answer as expected."
+    },
+    "errors": {
+      "generic": "The operation failed.",
+      "network": "Server unreachable.",
+      "unauthorized": "Bootstrap token rejected: enter it again.",
+      "setup_token_required": "Creating the account needs a token: set NECROMANCIARR_AUTH_TOKEN and restart the server.",
+      "account_exists": "An account already exists: sign in.",
+      "invalid_username": "Username refused: 1 to 64 characters, no control character.",
+      "password_too_short": "The password must have at least 12 characters.",
+      "password_too_long": "The password must not exceed 128 bytes.",
+      "invalid_credentials": "Wrong username or password.",
+      "throttled": "Too many attempts.",
+      "step_expired": "The step expired or was already used: start again.",
+      "login_ticket_invalid": "The sign-in expired: enter the password again.",
+      "invalid_assertion": "The key was not accepted.",
+      "invalid_code": "Wrong code.",
+      "webauthn_unavailable": "Security keys are unavailable on this server (publicUrl in https required).",
+      "totp_unavailable": "The TOTP code is unavailable: the server has no sealing key (NECROMANCIARR_SECRET_KEY).",
+      "totp_secret_unreadable": "The stored TOTP secret is unreadable: check the server log.",
+      "credential_not_found": "Key not found: refresh the list.",
+      "invalid_credential_name": "Key name refused: 1 to 64 characters.",
+      "usage": "Request refused by the server."
+    }
   }
 }

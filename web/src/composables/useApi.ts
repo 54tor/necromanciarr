@@ -15,6 +15,8 @@ function showError(error: unknown): void {
   toast.error(messageForError(error))
 }
 
+const SIGNED_OUT_CODES = ['unauthorized', 'session_required', 'bearer_disabled']
+
 export function useApi() {
   const pending = ref(false)
 
@@ -23,8 +25,8 @@ export function useApi() {
     try {
       return await task()
     } catch (error) {
-      // Un 401 ouvre la boîte de saisie du jeton : un toast en plus serait redondant.
-      if (!(error instanceof ApiError && error.code === 'unauthorized')) showError(error)
+      // Ces 401 ramènent au jeton ou à la connexion : un toast en plus serait redondant.
+      if (!(error instanceof ApiError && SIGNED_OUT_CODES.includes(error.code))) showError(error)
       return undefined
     } finally {
       pending.value = false

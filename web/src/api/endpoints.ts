@@ -1,6 +1,10 @@
 import { request } from './client'
 import type {
+  AuthSession,
+  CeremonyResponse,
   ConfigSnapshot,
+  CredentialItem,
+  CredentialKind,
   DecisionResult,
   DoctorReport,
   ForceResult,
@@ -18,7 +22,10 @@ import type {
   VolumeProbeResult,
   VolumeRow,
   StageName,
+  SessionItem,
   Status,
+  TotpEnrolment,
+  LoginResponse,
 } from './types'
 
 const encoded = encodeURIComponent
@@ -26,6 +33,41 @@ const itemPath = (list: string, itemId: string) =>
   `/api/config/lists/${encoded(list)}/${encoded(itemId)}`
 
 const post = <Result>(path: string, body: unknown = {}) => request<Result>('POST', path, body)
+const credentialPath = (credentialId: string) =>
+  `/api/auth/webauthn/credentials/${encoded(credentialId)}`
+type Empty = Record<string, never>
+
+/** Routes du compte (/api/auth) : la session passe par le cookie HttpOnly que pose le serveur. */
+export const authApi = {
+  session: () => request<AuthSession>('GET', '/api/auth/session'),
+  setup: (username: string, password: string) =>
+    post<Empty>('/api/auth/setup', { username, password }),
+  login: (username: string, password: string) =>
+    post<LoginResponse>('/api/auth/login', { username, password }),
+  finishKeyLogin: (credential: unknown) =>
+    post<Empty>('/api/auth/webauthn/login/finish', { credential }),
+  totpLogin: (code: string) => post<Empty>('/api/auth/totp/login', { code }),
+  beginPasskeyLogin: () => post<CeremonyResponse>('/api/auth/passkey/login/begin'),
+  finishPasskeyLogin: (credential: unknown) =>
+    post<Empty>('/api/auth/passkey/login/finish', { credential }),
+  logout: () => post<Empty>('/api/auth/logout'),
+  logoutAll: () => post<Empty>('/api/auth/logout-all'),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    post<Empty>('/api/auth/password', { currentPassword, newPassword }),
+  sessions: () => request<SessionItem[]>('GET', '/api/auth/sessions'),
+  beginRegistration: (password: string, kind: CredentialKind) =>
+    post<CeremonyResponse>('/api/auth/webauthn/register/begin', { password, kind }),
+  finishRegistration: (name: string, credential: unknown) =>
+    post<Empty>('/api/auth/webauthn/register/finish', { name, credential }),
+  credentials: () => request<CredentialItem[]>('GET', '/api/auth/webauthn/credentials'),
+  renameCredential: (credentialId: string, name: string) =>
+    request<Empty>('PATCH', credentialPath(credentialId), { name }),
+  removeCredential: (credentialId: string, password: string) =>
+    request<Empty>('DELETE', credentialPath(credentialId), { password }),
+  beginTotp: (password: string) => post<TotpEnrolment>('/api/auth/totp/setup/begin', { password }),
+  finishTotp: (code: string) => post<Empty>('/api/auth/totp/setup/finish', { code }),
+  removeTotp: (password: string) => request<Empty>('DELETE', '/api/auth/totp', { password }),
+}
 
 function queryOf(filters: ProposalFilters): string {
   const query = new URLSearchParams()

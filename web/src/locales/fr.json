@@ -14,23 +14,16 @@
     "openMenu": "Ouvrir le menu",
     "closeMenu": "Fermer le menu",
     "drawerHint": "Choisissez une page de l’application.",
-    "configuration": "Configuration"
+    "configuration": "Configuration",
+    "compte": "Compte"
   },
   "actions": {
     "signIn": "Se connecter"
   },
   "common": {
-    "token": "Jeton",
     "toolbar": "Actions de la page",
     "close": "Fermer",
     "labelValue": "{label} : {value}"
-  },
-  "views": {
-    "login": {
-      "title": "Jeton d’accès requis",
-      "description": "Saisissez la valeur de NECROMANCIARR_AUTH_TOKEN. Elle est gardée en mémoire pour cet onglet seulement et n’est jamais enregistrée.",
-      "rejected": "Jeton refusé par le serveur : vérifiez-le et recommencez."
-    }
   },
   "codes": {
     "kind": {
@@ -926,5 +919,158 @@
     "restartBinary": "Avec le binaire, arrêtez le processus puis relancez-le :",
     "noRestart": "Aucun redémarrage n’est nécessaire.",
     "skipStep": "Passer cette étape"
+  },
+  "auth": {
+    "token": {
+      "title": "Jeton d’amorçage requis",
+      "description": "Aucun compte n’existe encore. Saisissez la valeur de NECROMANCIARR_AUTH_TOKEN (affichée au premier lancement) : elle reste en mémoire de cet onglet et ne sert qu’à créer le compte.",
+      "rejected": "Jeton refusé par le serveur : vérifiez-le et recommencez.",
+      "label": "Jeton",
+      "submit": "Continuer"
+    },
+    "setup": {
+      "title": "Créer le compte",
+      "help": "Ce compte protège l’interface et l’API ; une fois créé, le jeton d’amorçage ne fonctionne plus.",
+      "username": "Identifiant",
+      "password": "Mot de passe",
+      "confirmation": "Confirmation du mot de passe",
+      "passwordRule": "12 caractères au moins, 128 octets au plus.",
+      "submit": "Créer le compte"
+    },
+    "login": {
+      "title": "Connexion",
+      "description": "Connectez-vous avec l’identifiant et le mot de passe du compte, ou avec une clé d’accès.",
+      "username": "Identifiant",
+      "password": "Mot de passe",
+      "submit": "Se connecter",
+      "passkey": "Se connecter avec une clé d’accès",
+      "factorTitle": "Second facteur",
+      "factorHelp": "Le mot de passe est correct. Prouvez maintenant que vous détenez le second facteur.",
+      "useKey": "Utiliser ma clé de sécurité",
+      "totpCode": "Code à six chiffres de l’application TOTP",
+      "totpSubmit": "Valider le code",
+      "cancel": "Annuler"
+    },
+    "throttled": "Trop de tentatives : nouvel essai possible dans {seconds} s.",
+    "protect": {
+      "title": "Protéger le compte avec une clé de sécurité ou un code TOTP",
+      "body": "Un second facteur empêche d’ouvrir l’interface avec le seul mot de passe.",
+      "open": "Ouvrir la page Compte",
+      "later": "Plus tard"
+    },
+    "account": {
+      "summary": {
+        "title": "État du compte",
+        "username": "Identifiant : {username}",
+        "keys": "Clés de sécurité : {count}",
+        "passkeys": "Clés d’accès : {count}",
+        "totpOn": "Code TOTP : activé",
+        "totpOff": "Code TOTP : non activé"
+      },
+      "password": {
+        "title": "Mot de passe",
+        "current": "Mot de passe actuel",
+        "new": "Nouveau mot de passe",
+        "confirmation": "Confirmation du nouveau mot de passe",
+        "note": "Les autres sessions ouvertes seront déconnectées.",
+        "submit": "Changer le mot de passe",
+        "done": "Mot de passe changé ; les autres sessions sont déconnectées."
+      },
+      "keys": {
+        "title": "Clés de sécurité et clés d’accès",
+        "httpsRequired": "Les clés de sécurité exigent HTTPS : définissez publicUrl avec une adresse https. En attendant, protégez le compte par un code TOTP.",
+        "empty": "Aucune clé enregistrée.",
+        "kinds": {
+          "second_factor": "Clé de sécurité (second facteur)",
+          "passkey": "Clé d’accès (connexion sans mot de passe)"
+        },
+        "kindHelp": {
+          "second_factor": "Demandée après le mot de passe à chaque connexion.",
+          "passkey": "Ouvre une session seule, après votre code PIN ou votre empreinte."
+        },
+        "created": "Ajoutée : {date}",
+        "lastUsed": "Dernière utilisation : {date}",
+        "neverUsed": "Jamais utilisée",
+        "addTitle": "Ajouter une clé",
+        "name": "Nom de la clé",
+        "kind": "Type de clé",
+        "password": "Mot de passe actuel",
+        "add": "Enregistrer la clé",
+        "added": "Clé enregistrée.",
+        "rename": "Renommer",
+        "renameOf": "Renommer {name}",
+        "save": "Enregistrer le nom",
+        "cancel": "Annuler",
+        "remove": "Supprimer",
+        "removeOf": "Supprimer {name}",
+        "removeTitle": "Supprimer la clé",
+        "removeDescription": "La clé ne pourra plus servir à se connecter.",
+        "removeSummary": "Saisissez le mot de passe du compte pour confirmer.",
+        "removed": "Clé supprimée."
+      },
+      "totp": {
+        "title": "Code TOTP",
+        "enabled": "Le code TOTP est activé : il est demandé après le mot de passe.",
+        "disabled": "Le code TOTP n’est pas activé.",
+        "password": "Mot de passe actuel",
+        "enable": "Activer le code TOTP",
+        "scan": "Scannez ce QR code avec l’application d’authentification, ou saisissez la clé à la main.",
+        "qrAlt": "QR code de l’enregistrement TOTP",
+        "secret": "Clé de saisie manuelle",
+        "link": "Ouvrir dans l’application d’authentification",
+        "code": "Code à six chiffres affiché par l’application",
+        "confirm": "Confirmer",
+        "cancel": "Annuler",
+        "restartNote": "Un code erroné annule l’enregistrement : il faudra le recommencer.",
+        "confirmed": "Code TOTP activé.",
+        "remove": "Retirer le code TOTP",
+        "removed": "Code TOTP retiré."
+      },
+      "sessions": {
+        "title": "Sessions ouvertes",
+        "current": "Cette session",
+        "created": "Ouverte : {date}",
+        "lastSeen": "Dernière activité : {date}",
+        "address": "Adresse : {address}",
+        "logout": "Se déconnecter",
+        "logoutAll": "Déconnecter partout"
+      }
+    },
+    "validation": {
+      "username": "L’identifiant doit compter de 1 à 64 caractères.",
+      "passwordTooShort": "Le mot de passe doit compter 12 caractères au moins.",
+      "passwordTooLong": "Le mot de passe ne doit pas dépasser 128 octets.",
+      "confirmationMismatch": "La confirmation ne correspond pas au mot de passe.",
+      "code": "Saisissez les six chiffres du code.",
+      "keyName": "Le nom de la clé doit compter de 1 à 64 caractères."
+    },
+    "webauthn": {
+      "unsupported": "Ce navigateur ne gère pas les clés de sécurité ici (HTTPS ou localhost requis, navigateur récent).",
+      "cancelled": "Opération annulée ou délai dépassé.",
+      "already_registered": "Cette clé est déjà enregistrée.",
+      "failed": "La clé n’a pas répondu comme attendu."
+    },
+    "errors": {
+      "generic": "Échec de l’opération.",
+      "network": "Serveur injoignable.",
+      "unauthorized": "Jeton d’amorçage refusé : saisissez-le de nouveau.",
+      "setup_token_required": "La création du compte exige un jeton : définissez NECROMANCIARR_AUTH_TOKEN puis relancez le serveur.",
+      "account_exists": "Un compte existe déjà : connectez-vous.",
+      "invalid_username": "Identifiant refusé : 1 à 64 caractères, sans caractère de contrôle.",
+      "password_too_short": "Le mot de passe doit compter 12 caractères au moins.",
+      "password_too_long": "Le mot de passe ne doit pas dépasser 128 octets.",
+      "invalid_credentials": "Identifiant ou mot de passe incorrect.",
+      "throttled": "Trop de tentatives.",
+      "step_expired": "L’étape a expiré ou a déjà servi : recommencez.",
+      "login_ticket_invalid": "La connexion a expiré : saisissez de nouveau le mot de passe.",
+      "invalid_assertion": "La clé n’a pas été acceptée.",
+      "invalid_code": "Code incorrect.",
+      "webauthn_unavailable": "Les clés de sécurité sont indisponibles sur ce serveur (publicUrl en https requis).",
+      "totp_unavailable": "Le code TOTP est indisponible : le serveur n’a pas de clé de scellement (NECROMANCIARR_SECRET_KEY).",
+      "totp_secret_unreadable": "Le secret TOTP enregistré est illisible : consultez le journal du serveur.",
+      "credential_not_found": "Clé introuvable : actualisez la liste.",
+      "invalid_credential_name": "Nom de clé refusé : 1 à 64 caractères.",
+      "usage": "Requête refusée par le serveur."
+    }
   }
 }

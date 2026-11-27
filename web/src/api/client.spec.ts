@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { failure, installFakeApi, resetAppState } from '@/test/fakeApi'
-import { authToken, loginRejected, loginRequired, request, setToken } from './client'
+import { authToken, dropToken, request, sessionLost, setToken, tokenRejected } from './client'
 import { ApiError } from './errors'
 
 describe('Client', () => {
@@ -38,20 +38,7 @@ describe('Client', () => {
     expect(calls[1]?.body).toEqual({})
   })
 
-  it('Client_asksForTheTokenOnlyAfterA401', async () => {
-    installFakeApi({ 'GET /api/status': () => failure(401, 'unauthorized') })
-
-    const gotError = await request('GET', '/api/status').catch((error: unknown) => error)
-
-    expect(gotError).toBeInstanceOf(ApiError)
-    expect((gotError as ApiError).code).toBe('unauthorized')
-    expect(loginRequired.value).toBe(true)
-    setToken('x')
-    expect(loginRequired.value).toBe(false)
-    expect(authToken.value).toBe('x')
-  })
-
-  it('Client_forgetsARejectedTokenAndSaysSo', async () => {
+  it('Client_forgetsARejectedBootstrapTokenAndSaysSo', async () => {
     installFakeApi({ 'GET /api/status': () => failure(401, 'unauthorized') })
     setToken('wrong')
 
@@ -61,16 +48,54 @@ describe('Client', () => {
     ])
 
     expect(authToken.value).toBe('')
-    expect(loginRejected.value).toBe(true)
-    expect(loginRequired.value).toBe(true)
+    expect(tokenRejected.value).toBe(true)
+    expect(sessionLost.value).toBe(0)
   })
 
-  it('Client_doesNotAskForATokenWhenTheServerAnswers', async () => {
-    installFakeApi({ 'GET /api/status': { ok: true } })
+  it.each(['session_required', 'bearer_disabled'])(
+    'Client_reportsASignedOutSessionOnA401With%s',
+    async (code) => {
+      installFakeApi({ 'GET /api/status': () => failure(401, code) })
+      setToken('stale-bootstrap-token')
+      const before = sessionLost.value
+
+      await request('GET', '/api/status').catch(() => undefined)
+
+      expect(sessionLost.value).toBe(before + 1)
+      expect(authToken.value).toBe('')
+    },
+  )
+
+  it('Client_keepsTheSessionOnA401FormError', async () => {
+    installFakeApi({ 'POST /api/auth/password': () => failure(401, 'invalid_credentials') })
+    const before = sessionLost.value
+
+    const gotError = await request('POST', '/api/auth/password', {}).catch(
+      (error: unknown) => error,
+    )
+
+    expect((gotError as ApiError).code).toBe('invalid_credentials')
+    expect(sessionLost.value).toBe(before)
+  })
+
+  it('Client_readsTheRetryAfterDelayOfAThrottledCall', async () => {
+    installFakeApi({
+      'POST /api/auth/login': () => failure(429, 'throttled', 'raw', { 'Retry-After': '7' }),
+    })
+
+    const gotError = await request('POST', '/api/auth/login', {}).catch((error: unknown) => error)
+
+    expect((gotError as ApiError).retryAfterSeconds).toBe(7)
+  })
+
+  it('Client_sendsNoBearerOnceTheTokenIsDropped', async () => {
+    const calls = installFakeApi({ 'GET /api/status': {} })
+    setToken('bootstrap')
+    dropToken()
 
     await request('GET', '/api/status')
 
-    expect(loginRequired.value).toBe(false)
+    expect(calls[0]?.headers.Authorization).toBeUndefined()
   })
 
   it('Client_turnsATransportFailureIntoANetworkError', async () => {

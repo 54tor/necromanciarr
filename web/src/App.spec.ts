@@ -1,12 +1,20 @@
 import { flushPromises, mount as mountComponent, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.vue'
-import { authToken, loginRequired } from './api/client'
+import { authToken } from './api/client'
 import { failure, installFakeApi, resetAppState } from './test/fakeApi'
 import { busyStatus, okReport } from './test/fixtures'
+import { loggedOutSession, noAccountSession, strongPassword } from './test/authFixtures'
 import { stubViewport } from './test/viewport'
 
 const mounted: VueWrapper[] = []
+
+function typeInto(selector: string, value: string): void {
+  const input = document.body.querySelector<HTMLInputElement>(selector)
+  if (!input) throw new Error(`${selector} absent`)
+  input.value = value
+  input.dispatchEvent(new Event('input'))
+}
 const mount: typeof mountComponent = (component, options) => {
   const wrapper = mountComponent(component, options)
   mounted.push(wrapper as VueWrapper)
@@ -23,7 +31,7 @@ describe('App', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders the product name and the nine tabs', async () => {
+  it('renders the product name and the ten tabs', async () => {
     installFakeApi({
       'POST /api/doctor/run': okReport,
       'GET /api/status': busyStatus,
@@ -45,6 +53,7 @@ describe('App', () => {
       'Sources',
       'Volumes',
       'Configuration',
+      'Compte',
     ])
   })
 
@@ -69,6 +78,7 @@ describe('App', () => {
       'Sources',
       'Volumes',
       'Configuration',
+      'Account',
     ])
   })
 
@@ -104,84 +114,97 @@ describe('App', () => {
     expect(gotCurrent).toEqual(['Étapes'])
   })
 
-  it('App_asksForTheTokenOnA401AndReloadsAfterwards', async () => {
+  it('affiche la saisie du jeton puis la création du compte quand aucun compte n’existe', async () => {
+    let state = 'no_account'
     const calls = installFakeApi({
-      'POST /api/doctor/run': (call) =>
-        call.headers.Authorization ? okReport : failure(401, 'unauthorized'),
-      'GET /api/status': (call) =>
-        call.headers.Authorization ? busyStatus : failure(401, 'unauthorized'),
+      'GET /api/auth/session': () => ({ ...noAccountSession, state }),
+      'POST /api/auth/setup': () => {
+        state = 'authenticated'
+        return new Response(JSON.stringify({ state: 'authenticated' }), { status: 201 })
+      },
+      'POST /api/doctor/run': okReport,
+      'GET /api/status': busyStatus,
       'GET /api/proposals': [],
     })
     window.location.hash = '#/propositions'
-    mount(App, { attachTo: document.body })
-    await flushPromises()
-    expect(loginRequired.value).toBe(true)
-    const input = document.body.querySelector<HTMLInputElement>('#auth-token')
-    expect(input).not.toBeNull()
-
-    const token = 'typed-by-the-operator'
-    input!.value = token
-    input!.dispatchEvent(new Event('input'))
-    document.body.querySelector<HTMLButtonElement>('[data-testid="login-submit"]')?.click()
+    const wrapper = mount(App, { attachTo: document.body })
     await flushPromises()
 
-    expect(authToken.value).toBe(token)
-    expect(loginRequired.value).toBe(false)
-    expect(calls.at(-1)?.headers.Authorization).toBe(`Bearer ${token}`)
+    expect(wrapper.find('aside').exists()).toBe(false)
+    expect(calls.some((call) => call.path === '/api/status')).toBe(false)
+    typeInto('#auth-token', 'typed-by-the-operator')
+    document.body.querySelector<HTMLButtonElement>('[data-testid="token-submit"]')?.click()
+    await flushPromises()
+    expect(document.body.querySelector('#auth-token')).toBeNull()
+    await wrapper.get('[data-testid="setup-username"]').setValue('alice')
+    await wrapper.get('[data-testid="setup-password"]').setValue(strongPassword)
+    await wrapper.get('[data-testid="setup-confirmation"]').setValue(strongPassword)
+    await wrapper.get('form[data-testid="setup-form"]').trigger('submit')
+    await flushPromises()
+
+    const setupCall = calls.find((call) => call.path === '/api/auth/setup')
+    expect(setupCall?.headers.Authorization).toBe('Bearer typed-by-the-operator')
+    expect(authToken.value).toBe('')
+    expect(wrapper.find('aside').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="protect-account"]').text()).toContain('clé de sécurité')
+    const appCalls = calls.slice(calls.indexOf(setupCall!) + 1)
+    expect(appCalls.every((call) => call.headers.Authorization === undefined)).toBe(true)
   })
 
   it('App_tellsWhenTheTypedTokenIsRefused', async () => {
     installFakeApi({
-      'POST /api/doctor/run': () => failure(401, 'unauthorized'),
-      'GET /api/status': () => failure(401, 'unauthorized'),
+      'GET /api/auth/session': noAccountSession,
+      'POST /api/auth/setup': () => failure(401, 'unauthorized'),
     })
-    mount(App, { attachTo: document.body })
+    const wrapper = mount(App, { attachTo: document.body })
+    await flushPromises()
+    typeInto('#auth-token', 'wrong')
+    document.body.querySelector<HTMLButtonElement>('[data-testid="token-submit"]')?.click()
     await flushPromises()
 
-    const input = document.body.querySelector<HTMLInputElement>('#auth-token')
-    if (input) {
-      input.value = 'wrong'
-      input.dispatchEvent(new Event('input'))
-    }
-    document.body.querySelector<HTMLButtonElement>('[data-testid="login-submit"]')?.click()
+    await wrapper.get('[data-testid="setup-username"]').setValue('alice')
+    await wrapper.get('[data-testid="setup-password"]').setValue(strongPassword)
+    await wrapper.get('[data-testid="setup-confirmation"]').setValue(strongPassword)
+    await wrapper.get('form[data-testid="setup-form"]').trigger('submit')
     await flushPromises()
 
-    expect(document.body.querySelector('[data-testid="login-rejected"]')?.textContent).toContain(
+    expect(document.body.querySelector('[data-testid="token-rejected"]')?.textContent).toContain(
       'Jeton refusé',
     )
     expect(authToken.value).toBe('')
   })
 
-  it('App_reloadsTheCurrentViewAfterTheTokenIsAccepted', async () => {
-    const calls = installFakeApi({
-      'POST /api/doctor/run': (call) =>
-        call.headers.Authorization ? okReport : failure(401, 'unauthorized'),
-      'GET /api/status': (call) =>
-        call.headers.Authorization ? busyStatus : failure(401, 'unauthorized'),
-      'GET /api/proposals': (call) =>
-        call.headers.Authorization ? [] : failure(401, 'unauthorized'),
-    })
-    window.location.hash = '#/propositions'
-    mount(App, { attachTo: document.body })
-    await flushPromises()
-    const before = calls.filter(
-      (call) => call.path === '/api/proposals' && call.headers.Authorization,
-    ).length
-
-    const input = document.body.querySelector<HTMLInputElement>('#auth-token')
-    if (input) {
-      input.value = 'ok-token'
-      input.dispatchEvent(new Event('input'))
-    }
-    document.body.querySelector<HTMLButtonElement>('[data-testid="login-submit"]')?.click()
+  it('affiche la connexion quand le compte existe et que la session est absente', async () => {
+    const calls = installFakeApi({ 'GET /api/auth/session': loggedOutSession })
+    const wrapper = mount(App, { attachTo: document.body })
     await flushPromises()
 
-    const after = calls.filter(
-      (call) => call.path === '/api/proposals' && call.headers.Authorization,
-    ).length
-    expect(before).toBe(0)
-    expect(after).toBe(1)
+    expect(wrapper.find('[data-testid="login-username"]').exists()).toBe(true)
+    expect(document.body.querySelector('#auth-token')).toBeNull()
+    expect(calls.map((call) => call.path)).toEqual(['/api/auth/session'])
   })
+
+  it.each(['session_required', 'bearer_disabled'])(
+    'un 401 %s renvoie à la connexion sans demander de jeton',
+    async (code) => {
+      let state = 'authenticated'
+      installFakeApi({
+        'GET /api/auth/session': () => ({ ...loggedOutSession, state }),
+        'POST /api/doctor/run': () => {
+          state = 'logged_out'
+          return failure(401, code)
+        },
+        'GET /api/status': () => failure(401, code),
+        'GET /api/proposals': () => failure(401, code),
+      })
+      const wrapper = mount(App, { attachTo: document.body })
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="login-username"]').exists()).toBe(true)
+      expect(wrapper.find('aside').exists()).toBe(false)
+      expect(document.body.querySelector('#auth-token')).toBeNull()
+    },
+  )
 
   it('App_doesNotShowTheLoginDialogWhenTheServerAnswers', async () => {
     installFakeApi({

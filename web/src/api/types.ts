@@ -393,3 +393,54 @@ export interface ConfigSnapshot {
   orphans: ConfigOrphan[] | null
   restartRequired: boolean
 }
+
+/** État d'accueil rendu par `GET /api/auth/session` : identifiant et facteurs seulement quand la session est ouverte. */
+type AuthState = 'no_account' | 'logged_out' | 'authenticated'
+
+interface SecondFactorCounts {
+  keys: number
+  passkeys: number
+  totp: boolean
+}
+
+export interface AuthSession {
+  state: AuthState
+  webauthnAvailable: boolean
+  username?: string
+  secondFactors?: SecondFactorCounts
+}
+
+/** Réponse de `POST /api/auth/login` : session ouverte, ou second facteur à prouver (`webauthn` porte les options). */
+export interface LoginResponse {
+  state: 'authenticated' | 'second_factor_required'
+  factors?: string[]
+  webauthn?: unknown
+}
+
+/** Options WebAuthn d'une cérémonie, sous la forme `{"publicKey": {...}}` du serveur. */
+export interface CeremonyResponse {
+  webauthn: unknown
+}
+
+export type CredentialKind = 'second_factor' | 'passkey'
+
+export interface CredentialItem {
+  id: string
+  name: string
+  kind: CredentialKind
+  createdAt: string
+  lastUsedAt: string | null
+}
+
+export interface SessionItem {
+  current: boolean
+  createdAt: string
+  lastSeenAt: string
+  address: string
+}
+
+export interface TotpEnrolment {
+  otpauthUri: string
+  secret: string
+  qrPngBase64: string | null
+}

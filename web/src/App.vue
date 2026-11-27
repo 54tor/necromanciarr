@@ -8,21 +8,28 @@ import {
   ListChecks,
   Rocket,
   SlidersHorizontal,
+  UserRound,
   WandSparkles,
 } from '@lucide/vue'
 import { computed, onMounted, ref, watch, type Component } from 'vue'
-import { authToken, loginRequired } from '@/api/client'
+import { authToken } from '@/api/client'
 import AppShell from '@/components/AppShell.vue'
-import LoginDialog from '@/components/LoginDialog.vue'
+import BootstrapTokenDialog from '@/components/BootstrapTokenDialog.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import ProtectAccountPanel from '@/components/ProtectAccountPanel.vue'
 import { Toaster } from '@/components/ui/sonner'
 import type { NavItem } from '@/lib/nav'
+import { useAuth } from '@/composables/useAuth'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { useSetup } from '@/composables/useSetup'
+import { t } from '@/i18n'
 import { ROUTES, currentPath, navigate, useHashRouter } from '@/router'
+import AccountSetupView from '@/views/AccountSetupView.vue'
+import AccountView from '@/views/AccountView.vue'
 import ConfigView from '@/views/ConfigView.vue'
 import DedupeView from '@/views/DedupeView.vue'
 import LinksView from '@/views/LinksView.vue'
+import LoginView from '@/views/LoginView.vue'
 import OnboardingView from '@/views/OnboardingView.vue'
 import ProposalsView from '@/views/ProposalsView.vue'
 import SourcesView from '@/views/SourcesView.vue'
@@ -40,6 +47,7 @@ const VIEWS: Record<string, Component> = {
   '/sources': SourcesView,
   '/volumes': VolumesView,
   '/configuration': ConfigView,
+  '/compte': AccountView,
 }
 
 const NAV_ICONS: Record<string, Component> = {
@@ -52,9 +60,12 @@ const NAV_ICONS: Record<string, Component> = {
   '/sources': Database,
   '/volumes': HardDrive,
   '/configuration': SlidersHorizontal,
+  '/compte': UserRound,
 }
 
 useHashRouter()
+const auth = useAuth()
+const authState = computed(() => auth.status.value?.state)
 const { needsOnboarding, loadAll, checks, status } = useOnboarding()
 const setup = useSetup()
 const currentView = computed(() => VIEWS[currentPath.value])
@@ -74,8 +85,9 @@ const navItems = computed<NavItem[]>(() =>
     badge: BADGES.value[route.path],
   })),
 )
-// Changer la clé remonte la vue courante : après la saisie du jeton elle recharge ses propres données.
+// Changer la clé remonte la vue courante : après une connexion elle recharge ses propres données.
 const viewKey = ref(0)
+const sessionUnreadable = ref(false)
 // « Étapes » reste accessible pendant la redirection : c'est là qu'on lance ce qui corrige un premier lancement.
 const REDIRECTED_PATHS = ['/propositions', '/deduplication', '/liens']
 
@@ -92,24 +104,33 @@ watch(
   { immediate: true },
 )
 
-onMounted(() => {
-  void loadAll()
-  void setup.load()
-})
-// Après la saisie du jeton, on recharge le diagnostic qui avait échoué en 401.
-watch(loginRequired, (required) => {
-  if (required || !authToken.value) return
+async function readSession(): Promise<void> {
+  sessionUnreadable.value = !(await auth.load()).ok && auth.status.value === undefined
+}
+
+// Rien d'autre que l'état de la session n'est demandé avant une connexion ou la création du compte.
+watch(authState, (state) => {
+  if (state !== 'authenticated') return
   viewKey.value += 1
   void loadAll()
   void setup.load()
 })
+onMounted(readSession)
 </script>
 
 <template>
-  <AppShell :nav-items="navItems">
+  <AppShell v-if="authState === 'authenticated'" :nav-items="navItems">
+    <ProtectAccountPanel v-if="auth.accountJustCreated.value" />
     <PageHeader v-if="currentRoute" :title-key="`nav.${currentRoute.navKey}`" />
     <component :is="currentView" :key="viewKey" />
-    <LoginDialog />
-    <Toaster position="bottom-right" theme="dark" />
   </AppShell>
+  <LoginView v-else-if="authState === 'logged_out'" />
+  <template v-else-if="authState === 'no_account'">
+    <AccountSetupView />
+    <BootstrapTokenDialog :open="authToken === ''" />
+  </template>
+  <p v-else-if="sessionUnreadable" role="alert" class="p-4 text-destructive">
+    {{ t('auth.errors.network') }}
+  </p>
+  <Toaster position="bottom-right" theme="dark" />
 </template>

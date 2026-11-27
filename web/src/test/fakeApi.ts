@@ -1,10 +1,12 @@
 import { setLanguage } from '@/i18n'
 import { vi } from 'vitest'
-import { authToken, loginRejected, loginRequired } from '@/api/client'
+import { authToken, tokenRejected } from '@/api/client'
+import { resetAuthState } from '@/composables/useAuth'
 import { onboardingState } from '@/composables/useOnboarding'
 import { jobs } from '@/composables/useJobs'
 import { resetSetupState } from '@/composables/useSetup'
 import { onboardingSkipped } from '@/state/session'
+import { authenticatedSession } from './authFixtures'
 
 export interface FakeCall {
   method: string
@@ -17,9 +19,14 @@ export interface FakeCall {
 type Handler = (call: FakeCall) => unknown
 type Routes = Record<string, Handler | object>
 
-/** failure fabrique la réponse d'erreur de l'API : {"error": {"code", "message"}}. */
-export function failure(status: number, code: string, message = 'raw server text'): Response {
-  return new Response(JSON.stringify({ error: { code, message } }), { status })
+/** failure fabrique la réponse d'erreur de l'API : {"error": {"code", "message"}}, avec ses en-têtes éventuels. */
+export function failure(
+  status: number,
+  code: string,
+  message = 'raw server text',
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(JSON.stringify({ error: { code, message } }), { status, headers })
 }
 
 function matches(pattern: string, method: string, path: string): boolean {
@@ -28,8 +35,12 @@ function matches(pattern: string, method: string, path: string): boolean {
   return patternMethod === method && expression.test(path)
 }
 
-/** installFakeApi remplace fetch : chaque route « METHODE /chemin/{id} » rend un JSON ou une Response ; les appels sont journalisés. */
-export function installFakeApi(routes: Routes): FakeCall[] {
+/**
+ * installFakeApi remplace fetch : chaque route « METHODE /chemin/{id} » rend un JSON ou une Response ; les appels sont
+ * journalisés. Sans route `GET /api/auth/session`, le serveur factice répond une session ouverte.
+ */
+export function installFakeApi(givenRoutes: Routes): FakeCall[] {
+  const routes: Routes = { 'GET /api/auth/session': authenticatedSession, ...givenRoutes }
   const calls: FakeCall[] = []
   vi.stubGlobal('fetch', async (input: string, init: RequestInit = {}) => {
     const url = new URL(input, 'http://localhost')
@@ -54,11 +65,11 @@ export function installFakeApi(routes: Routes): FakeCall[] {
   return calls
 }
 
-/** resetAppState remet à zéro l'état partagé des modules (jeton, jobs, diagnostic, « passer », hash, langue). */
+/** resetAppState remet à zéro l'état partagé des modules (jeton, compte, jobs, diagnostic, « passer », hash, langue). */
 export function resetAppState(): void {
   authToken.value = ''
-  loginRequired.value = false
-  loginRejected.value = false
+  tokenRejected.value = false
+  resetAuthState()
   onboardingSkipped.value = false
   onboardingState.checks.value = []
   onboardingState.status.value = undefined
