@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
+
 	"necromanciarr/internal/auth"
 	"necromanciarr/internal/config"
 	"necromanciarr/internal/crossseed"
@@ -240,6 +242,10 @@ type service struct {
 	restartRequired atomic.Bool
 	// argonObserver reçoit +1 et -1 autour de chaque calcul argon2 (tests seulement).
 	argonObserver func(delta int32)
+	// webAuthn est construit une fois, au premier usage, depuis la configuration.
+	webAuthnOnce sync.Once
+	webAuthn     *webauthn.WebAuthn
+	webAuthnErr  error
 }
 
 // New construit le Service sur ses dépendances.

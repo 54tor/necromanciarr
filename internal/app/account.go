@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 	"unicode"
@@ -23,7 +24,7 @@ const (
 const (
 	// loginThrottleKey : un seul compte, donc une seule clé, jamais tirée de l'identifiant saisi.
 	loginThrottleKey           = "account"
-	maxUsernameRunes           = 64
+	maxLabelRunes              = 64
 	maxClientAddressBytes      = 128
 	maxClientUserAgentBytes    = 256
 	maxConcurrentArgon         = 4
@@ -69,6 +70,10 @@ type AccountStore interface {
 	SetPasswordHash(ctx context.Context, hash string) error
 	ResetAccount(ctx context.Context) error
 	Credentials(ctx context.Context) ([]store.WebAuthnCredential, error)
+	AddCredential(ctx context.Context, credential store.WebAuthnCredential) error
+	UpdateCredential(ctx context.Context, id, record []byte, usedAt time.Time) error
+	RenameCredential(ctx context.Context, id []byte, name string) error
+	DeleteCredential(ctx context.Context, id []byte) error
 	TOTP(ctx context.Context) (store.TOTPFactor, bool, error)
 	CreateSession(ctx context.Context, session store.SessionRecord) error
 	Session(ctx context.Context, id string) (store.SessionRecord, bool, error)
@@ -102,6 +107,26 @@ type AccountService interface {
 	ResetAccount(ctx context.Context) error
 	// AccountSummary résume le compte : identifiant, nombre de clés, TOTP.
 	AccountSummary(ctx context.Context) (AccountSummary, error)
+	// BeginWebAuthnRegistration ouvre l'enregistrement d'une clé (second_factor ou passkey), session ouverte et mot
+	// de passe ressaisi.
+	BeginWebAuthnRegistration(ctx context.Context, token, password, kind string) (WebAuthnCeremony, error)
+	// FinishWebAuthnRegistration vérifie l'attestation et enregistre la clé sous son nom, si la session vaut encore.
+	FinishWebAuthnRegistration(ctx context.Context, token string, state []byte, name string, body io.Reader) error
+	// BeginWebAuthnLogin ouvre l'étape second facteur, limitée aux clés second_factor ; l'appelant ne l'offre qu'après
+	// un mot de passe correct.
+	BeginWebAuthnLogin(ctx context.Context) (WebAuthnCeremony, error)
+	// FinishWebAuthnLogin vérifie l'assertion d'une clé second_factor sous le limiteur et ouvre la session.
+	FinishWebAuthnLogin(ctx context.Context, state []byte, body io.Reader, client ClientInfo) (SessionGrant, error)
+	// BeginPasskeyLogin ouvre une connexion découvrable par clé d'accès, vérification de l'utilisateur exigée.
+	BeginPasskeyLogin(ctx context.Context) (WebAuthnCeremony, error)
+	// FinishPasskeyLogin vérifie l'assertion d'une clé passkey sous le limiteur et ouvre la session sans mot de passe.
+	FinishPasskeyLogin(ctx context.Context, state []byte, body io.Reader, client ClientInfo) (SessionGrant, error)
+	// ListCredentials liste les clés, sans clé publique ni enregistrement.
+	ListCredentials(ctx context.Context) ([]CredentialView, error)
+	// RenameCredential renomme une clé ; l'appelant garantit la session.
+	RenameCredential(ctx context.Context, id, name string) error
+	// DeleteCredential supprime une clé, session ouverte et mot de passe ressaisi.
+	DeleteCredential(ctx context.Context, token, id, password string) error
 }
 
 // AuthStatus est l'état d'authentification public ; il ne porte jamais l'identifiant.
@@ -201,14 +226,23 @@ func (svc *service) AuthStatus(ctx context.Context) (AuthStatus, error) {
 	return AuthStatus{AccountExists: found, WebAuthnAvailable: webAuthnAvailable}, nil
 }
 
-func normalizeUsername(username string) (string, error) {
-	trimmed := strings.TrimSpace(username)
+// normalizeLabel rogne un identifiant ou un nom de clé : 1 à 64 caractères, UTF-8 valide, sans caractère de contrôle.
+func normalizeLabel(label string) (string, bool) {
+	trimmed := strings.TrimSpace(label)
 	runeCount := utf8.RuneCountInString(trimmed)
-	validLength := runeCount >= 1 && runeCount <= maxUsernameRunes
+	validLength := runeCount >= 1 && runeCount <= maxLabelRunes
 	if !validLength || !utf8.ValidString(trimmed) || strings.ContainsFunc(trimmed, unicode.IsControl) {
+		return "", false
+	}
+	return trimmed, true
+}
+
+func normalizeUsername(username string) (string, error) {
+	normalized, ok := normalizeLabel(username)
+	if !ok {
 		return "", ErrInvalidUsername
 	}
-	return trimmed, nil
+	return normalized, nil
 }
 
 func (svc *service) SetupAccount(ctx context.Context, username, password string, client ClientInfo) (SessionGrant, error) {

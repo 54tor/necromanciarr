@@ -159,7 +159,7 @@ func TestSetupAccount_refusesAnInvalidUsername(t *testing.T) {
 	invalidUsernames := map[string]string{
 		"empty":             "",
 		"only spaces":       "   ",
-		"sixty-five runes":  strings.Repeat("é", maxUsernameRunes+1),
+		"sixty-five runes":  strings.Repeat("é", maxLabelRunes+1),
 		"control character": "ali\x07ce",
 		"invalid utf-8":     "ali\xffce",
 	}
@@ -173,7 +173,7 @@ func TestSetupAccount_refusesAnInvalidUsername(t *testing.T) {
 		})
 	}
 	fixture := newAccountFixture(t)
-	if _, err := fixture.service.SetupAccount(context.Background(), strings.Repeat("é", maxUsernameRunes), testPassword, testClient); err != nil {
+	if _, err := fixture.service.SetupAccount(context.Background(), strings.Repeat("é", maxLabelRunes), testPassword, testClient); err != nil {
 		t.Fatalf("valeurAttendue 64 caractères acceptés, valeurObtenue %v", err)
 	}
 }

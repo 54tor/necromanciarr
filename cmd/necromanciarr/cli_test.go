@@ -822,3 +822,37 @@ func (*fakeService) ResetAccount(context.Context) error { return errAccountNotFa
 func (*fakeService) AccountSummary(context.Context) (app.AccountSummary, error) {
 	return app.AccountSummary{}, nil
 }
+
+func (*fakeService) BeginWebAuthnRegistration(context.Context, string, string, string) (app.WebAuthnCeremony, error) {
+	return app.WebAuthnCeremony{}, errAccountNotFaked
+}
+
+func (*fakeService) FinishWebAuthnRegistration(context.Context, string, []byte, string, io.Reader) error {
+	return errAccountNotFaked
+}
+
+func (*fakeService) BeginWebAuthnLogin(context.Context) (app.WebAuthnCeremony, error) {
+	return app.WebAuthnCeremony{}, errAccountNotFaked
+}
+
+func (*fakeService) FinishWebAuthnLogin(context.Context, []byte, io.Reader, app.ClientInfo) (app.SessionGrant, error) {
+	return app.SessionGrant{}, errAccountNotFaked
+}
+
+func (*fakeService) BeginPasskeyLogin(context.Context) (app.WebAuthnCeremony, error) {
+	return app.WebAuthnCeremony{}, errAccountNotFaked
+}
+
+func (*fakeService) FinishPasskeyLogin(context.Context, []byte, io.Reader, app.ClientInfo) (app.SessionGrant, error) {
+	return app.SessionGrant{}, errAccountNotFaked
+}
+
+func (*fakeService) ListCredentials(context.Context) ([]app.CredentialView, error) { return nil, nil }
+
+func (*fakeService) RenameCredential(context.Context, string, string) error {
+	return errAccountNotFaked
+}
+
+func (*fakeService) DeleteCredential(context.Context, string, string, string) error {
+	return errAccountNotFaked
+}
