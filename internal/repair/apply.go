@@ -107,7 +107,7 @@ func resolveRoots(files dedupe.Files, roots []string) ([]string, error) {
 
 func applyOne(ctx context.Context, files dedupe.Files, repair Repair, options ApplyOptions, roots []string) Outcome {
 	outcome := Outcome{Repair: repair, DryRun: options.DryRun}
-	root, err := rootOfLink(files, roots, repair.LinkPath)
+	root, realLinkPath, err := rootOfLink(files, roots, repair.LinkPath)
 	if err == nil {
 		err = checkLinkUnchanged(files, repair)
 	}
@@ -121,7 +121,7 @@ func applyOne(ctx context.Context, files dedupe.Files, repair Repair, options Ap
 		outcome.Err = err
 		return outcome
 	}
-	if err := replaceLink(ctx, files, repair, options, root, outcome.LinkTarget); err != nil {
+	if err := replaceLink(ctx, files, repair, options, root, realLinkPath, outcome.LinkTarget); err != nil {
 		outcome.Err = err
 		return outcome
 	}
@@ -136,19 +136,20 @@ func applyOne(ctx context.Context, files dedupe.Files, repair Repair, options Ap
 	return outcome
 }
 
-// rootOfLink résout le dossier du lien (pas le lien lui-même) avant de le comparer aux racines.
-func rootOfLink(files dedupe.Files, roots []string, linkPath string) (string, error) {
+// rootOfLink résout le dossier du lien (pas le lien lui-même) avant de le comparer aux racines ; rend aussi le
+// chemin canonique du lien, seul comparable à une racine canonique (noms courts 8.3 de Windows, liens).
+func rootOfLink(files dedupe.Files, roots []string, linkPath string) (string, string, error) {
 	realDirectory, err := files.Canonical(dedupe.Dir(linkPath))
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", ErrChangedSinceScan, err)
+		return "", "", fmt.Errorf("%w: %w", ErrChangedSinceScan, err)
 	}
 	realPath := dedupe.Join(realDirectory, dedupe.Base(linkPath))
 	for _, root := range roots {
 		if _, err := dedupe.Below(root, realPath); err == nil {
-			return root, nil
+			return root, realPath, nil
 		}
 	}
-	return "", fmt.Errorf("%w: %s", ErrOutsideRoots, linkPath)
+	return "", "", fmt.Errorf("%w: %s", ErrOutsideRoots, linkPath)
 }
 
 func checkLinkUnchanged(files dedupe.Files, repair Repair) error {
@@ -177,7 +178,7 @@ func checkNewTarget(files dedupe.Files, repair Repair) error {
 
 // replaceLink n'écrit que dans la racine d'écriture de root, ouverte par le registre : lien temporaire voisin,
 // contrôles, puis WriteRoot.Replace ; sans remplacement atomique annoncé, rien n'est créé.
-func replaceLink(ctx context.Context, files dedupe.Files, repair Repair, options ApplyOptions, root, text string) error {
+func replaceLink(ctx context.Context, files dedupe.Files, repair Repair, options ApplyOptions, root, realLinkPath, text string) error {
 	writeRoot, err := files.WriteRoot(root)
 	if err != nil {
 		return err
@@ -186,12 +187,13 @@ func replaceLink(ctx context.Context, files dedupe.Files, repair Repair, options
 	if err := requireAtomicReplace(ctx, files, root); err != nil {
 		return err
 	}
-	temporaryPath := repair.LinkPath + dedupe.TemporaryMarker + rand.Text()
-	temporaryRelative, err := dedupe.Below(root, temporaryPath)
+	temporarySuffix := dedupe.TemporaryMarker + rand.Text()
+	temporaryPath := repair.LinkPath + temporarySuffix
+	temporaryRelative, err := dedupe.Below(root, realLinkPath+temporarySuffix)
 	if err != nil {
 		return err
 	}
-	linkRelative, err := dedupe.Below(root, repair.LinkPath)
+	linkRelative, err := dedupe.Below(root, realLinkPath)
 	if err != nil {
 		return err
 	}

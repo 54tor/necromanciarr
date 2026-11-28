@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// Diagnostic : compare un lien posé par os.Root.Symlink et par os.Symlink vers la même cible absolue.
+// Un lien posé par os.Root.Symlink avec symlinkTarget doit s'ouvrir comme un lien posé par os.Symlink.
 func TestWindowsSymlink_rootAndOsProduceReadableLinks(t *testing.T) {
 	directory := t.TempDir()
 	targetPath := filepath.Join(directory, "target.mkv")
@@ -20,7 +20,7 @@ func TestWindowsSymlink_rootAndOsProduceReadableLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = root.Close() }()
-	if err := root.Symlink(targetPath, "via-root"); err != nil {
+	if err := root.Symlink(symlinkTarget(targetPath), "via-root"); err != nil {
 		t.Fatalf("Root.Symlink: %v", err)
 	}
 	if err := os.Symlink(targetPath, filepath.Join(directory, "via-os")); err != nil {
