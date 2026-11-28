@@ -77,7 +77,7 @@ interpolée : `${VAR}` y est refusé.
 | `publicUrl` | vide | Adresse `http(s)://host[:port]` que les utilisateurs atteignent. Fixe l'origine WebAuthn (https, ou `localhost`), les cookies `Secure` et l'`Origin` admis ; à régler derrière un proxy HTTPS |
 | `readBytesPerSecond` | 20 Mo/s | Plafond de lecture disque ; doit être positif |
 | `libraryApi` | vide | URL `http(s)` du fournisseur de bibliothèque, sans fragment |
-| `libraryRoots` | vide | Racines de la bibliothèque Plex |
+| `libraryRoots` | vide | Racines de la bibliothèque |
 | `pathMappings` | vide | Traductions de préfixes `from` → `to` entre hôte, conteneur et client torrent |
 | `dedupe.torrentRoots` | vide | Dossiers des torrents à relier. Ne doivent ni contenir ni être contenus dans une racine de bibliothèque |
 | `dedupe.kinds` | `["symlink"]` | Types de lien : `symlink`, `hardlink`, `reflink` |

@@ -1,6 +1,6 @@
 # Necromanciarr reference
 
-For media files already present in a library (Plex, Radarr, Sonarr), Necromanciarr finds the torrents they came from. It verifies the content piece by piece, rebuilds the torrent's folder tree with links to the library, then adds the torrent to qBittorrent without re-downloading. It never modifies a library file: it only creates links next to it.
+For media files already present in a library (Radarr, Sonarr), Necromanciarr finds the torrents they came from. It verifies the content piece by piece, rebuilds the torrent's folder tree with links to the library, then adds the torrent to qBittorrent without re-downloading. It never modifies a library file: it only creates links next to it.
 
 This reference describes the behaviour of the shipped code. It is kept up to date with it; the site (`docs/site`) is its public presentation.
 

@@ -1,6 +1,6 @@
 # Référence Necromanciarr
 
-Necromanciarr retrouve, pour des fichiers média déjà présents dans une bibliothèque (Plex, Radarr, Sonarr), les torrents dont ils sont issus. Il vérifie le contenu pièce par pièce, reconstitue l'arborescence du torrent par des liens vers la bibliothèque, puis ajoute le torrent à qBittorrent sans retéléchargement. Il ne modifie jamais un fichier de la bibliothèque : il ne fait que créer des liens à côté.
+Necromanciarr retrouve, pour des fichiers média déjà présents dans une bibliothèque (Radarr, Sonarr), les torrents dont ils sont issus. Il vérifie le contenu pièce par pièce, reconstitue l'arborescence du torrent par des liens vers la bibliothèque, puis ajoute le torrent à qBittorrent sans retéléchargement. Il ne modifie jamais un fichier de la bibliothèque : il ne fait que créer des liens à côté.
 
 Cette référence décrit le comportement du code livré. Elle est tenue à jour avec lui ; le site (`docs/site`) en est la présentation publique.
 

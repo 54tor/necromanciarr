@@ -4,7 +4,7 @@ const base = '/necromanciarr/'
 
 export default defineConfig({
   title: 'Necromanciarr',
-  description: 'Retrouver et reconstituer des .torrent vérifiés depuis une bibliothèque Plex.',
+  description: 'Retrouver et reconstituer des .torrent vérifiés depuis une bibliothèque média.',
   lang: 'fr',
   base,
   appearance: 'dark',
